@@ -6,7 +6,7 @@ versions are plain `major.minor.patch`.
 
 ## Unreleased
 
-## 0.3.0 — 2026-10-02
+## 0.3.0 — 2026-10-14
 
 ### Added
 
