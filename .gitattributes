@@ -7,3 +7,6 @@
 *.vsix binary
 *.png binary
 test/fixtures/formats/** binary
+*.ttf binary
+# Vendored as published (CRLF licenses): the sync test compares bytes.
+src/webview/codicons/** -text

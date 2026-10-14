@@ -51,6 +51,9 @@
     return node;
   }
 
+  /** A Codicons glyph (codicons/codicon.css), hidden from screen readers. @param {string} name */
+  const icon = (name) => h("span", { class: `codicon codicon-${name}`, "aria-hidden": "true" });
+
   /** @param {Rule[]} rules @returns {Row[]} */
   function toRows(rules) {
     return rules.map((r) => ({ ...r, id: state.nextId++ }));
@@ -214,13 +217,15 @@
     };
 
     const button = (
-      /** @type {string} */ text,
+      /** @type {string} */ name,
       /** @type {string} */ label,
       /** @type {() => void} */ action,
       disabled = false,
     ) => {
       const b = /** @type {HTMLButtonElement} */ (
-        h("button", { type: "button", class: "icon", "aria-label": label, title: label }, [text])
+        h("button", { type: "button", class: "icon", "aria-label": label, title: label }, [
+          icon(name),
+        ])
       );
       b.disabled = disabled;
       b.addEventListener("click", action);
@@ -237,9 +242,14 @@
       ]),
       h("td", {}, [sample]),
       h("td", { class: "rule-actions" }, [
-        button("↑", "Move up (Alt+↑)", () => move(index, -1), index === 0),
-        button("↓", "Move down (Alt+↓)", () => move(index, 1), index === state.rows.length - 1),
-        button("✕", "Remove rule", () => remove(index)),
+        button("arrow-up", "Move up (Alt+↑)", () => move(index, -1), index === 0),
+        button(
+          "arrow-down",
+          "Move down (Alt+↓)",
+          () => move(index, 1),
+          index === state.rows.length - 1,
+        ),
+        button("close", "Remove rule", () => remove(index)),
       ]),
     );
     tr.addEventListener("keydown", (e) => {

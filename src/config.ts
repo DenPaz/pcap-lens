@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import {
   ColoringRule,
+  ColoringStyle,
   ColumnLayout,
   ColumnSetting,
   FilterButton,
@@ -11,6 +12,7 @@ import {
   applyLuaChoice,
   configTargetFor,
   normalizeColoringRules,
+  normalizeColoringStyle,
   normalizeColumnLayout,
   normalizeColumns,
   normalizeFilterButtons,
@@ -53,6 +55,12 @@ export interface Settings {
   /** Saved packet-list indexes (reopening skips the index pass); 0 bytes = off. */
   indexCacheBytes: number;
   nameResolution: NameResolution;
+}
+
+export function readColoringStyle(scope?: vscode.Uri): ColoringStyle {
+  return normalizeColoringStyle(
+    vscode.workspace.getConfiguration(SECTION, scope).get<unknown>("coloringStyle"),
+  );
 }
 
 export function readQuickDetail(scope?: vscode.Uri): QuickDetail {

@@ -44,6 +44,9 @@
     return node;
   }
 
+  /** A Codicons glyph (codicons/codicon.css), hidden from screen readers. @param {string} name */
+  const icon = (name) => h("span", { class: `codicon codicon-${name}`, "aria-hidden": "true" });
+
   /** @param {string} tag @param {Record<string, string | number>} [attrs] */
   function s(tag, attrs = {}) {
     const node = document.createElementNS(SVG, tag);
@@ -75,8 +78,21 @@
     },
     ["Ask Copilot…"],
   );
-  const prev = h("button", { type: "button", class: "secondary", title: "Previous stream" }, ["◀"]);
-  const next = h("button", { type: "button", class: "secondary", title: "Next stream" }, ["▶"]);
+  const prev = h(
+    "button",
+    {
+      type: "button",
+      class: "secondary",
+      title: "Previous stream",
+      "aria-label": "Previous stream",
+    },
+    [icon("chevron-left")],
+  );
+  const next = h(
+    "button",
+    { type: "button", class: "secondary", title: "Next stream", "aria-label": "Next stream" },
+    [icon("chevron-right")],
+  );
   const toolbar = h("div", { class: "toolbar", role: "toolbar" }, [
     h("label", {}, ["Graph ", kindSelect]),
     dirButton,

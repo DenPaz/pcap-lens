@@ -62,6 +62,9 @@
     return node;
   }
 
+  /** A Codicons glyph (codicons/codicon.css), hidden from screen readers. @param {string} name */
+  const icon = (name) => h("span", { class: `codicon codicon-${name}`, "aria-hidden": "true" });
+
   // ------------------------------------------------------------------ skeleton
 
   const title = h("h1", { class: "panel-title" }, ["Export Objects"]);
@@ -244,7 +247,7 @@
           scope: "col",
           "aria-sort": on ? (state.sort?.desc ? "descending" : "ascending") : "none",
         },
-        [col.label + (on ? (state.sort?.desc ? " ▼" : " ▲") : "")],
+        [col.label, ...(on ? [icon(state.sort?.desc ? "triangle-down" : "triangle-up")] : [])],
       );
       th.addEventListener("click", () => {
         state.sort =

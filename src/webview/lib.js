@@ -1028,6 +1028,76 @@
   }
 
   /**
+   * The color theme kind, from the class VS Code puts on the webview's <body>
+   * (vscode-light, vscode-dark, vscode-high-contrast, vscode-high-contrast-light).
+   * @param {{contains(name: string): boolean}} classList
+   * @returns {"light" | "dark" | "hc-dark" | "hc-light"}
+   */
+  function themeKind(classList) {
+    if (classList.contains("vscode-high-contrast-light")) {
+      return "hc-light";
+    }
+    if (classList.contains("vscode-high-contrast")) {
+      return "hc-dark";
+    }
+    return classList.contains("vscode-dark") ? "dark" : "light";
+  }
+
+  /** Relative luminance (WCAG) of a #rrggbb color, 0 (black) to 1 (white). */
+  function luminance(/** @type {string} */ hex) {
+    const channel = (/** @type {number} */ i) => {
+      const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    };
+    return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+  }
+
+  /** A #rrggbb color with each channel multiplied by `factor` (< 1 darkens). */
+  function scaleColor(/** @type {string} */ hex, /** @type {number} */ factor) {
+    let out = "#";
+    for (let i = 1; i < 7; i += 2) {
+      const c = Math.round(parseInt(hex.slice(i, i + 2), 16) * factor);
+      out += Math.min(255, c).toString(16).padStart(2, "0");
+    }
+    return out;
+  }
+
+  /**
+   * How a coloring rule is drawn (pcapViewer.coloringStyle) in a theme kind:
+   * "full" (the rule's colors), "subtle" (a tint of its background, the theme's
+   * text color) or "stripe" (only a stripe). "auto": full in light themes; in
+   * dark themes, rules made for light themes (a light background behind darker
+   * text, like Wireshark's defaults) become subtle, and rules made for dark
+   * backgrounds stay full; a stripe in high contrast. `stripe` is the rule's
+   * own color, made visible on the theme's background: its background, except
+   * in dark themes when that is dark too (rules made for dark backgrounds carry
+   * their color in the text), and deepened in light themes when it is pale.
+   * @param {{foreground: string, background: string}} rule
+   * @param {"light" | "dark" | "hc-dark" | "hc-light"} kind
+   * @param {string} style "auto", "full", "subtle" or "stripe"
+   * @returns {{mode: "full" | "subtle" | "stripe", stripe: string}}
+   */
+  function ruleStyle(rule, kind, style) {
+    const dark = kind === "dark" || kind === "hc-dark";
+    const bg = luminance(rule.background);
+    const fg = luminance(rule.foreground);
+    const stripe = dark
+      ? bg < 0.1
+        ? rule.foreground
+        : rule.background
+      : bg > 0.5
+        ? scaleColor(rule.background, 0.55)
+        : rule.background;
+    if (style === "full" || style === "subtle" || style === "stripe") {
+      return { mode: style, stripe };
+    }
+    if (kind === "hc-dark" || kind === "hc-light") {
+      return { mode: "stripe", stripe };
+    }
+    return { mode: kind === "dark" && bg > fg && bg > 0.25 ? "subtle" : "full", stripe };
+  }
+
+  /**
    * @typedef {object} IndexProgress
    * @property {string} [phase] "catching-up" (a resumed open re-reads the rows it
    *   already shows) or "indexing"
@@ -1410,6 +1480,9 @@
     formatBytes,
     formatDuration,
     rowColors,
+    themeKind,
+    luminance,
+    ruleStyle,
     protocolFilterName,
     cellFilter,
     cellAddress,

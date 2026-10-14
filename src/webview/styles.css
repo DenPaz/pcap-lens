@@ -99,7 +99,10 @@ input:focus-visible {
 }
 
 button.icon {
-  padding: 3px 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 5px;
   color: var(--vscode-icon-foreground, var(--vscode-foreground));
   background: transparent;
   border-color: var(--vscode-input-border, transparent);
@@ -436,7 +439,8 @@ button.icon:hover {
 
 #list-header .sort-indicator {
   opacity: 0.8;
-  margin-left: 4px;
+  margin-left: 2px;
+  vertical-align: middle;
 }
 
 #list-header .resize-handle {
@@ -485,9 +489,48 @@ button.icon:hover {
   background: var(--vscode-list-hoverBackground);
 }
 
-/* Coloring rules set the row colors inline; hover darkens them instead. */
-#list-rows .list-row.colored:hover {
+/*
+ * Coloring rules (pcapViewer.coloringStyle): main.js sets the rule's colors as
+ * --rule-bg / --rule-fg and the color for its stripe as --rule-stripe
+ * (lib.ruleStyle), and the class says how to draw them for the theme.
+ */
+#list-rows .list-row.colored {
+  position: relative;
+}
+
+#list-rows .list-row.rule-full {
+  color: var(--rule-fg);
+  background: var(--rule-bg);
+}
+
+/* Hover darkens full colors instead of replacing them. */
+#list-rows .list-row.rule-full:hover {
   filter: brightness(0.92);
+}
+
+/* A tint of the rule's background; the text keeps the theme's color. */
+#list-rows .list-row.rule-subtle {
+  background: color-mix(in srgb, var(--rule-bg) 22%, var(--vscode-editor-background));
+}
+
+#list-rows .list-row.rule-subtle:hover {
+  background: color-mix(in srgb, var(--rule-bg) 34%, var(--vscode-editor-background));
+}
+
+/* The stripe of the subtle and stripe styles, beside a comment's stripe. */
+#list-rows .list-row.rule-subtle::after,
+#list-rows .list-row.rule-stripe::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  background: var(--rule-stripe);
+}
+
+#list-rows .list-row.has-comment::after {
+  left: 3px;
 }
 
 #list-rows .list-row.selected {
@@ -851,6 +894,16 @@ button.icon:hover {
   outline: none;
 }
 
+/* A check mark (or the same blank space) before checkable items. */
+.context-menu .item.checkable {
+  padding-left: 6px;
+}
+
+.context-menu .item.checkable > .codicon {
+  margin-right: 6px;
+  vertical-align: text-bottom;
+}
+
 .context-menu .item.disabled {
   opacity: 0.5;
   pointer-events: none;
@@ -913,13 +966,12 @@ button.icon:hover {
 }
 
 .command-menu .chevron {
-  width: 1em;
-  text-align: center;
+  width: 16px;
 }
 
 /* Commands under an open heading are indented past its chevron. */
 .command-menu .heading.item ~ .item {
-  padding-left: calc(12px + 1em + 6px);
+  padding-left: calc(12px + 16px + 6px);
 }
 
 .command-menu .item.active {
@@ -1044,4 +1096,65 @@ button.icon:hover {
 
 #list-header > div[draggable="true"] {
   cursor: grab;
+}
+
+/* ------------------------------------------------------------------ high contrast */
+
+/*
+ * High-contrast themes (body.vscode-high-contrast, -light) leave most fills
+ * undefined (hover, selection, secondary buttons) and use borders instead:
+ * --vscode-contrastActiveBorder for what is selected or active (dashed while
+ * hovered), --vscode-contrastBorder around widgets. Without these rules the
+ * selected packet and tree node were invisible.
+ */
+body.vscode-high-contrast,
+body.vscode-high-contrast-light {
+  --hc-active: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
+  --hc-border: var(--vscode-contrastBorder, var(--border));
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #list-rows .list-row.odd {
+  background: transparent;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light)
+  :is(#list-rows .list-row, .node-row, #list-header > div, .suggest-item):hover,
+:is(.vscode-high-contrast, .vscode-high-contrast-light) button:not(:focus-visible):hover {
+  outline: 1px dashed var(--hc-active);
+  outline-offset: -1px;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light)
+  :is(
+    #list-rows .list-row.selected,
+    .node-row.selected,
+    .suggest-item.active,
+    #filter-ai[aria-pressed="true"],
+    #filter-buttons button.filter-button[aria-pressed="true"]
+  ) {
+  outline: 1px solid var(--hc-active);
+  outline-offset: -1px;
+}
+
+/* The focused list or tree draws its selection thicker; so does the focused row of a multi-selection. */
+:is(.vscode-high-contrast, .vscode-high-contrast-light)
+  :is(
+    #list-viewport:focus .list-row.selected,
+    #detail-tree:focus .node-row.selected,
+    #list-rows .list-row.focused
+  ) {
+  outline: 2px solid var(--hc-active);
+  outline-offset: -2px;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light)
+  :is(.context-menu .item:hover, .context-menu .item:focus, .command-menu .item.active) {
+  color: inherit;
+  background: transparent;
+  outline: 1px solid var(--vscode-menu-selectionBorder, var(--hc-active));
+  outline-offset: -1px;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) :is(.context-menu, .suggest, .overlay-box) {
+  border-color: var(--hc-border);
 }

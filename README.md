@@ -70,6 +70,8 @@ them (`tshark --version`).
   copy or export the selection.
 - **Coloring rules** like Wireshark's (default set included, first match wins),
   with an editor (_PCAP: Edit Coloring Rules_) and _Colorize with Filter…_.
+  Colors follow the theme: a tint and a stripe in dark themes, a stripe in high
+  contrast (`pcapViewer.coloringStyle` to choose).
 - **Packet comments** in pcapng files: shown on the row and above the details;
   edit with `Ctrl+Alt+C`, undo with `Ctrl+Z`, save into the file with `Ctrl+S`.
 - **Name resolution** for MAC addresses, IP addresses (from the capture's DNS
@@ -196,6 +198,7 @@ folder; those marked ‡ can only be set in user settings.
 | `timeFormat`                                                                | `relative`, `delta_displayed`, `delta_captured`, `absolute`, `utc`, `epoch` |
 | `savedFilters`, `filterButtons`                                             | Named filters and filter buttons (user or workspace)                        |
 | `coloringRules`, `colorize`                                                 | Coloring rules (first match wins) and coloring on/off                       |
+| `coloringStyle`                                                             | `auto` (for the theme), `full`, `subtle` (tint and stripe) or `stripe`      |
 | `nameResolution.mac` / `.network` / `.capturedDns` / `.transport`           | Which names to show                                                         |
 | `nameResolution.external`‡                                                  | Also ask your DNS server (off)                                              |
 | `capture.stopAfterPackets` / `Seconds` / `Megabytes`, `capture.promiscuous` | Live capture limits and mode                                                |
@@ -352,3 +355,7 @@ two captures.
 MIT licensed. **tshark is part of Wireshark, licensed under the GNU GPL v2.**
 The extension doesn't bundle, link to or modify Wireshark: it runs the tshark
 you installed as a separate process and reads its output.
+
+The icons are Microsoft's [Codicons](https://github.com/microsoft/vscode-codicons)
+(font: CC BY 4.0, code: MIT), included in `src/webview/codicons/` with their
+licenses.

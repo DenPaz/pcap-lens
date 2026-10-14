@@ -605,3 +605,37 @@ button.link {
 button.link:hover {
   text-decoration: underline;
 }
+
+/* Sort indicators in table headers (stats.js, objects.js). */
+th > .codicon {
+  margin-left: 2px;
+  vertical-align: middle;
+  opacity: 0.8;
+}
+
+/* High contrast (see styles.css): borders where other themes fill. */
+:is(.vscode-high-contrast, .vscode-high-contrast-light)
+  :is(table.stats th, table.stats tbody tr):hover {
+  outline: 1px dashed var(--hc-active);
+  outline-offset: -1px;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) table.stats tbody tr.selected {
+  outline: 1px solid var(--hc-active);
+  outline-offset: -1px;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) table.stats tbody tr.linked:not(.selected) {
+  outline: 1px dotted var(--hc-border);
+  outline-offset: -1px;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) .flow-row:hover .flow-bg {
+  stroke: var(--hc-active);
+  stroke-dasharray: 3 2;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) .flow-row.selected .flow-bg {
+  stroke: var(--hc-active);
+  stroke-dasharray: none;
+}
