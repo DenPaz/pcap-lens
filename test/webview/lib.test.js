@@ -419,6 +419,46 @@ suite("webview lib: coloring", () => {
     assert.equal(lib.rowColors({ color: 0, cid: 3 }, null), null);
     assert.equal(lib.rowColors(undefined, coloring), null);
   });
+
+  test("themeKind reads the theme class VS Code puts on <body>", () => {
+    const classes = (...names) => ({ contains: (n) => names.includes(n) });
+    assert.equal(lib.themeKind(classes("vscode-light")), "light");
+    assert.equal(lib.themeKind(classes("vscode-dark")), "dark");
+    assert.equal(lib.themeKind(classes("vscode-high-contrast")), "hc-dark");
+    assert.equal(lib.themeKind(classes("vscode-high-contrast-light")), "hc-light");
+    assert.equal(lib.themeKind(classes()), "light"); // (outside VS Code)
+  });
+
+  test("luminance", () => {
+    assert.equal(lib.luminance("#000000"), 0);
+    assert.equal(lib.luminance("#ffffff"), 1);
+    assert.ok(Math.abs(lib.luminance("#a0a0a0") - 0.35) < 0.01);
+  });
+
+  test("ruleStyle: auto follows the theme, the other styles apply everywhere", () => {
+    const pastel = { foreground: "#12272e", background: "#e4ffc7" }; // Wireshark's HTTP
+    const gray = { foreground: "#12272e", background: "#a0a0a0" }; // TCP SYN/FIN
+    const forDark = { foreground: "#f78787", background: "#12272e" }; // Bad TCP
+    const style = (rule, kind, s = "auto") => lib.ruleStyle(rule, kind, s);
+    // Light themes: as defined; the stripe is the rule's background, deepened when pale.
+    assert.deepEqual(style(pastel, "light"), { mode: "full", stripe: "#7d8c6d" });
+    assert.deepEqual(style(forDark, "light"), { mode: "full", stripe: "#12272e" });
+    // Dark themes: rules made for light themes become a tint; the stripe is the
+    // background, or the text color of rules made for dark backgrounds.
+    assert.deepEqual(style(pastel, "dark"), { mode: "subtle", stripe: "#e4ffc7" });
+    assert.deepEqual(style(gray, "dark"), { mode: "subtle", stripe: "#a0a0a0" });
+    assert.deepEqual(style(forDark, "dark"), { mode: "full", stripe: "#f78787" });
+    // High contrast: only a stripe.
+    assert.deepEqual(style(pastel, "hc-dark"), { mode: "stripe", stripe: "#e4ffc7" });
+    assert.deepEqual(style(pastel, "hc-light"), { mode: "stripe", stripe: "#7d8c6d" });
+    assert.deepEqual(style(gray, "hc-light"), { mode: "stripe", stripe: "#a0a0a0" });
+    // An explicit style wins.
+    assert.equal(style(pastel, "dark", "full").mode, "full");
+    assert.equal(style(forDark, "light", "subtle").mode, "subtle");
+    assert.equal(style(pastel, "light", "stripe").mode, "stripe");
+    assert.equal(style(pastel, "hc-dark", "full").mode, "full");
+    assert.equal(style(pastel, "dark", "nonsense").mode, "subtle"); // unknown = auto
+  });
 });
 
 suite("webview lib: navigation and customisation", () => {

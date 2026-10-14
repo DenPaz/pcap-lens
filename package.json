@@ -1132,6 +1132,23 @@
           "scope": "resource",
           "markdownDescription": "Color the packet list with `#pcapViewer.coloringRules#` (*PCAP: Toggle Packet Coloring*)."
         },
+        "pcapViewer.coloringStyle": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "full",
+            "subtle",
+            "stripe"
+          ],
+          "default": "auto",
+          "markdownEnumDescriptions": [
+            "Follow the color theme: full colors in light themes; in dark themes, rules with a light background become a tint of it; a stripe in high-contrast themes.",
+            "Each rule's background and foreground, as defined.",
+            "A tint of the rule's background, with the theme's text color and a stripe in the rule's color.",
+            "Only a stripe in the rule's color at the row's start; background and text stay the theme's."
+          ],
+          "markdownDescription": "How `#pcapViewer.coloringRules#` color the packet list. The rules themselves don't change; only how they are drawn."
+        },
         "pcapViewer.coloringRules": {
           "type": "array",
           "scope": "resource",
@@ -1605,13 +1622,15 @@
     "test:backend": "uv run pytest",
     "test:extension": "pnpm run compile && node ./out/test/extension/runTest.js",
     "package": "vsce package --no-dependencies",
-    "release:prepare": "node scripts/release.mjs prepare"
+    "release:prepare": "node scripts/release.mjs prepare",
+    "codicons": "node scripts/sync-codicons.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.19.43",
     "@types/vscode": "~1.90.0",
+    "@vscode/codicons": "0.0.46-24",
     "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^4.0.0",
     "eslint": "^10.12.0",

@@ -16,6 +16,7 @@ const {
   renderPanelHtml,
   startBackend,
   newPage,
+  codiconFontLoaded,
 } = require("./harness");
 
 const deps = loadDeps();
@@ -148,6 +149,11 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       sorted,
       [...sorted].sort((a, b) => Number(b) - Number(a)),
     );
+    assert.equal(
+      await page.$eval("th[aria-sort='descending'] .codicon", (i) => i.className),
+      "codicon codicon-triangle-down",
+    );
+    assert.ok(await codiconFontLoaded(page), "the codicon font loads in panels");
 
     await page.click("table.stats tbody tr >> nth=0");
     await page.click("button:has-text('Apply as Filter')");

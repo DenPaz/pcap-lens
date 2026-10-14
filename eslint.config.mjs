@@ -31,6 +31,7 @@ export default tseslint.config(
         cancelAnimationFrame: "readonly",
         getComputedStyle: "readonly",
         ResizeObserver: "readonly",
+        MutationObserver: "readonly",
         HTMLElement: "readonly",
         KeyboardEvent: "readonly",
         MouseEvent: "readonly",

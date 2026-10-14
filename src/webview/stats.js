@@ -86,6 +86,9 @@
     return node;
   }
 
+  /** A Codicons glyph (codicons/codicon.css), hidden from screen readers. @param {string} name */
+  const icon = (name) => h("span", { class: `codicon codicon-${name}`, "aria-hidden": "true" });
+
   // ------------------------------------------------------------------ skeleton
 
   const title = h("h1", { class: "panel-title" });
@@ -316,9 +319,10 @@
     const t = state.table;
     const headRow = h("tr");
     t.columns.forEach((/** @type {any} */ col, /** @type {number} */ i) => {
-      const indicator = state.sort && state.sort.col === i ? (state.sort.desc ? " ▼" : " ▲") : "";
+      const sorted = state.sort && state.sort.col === i;
       const th = h("th", { class: col.numeric ? "num" : "", scope: "col" }, [
-        col.label + indicator,
+        col.label,
+        ...(sorted ? [icon(state.sort.desc ? "triangle-down" : "triangle-up")] : []),
       ]);
       if (!TREES.includes(state.kind) && state.kind !== "properties") {
         th.setAttribute(

@@ -12,6 +12,7 @@
       content="default-src 'none'; img-src {{cspSource}} data:; style-src {{cspSource}}; font-src {{cspSource}}; script-src 'nonce-{{nonce}}';"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="{{codiconsUri}}" />
     <link rel="stylesheet" href="{{stylesUri}}" />
     <title>PCAP Viewer</title>
   </head>
@@ -23,10 +24,11 @@
           type="button"
           class="icon"
           title="Saved and recent filters"
+          aria-label="Saved and recent filters"
           aria-haspopup="listbox"
           aria-controls="suggest"
         >
-          ★
+          <span class="codicon codicon-star-full" aria-hidden="true"></span>
         </button>
         <button
           id="filter-ai"
@@ -34,8 +36,9 @@
           class="icon hidden"
           aria-pressed="false"
           title="Ask AI for a display filter: describe the packets you want (only your text, the current filter and protocol/field names are sent)"
+          aria-label="Ask AI for a display filter"
         >
-          ✨
+          <span class="codicon codicon-sparkle" aria-hidden="true"></span>
         </button>
         <div id="filter-field">
           <label for="filter-input" class="visually-hidden">Display filter</label>
@@ -64,7 +67,7 @@
           aria-expanded="false"
           aria-controls="commands-menu"
         >
-          ☰
+          <span class="codicon codicon-menu" aria-hidden="true"></span>
         </button>
         <button id="filter-cancel" type="button" class="hidden" title="Cancel filtering">
           Cancel
@@ -92,7 +95,9 @@
         </button>
         <button id="find-next" type="button" title="Find next (F3, Enter)">Next</button>
         <span id="find-status" role="status" aria-live="polite"></span>
-        <button id="find-close" type="button" class="icon" title="Close (Esc)">✕</button>
+        <button id="find-close" type="button" class="icon" title="Close (Esc)" aria-label="Close">
+          <span class="codicon codicon-close" aria-hidden="true"></span>
+        </button>
       </div>
       <div id="filter-error" class="hidden" role="alert"></div>
 

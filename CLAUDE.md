@@ -22,7 +22,7 @@ CONTRIBUTING.md for building, testing and releasing (not packaged).
 | Package                   | `pnpm run package` (vsce, `--no-dependencies`)                                                                                                           |
 | Prepare a release         | `pnpm run release:prepare 0.2.0` (then commit, tag `v0.2.0`, push the tag: `release.yml`)                                                                |
 | Icon / screenshots        | `node scripts/render-icon.js` / `node scripts/screenshots.js` (after `pnpm run compile`; `CHROMIUM_PATH` for another Chromium)                           |
-| Update dev deps           | `make update` (`ncu -u` within `.ncurc.cjs`, `pnpm install`, `uv lock --upgrade`, `uv sync`)                                                             |
+| Update dev deps           | `make update` (`ncu -u` within `.ncurc.cjs`, `pnpm install`, `pnpm run codicons`, `uv lock --upgrade`, `uv sync`)                                        |
 
 The `Makefile` wraps all of these (`make` lists the targets; `make check` = lint + tests).
 
@@ -96,7 +96,8 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH): lint, backend and
   `src/plugins.ts` the TShark plugins picker's rows (pure).
 - `src/webview/` plain JS/CSS/HTML (no build step). `lib.js` = pure helpers
   shared with Node tests; `main.js` = UI. Type-checked via JSDoc +
-  `tsconfig.webview.json`.
+  `tsconfig.webview.json`. `codicons/` = the vendored Codicons font
+  (`scripts/sync-codicons.mjs`).
 - `src/panels/` statistics, follow-stream, coloring-rules, export-objects,
   flow-graph, TCP-graph and VoIP webview panels (`panelHtml.ts` builds their
   CSP'd HTML); their UIs are `src/webview/stats.js`, `follow.js`,
@@ -612,6 +613,19 @@ folders`), so dissection matches the other passes. Rules are named by index
   keeps the theme's selection colors. Defaults in package.json
   are checked against tshark by `test_default_coloring_rules_compile`; note
   tshark 4.2 rejects space-separated sets (`{3 4}`), so they avoid sets.
+  **Drawing for the theme** (`pcapViewer.coloringStyle`: auto/full/subtle/
+  stripe, posted as `coloringStyle` on "ready" and on change): the rules are
+  Wireshark's light pastels, which glare in a dark theme. `lib.ruleStyle(rule,
+lib.themeKind(body.classList), style)` picks the mode and stripe color:
+  auto = stripe in high contrast; in dark themes subtle when the rule's
+  background is lighter than its text and has luminance > 0.25 (a dark "bad"
+  rule stays full); else full. The stripe is the rule's background (deepened
+  ×0.55 when pale in light themes; the foreground for a dark background in
+  dark themes). main.js sets `--rule-bg/--rule-fg/--rule-stripe` and a
+  `rule-<mode>` class; styles.css tints with `color-mix(… 22%,
+editor-background)` and draws the 4 px stripe as `::after` (3 px right of
+  a comment's stripe). VS Code swaps the body class on a theme change, so a
+  MutationObserver re-renders.
 - **Export**: captures via `tshark [-Y f] -F pcapng|pcap -w tmp` (`-P -T
 fields -e frame.number` gives progress when filtering; without a filter
   nothing is dissected). Default filter = the current view's; `""` = all.
@@ -1119,6 +1133,36 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   filter bar wraps (`flex-wrap`, `#filter-field` 14em minimum), so on a
   narrow editor the buttons go to a second line instead of squeezing the
   input (e2e test at 320/480/800 px).
+- **Icons** are Codicons, VS Code's icon font (`@vscode/codicons`, pinned dev
+  dependency). vsce packages with `--no-dependencies`, so
+  `scripts/sync-codicons.mjs` (`pnpm run codicons`, run by `make update`)
+  copies `codicon.css`, `codicon.ttf` and both licenses into
+  `src/webview/codicons/` (inside every webview's `localResourceRoots`; in
+  `.prettierignore`; `-text` in `.gitattributes`, as the LICENSE files are
+  CRLF), and `test/scripts/codicons.test.mjs` fails when the copy differs from
+  the installed package. The editor (`{{codiconsUri}}`) and `panelHtml` link
+  the stylesheet before `styles.css`; the CSP's `font-src cspSource` allows
+  the font (fonts load in CORS mode: the test harness sends
+  `Access-Control-Allow-Origin: *` like VS Code's resource server, and
+  `codiconFontLoaded` checks the editor and the panels). Icons are
+  `<span class="codicon codicon-NAME" aria-hidden="true">` built with
+  `icon(name)` (main.js and each panel script), so buttons carry an
+  `aria-label`. Checkable context-menu items (`showMenu`'s third element) are
+  `menuitemcheckbox` with a check icon. Text symbols remain only inside text
+  (● in `<option>`s and marked rows, ⚠ in a table cell, → in labels).
+- **High contrast** (`body.vscode-high-contrast`, `-high-contrast-light`): HC
+  themes define no hover/selection/secondary-button fills, so the selected
+  packet and tree node used to be invisible. The last section of styles.css
+  (and of panel.css) outlines instead: `--hc-active` (=
+  `--vscode-contrastActiveBorder`) solid for selected/pressed/active, dashed
+  on hover, 2 px when the list or tree has focus (and for the focused row of a
+  multi-selection), menu entries with `menu-selectionBorder`, popups bordered
+  with `--hc-border` (`contrastBorder`); the zebra stripes go. Hover rules
+  carry an id selector's specificity through `:is()`, so buttons have their
+  own `:not(:focus-visible):hover` rule (the focus outline wins). The flow
+  graph's rows are SVG: `stroke` instead of outline. `node
+scripts/screenshots.js --theme light|hc --out <dir>` renders Light Modern
+  and Dark High Contrast for checking.
 - **Protocol**: JSON-RPC 2.0 framing (`"jsonrpc": "2.0"`), LSP-style
   cancellation code -32800; app codes in `backend/pcap_backend/protocol.py`
   and mirrored in `src/backendClient.ts` (`ErrorCodes`; -32011 unsupported format,
@@ -1170,3 +1214,4 @@ commands menu, HTTP/DNS/packet length/service response time statistics,
 filter buttons, and Import from Hex Dump. Then foldable ☰ menu groups,
 per-capture Lua dissectors, and Open File in PCAP Viewer for files of any name.
 Then Show TShark Plugins and README instructions for Wireshark plugins.
+Then theme-aware packet colors, Codicons and high-contrast support.

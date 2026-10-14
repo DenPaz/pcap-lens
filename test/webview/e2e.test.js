@@ -19,6 +19,7 @@ const {
   serveWebview,
   renderEditorHtml,
   startBackend,
+  codiconFontLoaded,
 } = require("./harness");
 
 const deps = loadDeps();
@@ -274,6 +275,18 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     assert.equal(fourth[4], "HTTP");
     assert.equal(fourth[7], "0");
     assert.match(await page.textContent("#status-left"), /Packets: 11/);
+    // Toolbar icons are Codicons glyphs, named for screen readers by aria-label.
+    assert.deepEqual(
+      await page.$$eval("#filter-bar button.icon", (buttons) =>
+        buttons.map((b) => [b.id, b.querySelector(".codicon")?.className, b.ariaLabel]),
+      ),
+      [
+        ["filter-saved", "codicon codicon-star-full", "Saved and recent filters"],
+        ["filter-ai", "codicon codicon-sparkle", "Ask AI for a display filter"],
+        ["filter-menu", "codicon codicon-menu", "All PCAP commands"],
+      ],
+    );
+    assert.ok(await codiconFontLoaded(page), "the codicon font loads");
   });
 
   test("invalid filter is flagged and not applied", async () => {
@@ -551,12 +564,73 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       els.map((r) => ({
         frame: r.children[0].textContent,
         selected: r.classList.contains("selected"),
-        bg: r.style.backgroundColor,
+        rule: r.style.getPropertyValue("--rule-bg"),
+        bg: getComputedStyle(r).backgroundColor,
       })),
     );
+    // (No theme class on <body> here: a light theme, rules drawn in full.)
     assert.equal(rows[0].bg, "rgb(231, 230, 255)"); // TCP handshake: rule 2
     assert.equal(rows[6].bg, "rgb(228, 255, 199)"); // frame 7, HTTP response: rule 1
-    assert.deepEqual(rows[3], { frame: "4", selected: true, bg: "" }); // selection colors win
+    assert.deepEqual(
+      { frame: rows[3].frame, selected: rows[3].selected, rule: rows[3].rule },
+      { frame: "4", selected: true, rule: "" },
+    ); // selection colors win
+
+    // pcapViewer.coloringStyle "auto" draws rules for the theme: in a dark theme
+    // Wireshark's light rules become a tint (theme text, a stripe in the rule's
+    // color), in high contrast only the stripe; an explicit style wins.
+    const firstRow = () =>
+      page.$$eval("#list-rows .list-row", ([r]) => ({
+        mode: ["full", "subtle", "stripe"].find((m) => r.classList.contains(`rule-${m}`)),
+        bg: getComputedStyle(r).backgroundColor,
+        color: getComputedStyle(r).color,
+        stripe: getComputedStyle(r, "::after").backgroundColor,
+      }));
+    const drawnAs = (mode) =>
+      page.waitForFunction(
+        (m) => document.querySelector("#list-rows .list-row")?.classList.contains(`rule-${m}`),
+        mode,
+      );
+    await page.evaluate(() => {
+      const root = document.documentElement.style;
+      root.setProperty("--vscode-editor-background", "#1f1f1f");
+      root.setProperty("--vscode-foreground", "#cccccc");
+      document.body.classList.add("vscode-dark"); // as VS Code does on a theme change
+    });
+    await drawnAs("subtle");
+    let first = await firstRow();
+    assert.equal(first.stripe, "rgb(231, 230, 255)", "a stripe in the rule's color");
+    assert.notEqual(first.bg, "rgb(231, 230, 255)", "a tint, not the rule's background");
+    assert.equal(first.color, "rgb(204, 204, 204)", "the theme's text color");
+    await page.evaluate(() =>
+      document.body.classList.replace("vscode-dark", "vscode-high-contrast"),
+    );
+    await drawnAs("stripe");
+    first = await firstRow();
+    assert.equal(first.stripe, "rgb(231, 230, 255)");
+    assert.notEqual(first.bg, "rgb(231, 230, 255)", "no background in high contrast");
+    // High-contrast themes define no selection fill: the selection is a border.
+    await page.evaluate(() =>
+      document.documentElement.style.setProperty("--vscode-contrastActiveBorder", "#f38518"),
+    );
+    assert.deepEqual(
+      await page.$eval("#list-rows .list-row.selected", (r) => {
+        const style = getComputedStyle(r);
+        return [style.outlineStyle, style.outlineColor];
+      }),
+      ["solid", "rgb(243, 133, 24)"],
+    );
+    await post({ type: "coloringStyle", style: "full" });
+    await drawnAs("full");
+    assert.equal((await firstRow()).bg, "rgb(231, 230, 255)", "full wins over the theme");
+    await post({ type: "coloringStyle", style: "auto" });
+    await page.evaluate(() => {
+      document.body.classList.remove("vscode-high-contrast");
+      document.documentElement.style.removeProperty("--vscode-contrastActiveBorder");
+      document.documentElement.style.removeProperty("--vscode-editor-background");
+      document.documentElement.style.removeProperty("--vscode-foreground");
+    });
+    await drawnAs("full");
 
     await page.click("#detail-tree .node-row:has-text('Source Address')", { button: "right" });
     await page.click("#context-menu .item:has-text('Colorize with Filter')");
@@ -863,9 +937,9 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await rowEl(1).click(); // select another row so row 2 isn't drawn as selected
     const marked = await rowEl(2).evaluate((r) => ({
       marked: r.classList.contains("marked"),
-      inline: r.style.backgroundColor,
+      rule: r.style.getPropertyValue("--rule-bg"),
     }));
-    assert.deepEqual(marked, { marked: true, inline: "" }, "marked rows ignore coloring rules");
+    assert.deepEqual(marked, { marked: true, rule: "" }, "marked rows ignore coloring rules");
 
     await command("nextMark"); // Shift+Ctrl+N
     await waitSelected(2);
@@ -912,9 +986,18 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     assert.deepEqual(layout.hidden, ["time"]);
     await page.click("#list-header > div[data-id='number']", { button: "right" });
     // The unchecked "Time" entry shows it again.
-    await page.$$eval("#context-menu .item", (items) =>
-      items.find((i) => i.textContent.trim() === "Time" && !i.textContent.startsWith("✓")).click(),
+    assert.deepEqual(
+      await page.$$eval("#context-menu .item.checkable", (items) =>
+        items
+          .filter((i) => ["No.", "Time"].includes(i.textContent))
+          .map((i) => [i.textContent, i.getAttribute("role"), i.getAttribute("aria-checked")]),
+      ),
+      [
+        ["No.", "menuitemcheckbox", "true"],
+        ["Time", "menuitemcheckbox", "false"],
+      ],
     );
+    await page.click("#context-menu .item.checkable:text-is('Time')");
     assert.ok((await headerIds()).includes("time"));
 
     await page.dragAndDrop(
@@ -1516,7 +1599,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       { text: "HTTP", title: "http", pressed: "false" },
       { text: "Handshake", title: "SYN and SYN/ACK\ntcp.flags.syn == 1", pressed: "false" },
       {
-        text: "+",
+        text: "",
         title: "Add a filter button for the display filter in the filter bar…",
         pressed: null,
       },
@@ -1914,8 +1997,8 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       );
       await page.waitForFunction(
         () =>
-          document.querySelector("#list-rows .list-row:not(.loading)")?.style.backgroundColor ===
-          "rgb(200, 226, 255)",
+          getComputedStyle(document.querySelector("#list-rows .list-row:not(.loading)"))
+            .backgroundColor === "rgb(200, 226, 255)",
       );
       assert.match(await status(), /^Indexing…/, "colored while still indexing");
       assert.doesNotMatch(await status(), /Coloring/, "no separate coloring pass");

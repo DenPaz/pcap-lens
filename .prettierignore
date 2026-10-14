@@ -12,6 +12,9 @@ node_modules/
 pnpm-lock.yaml
 uv.lock
 
+# Vendored Codicons (scripts/sync-codicons.mjs copies them byte for byte)
+src/webview/codicons/
+
 # Capture fixtures (binary, or byte-exact test data)
 test/fixtures/formats/
 

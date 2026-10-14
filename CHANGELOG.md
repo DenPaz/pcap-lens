@@ -6,6 +6,25 @@ versions are plain `major.minor.patch`.
 
 ## Unreleased
 
+### Added
+
+- Packet colors follow the theme: in dark themes Wireshark's light coloring
+  rules become a tint with a stripe in the rule's color, in high contrast a
+  stripe only. `pcapViewer.coloringStyle` picks full colors, tint or stripe
+  instead. [#39]
+
+### Changed
+
+- The viewer and its panels use VS Code's own icons (Codicons) instead of
+  text symbols. [#39]
+
+### Fixed
+
+- High-contrast themes: the selected packet, tree node, menu entry and table
+  row were invisible; they are outlined now, as VS Code does. [#39]
+
+[#39]: https://github.com/DenPaz/vsc_pcap_viewer/pull/39
+
 ## 0.3.0 — 2026-10-14
 
 ### Added

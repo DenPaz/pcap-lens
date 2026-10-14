@@ -28,6 +28,7 @@ install: ## Install the Python and Node dev dependencies (uv sync, pnpm install)
 update: ## Upgrade all dev dependencies (ncu -u within .ncurc.cjs limits, uv lock --upgrade)
 	$(NCU) -u
 	$(PNPM) install
+	$(PNPM) run codicons
 	$(UV) lock --upgrade
 	$(UV) sync
 	@echo "Dependencies updated: review the diff and run 'make check'."

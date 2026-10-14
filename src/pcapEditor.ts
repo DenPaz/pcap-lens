@@ -14,7 +14,14 @@ import {
 import type { CaptureLimits } from "./captureModel";
 import { discardTemporaryCapture, isTemporaryCapture } from "./tempCaptures";
 import { copyName, isOnDisk } from "./remote";
-import { Settings, getSetting, readQuickDetail, readSettings, updateSetting } from "./config";
+import {
+  Settings,
+  getSetting,
+  readColoringStyle,
+  readQuickDetail,
+  readSettings,
+  updateSetting,
+} from "./config";
 import type {
   AnomalyRequest,
   ExplainOutcome,
@@ -41,6 +48,7 @@ import { rotatedSiblings } from "./rotation";
 import { MenuCommand, buildCommandMenu } from "./commandMenu";
 import {
   ColoringRule,
+  ColoringStyle,
   ColumnLayout,
   ColumnSetting,
   DEFAULT_NAME_RESOLUTION,
@@ -578,6 +586,7 @@ export class PcapEditorSession {
           markReady();
           // (Before the capture loads: Reload or Show Log help when it fails.)
           this.post({ type: "commands", commands: this.menuCommands });
+          this.setColoringStyle(readColoringStyle(this.uri));
           this.setFilterButtons(readSettings().filterButtons);
         }
         void this.onMessage(msg);
@@ -1695,6 +1704,10 @@ export class PcapEditorSession {
     this.post({ type: "savedFilters", savedFilters });
   }
 
+  setColoringStyle(style: ColoringStyle): void {
+    this.post({ type: "coloringStyle", style });
+  }
+
   setFilterButtons(buttons: FilterButton[]): void {
     this.post({ type: "filterButtons", buttons });
   }
@@ -1772,6 +1785,9 @@ export class PcapEditorSession {
       cspSource: webview.cspSource,
       nonce,
       stylesUri: webview.asWebviewUri(vscode.Uri.joinPath(root, "styles.css")).toString(),
+      codiconsUri: webview
+        .asWebviewUri(vscode.Uri.joinPath(root, "codicons", "codicon.css"))
+        .toString(),
       libUri: webview.asWebviewUri(vscode.Uri.joinPath(root, "lib.js")).toString(),
       mainUri: webview.asWebviewUri(vscode.Uri.joinPath(root, "main.js")).toString(),
     };

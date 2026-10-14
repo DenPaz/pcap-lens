@@ -45,6 +45,14 @@
   /** @param {string} id */
   const $ = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
 
+  /** A Codicons glyph (codicons/codicon.css), hidden from screen readers. @param {string} name */
+  const icon = (name) => {
+    const span = document.createElement("span");
+    span.className = `codicon codicon-${name}`;
+    span.setAttribute("aria-hidden", "true");
+    return span;
+  };
+
   /**
    * The progress bar between the filter bar and the packet list, for the
    * long-running work (lib.progressView: indexing, a streaming filter, an
@@ -175,6 +183,8 @@
     /** @type {number | null} */ elapsedMs: null,
     /** Palette for rows whose list_packets result had this coloringId. */
     /** @type {{id: number, rules: ColorRule[]} | null} */ coloring: null,
+    /** How rules are drawn (pcapViewer.coloringStyle): auto, full, subtle or stripe. */
+    coloringStyle: "auto",
     /** A separate coloring pass is running (fraction, or null when unknown); undefined when not. */
     /** @type {number | null | undefined} */ coloringProgress: undefined,
     /** Column order / hidden columns (pcapViewer.columnLayout). */
@@ -318,6 +328,10 @@
         break;
       case "quickDetail":
         state.quickDetail = msg.quickDetail;
+        break;
+      case "coloringStyle":
+        state.coloringStyle = msg.style;
+        scheduleRender();
         break;
       case "indexProgress":
         onIndexProgress(msg);
@@ -597,9 +611,8 @@
         cell.draggable = true;
         cell.append(c.title);
         if (state.sort && state.sort.field === c.field) {
-          const ind = document.createElement("span");
-          ind.className = "sort-indicator";
-          ind.textContent = state.sort.desc ? "▼" : "▲";
+          const ind = icon(state.sort.desc ? "triangle-down" : "triangle-up");
+          ind.classList.add("sort-indicator");
           cell.append(ind);
         }
         cell.addEventListener("click", (e) => {
@@ -984,6 +997,7 @@
     if (!state.ready) {
       return;
     }
+    const theme = lib.themeKind(document.body.classList);
     const win = lib.computeWindow({
       scrollTop: el.viewport.scrollTop,
       viewportHeight: el.viewport.clientHeight,
@@ -1025,9 +1039,16 @@
       rowEl.classList.toggle("has-comment", !!row?.comment);
       rowEl.classList.toggle("comment-edited", !!row?.commentEdited);
       const rule = !selected && !row?.marked ? lib.rowColors(row, state.coloring) : null;
+      // Drawn for the theme (pcapViewer.coloringStyle): the colors as custom
+      // properties, the way to use them as a class (styles.css).
+      const look = rule ? lib.ruleStyle(rule, theme, state.coloringStyle) : null;
       rowEl.classList.toggle("colored", !!rule);
-      rowEl.style.backgroundColor = rule ? rule.background : "";
-      rowEl.style.color = rule ? rule.foreground : "";
+      for (const mode of ["full", "subtle", "stripe"]) {
+        rowEl.classList.toggle(`rule-${mode}`, look?.mode === mode);
+      }
+      rowEl.style.setProperty("--rule-bg", rule ? rule.background : "");
+      rowEl.style.setProperty("--rule-fg", rule ? rule.foreground : "");
+      rowEl.style.setProperty("--rule-stripe", look ? look.stripe : "");
       for (let c = 0; c < cols.length; c++) {
         const cell = /** @type {HTMLElement} */ (rowEl.children[c]);
         // Times arrive formatted by the backend (pcapViewer.timeFormat, time reference).
@@ -1111,6 +1132,13 @@
   }
 
   el.viewport.addEventListener("scroll", scheduleRender, { passive: true });
+  // VS Code switches the theme class on <body> when the color theme changes;
+  // coloring rules are drawn for the theme kind.
+  new MutationObserver(() => scheduleRender()).observe(document.body, {
+    attributes: true,
+    attributeFilter: ["class"],
+  });
+
   new ResizeObserver(() => {
     updateSpacer();
     scheduleRender();
@@ -1836,6 +1864,7 @@
     row.style.paddingLeft = `${depth * 14}px`;
     const twisty = document.createElement("span");
     twisty.className = "twisty";
+    twisty.setAttribute("aria-hidden", "true");
     const label = document.createElement("span");
     label.className = "label";
     label.textContent = node.label;
@@ -1872,7 +1901,7 @@
     }
     entry.children.classList.toggle("hidden", !open);
     const twisty = /** @type {HTMLElement} */ (entry.row.firstChild);
-    twisty.textContent = open ? "▾" : "▸";
+    twisty.className = `twisty codicon codicon-chevron-${open ? "down" : "right"}`;
     entry.row.setAttribute("aria-expanded", String(open));
     if (remember) {
       const key = lib.nodeKey(entry.path);
@@ -2364,10 +2393,14 @@
     vscode.postMessage({ type: "copy", text });
   }
 
-  /** @param {number} x @param {number} y @param {[string, (() => void) | null][]} items */
+  /**
+   * Items are [label, action (null = disabled), checked]; "-" is a separator.
+   * A boolean `checked` makes a checkbox item with a check mark.
+   * @param {number} x @param {number} y @param {[string, (() => void) | null, boolean?][]} items
+   */
   function showMenu(x, y, items) {
     el.menu.replaceChildren(
-      ...items.map(([label, action]) => {
+      ...items.map(([label, action, checked]) => {
         const item = document.createElement("div");
         if (label === "-") {
           item.className = "sep";
@@ -2377,6 +2410,12 @@
         item.setAttribute("role", "menuitem");
         item.tabIndex = -1;
         item.textContent = label;
+        if (checked !== undefined) {
+          item.setAttribute("role", "menuitemcheckbox");
+          item.setAttribute("aria-checked", String(checked));
+          item.classList.add("checkable");
+          item.prepend(icon(checked ? "check" : "blank"));
+        }
         if (action) {
           item.addEventListener("click", () => {
             hideMenu();
@@ -2494,10 +2533,8 @@
         heading.setAttribute("role", "menuitem");
         heading.setAttribute("aria-expanded", String(row.open));
         heading.dataset.group = row.group;
-        const chevron = document.createElement("span");
-        chevron.className = "chevron";
-        chevron.setAttribute("aria-hidden", "true");
-        chevron.textContent = row.open ? "▾" : "▸";
+        const chevron = icon(row.open ? "chevron-down" : "chevron-right");
+        chevron.classList.add("chevron");
         const title = document.createElement("span");
         title.className = "title";
         title.textContent = row.group;
@@ -3695,7 +3732,7 @@
     }
     e.preventDefault();
     const visible = visibleColumns().length;
-    /** @type {[string, (() => void) | null][]} */
+    /** @type {[string, (() => void) | null, boolean?][]} */
     const items = [
       [`Hide “${col.title}”`, visible > 1 ? () => setHidden(col.id, true) : null],
       ["Resize to Contents", col.id !== "info" ? () => resizeToContents(col.id) : null],
@@ -3711,9 +3748,10 @@
       ["-", null],
       ...columns().map(
         (c) =>
-          /** @type {[string, (() => void) | null]} */ ([
-            `${isHidden(c.id) ? "   " : "✓ "}${c.title}`,
+          /** @type {[string, (() => void) | null, boolean]} */ ([
+            c.title,
             !isHidden(c.id) && visible === 1 ? null : () => setHidden(c.id, !isHidden(c.id)),
+            !isHidden(c.id),
           ]),
       ),
       ["-", null],
@@ -4034,7 +4072,7 @@
     add.type = "button";
     add.id = "filter-button-add";
     add.className = "icon";
-    add.textContent = "+";
+    add.append(icon("add"));
     add.title = "Add a filter button for the display filter in the filter bar…";
     add.setAttribute("aria-label", "Add filter button");
     add.addEventListener("click", () =>

@@ -337,6 +337,18 @@ export function normalizeTimeFormat(raw: unknown): TimeFormat {
   return TIME_FORMATS.find((f) => f.id === raw)?.id ?? "relative";
 }
 
+/**
+ * How coloring rules are drawn (pcapViewer.coloringStyle): "auto" picks per
+ * theme (full in light themes; in dark themes light rule backgrounds become a
+ * tint; a stripe only in high contrast), or one of the others everywhere.
+ */
+export const COLORING_STYLES = ["auto", "full", "subtle", "stripe"] as const;
+export type ColoringStyle = (typeof COLORING_STYLES)[number];
+
+export function normalizeColoringStyle(raw: unknown): ColoringStyle {
+  return COLORING_STYLES.find((s) => s === raw) ?? "auto";
+}
+
 /** Packet-list column order and hidden columns (pcapViewer.columnLayout), by column id. */
 export interface ColumnLayout {
   order: string[];

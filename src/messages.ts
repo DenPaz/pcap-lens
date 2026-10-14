@@ -4,6 +4,7 @@
  */
 import type { MenuCommand } from "./commandMenu";
 import type {
+  ColoringStyle,
   ColumnLayout,
   ColumnSetting,
   FilterButton,
@@ -190,6 +191,8 @@ export type HostToWebview =
     }
   /** The ☰ menu's commands (sent on "ready", before the capture loads). */
   | { type: "commands"; commands: MenuCommand[] }
+  /** `pcapViewer.coloringStyle` (sent on "ready" and when the setting changes). */
+  | { type: "coloringStyle"; style: ColoringStyle }
   /** `pcapViewer.filterButtons` (sent on "ready" and when the setting changes). */
   | { type: "filterButtons"; buttons: FilterButton[] }
   | { type: "error"; message: string; canReload: boolean }

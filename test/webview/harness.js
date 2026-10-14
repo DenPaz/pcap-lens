@@ -29,20 +29,34 @@ function loadDeps() {
 }
 
 /**
- * Serve src/webview's files, and with `media` (a folder) its files under
+ * Serve src/webview's files (and codicons/), and with `media` (a folder) its files under
  * /media/ (the VoIP panel's audio, like the panel's own local resource root).
  */
 function serveWebview({ media } = {}) {
-  const types = { ".js": "text/javascript", ".css": "text/css", ".wav": "audio/wav" };
+  const types = {
+    ".js": "text/javascript",
+    ".css": "text/css",
+    ".ttf": "font/ttf",
+    ".wav": "audio/wav",
+  };
   const server = http.createServer((req, res) => {
     const pathname = new URL(req.url, "http://x").pathname;
-    const dir = media && pathname.startsWith("/media/") ? media : WEBVIEW;
+    const dir =
+      media && pathname.startsWith("/media/")
+        ? media
+        : pathname.startsWith("/codicons/")
+          ? path.join(WEBVIEW, "codicons")
+          : WEBVIEW;
     const file = path.join(dir, path.basename(pathname));
     if (!file.startsWith(dir) || !fs.existsSync(file)) {
       res.writeHead(404).end();
       return;
     }
-    res.writeHead(200, { "content-type": types[path.extname(file)] || "application/octet-stream" });
+    // (Fonts load in CORS mode; VS Code's webview resource server allows any origin too.)
+    res.writeHead(200, {
+      "content-type": types[path.extname(file)] || "application/octet-stream",
+      "access-control-allow-origin": "*",
+    });
     fs.createReadStream(file).pipe(res);
   });
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));
@@ -66,6 +80,7 @@ function renderEditorHtml(origin) {
     cspSource: origin,
     nonce,
     stylesUri: `${origin}/styles.css`,
+    codiconsUri: `${origin}/codicons/codicon.css`,
     libUri: `${origin}/lib.js`,
     mainUri: `${origin}/main.js`,
   };
@@ -82,6 +97,7 @@ function renderPanelHtml(origin, script, { media = false } = {}) {
   const csp = `default-src 'none'; img-src ${origin} data:; style-src ${origin}; font-src ${origin};${mediaSrc} script-src 'nonce-${nonce}'`;
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="${csp}">
+  <link rel="stylesheet" href="${origin}/codicons/codicon.css">
   <link rel="stylesheet" href="${origin}/styles.css"><link rel="stylesheet" href="${origin}/panel.css">
   </head><body class="panel"><div id="app"></div>
   ${stubScript(nonce)}
@@ -127,7 +143,18 @@ async function newPage(browser) {
   return { page, problems, post };
 }
 
+/** Whether the page's Codicons font loaded (codicons/codicon.css, allowed by the CSP's font-src). */
+async function codiconFontLoaded(page) {
+  return page.evaluate(async () => {
+    await document.fonts.ready;
+    return [...document.fonts].some(
+      (f) => f.family.replace(/"/g, "") === "codicon" && f.status === "loaded",
+    );
+  });
+}
+
 module.exports = {
+  codiconFontLoaded,
   ROOT,
   WEBVIEW,
   FIXTURES,
