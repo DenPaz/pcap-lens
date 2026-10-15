@@ -8,8 +8,8 @@ export function webviewRoot(context: vscode.ExtensionContext): vscode.Uri {
 
 /**
  * HTML shell for an auxiliary panel (statistics, follow stream): the same
- * strict CSP as the editor, the Codicons and shared stylesheets, `lib.js`,
- * and one script.
+ * strict CSP as the editor, the Codicons stylesheet, base.css (tokens and
+ * controls shared with the editor) and panel.css, `lib.js`, and one script.
  * `media` lets `<audio>` play the panel's own local resources (VoIP).
  */
 export function panelHtml(
@@ -37,7 +37,7 @@ export function panelHtml(
   <meta http-equiv="Content-Security-Policy" content="${csp}">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="${uri("codicons/codicon.css")}">
-  <link rel="stylesheet" href="${uri("styles.css")}">
+  <link rel="stylesheet" href="${uri("base.css")}">
   <link rel="stylesheet" href="${uri("panel.css")}">
   <title>${esc(title)}</title>
 </head>

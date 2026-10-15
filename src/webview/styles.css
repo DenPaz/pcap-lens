@@ -1,74 +1,32 @@
-/* All colours come from VS Code theme variables so the viewer follows the active theme. */
+/*
+ * The capture viewer (index.html), on top of base.css (tokens, buttons,
+ * inputs). All colours come from VS Code theme variables so the viewer
+ * follows the active theme.
+ */
 :root {
-  --row-height: 22px;
   --list-height: 50%;
   --tree-width: 55%;
-  --mono: var(--vscode-editor-font-family, ui-monospace, Menlo, Consolas, monospace);
-  --mono-size: var(--vscode-editor-font-size, 12px);
-  --border: var(--vscode-panel-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
+  /* Detail tree: each level's indent, and where its guide line sits (under the parent's chevron). */
+  --tree-indent: 14px;
   --field-highlight: var(--vscode-editor-selectionBackground, rgba(38, 79, 120, 0.8));
   --proto-highlight: var(--vscode-editor-inactiveSelectionBackground, rgba(58, 61, 65, 0.6));
-}
-
-* {
-  box-sizing: border-box;
 }
 
 html,
 body {
   height: 100%;
-  margin: 0;
-  padding: 0;
   overflow: hidden;
-  color: var(--vscode-foreground);
-  background: var(--vscode-editor-background);
-  font-family: var(--vscode-font-family);
-  font-size: var(--vscode-font-size);
 }
 
-.hidden {
-  display: none !important;
-}
-
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-}
-
-button {
-  font: inherit;
-  color: var(--vscode-button-foreground);
-  background: var(--vscode-button-background);
-  border: 1px solid var(--vscode-button-border, transparent);
-  padding: 3px 10px;
-  border-radius: 2px;
-  cursor: pointer;
-}
-
-button:hover {
-  background: var(--vscode-button-hoverBackground);
-}
-
-button.secondary,
 #filter-clear,
 #filter-cancel {
   color: var(--vscode-button-secondaryForeground);
   background: var(--vscode-button-secondaryBackground);
 }
 
-button.secondary:hover,
 #filter-clear:hover,
 #filter-cancel:hover {
   background: var(--vscode-button-secondaryHoverBackground);
-}
-
-button:focus-visible,
-input:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: -1px;
 }
 
 #app {
@@ -82,8 +40,9 @@ input:focus-visible {
 #filter-bar {
   display: flex;
   flex-wrap: wrap; /* on a narrow editor the buttons wrap, the input keeps its width */
-  gap: 4px;
-  padding: 4px;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
   border-bottom: 1px solid var(--border);
 }
 
@@ -98,20 +57,6 @@ input:focus-visible {
   flex: none;
 }
 
-button.icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 3px 5px;
-  color: var(--vscode-icon-foreground, var(--vscode-foreground));
-  background: transparent;
-  border-color: var(--vscode-input-border, transparent);
-}
-
-button.icon:hover {
-  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
-}
-
 #filter-field.ai-mode #filter-input {
   border-color: var(--vscode-focusBorder);
   font-family: var(--vscode-font-family);
@@ -121,22 +66,19 @@ button.icon:hover {
   opacity: 0.7;
 }
 
-#filter-ai[aria-pressed="true"] {
-  background: var(--vscode-toolbar-activeBackground, var(--vscode-list-activeSelectionBackground));
-}
-
 /* ------------------------------------------------------------------ filter buttons */
 
 #filter-buttons {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  padding: 4px;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
   border-bottom: 1px solid var(--border);
 }
 
 #filter-buttons button.filter-button {
-  padding: 1px 8px;
+  padding: var(--control-pad-y-sm) var(--space-4);
   max-width: 20em;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -145,7 +87,7 @@ button.icon:hover {
   background: var(--vscode-button-secondaryBackground, transparent);
 }
 
-#filter-buttons button.filter-button:hover {
+#filter-buttons button.filter-button:hover:not([aria-pressed="true"]) {
   background: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground));
 }
 
@@ -155,14 +97,15 @@ button.icon:hover {
 }
 
 #filter-buttons button.icon {
-  padding: 1px 7px;
+  min-width: 0;
+  padding: var(--control-pad-y-sm) var(--space-1);
 }
 
 /* ------------------------------------------------------------------ suggestions */
 
 .suggest {
   position: absolute;
-  top: calc(100% + 2px);
+  top: calc(100% + var(--space-1));
   left: 0;
   right: 0;
   z-index: 15;
@@ -171,15 +114,15 @@ button.icon:hover {
   color: var(--vscode-editorSuggestWidget-foreground, var(--vscode-foreground));
   background: var(--vscode-editorSuggestWidget-background, var(--vscode-editorWidget-background));
   border: 1px solid var(--vscode-editorSuggestWidget-border, var(--border));
-  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+  box-shadow: var(--shadow);
   font-size: var(--mono-size);
 }
 
 .suggest-item {
   display: flex;
   align-items: baseline;
-  gap: 10px;
-  padding: 2px 8px;
+  gap: var(--space-5);
+  padding: var(--space-1) var(--space-4);
   line-height: 20px;
   white-space: nowrap;
   cursor: pointer;
@@ -214,7 +157,7 @@ button.icon:hover {
 .suggest-detail {
   flex: none;
   color: var(--vscode-editorSuggestWidget-highlightForeground, var(--vscode-textLink-foreground));
-  font-size: 0.9em;
+  font-size: var(--text-sm);
 }
 
 .suggest-desc {
@@ -246,11 +189,6 @@ button.icon:hover {
   min-width: 0;
   font-family: var(--mono);
   font-size: var(--mono-size);
-  color: var(--vscode-input-foreground);
-  background: var(--vscode-input-background);
-  border: 1px solid var(--vscode-input-border, transparent);
-  padding: 3px 6px;
-  border-radius: 2px;
 }
 
 /* Wireshark-style validity colouring, using theme-aware tints. */
@@ -273,8 +211,8 @@ button.icon:hover {
 }
 
 #filter-error {
-  margin: 0 4px 4px;
-  padding: 4px 6px;
+  margin: 0 var(--space-2) var(--space-2);
+  padding: var(--space-2) var(--space-3);
   white-space: pre-wrap;
   font-family: var(--mono);
   font-size: var(--mono-size);
@@ -411,7 +349,7 @@ button.icon:hover {
 .list-row > div {
   overflow: hidden;
   text-overflow: ellipsis;
-  padding: 0 6px;
+  padding: 0 var(--space-3);
 }
 
 .list-row > div.num {
@@ -439,7 +377,7 @@ button.icon:hover {
 
 #list-header .sort-indicator {
   opacity: 0.8;
-  margin-left: 2px;
+  margin-left: var(--space-1);
   vertical-align: middle;
 }
 
@@ -569,8 +507,8 @@ button.icon:hover {
   position: sticky;
   top: 0;
   z-index: 1;
-  padding: 4px 8px;
-  font-size: 0.9em;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
   color: var(--vscode-editorWarning-foreground, var(--vscode-foreground));
   background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
   border-bottom: 1px solid var(--border);
@@ -581,7 +519,7 @@ button.icon:hover {
   position: sticky;
   top: 0;
   z-index: 2;
-  padding: 4px 8px;
+  padding: var(--space-2) var(--space-4);
   background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
   border-bottom: 1px solid var(--border);
   border-left: 3px solid var(--vscode-editorInfo-foreground, var(--vscode-focusBorder));
@@ -591,7 +529,7 @@ button.icon:hover {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 10px;
+  gap: var(--space-2) var(--space-5);
 }
 
 #comment-text {
@@ -601,30 +539,26 @@ button.icon:hover {
 }
 
 #comment-edited {
-  font-size: 0.85em;
+  font-size: var(--text-sm);
   color: var(--vscode-editorWarning-foreground, var(--vscode-foreground));
 }
 
 #comment-input {
-  box-sizing: border-box;
   width: 100%;
   resize: vertical;
-  font: inherit;
-  color: var(--vscode-input-foreground);
-  background: var(--vscode-input-background);
-  border: 1px solid var(--vscode-input-border, var(--border));
+  border-color: var(--vscode-input-border, var(--border));
 }
 
 .comment-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  margin-top: 4px;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
 }
 
 .comment-actions .hint {
-  font-size: 0.85em;
+  font-size: var(--text-sm);
   color: var(--vscode-descriptionForeground);
 }
 
@@ -644,9 +578,22 @@ button.icon:hover {
 #detail-tree {
   font-family: var(--mono);
   font-size: var(--mono-size);
-  padding: 2px 0;
+  padding: var(--space-1) 0;
   outline: none;
   min-width: max-content;
+}
+
+/*
+ * Indent guides like VS Code's trees: one line per level, under the chevron
+ * of the parent at that level (--depth is set by main.js). Faint until the
+ * tree is hovered or focused, like VS Code's default "onHover".
+ */
+#detail-tree {
+  --guide: var(--vscode-tree-inactiveIndentGuidesStroke, rgba(128, 128, 128, 0.2));
+}
+
+#detail-tree:is(:hover, :focus) {
+  --guide: var(--vscode-tree-indentGuidesStroke, rgba(128, 128, 128, 0.45));
 }
 
 .node-row {
@@ -654,21 +601,31 @@ button.icon:hover {
   align-items: center;
   height: var(--row-height);
   line-height: var(--row-height);
+  padding-left: calc(var(--depth, 0) * var(--tree-indent));
   white-space: pre;
   cursor: default;
+  /* (background-color only below: the guides are the background image) */
+  background-image: repeating-linear-gradient(
+    to right,
+    transparent 0 7px,
+    var(--guide) 7px 8px,
+    transparent 8px var(--tree-indent)
+  );
+  background-size: calc(var(--depth, 0) * var(--tree-indent)) 100%;
+  background-repeat: no-repeat;
 }
 
 .node-row:hover {
-  background: var(--vscode-list-hoverBackground);
+  background-color: var(--vscode-list-hoverBackground);
 }
 
 .node-row.selected {
-  background: var(--vscode-list-inactiveSelectionBackground);
+  background-color: var(--vscode-list-inactiveSelectionBackground);
 }
 
 #detail-tree:focus .node-row.selected {
   color: var(--vscode-list-activeSelectionForeground);
-  background: var(--vscode-list-activeSelectionBackground);
+  background-color: var(--vscode-list-activeSelectionBackground);
 }
 
 .twisty {
@@ -692,8 +649,8 @@ button.icon:hover {
 
 #bytes-tabs {
   display: flex;
-  gap: 2px;
-  padding: 2px 4px 0;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2) 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -702,7 +659,7 @@ button.icon:hover {
   background: var(--vscode-tab-inactiveBackground, transparent);
   border: none;
   border-radius: 0;
-  padding: 2px 8px;
+  padding: var(--space-1) var(--space-4);
 }
 
 #bytes-tabs button.active {
@@ -714,7 +671,7 @@ button.icon:hover {
 #bytes-view {
   flex: 1;
   overflow: auto;
-  padding: 2px 6px;
+  padding: var(--space-1) var(--space-3);
   font-family: var(--mono);
   font-size: var(--mono-size);
   outline: none;
@@ -728,7 +685,7 @@ button.icon:hover {
 
 .hex-row .off {
   color: var(--vscode-editorLineNumber-foreground);
-  margin-right: 12px;
+  margin-right: var(--space-5);
 }
 
 .hex-row .b {
@@ -744,7 +701,7 @@ button.icon:hover {
 }
 
 .hex-row .ascii {
-  margin-left: 12px;
+  margin-left: var(--space-5);
 }
 
 .hex-row .a {
@@ -767,8 +724,8 @@ button.icon:hover {
 #status-bar {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  padding: 2px 8px;
+  gap: var(--space-5);
+  padding: var(--space-1) var(--space-4);
   border-top: 1px solid var(--border);
   color: var(--vscode-descriptionForeground);
   white-space: nowrap;
@@ -784,7 +741,7 @@ button.icon:hover {
 #status-capture {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-3);
   color: var(--vscode-foreground);
 }
 
@@ -840,19 +797,19 @@ button.icon:hover {
 .overlay-box {
   min-width: 320px;
   max-width: 80vw;
-  padding: 16px;
+  padding: var(--space-6);
   background: var(--vscode-editorWidget-background);
   border: 1px solid var(--vscode-editorWidget-border, var(--border));
-  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+  box-shadow: var(--shadow);
 }
 
 #overlay-message {
   white-space: pre-wrap;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-4);
 }
 
 #overlay-detail {
-  margin-top: 6px;
+  margin-top: var(--space-3);
   color: var(--vscode-descriptionForeground);
   font-variant-numeric: tabular-nums;
 }
@@ -865,24 +822,24 @@ button.icon:hover {
 
 .overlay-actions {
   display: flex;
-  gap: 6px;
+  gap: var(--space-3);
   justify-content: flex-end;
-  margin-top: 12px;
+  margin-top: var(--space-5);
 }
 
 .context-menu {
   position: fixed;
   z-index: 20;
   min-width: 180px;
-  padding: 4px 0;
+  padding: var(--space-2) 0;
   color: var(--vscode-menu-foreground);
   background: var(--vscode-menu-background);
   border: 1px solid var(--vscode-menu-border, var(--border));
-  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+  box-shadow: var(--shadow);
 }
 
 .context-menu .item {
-  padding: 3px 16px;
+  padding: var(--control-pad-y) var(--space-6);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -896,11 +853,11 @@ button.icon:hover {
 
 /* A check mark (or the same blank space) before checkable items. */
 .context-menu .item.checkable {
-  padding-left: 6px;
+  padding-left: var(--space-3);
 }
 
 .context-menu .item.checkable > .codicon {
-  margin-right: 6px;
+  margin-right: var(--space-3);
   vertical-align: text-bottom;
 }
 
@@ -911,7 +868,7 @@ button.icon:hover {
 
 .context-menu .sep {
   height: 1px;
-  margin: 4px 0;
+  margin: var(--space-2) 0;
   background: var(--vscode-menu-separatorBackground, var(--border));
 }
 
@@ -920,7 +877,7 @@ button.icon:hover {
   display: flex;
   flex-direction: column;
   width: min(380px, calc(100vw - 8px));
-  padding: 4px 0 0;
+  padding: var(--space-2) 0 0;
   color: var(--vscode-menu-foreground, var(--vscode-foreground, CanvasText));
   background: var(--vscode-menu-background, var(--vscode-editorWidget-background, Canvas));
 }
@@ -930,7 +887,7 @@ button.icon:hover {
 }
 
 .command-menu input {
-  margin: 0 6px 4px;
+  margin: 0 var(--space-3) var(--space-2);
 }
 
 .command-menu [role="menu"] {
@@ -940,8 +897,8 @@ button.icon:hover {
 }
 
 .command-menu .heading {
-  padding: 6px 12px 2px;
-  font-size: 0.85em;
+  padding: var(--space-3) var(--space-5) var(--space-1);
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--vscode-descriptionForeground);
 }
@@ -949,15 +906,15 @@ button.icon:hover {
 .command-menu .item {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
-  padding: 3px 12px;
+  gap: var(--space-6);
+  padding: var(--control-pad-y) var(--space-5);
 }
 
 /* A foldable heading: ▸ Statistics … 14 */
 .command-menu .heading.item {
   justify-content: flex-start;
-  gap: 6px;
-  padding: 4px 12px;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-5);
   cursor: default;
 }
 
@@ -971,7 +928,7 @@ button.icon:hover {
 
 /* Commands under an open heading are indented past its chevron. */
 .command-menu .heading.item ~ .item {
-  padding-left: calc(12px + 16px + 6px);
+  padding-left: calc(var(--space-5) + 16px + var(--space-3));
 }
 
 .command-menu .item.active {
@@ -998,11 +955,11 @@ button.icon:hover {
 .command-menu .keys {
   flex: none;
   opacity: 0.8;
-  font-size: 0.9em;
+  font-size: var(--text-sm);
 }
 
 .command-menu .command-hint {
-  padding: 4px 12px;
+  padding: var(--space-2) var(--space-5);
   border-top: 1px solid var(--vscode-menu-separatorBackground, var(--border));
   color: var(--vscode-descriptionForeground);
 }
@@ -1012,16 +969,11 @@ button.icon:hover {
 #find-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 4px 4px;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) var(--space-2);
 }
 
-#find-bar select,
 #find-bar input[type="text"] {
-  color: var(--vscode-input-foreground);
-  background: var(--vscode-input-background);
-  border: 1px solid var(--vscode-input-border, transparent);
-  padding: 2px 4px;
   font-family: var(--mono);
   font-size: var(--mono-size);
 }
@@ -1070,13 +1022,13 @@ button.icon:hover {
 }
 
 #filter-error button.notice-action {
-  margin-left: 8px;
-  padding: 0 6px;
+  margin-left: var(--space-4);
+  padding: 0 var(--space-3);
 }
 
 .status-link {
   padding: 0;
-  margin-right: 12px;
+  margin-right: var(--space-5);
   color: inherit;
   background: transparent;
   border: none;
@@ -1101,25 +1053,17 @@ button.icon:hover {
 /* ------------------------------------------------------------------ high contrast */
 
 /*
- * High-contrast themes (body.vscode-high-contrast, -light) leave most fills
- * undefined (hover, selection, secondary buttons) and use borders instead:
- * --vscode-contrastActiveBorder for what is selected or active (dashed while
- * hovered), --vscode-contrastBorder around widgets. Without these rules the
- * selected packet and tree node were invisible.
+ * High contrast (tokens and buttons in base.css): outlines where other
+ * themes fill. Without these rules the selected packet and tree node were
+ * invisible.
  */
-body.vscode-high-contrast,
-body.vscode-high-contrast-light {
-  --hc-active: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
-  --hc-border: var(--vscode-contrastBorder, var(--border));
-}
 
 :is(.vscode-high-contrast, .vscode-high-contrast-light) #list-rows .list-row.odd {
   background: transparent;
 }
 
 :is(.vscode-high-contrast, .vscode-high-contrast-light)
-  :is(#list-rows .list-row, .node-row, #list-header > div, .suggest-item):hover,
-:is(.vscode-high-contrast, .vscode-high-contrast-light) button:not(:focus-visible):hover {
+  :is(#list-rows .list-row, .node-row, #list-header > div, .suggest-item):hover {
   outline: 1px dashed var(--hc-active);
   outline-offset: -1px;
 }
@@ -1129,7 +1073,6 @@ body.vscode-high-contrast-light {
     #list-rows .list-row.selected,
     .node-row.selected,
     .suggest-item.active,
-    #filter-ai[aria-pressed="true"],
     #filter-buttons button.filter-button[aria-pressed="true"]
   ) {
   outline: 1px solid var(--hc-active);

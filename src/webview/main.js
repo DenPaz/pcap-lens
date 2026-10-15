@@ -1861,7 +1861,8 @@
       (node.proto ? " proto" : "") +
       (node.name && node.name.startsWith("_ws.expert") ? " expert" : "");
     row.dataset.id = String(node.id);
-    row.style.paddingLeft = `${depth * 14}px`;
+    // Indent and indent guides come from --depth (styles.css .node-row).
+    row.style.setProperty("--depth", String(depth));
     const twisty = document.createElement("span");
     twisty.className = "twisty";
     twisty.setAttribute("aria-hidden", "true");

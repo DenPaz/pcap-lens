@@ -287,6 +287,14 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       ],
     );
     assert.ok(await codiconFontLoaded(page), "the codicon font loads");
+    // Toolbar icons have no border or fill until hovered or pressed (base.css).
+    assert.deepEqual(
+      await page.$eval("#filter-menu", (b) => {
+        const style = getComputedStyle(b);
+        return [style.borderTopColor, style.backgroundColor];
+      }),
+      ["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)"],
+    );
   });
 
   test("invalid filter is flagged and not applied", async () => {
@@ -326,6 +334,14 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       bs.map((b) => b.textContent).join(" "),
     );
     assert.equal(marked, "5d b8 d8 22"); // 93.184.216.34
+    // Children are indented by level and draw one indent guide per level.
+    assert.deepEqual(
+      await page.$eval("#detail-tree .node-row:has-text('Source Address')", (r) => {
+        const style = getComputedStyle(r);
+        return [r.style.getPropertyValue("--depth"), style.paddingLeft, style.backgroundSize];
+      }),
+      ["1", "14px", "14px 100%"],
+    );
 
     // Bytes -> tree: clicking an HTTP byte in the reassembled source selects an HTTP field.
     await page.click("#bytes-tabs button >> nth=1");

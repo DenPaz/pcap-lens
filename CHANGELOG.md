@@ -17,6 +17,11 @@ versions are plain `major.minor.patch`.
 
 - The viewer and its panels use VS Code's own icons (Codicons) instead of
   text symbols. [#39]
+- The viewer and its panels share one set of sizes and controls, so buttons,
+  inputs and spacing match everywhere. [#40]
+- Toolbar icons look like VS Code's own: no border until hovered, and a
+  highlight while pressed or switched on. [#40]
+- The packet details draw indent guides, like VS Code's trees. [#40]
 
 ### Fixed
 
@@ -24,6 +29,7 @@ versions are plain `major.minor.patch`.
   row were invisible; they are outlined now, as VS Code does. [#39]
 
 [#39]: https://github.com/DenPaz/vsc_pcap_viewer/pull/39
+[#40]: https://github.com/DenPaz/vsc_pcap_viewer/pull/40
 
 ## 0.3.0 — 2026-10-14
 

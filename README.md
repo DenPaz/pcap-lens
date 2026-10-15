@@ -72,6 +72,9 @@ them (`tshark --version`).
   with an editor (_PCAP: Edit Coloring Rules_) and _Colorize with Filter…_.
   Colors follow the theme: a tint and a stripe in dark themes, a stripe in high
   contrast (`pcapViewer.coloringStyle` to choose).
+
+  ![The same capture in a light theme, with Wireshark's coloring rules in full color](media/screenshots/viewer-light.png)
+
 - **Packet comments** in pcapng files: shown on the row and above the details;
   edit with `Ctrl+Alt+C`, undo with `Ctrl+Z`, save into the file with `Ctrl+S`.
 - **Name resolution** for MAC addresses, IP addresses (from the capture's DNS
