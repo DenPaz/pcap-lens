@@ -1,4 +1,4 @@
-# Developer tasks for PCAP Viewer (Linux/macOS; GNU make). `make` lists them.
+# Developer tasks for PCAP Lens (Linux/macOS; GNU make). `make` lists them.
 # Each target is a thin wrapper around the uv / pnpm commands in CLAUDE.md.
 
 UV ?= uv

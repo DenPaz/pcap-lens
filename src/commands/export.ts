@@ -40,7 +40,7 @@ async function chooseDestination(
     return undefined;
   }
   if (uri.scheme !== "file") {
-    void vscode.window.showErrorMessage("PCAP Viewer can only export to local files.");
+    void vscode.window.showErrorMessage("PCAP Lens can only export to local files.");
     return undefined;
   }
   return uri.fsPath;
@@ -83,7 +83,7 @@ async function runExport(
     );
   } catch (err) {
     if (!(err instanceof RpcError && err.cancelled)) {
-      void vscode.window.showErrorMessage(`PCAP Viewer: export failed: ${describeError(err)}`);
+      void vscode.window.showErrorMessage(`PCAP Lens: export failed: ${describeError(err)}`);
     }
     return undefined;
   }
@@ -501,7 +501,7 @@ export async function exportPacketBytes(
       source = pick.index;
     }
   } catch (err) {
-    void vscode.window.showErrorMessage(`PCAP Viewer: ${describeError(err)}`);
+    void vscode.window.showErrorMessage(`PCAP Lens: ${describeError(err)}`);
     return undefined;
   }
   const dest = await chooseDestination(session, `frame${number}`, "bin", {

@@ -3,7 +3,7 @@
     "prefix": ["dissector", "wsdissector"],
     "description": "Skeleton of a Wireshark/tshark Lua dissector registered on a UDP or TCP port",
     "body": [
-      "-- ${1:My Protocol} dissector for PCAP Viewer / Wireshark.",
+      "-- ${1:My Protocol} dissector for PCAP Lens / Wireshark.",
       "local ${2:myproto} = Proto(\"${2:myproto}\", \"${1:My Protocol}\")",
       "",
       "local f_type = ProtoField.uint8(\"${2:myproto}.type\", \"Type\", base.DEC)",

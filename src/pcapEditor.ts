@@ -674,7 +674,7 @@ export class PcapEditorSession {
         this.client = undefined;
         this.post({
           type: "error",
-          message: "The PCAP backend stopped unexpectedly. See the PCAP Viewer log for details.",
+          message: "The PCAP backend stopped unexpectedly. See the PCAP Lens log for details.",
           canReload: true,
         });
       }
@@ -849,7 +849,7 @@ export class PcapEditorSession {
         }
         asking = true;
         const choice = await vscode.window.showInformationMessage(
-          `PCAP Viewer: the TLS key log ${path.basename(file)} changed. Reload ${path.basename(this.uri.fsPath)} to decrypt with the new keys?`,
+          `PCAP Lens: the TLS key log ${path.basename(file)} changed. Reload ${path.basename(this.uri.fsPath)} to decrypt with the new keys?`,
           "Reload",
         );
         asking = false;
@@ -882,7 +882,7 @@ export class PcapEditorSession {
     const merge = "Merge…";
     const stop = "Don't Ask Again";
     const choice = await vscode.window.showInformationMessage(
-      `PCAP Viewer: ${path.basename(this.uri.fsPath)} is one of ${pieces.length} pieces of a rotated capture. Merge them into one capture?`,
+      `PCAP Lens: ${path.basename(this.uri.fsPath)} is one of ${pieces.length} pieces of a rotated capture. Merge them into one capture?`,
       merge,
       stop,
     );
@@ -904,7 +904,7 @@ export class PcapEditorSession {
       const first = luaErrors[0].split("\n")[0].replace(/^Lua: /, "");
       void vscode.window
         .showErrorMessage(
-          `PCAP Viewer: Lua dissector error: ${first}${luaErrors.length > 1 ? ` (+${luaErrors.length - 1} more)` : ""}`,
+          `PCAP Lens: Lua dissector error: ${first}${luaErrors.length > 1 ? ` (+${luaErrors.length - 1} more)` : ""}`,
           "Show Log",
         )
         .then((choice) => choice && this.log.show());
@@ -912,7 +912,7 @@ export class PcapEditorSession {
     if (others.length) {
       void vscode.window
         .showWarningMessage(
-          `PCAP Viewer: ${others[0]}${others.length > 1 ? ` (+${others.length - 1} more)` : ""}`,
+          `PCAP Lens: ${others[0]}${others.length > 1 ? ` (+${others.length - 1} more)` : ""}`,
           "Show Log",
         )
         .then((choice) => {
@@ -1077,7 +1077,7 @@ export class PcapEditorSession {
     this.log.warn(`${this.uri.toString()}: not a file on disk`);
     this.post({ type: "error", message, canReload: false });
     void vscode.window
-      .showWarningMessage(`PCAP Viewer: ${name} isn't a file on disk.`, "Open a Copy")
+      .showWarningMessage(`PCAP Lens: ${name} isn't a file on disk.`, "Open a Copy")
       .then(async (choice) => {
         if (!choice) {
           return;
@@ -1086,7 +1086,7 @@ export class PcapEditorSession {
           await openCopy(this.context, this.uri);
         } catch (err) {
           void vscode.window.showErrorMessage(
-            `PCAP Viewer: could not copy ${name}: ${describeError(err)}`,
+            `PCAP Lens: could not copy ${name}: ${describeError(err)}`,
           );
         }
       });
@@ -1100,13 +1100,13 @@ export class PcapEditorSession {
       type: "error",
       message:
         `${name} is not a capture file that tshark can read.\n\n` +
-        "PCAP Viewer opens pcap and pcapng (also gzip, zstd or lz4 compressed) and the other capture formats Wireshark supports, " +
+        "PCAP Lens opens pcap and pcapng (also gzip, zstd or lz4 compressed) and the other capture formats Wireshark supports, " +
         'such as snoop, ERF, btsnoop and PacketLogger. Use "Reopen Editor With…" to open this file with another editor.',
       canReload: true,
     });
     void vscode.window
       .showWarningMessage(
-        `PCAP Viewer: ${name} is not a capture file that tshark can read.`,
+        `PCAP Lens: ${name} is not a capture file that tshark can read.`,
         "Reopen Editor With…",
       )
       .then((choice) => {
@@ -1126,7 +1126,7 @@ export class PcapEditorSession {
       void offerSetupHelp(this.context, message, setting);
       return;
     }
-    void vscode.window.showErrorMessage(`PCAP Viewer: ${message}`, "Show Log").then((choice) => {
+    void vscode.window.showErrorMessage(`PCAP Lens: ${message}`, "Show Log").then((choice) => {
       if (choice === "Show Log") {
         this.log.show();
       }
@@ -1296,7 +1296,7 @@ export class PcapEditorSession {
     if (p.error) {
       this.log.error(`${name}: ${p.error}`);
       void vscode.window
-        .showErrorMessage(`PCAP Viewer: the capture stopped: ${p.error}`, "Show Log")
+        .showErrorMessage(`PCAP Lens: the capture stopped: ${p.error}`, "Show Log")
         .then((choice) => choice && this.log.show());
     }
     this.capturing = false;
@@ -1456,7 +1456,7 @@ export class PcapEditorSession {
       fresh.forEach((p) => reportedColoringErrors.add(p));
       void vscode.window
         .showWarningMessage(
-          `PCAP Viewer: ${fresh[0]}${fresh.length > 1 ? ` (+${fresh.length - 1} more)` : ""}`,
+          `PCAP Lens: ${fresh[0]}${fresh.length > 1 ? ` (+${fresh.length - 1} more)` : ""}`,
           "Edit Rules",
           "Show Log",
         )

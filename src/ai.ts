@@ -59,15 +59,15 @@ export interface SuggestOutcome {
 
 const MODEL_SELECTOR: vscode.LanguageModelChatSelector = { vendor: "copilot" };
 const JUSTIFICATION =
-  "PCAP Viewer turns your description into a Wireshark display filter. Only your request, the current filter and protocol/field names are sent.";
+  "PCAP Lens turns your description into a Wireshark display filter. Only your request, the current filter and protocol/field names are sent.";
 const EXPLAIN_JUSTIFICATION =
-  "PCAP Viewer explains the packets you picked. Their packet-list rows and dissection trees are sent.";
+  "PCAP Lens explains the packets you picked. Their packet-list rows and dissection trees are sent.";
 const SUMMARY_JUSTIFICATION =
-  "PCAP Viewer summarizes the open capture from statistics computed by tshark (no packet contents).";
+  "PCAP Lens summarizes the open capture from statistics computed by tshark (no packet contents).";
 const ANOMALY_JUSTIFICATION =
-  "PCAP Viewer explains expert information or a TCP stream from statistics computed by tshark (no packet contents).";
+  "PCAP Lens explains expert information or a TCP stream from statistics computed by tshark (no packet contents).";
 const TOOLS_JUSTIFICATION =
-  "PCAP Viewer answers questions about the open capture with read-only tools (counts and statistics).";
+  "PCAP Lens answers questions about the open capture with read-only tools (counts and statistics).";
 
 /** What to explain (the caller has the user's consent to send packet data). */
 export interface ExplainRequest {

@@ -6,7 +6,7 @@ Captures open in the viewer like any other file: from the Explorer,
 - **pcap** and **pcapng**, also compressed (`.gz`, `.zst`, `.lz4`), tcpdump
   rotation files (`trace.pcap1`…), snoop, ERF, PacketLogger and btsnoop.
 - Files with generic extensions (`.log`, `.dmp`, `.trc`…) open through
-  **Reopen Editor With… › PCAP Viewer**.
+  **Reopen Editor With… › PCAP Lens**.
 - Big captures show their first packets within about half a second while
   the rest is indexed; reopening them later is instant.
 

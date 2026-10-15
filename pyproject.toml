@@ -1,7 +1,7 @@
 [project]
 name = "pcap-viewer-backend"
 version = "0.1.0"
-description = "tshark-orchestrating JSON-RPC backend for the PCAP Viewer VS Code extension"
+description = "tshark-orchestrating JSON-RPC backend for the PCAP Lens VS Code extension"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.14"

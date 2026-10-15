@@ -51,7 +51,7 @@ async function waitForAsync<T>(fn: () => Promise<T | undefined>, timeoutMs = 30_
   }
 }
 
-suite("PCAP Viewer smoke test", () => {
+suite("PCAP Lens smoke test", () => {
   test("opens a capture and the backend responds", async function () {
     // The first open pays for every cold start (the webview, Python, the
     // backend, tshark's first run): close to 30 s on a slow Windows runner.
@@ -521,7 +521,7 @@ suite("PCAP Viewer smoke test", () => {
     }
   });
 
-  test("Open File in PCAP Viewer: any name when tshark reads it, a refusal otherwise", async () => {
+  test("Open File in PCAP Lens: any name when tshark reads it, a refusal otherwise", async () => {
     const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
     const api = (await ext!.activate()) as PcapViewerApi;
     // (The long path: on Windows os.tmpdir() can be an 8.3 name such as RUNNER~1.)

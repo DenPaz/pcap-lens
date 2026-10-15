@@ -57,7 +57,7 @@ export async function setTlsKeyLogFile(provider: PcapEditorProvider): Promise<vo
     text = await readStart(file);
   } catch (err) {
     void vscode.window.showErrorMessage(
-      `PCAP Viewer: cannot read ${file}: ${(err as Error).message}`,
+      `PCAP Lens: cannot read ${file}: ${(err as Error).message}`,
     );
     return;
   }

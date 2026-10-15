@@ -1,5 +1,5 @@
 /**
- * The viewer's ☰ menu: every contributed PCAP Viewer command, built from
+ * The viewer's ☰ menu: every contributed PCAP Lens command, built from
  * package.json (`contributes.commands` plus `contributes.keybindings`) so a new
  * command shows up without touching this file. Pure (no `vscode` import), so
  * it is unit-tested against the real package.json.

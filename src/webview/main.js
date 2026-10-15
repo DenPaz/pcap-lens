@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * PCAP Viewer webview: filter bar, virtualized packet list, detail tree and
+ * PCAP Lens webview: filter bar, virtualized packet list, detail tree and
  * hex view. Talks to the extension host with postMessage; the host forwards
  * whitelisted calls to the Python backend.
  *
@@ -2451,7 +2451,7 @@
   // ------------------------------------------------------------------ commands menu (☰)
 
   /**
-   * Every PCAP Viewer command, grouped under foldable headings, filtered as
+   * Every PCAP Lens command, grouped under foldable headings, filtered as
    * you type (lib.groupCommands/filterCommands/commandMenuRows). Groups start
    * folded and the open ones are remembered (`state.menuGroups`); typing
    * shows every match with its heading as a label. Focus stays in the filter

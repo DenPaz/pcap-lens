@@ -1,5 +1,5 @@
 /**
- * The parts of VS Code's language model tools API that PCAP Viewer uses
+ * The parts of VS Code's language model tools API that PCAP Lens uses
  * (`vscode.lm.registerTool`, tool call/result parts, `sendRequest` with
  * `tools`, `response.stream`). They arrived after 1.90, our `engines.vscode`,
  * and `@types/vscode` is pinned to it (.ncurc.cjs), so they are declared here

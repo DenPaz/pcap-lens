@@ -32,7 +32,7 @@ export async function showPlugins(
   } catch (err) {
     log.error(`tshark plugins: ${describeError(err)}`);
     if (!options?.quiet) {
-      void vscode.window.showErrorMessage(`PCAP Viewer: ${describeError(err)}`);
+      void vscode.window.showErrorMessage(`PCAP Lens: ${describeError(err)}`);
     }
     return undefined;
   }
@@ -48,7 +48,7 @@ export async function showPlugins(
     return result;
   }
   for (const warning of result.warnings) {
-    void vscode.window.showWarningMessage(`PCAP Viewer: ${warning}.`);
+    void vscode.window.showWarningMessage(`PCAP Lens: ${warning}.`);
   }
   const install = result.install;
   const items: RowItem[] = pluginRows(result, install !== null && fs.existsSync(install)).map(
@@ -74,14 +74,14 @@ export async function showPlugins(
       fs.mkdirSync(install, { recursive: true });
     } catch (err) {
       void vscode.window.showErrorMessage(
-        `PCAP Viewer: can't create ${install}: ${describeError(err)}`,
+        `PCAP Lens: can't create ${install}: ${describeError(err)}`,
       );
       return result;
     }
     await revealFile(install);
   } else if (install && row.kind === "copyFolder") {
     await vscode.env.clipboard.writeText(install);
-    void vscode.window.showInformationMessage(`PCAP Viewer: copied ${install}`);
+    void vscode.window.showInformationMessage(`PCAP Lens: copied ${install}`);
   }
   return result;
 }

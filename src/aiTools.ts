@@ -72,7 +72,7 @@ export const PCAP_TOOLS: readonly ToolSpec[] = [
   {
     name: "pcap_capture_info",
     description:
-      "Properties of the capture open in PCAP Viewer: number of packets, first/last packet time, duration, file size, link type and file format.",
+      "Properties of the capture open in PCAP Lens: number of packets, first/last packet time, duration, file size, link type and file format.",
     inputSchema: { type: "object", properties: {} },
     needs: "statistics",
   },
@@ -509,7 +509,7 @@ export async function runToolLoop(
 /** The first turn of a tool-assisted answer. */
 export function buildToolPrompt(question: string, currentFilter: string): string {
   return [
-    "You are a network analysis expert answering questions about the packet capture open in PCAP Viewer (a Wireshark-like viewer).",
+    "You are a network analysis expert answering questions about the packet capture open in PCAP Lens (a Wireshark-like viewer).",
     "Use the tools to compute answers from the capture instead of guessing: count packets with display filters,",
     "read statistics, look up field names, and list a few matching packets when that helps.",
     "Base your answer only on tool results. If the tools can't answer something, say so.",

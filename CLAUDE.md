@@ -1,4 +1,4 @@
-# CLAUDE.md — working notes for PCAP Viewer
+# CLAUDE.md — working notes for PCAP Lens
 
 Wireshark-like `.pcap`/`.pcapng` viewer for VS Code. TypeScript extension +
 stdlib-only Python backend that orchestrates `tshark`. See README.md for the
@@ -166,6 +166,16 @@ UI behaviour stays in the Chromium test (`test/webview/e2e.test.js`).
 
 ## Design decisions (defaults chosen where the brief was open)
 
+- **Name**: the extension is shown as **PCAP Lens** (`displayName`, the
+  editor, settings category, walkthrough, chat participant, messages). The
+  Marketplace refused "PCAP Viewer" ("Similar extension display name:
+  pcapviewer already exists"; it publishes nothing on that error), so 0.4.1
+  renamed every user-visible string. The extension ID `denpaz.pcap-viewer`,
+  the `pcapViewer.*` commands, settings and context keys, the
+  `pcap-viewer-<version>.vsix` file and the repository keep the old name:
+  changing the ID would make it a different extension, and changing the
+  prefixes would drop users' settings. Capture fixtures still carry "PCAP
+  Viewer" in their payloads (test data).
 - **Packaging of the backend**: a package (`backend/pcap_backend/`) rather than
   loose `server.py`/`pcap_service.py` files, managed by `pyproject.toml` + uv
   (no `requirements.txt`: there are no runtime dependencies).
@@ -1005,7 +1015,17 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   secret (`VSCE_PAT`, `OVSX_PAT`) is missing. CI uploads the `.vsix` as an
   artifact. Marketplace details: `icon` (PNG: vsce refuses SVG icons),
   `galleryBanner`, categories, keywords; README images are relative (vsce
-  rewrites them to the repository), so `media/screenshots/` is not packaged.
+  rewrites them to `…/raw/HEAD/…`, i.e. the default branch, which must be
+  `main`), so `media/screenshots/` is not packaged. **History**: 0.3.0 was
+  never tagged; v0.4.0 made the GitHub release, but the Marketplace refused
+  the display name (see _Name_), so 0.4.1 is the first Marketplace/Open VSX
+  version. A tag that reached a store is never moved: the next patch version
+  ships instead. The maintainer pushes tags; a Claude Code session can only
+  push its own `claude/…` branch (the proxy refuses tags and the API's ref
+  writes), so it prepares the release PR and hands over the tag commands. A
+  failed run is retried with _Re-run failed jobs_ (the Windows unit job once
+  hit mocha's 2 s timeout on a 30 ms synchronous test; the re-run passed).
+  Branches: `main` (default) and `dev`.
 - **Remote windows and trust** (`extensionKind: ["workspace"]`, `remote.ts`):
   the extension host, backend, tshark and dumpcap all run on the remote
   machine (WSL, SSH, containers), where workspace files are `file:` URIs, so
@@ -1237,8 +1257,9 @@ Marketplace details, and the Get Started walkthrough. Then resumable indexing
 with a progress bar, VoIP analysis (SIP calls, RTP streams, audio), the ☰
 commands menu, HTTP/DNS/packet length/service response time statistics,
 filter buttons, and Import from Hex Dump. Then foldable ☰ menu groups,
-per-capture Lua dissectors, and Open File in PCAP Viewer for files of any name.
+per-capture Lua dissectors, and Open File in PCAP Lens for files of any name.
 Then Show TShark Plugins and README instructions for Wireshark plugins.
 Then theme-aware packet colors, Codicons and high-contrast support.
 Then a shared stylesheet with design tokens, toolbar-style icon buttons and
-tree indent guides.
+tree indent guides. Released 0.4.0 (GitHub only), then renamed to PCAP Lens for
+0.4.1, the first Marketplace version.

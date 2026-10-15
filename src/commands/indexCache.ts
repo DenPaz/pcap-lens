@@ -28,8 +28,8 @@ export async function clearIndexCache(context: vscode.ExtensionContext): Promise
   const n = entries.length;
   void vscode.window.showInformationMessage(
     n
-      ? `PCAP Viewer: cleared ${n} saved index${n === 1 ? "" : "es"} (${(bytes / 1e6).toFixed(1)} MB).`
-      : "PCAP Viewer: no saved indexes to clear.",
+      ? `PCAP Lens: cleared ${n} saved index${n === 1 ? "" : "es"} (${(bytes / 1e6).toFixed(1)} MB).`
+      : "PCAP Lens: no saved indexes to clear.",
   );
 }
 

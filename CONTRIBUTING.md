@@ -1,6 +1,6 @@
 # Contributing
 
-How to build, test and release PCAP Viewer. Architecture notes and design
+How to build, test and release PCAP Lens. Architecture notes and design
 decisions are in `CLAUDE.md`.
 
 ## Set up (Linux)
@@ -86,11 +86,19 @@ section, so the GitHub release notes keep them.
 
 ## Release
 
+On a branch, prepare the version and merge it to `main` through a pull request:
+
 ```sh
-pnpm run release:prepare 0.3.0   # bump package.json, move "Unreleased" under "0.3.0 — <date>"
-git commit -am "Release 0.3.0"   # merge it to main (through a PR if main is protected)
-git tag v0.3.0                   # on main
-git push origin v0.3.0
+pnpm run release:prepare 0.5.0   # bump package.json, move "Unreleased" under "0.5.0 — <date>"
+git commit -am "Release 0.5.0"
+```
+
+Once it is merged, tag the merge commit on `main` and push the tag:
+
+```sh
+git fetch origin
+git tag -a v0.5.0 origin/main -m "PCAP Lens 0.5.0"
+git push origin v0.5.0
 ```
 
 The tag runs `.github/workflows/release.yml`:
@@ -100,10 +108,34 @@ The tag runs `.github/workflows/release.yml`:
 3. `vsce package`.
 4. A GitHub release with the `.vsix` and the version's notes.
 5. Publishing to the VS Code Marketplace and Open VSX when the `VSCE_PAT` and
-   `OVSX_PAT` repository secrets exist; otherwise those steps are skipped.
+   `OVSX_PAT` repository secrets exist; otherwise those steps are skipped with
+   a notice.
 
-Running the workflow by hand on the tag retries a failed release. Versions are
-plain `x.y.z`.
+If a job fails, open the run and choose _Re-run failed jobs_; _Run workflow_ on
+the tag (pick it under _Tags_, not a branch) does the same. Both are safe to
+repeat: the GitHub release gets its `.vsix` replaced and the publish steps
+skip versions that are already published. Running the workflow on a branch
+fails on purpose. Versions are plain `x.y.z`; never move a tag that reached
+the Marketplace or Open VSX (a published version can't be replaced), release
+the next patch version instead.
+
+### Marketplace and Open VSX tokens
+
+Set up once, then every tag publishes everywhere:
+
+- **VS Code Marketplace** (`VSCE_PAT`): an Azure DevOps personal access token
+  (_All accessible organizations_, scope _Marketplace: Manage_) for the
+  publisher `denpaz` created at
+  [marketplace.visualstudio.com/manage](https://marketplace.visualstudio.com/manage).
+  The Marketplace refuses a display name too close to an existing one
+  ("Similar extension display name"); that is why the extension is called
+  PCAP Lens.
+- **Open VSX** (`OVSX_PAT`): an access token from your
+  [open-vsx.org](https://open-vsx.org) settings (sign in with GitHub, link an
+  Eclipse account, sign the Publisher Agreement), and the namespace created
+  once with `npx ovsx create-namespace denpaz -p <token>`.
+
+Add both under the repository's _Settings › Secrets and variables › Actions_.
 
 The icon is `media/icon.svg`, rendered by `node scripts/render-icon.js`. The
 screenshots in `media/screenshots/` come from `node scripts/screenshots.js`

@@ -4,9 +4,7 @@ import type { PcapEditorProvider, PcapEditorSession } from "../pcapEditor";
 export function requireSession(provider: PcapEditorProvider): PcapEditorSession | undefined {
   const session = provider.activeSession;
   if (!session) {
-    void vscode.window.showInformationMessage(
-      "Open a .pcap or .pcapng file in the PCAP Viewer first.",
-    );
+    void vscode.window.showInformationMessage("Open a .pcap or .pcapng file in PCAP Lens first.");
   }
   return session;
 }

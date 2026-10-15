@@ -1,6 +1,6 @@
 # Ask Copilot (optional)
 
-With GitHub Copilot signed in, PCAP Viewer can help through VS Code's
+With GitHub Copilot signed in, PCAP Lens can help through VS Code's
 Language Model API. Each feature says what it sends, and anything computed
 from your capture needs your permission first (user settings only, so a
 workspace can't turn it on).

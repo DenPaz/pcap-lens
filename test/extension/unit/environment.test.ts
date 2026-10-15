@@ -87,7 +87,7 @@ suite("environment check", () => {
     );
     assert.equal(
       environmentSummary(missing, "the SSH host"),
-      "No Python 3.14+ interpreter found. PCAP Viewer runs in the SSH host: install it there.",
+      "No Python 3.14+ interpreter found. PCAP Lens runs in the SSH host: install it there.",
     );
   });
 
