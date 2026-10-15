@@ -6,6 +6,8 @@ versions are plain `major.minor.patch`.
 
 ## Unreleased
 
+## 0.4.0 — 2026-10-15
+
 ### Added
 
 - Packet colors follow the theme: in dark themes Wireshark's light coloring
