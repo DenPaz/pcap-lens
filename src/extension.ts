@@ -44,7 +44,7 @@ export interface PcapViewerApi {
 export function activate(context: vscode.ExtensionContext): PcapViewerApi {
   // Before any capture loads: readSettings applies each capture's Lua choice.
   initLuaChoices(context.workspaceState);
-  const log = vscode.window.createOutputChannel("PCAP Viewer", { log: true });
+  const log = vscode.window.createOutputChannel("PCAP Lens", { log: true });
   context.subscriptions.push(log);
   const assistant = new FilterAssistant(log);
   context.subscriptions.push(assistant);
@@ -143,7 +143,7 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
       }
       if (RELOAD_KEYS.some((k) => e.affectsConfiguration(k)) && p.allSessions.length) {
         const choice = await vscode.window.showInformationMessage(
-          "PCAP Viewer settings changed. Reload open captures to apply them?",
+          "PCAP Lens settings changed. Reload open captures to apply them?",
           "Reload",
         );
         if (choice === "Reload") {

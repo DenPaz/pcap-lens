@@ -386,7 +386,7 @@ export async function editCapture(
     }
     if (!(err instanceof RpcError && err.cancelled)) {
       log.error(`edit capture (${entry.op}): ${describeError(err)}`);
-      void vscode.window.showErrorMessage(`PCAP Viewer: ${describeError(err)}`);
+      void vscode.window.showErrorMessage(`PCAP Lens: ${describeError(err)}`);
     }
     return undefined;
   }

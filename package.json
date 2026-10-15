@@ -1,13 +1,13 @@
 {
   "name": "pcap-viewer",
-  "displayName": "PCAP Viewer",
+  "displayName": "PCAP Lens",
   "description": "Wireshark-like packet capture viewer for VS Code, powered by tshark.",
   "icon": "media/icon.png",
   "galleryBanner": {
     "color": "#0b3a73",
     "theme": "dark"
   },
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "denpaz",
   "license": "MIT",
   "repository": {
@@ -55,7 +55,7 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "In Restricted Mode, the Python and tshark paths and the Lua dissectors come from your user settings only, so a workspace can't make PCAP Viewer run its own programs or scripts.",
+      "description": "In Restricted Mode, the Python and tshark paths and the Lua dissectors come from your user settings only, so a workspace can't make PCAP Lens run its own programs or scripts.",
       "restrictedConfigurations": [
         "pcapViewer.pythonPath",
         "pcapViewer.tsharkPath",
@@ -73,7 +73,7 @@
     "customEditors": [
       {
         "viewType": "pcapViewer.editor",
-        "displayName": "PCAP Viewer",
+        "displayName": "PCAP Lens",
         "selector": [
           {
             "filenamePattern": "*.pcap"
@@ -125,7 +125,7 @@
       },
       {
         "viewType": "pcapViewer.editorOptional",
-        "displayName": "PCAP Viewer",
+        "displayName": "PCAP Lens",
         "selector": [
           {
             "filenamePattern": "*.[0-9]"
@@ -474,7 +474,7 @@
       },
       {
         "command": "pcapViewer.openFile",
-        "title": "Open File in PCAP Viewer…",
+        "title": "Open File in PCAP Lens…",
         "category": "PCAP"
       },
       {
@@ -923,7 +923,7 @@
       }
     ],
     "configuration": {
-      "title": "PCAP Viewer",
+      "title": "PCAP Lens",
       "properties": {
         "pcapViewer.pythonPath": {
           "type": "string",
@@ -1366,7 +1366,7 @@
       {
         "id": "pcapViewer.pcap",
         "name": "pcap",
-        "fullName": "PCAP Viewer",
+        "fullName": "PCAP Lens",
         "description": "Ask about the open capture (answered with tools where VS Code has them) or for a display filter; /summary, /anomaly, /explain",
         "isSticky": false,
         "commands": [
@@ -1391,8 +1391,8 @@
         "displayName": "Capture Properties",
         "toolReferenceName": "pcapCaptureInfo",
         "canBeReferencedInPrompt": true,
-        "userDescription": "The open capture's packets, duration, size and link type (PCAP Viewer)",
-        "modelDescription": "Properties of the capture open in PCAP Viewer: number of packets, first/last packet time, duration, file size, link type and file format.",
+        "userDescription": "The open capture's packets, duration, size and link type (PCAP Lens)",
+        "modelDescription": "Properties of the capture open in PCAP Lens: number of packets, first/last packet time, duration, file size, link type and file format.",
         "tags": [
           "pcap",
           "wireshark"
@@ -1407,7 +1407,7 @@
         "displayName": "Count Packets",
         "toolReferenceName": "pcapCount",
         "canBeReferencedInPrompt": true,
-        "userDescription": "Count the packets of the open capture matching a display filter (PCAP Viewer)",
+        "userDescription": "Count the packets of the open capture matching a display filter (PCAP Lens)",
         "modelDescription": "Count the packets of the open capture that match a Wireshark display filter (for example 'dns.flags.rcode != 0' for failed DNS responses). Returns the match count and the total. Doesn't change what the viewer shows.",
         "tags": [
           "pcap",
@@ -1431,7 +1431,7 @@
         "displayName": "Capture Statistics",
         "toolReferenceName": "pcapStats",
         "canBeReferencedInPrompt": true,
-        "userDescription": "Protocol hierarchy, conversations, endpoints, expert information or IO statistics of the open capture (PCAP Viewer)",
+        "userDescription": "Protocol hierarchy, conversations, endpoints, expert information or IO statistics of the open capture (PCAP Lens)",
         "modelDescription": "Statistics of the open capture computed by tshark: 'phs' protocol hierarchy, 'conv' conversations or 'endpoints' (with type eth, ip, ipv6, tcp or udp; top rows by bytes), 'expert' expert information counts, 'io' packets and bytes over time. An optional display filter limits them to matching packets.",
         "tags": [
           "pcap",
@@ -1476,7 +1476,7 @@
         "displayName": "Find Display Filter Fields",
         "toolReferenceName": "pcapFieldSearch",
         "canBeReferencedInPrompt": true,
-        "userDescription": "Wireshark display filter fields by prefix (PCAP Viewer)",
+        "userDescription": "Wireshark display filter fields by prefix (PCAP Lens)",
         "modelDescription": "Find Wireshark display filter field names by prefix (for example 'dns.flags' or 'tcp.analysis'), with their types and descriptions. Use it before writing a filter with a field you are not sure about.",
         "tags": [
           "pcap",
@@ -1505,7 +1505,7 @@
         "displayName": "List Packets",
         "toolReferenceName": "pcapListPackets",
         "canBeReferencedInPrompt": true,
-        "userDescription": "The first packets of the open capture matching a display filter, summary lines only (PCAP Viewer)",
+        "userDescription": "The first packets of the open capture matching a display filter, summary lines only (PCAP Lens)",
         "modelDescription": "List the first packets of the open capture matching a display filter (at most 20): number, time, source, destination, protocol, length and info column only. Doesn't change what the viewer shows.",
         "tags": [
           "pcap",
@@ -1533,7 +1533,7 @@
     "walkthroughs": [
       {
         "id": "gettingStarted",
-        "title": "Get Started with PCAP Viewer",
+        "title": "Get Started with PCAP Lens",
         "description": "Set up Python and TShark, open a capture, and find your way around the viewer.",
         "steps": [
           {

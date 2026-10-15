@@ -1,4 +1,4 @@
-"""probe_file (Open File in PCAP Viewer…): whether tshark reads a file,
+"""probe_file (Open File in PCAP Lens…): whether tshark reads a file,
 whatever it is called, and why not (ber.count_records for record files)."""
 
 import shutil

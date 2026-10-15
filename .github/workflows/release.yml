@@ -58,7 +58,7 @@ jobs:
             gh release upload "$TAG" "$VSIX" --clobber
           else
             gh release create "$TAG" "$VSIX" --verify-tag \
-              --title "PCAP Viewer ${TAG#v}" --notes-file "$RUNNER_TEMP/notes.md"
+              --title "PCAP Lens ${TAG#v}" --notes-file "$RUNNER_TEMP/notes.md"
           fi
       - name: VS Code Marketplace
         env:

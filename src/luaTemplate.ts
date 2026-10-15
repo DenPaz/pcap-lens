@@ -37,7 +37,7 @@ function luaString(s: string): string {
 export function luaDissectorTemplate(spec: LuaDissectorSpec): string {
   const { name, transport, port } = spec;
   const desc = luaString(spec.description);
-  return `-- ${spec.description.replace(/\r?\n/g, " ")} dissector for PCAP Viewer / Wireshark.
+  return `-- ${spec.description.replace(/\r?\n/g, " ")} dissector for PCAP Lens / Wireshark.
 --
 -- Loaded by tshark as -X lua_script:<this file> (see pcapViewer.dissectorsFolder
 -- and pcapViewer.luaScripts). After editing, run "PCAP: Reload Dissectors".

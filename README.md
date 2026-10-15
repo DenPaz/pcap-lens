@@ -1,4 +1,4 @@
-# PCAP Viewer for VS Code
+# PCAP Lens
 
 Open `.pcap` / `.pcapng` captures in VS Code with a Wireshark-like packet list,
 protocol tree and hex view. **tshark** (Wireshark's command-line tool) does all
@@ -8,7 +8,8 @@ dissection and filtering, so results match Wireshark exactly.
 
 ## Getting started
 
-1. Install **PCAP Viewer** from the VS Code Marketplace or Open VSX, or
+1. Install **PCAP Lens** (extension ID `denpaz.pcap-viewer`; it was called
+   PCAP Viewer before 0.4.1) from the VS Code Marketplace or Open VSX, or
    download the `.vsix` from
    [GitHub releases](https://github.com/DenPaz/vsc_pcap_viewer/releases) and
    run `code --install-extension pcap-viewer-<version>.vsix`.
@@ -43,7 +44,7 @@ which editor VS Code offers.
   `.trc`, `.ber` (generic names that are sometimes captures).
 
 **Any other name**, or no extension at all: right-click the file in the
-Explorer, or run _PCAP: Open File in PCAP Viewer…_ and pick it. It opens if
+Explorer, or run _PCAP: Open File in PCAP Lens…_ and pick it. It opens if
 tshark reads it (Network Monitor, Sniffer, a raw BER/ASN.1 value…), else you
 are told why. A file of several BER records back to back isn't readable:
 tshark reads one BER value per file. zstd and LZ4 need a tshark built with
@@ -142,7 +143,7 @@ and never overwrite the open capture.
 
 - **TLS decryption** with an `SSLKEYLOGFILE` key log (_PCAP: Set TLS Key Log
   File…_); the viewer offers a reload when the file gets new keys.
-- **Lua dissectors**: _PCAP: New Lua Dissector_ scaffolds one, _PCAP: Reload
+- **Lua dissectors**: _PCAP: New Lua Dissector…_ scaffolds one, _PCAP: Reload
   Dissectors_ checks it and links errors to their line (see
   `backend/dissectors/example.lua`). _PCAP: Lua Dissectors…_ (or the status
   bar's _Lua_ link) picks which scripts each capture loads; the choice is
@@ -188,8 +189,10 @@ On macOS use `Cmd` for `Ctrl`. They apply while a capture is the active editor.
 
 ## Settings
 
-All settings start with `pcapViewer.`. Those marked † can differ per workspace
-folder; those marked ‡ can only be set in user settings.
+They are under **PCAP Lens** in the Settings editor, and their IDs start with
+`pcapViewer.` (the extension's former name, kept so existing settings still
+apply). Those marked † can differ per workspace folder; those marked ‡ can only
+be set in user settings.
 
 | Setting                                                                     | What it does                                                                |
 | --------------------------------------------------------------------------- | --------------------------------------------------------------------------- |

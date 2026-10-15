@@ -1,6 +1,6 @@
 # Python 3.14
 
-PCAP Viewer runs a small backend written in Python (standard library only:
+PCAP Lens runs a small backend written in Python (standard library only:
 nothing to `pip install`). It needs **Python 3.14 or newer** and looks for
 `python3.14`, then `python3` and `python` (on Windows: `py -3.14`, `py -3`,
 `python`).
@@ -27,13 +27,13 @@ nothing to `pip install`). It needs **Python 3.14 or newer** and looks for
 
 ## In a remote window
 
-In WSL, over SSH, in a Dev Container or a Codespace, PCAP Viewer runs on the
+In WSL, over SSH, in a Dev Container or a Codespace, PCAP Lens runs on the
 remote machine: install Python **there** (the instructions above for its
 system), not on your own computer. Set the path in **Remote** settings
 (_Preferences: Open Remote Settings_): local user settings don't apply there.
 
 ## Installed somewhere else?
 
-Set **PCAP Viewer › Python Path** (`pcapViewer.pythonPath`) to the
+Set **PCAP Lens › Python Path** (`pcapViewer.pythonPath`) to the
 interpreter, for example `C:\Python314\python.exe` or
 `/opt/python3.14/bin/python3`. Then click **Check Again**.

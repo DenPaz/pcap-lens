@@ -88,7 +88,7 @@ export async function mergeCaptures(
     );
   } catch (err) {
     if (!(err instanceof RpcError && err.cancelled)) {
-      void vscode.window.showErrorMessage(`PCAP Viewer: merging failed: ${describeError(err)}`);
+      void vscode.window.showErrorMessage(`PCAP Lens: merging failed: ${describeError(err)}`);
     }
     return undefined;
   }

@@ -128,7 +128,7 @@ export async function startCapture(
       if (!res.interfaces.length) {
         throw new Error(
           "dumpcap lists no interfaces to capture on. It may lack the permission to see them " +
-            "(see the PCAP Viewer README: Live capture).",
+            "(see the PCAP Lens README: Live capture).",
         );
       }
       const picked = await pickInterfaces(context, res.interfaces);
@@ -144,7 +144,7 @@ export async function startCapture(
   } catch (err) {
     log.error(`capture: ${describeError(err)}`);
     void vscode.window
-      .showErrorMessage(`PCAP Viewer: ${describeError(err)}`, "Show Log")
+      .showErrorMessage(`PCAP Lens: ${describeError(err)}`, "Show Log")
       .then((c) => c && log.show());
     return undefined;
   }

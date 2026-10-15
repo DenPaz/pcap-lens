@@ -72,7 +72,7 @@ export function environmentSummary(status: EnvironmentStatus, where?: string): s
   if (python.ok && tshark.ok) {
     return `Ready${where ? ` in ${where}` : ""}: Python ${python.version} (${python.command}) and TShark ${tshark.version} (${tshark.path}).`;
   }
-  const hint = where ? ` PCAP Viewer runs in ${where}: install it there.` : "";
+  const hint = where ? ` PCAP Lens runs in ${where}: install it there.` : "";
   if (!python.ok) {
     return python.error + hint;
   }

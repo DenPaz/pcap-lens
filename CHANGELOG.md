@@ -6,6 +6,16 @@ versions are plain `major.minor.patch`.
 
 ## Unreleased
 
+## 0.4.1 — 2026-10-15
+
+### Changed
+
+- Renamed to **PCAP Lens**: the VS Code Marketplace refused "PCAP Viewer" as
+  too close to another extension's name. The extension ID, commands and
+  settings are unchanged, so nothing needs reconfiguring. [#42]
+
+[#42]: https://github.com/DenPaz/vsc_pcap_viewer/pull/42
+
 ## 0.4.0 — 2026-10-15
 
 ### Added

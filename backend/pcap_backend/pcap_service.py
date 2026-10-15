@@ -3011,7 +3011,7 @@ class PcapService:
 
     def probe_file(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """Whether tshark can read ``path`` as a capture, whatever it is called
-        (for "Open File in PCAP Viewer…"): ``{readable: true, format}``
+        (for "Open File in PCAP Lens…"): ``{readable: true, format}``
         (pcap/pcapng/null for other formats tshark reads), or ``{readable:
         false, message}``, with ``berRecords: N`` when the file is several BER
         values back to back (tshark reads one BER value per file). Needs no open

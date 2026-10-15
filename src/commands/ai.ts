@@ -48,7 +48,7 @@ export async function suggestDisplayFilter(
   );
   if (!outcome.suggestions.length) {
     if (outcome.message && outcome.message !== "Cancelled.") {
-      void vscode.window.showInformationMessage(`PCAP Viewer: ${outcome.message}`);
+      void vscode.window.showInformationMessage(`PCAP Lens: ${outcome.message}`);
     }
     return undefined;
   }
@@ -160,7 +160,7 @@ async function explainInChat(
   const session = provider.activeSession;
   if (!session?.openInfo) {
     stream.markdown(
-      "Open a capture in the PCAP Viewer first, then ask about packets, e.g. *@pcap /explain 12*.",
+      "Open a capture in PCAP Lens first, then ask about packets, e.g. *@pcap /explain 12*.",
     );
     return;
   }
@@ -248,7 +248,7 @@ async function summaryInChat(
   const session = provider.activeSession;
   if (!session?.openInfo) {
     stream.markdown(
-      "Open a capture in the PCAP Viewer first, then ask for a summary with *@pcap /summary*.",
+      "Open a capture in PCAP Lens first, then ask for a summary with *@pcap /summary*.",
     );
     return;
   }
@@ -286,7 +286,7 @@ async function anomalyInChat(
   const session = provider.activeSession;
   if (!session?.openInfo) {
     stream.markdown(
-      "Open a capture in the PCAP Viewer first, then ask about its expert information (*@pcap /anomaly*) or a TCP stream (*@pcap /anomaly stream 3*).",
+      "Open a capture in PCAP Lens first, then ask about its expert information (*@pcap /anomaly*) or a TCP stream (*@pcap /anomaly stream 3*).",
     );
     return;
   }
@@ -393,7 +393,7 @@ async function answerInEditor(
   );
   if (!outcome.frames.length && !outcome.filters.length) {
     if (outcome.message && outcome.message !== "Cancelled.") {
-      void vscode.window.showInformationMessage(`PCAP Viewer: ${outcome.message}`);
+      void vscode.window.showInformationMessage(`PCAP Lens: ${outcome.message}`);
     }
     return;
   }
@@ -538,7 +538,7 @@ function registerChatParticipant(
       const session = provider.activeSession;
       if (!session?.openInfo) {
         stream.markdown(
-          "Open a capture in the PCAP Viewer first, then ask me for a display filter, e.g. *@pcap DNS queries that got no answer*.",
+          "Open a capture in PCAP Lens first, then ask me for a display filter, e.g. *@pcap DNS queries that got no answer*.",
         );
         return;
       }
@@ -633,7 +633,7 @@ function registerLanguageModelTools(
             const session = provider.activeSession;
             const backend = session?.backend;
             if (!session?.openInfo || !backend?.running) {
-              return runtime.result("No capture is open in PCAP Viewer.");
+              return runtime.result("No capture is open in PCAP Lens.");
             }
             const result = await runTool(spec.name, options.input, backend, toolConsent());
             return runtime.result(result.text);

@@ -1,6 +1,6 @@
 # TShark
 
-TShark is Wireshark's command-line dissector: PCAP Viewer uses it to read
+TShark is Wireshark's command-line dissector: PCAP Lens uses it to read
 captures, so every protocol Wireshark knows works here too. It also uses
 `capinfos`, `editcap`, `mergecap` and `dumpcap` from the same install for
 some features.
@@ -33,12 +33,12 @@ some features.
 
 ## In a remote window
 
-In WSL, over SSH, in a Dev Container or a Codespace, PCAP Viewer runs on the
+In WSL, over SSH, in a Dev Container or a Codespace, PCAP Lens runs on the
 remote machine: install TShark **there** (the instructions above for its
 system), not on your own computer. Set the path in **Remote** settings
 (_Preferences: Open Remote Settings_): local user settings don't apply there.
 
 ## Installed somewhere else?
 
-Set **PCAP Viewer › Tshark Path** (`pcapViewer.tsharkPath`) to the `tshark`
+Set **PCAP Lens › Tshark Path** (`pcapViewer.tsharkPath`) to the `tshark`
 executable. Then click **Check Again**.

@@ -49,10 +49,10 @@ export async function offerSetupHelp(
   const where = whereLabel(vscode.env.remoteName);
   const text =
     where && !message.includes(where)
-      ? `${message} PCAP Viewer runs in ${where}: install it there.`
+      ? `${message} PCAP Lens runs in ${where}: install it there.`
       : message;
   const choice = await vscode.window.showErrorMessage(
-    `PCAP Viewer: ${text}`,
+    `PCAP Lens: ${text}`,
     "Setup Guide",
     download,
     "Open Settings",
@@ -122,7 +122,7 @@ export function registerSetupCommands(
           if (fix) {
             void offerSetupHelp(context, summary, fix);
           } else {
-            void vscode.window.showInformationMessage(`PCAP Viewer: ${summary}`);
+            void vscode.window.showInformationMessage(`PCAP Lens: ${summary}`);
           }
         }
         return status;

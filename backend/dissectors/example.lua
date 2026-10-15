@@ -1,4 +1,4 @@
--- Example Lua dissector for PCAP Viewer.
+-- Example Lua dissector for PCAP Lens.
 --
 -- Decodes a toy protocol carried over UDP port 9999:
 --   version (1 byte) | type (1 byte) | sequence (2 bytes, big endian) | payload (text)

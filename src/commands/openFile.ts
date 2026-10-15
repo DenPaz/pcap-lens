@@ -21,7 +21,7 @@ async function pickFile(): Promise<vscode.Uri | undefined> {
   const browse = async () =>
     (
       await vscode.window.showOpenDialog({
-        title: "Open File in PCAP Viewer",
+        title: "Open File in PCAP Lens",
         canSelectMany: false,
         openLabel: "Open",
         defaultUri: vscode.workspace.workspaceFolders?.[0]?.uri,
@@ -31,7 +31,7 @@ async function pickFile(): Promise<vscode.Uri | undefined> {
     return browse();
   }
   const pick = vscode.window.createQuickPick<FileItem>();
-  pick.title = "Open File in PCAP Viewer";
+  pick.title = "Open File in PCAP Lens";
   pick.placeholder = "Type to find a file in the workspace (any name, with or without extension)";
   pick.matchOnDescription = true;
   pick.busy = true;
@@ -66,7 +66,7 @@ async function pickFile(): Promise<vscode.Uri | undefined> {
 }
 
 /**
- * PCAP: Open File in PCAP Viewer…: open any file (a workspace file, one
+ * PCAP: Open File in PCAP Lens…: open any file (a workspace file, one
  * browsed to, or the Explorer's selection) in the viewer if tshark can read
  * it, whatever it is called: VS Code picks editors by file name only, so a
  * capture or a BER file without a known extension otherwise never gets the
@@ -85,7 +85,7 @@ export async function openFileInViewer(
   }
   if (uri.scheme !== "file") {
     void vscode.window.showWarningMessage(
-      `PCAP Viewer: ${path.basename(uri.path)} isn't a file on disk; open a copy of it instead.`,
+      `PCAP Lens: ${path.basename(uri.path)} isn't a file on disk; open a copy of it instead.`,
     );
     return false;
   }
@@ -100,7 +100,7 @@ export async function openFileInViewer(
     );
   } catch (err) {
     log.error(`open file ${uri.fsPath}: ${describeError(err)}`);
-    void vscode.window.showErrorMessage(`PCAP Viewer: ${describeError(err)}`);
+    void vscode.window.showErrorMessage(`PCAP Lens: ${describeError(err)}`);
     return false;
   }
   if (!probe.readable) {
@@ -109,7 +109,7 @@ export async function openFileInViewer(
       ? " Splitting such a file into one packet per record isn't supported yet."
       : "";
     log.warn(`open file ${uri.fsPath}: ${why}`);
-    void vscode.window.showWarningMessage(`PCAP Viewer: ${why}.${more}`);
+    void vscode.window.showWarningMessage(`PCAP Lens: ${why}.${more}`);
     return false;
   }
   await vscode.commands.executeCommand("vscode.openWith", uri, PcapEditorProvider.viewType);

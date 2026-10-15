@@ -297,7 +297,7 @@ export async function importHexDump(
     discardTemporaryCapture(context, dest, 0);
     if (!(err instanceof RpcError && err.cancelled)) {
       log.error(`import hex dump: ${describeError(err)}`);
-      void vscode.window.showErrorMessage(`PCAP Viewer: ${describeError(err)}`);
+      void vscode.window.showErrorMessage(`PCAP Lens: ${describeError(err)}`);
     }
     return undefined;
   }
