@@ -1784,6 +1784,7 @@ export class PcapEditorSession {
     const values: Record<string, string> = {
       cspSource: webview.cspSource,
       nonce,
+      baseUri: webview.asWebviewUri(vscode.Uri.joinPath(root, "base.css")).toString(),
       stylesUri: webview.asWebviewUri(vscode.Uri.joinPath(root, "styles.css")).toString(),
       codiconsUri: webview
         .asWebviewUri(vscode.Uri.joinPath(root, "codicons", "codicon.css"))

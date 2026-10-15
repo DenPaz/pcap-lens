@@ -154,6 +154,14 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       "codicon codicon-triangle-down",
     );
     assert.ok(await codiconFontLoaded(page), "the codicon font loads in panels");
+    // Panels share base.css (tokens, controls) with the viewer, not its styles.css.
+    assert.deepEqual(
+      await page.evaluate(() => [
+        [...document.styleSheets].map((s) => s.href.split("/").pop()),
+        getComputedStyle(document.documentElement).getPropertyValue("--space-4"),
+      ]),
+      [["codicon.css", "base.css", "panel.css"], "8px"],
+    );
 
     await page.click("table.stats tbody tr >> nth=0");
     await page.click("button:has-text('Apply as Filter')");

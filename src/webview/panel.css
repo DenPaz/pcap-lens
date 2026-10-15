@@ -1,20 +1,22 @@
-/* Auxiliary panels (statistics, follow stream). Extends styles.css; theme tokens only. */
+/*
+ * The auxiliary panels (statistics, follow stream, …), on top of base.css
+ * (tokens, buttons, inputs). Theme colours only.
+ */
 body.panel {
   overflow: auto;
 }
 
 body.panel #app {
-  height: auto;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 14px 16px;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6) var(--space-6);
 }
 
 .panel-title {
   margin: 0;
-  font-size: 1.15em;
+  font-size: var(--text-lg);
   font-weight: 600;
 }
 
@@ -28,13 +30,13 @@ body.panel #app {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 10px;
+  gap: var(--space-3) var(--space-5);
 }
 
 .toolbar label {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2);
 }
 
 .toolbar .spacer {
@@ -47,27 +49,8 @@ body.panel #app {
   color: var(--vscode-textPreformat-foreground, inherit);
 }
 
-select,
-input[type="number"] {
-  font: inherit;
-  color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground));
-  background: var(--vscode-dropdown-background, var(--vscode-input-background));
-  border: 1px solid var(--vscode-dropdown-border, var(--vscode-input-border, transparent));
-  padding: 2px 4px;
-  border-radius: 2px;
-}
-
-input[type="number"] {
-  width: 6em;
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
 .notice {
-  padding: 4px 8px;
+  padding: var(--space-2) var(--space-4);
   border-left: 3px solid var(--vscode-editorWarning-foreground, var(--vscode-focusBorder));
   background: var(--vscode-textBlockQuote-background, transparent);
 }
@@ -94,7 +77,7 @@ table.stats {
 
 table.stats th,
 table.stats td {
-  padding: 2px 8px;
+  padding: var(--space-1) var(--space-4);
   text-align: left;
   white-space: nowrap;
   border-bottom: 1px solid var(--border);
@@ -146,7 +129,7 @@ table.stats td.wrap {
   display: inline-block;
   width: 8px;
   height: 8px;
-  margin-right: 6px;
+  margin-right: var(--space-3);
   border-radius: 50%;
   background: var(--vscode-descriptionForeground);
 }
@@ -189,7 +172,7 @@ table.stats td.wrap {
 
 .chart .axis text {
   fill: var(--vscode-descriptionForeground);
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -222,7 +205,7 @@ table.stats td.wrap {
 .chart .tooltip {
   position: absolute;
   pointer-events: none;
-  padding: 4px 8px;
+  padding: var(--space-2) var(--space-4);
   white-space: nowrap;
   color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
   background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
@@ -231,7 +214,7 @@ table.stats td.wrap {
 
 .chart .tooltip strong {
   display: block;
-  font-size: 1.1em;
+  font-size: var(--text-lg);
   font-variant-numeric: tabular-nums;
 }
 
@@ -244,7 +227,7 @@ table.stats td.wrap {
 .follow-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 16px;
+  gap: var(--space-2) var(--space-6);
   font-family: var(--mono);
   font-size: var(--mono-size);
 }
@@ -253,7 +236,7 @@ table.stats td.wrap {
   display: inline-block;
   width: 14px;
   height: 3px;
-  margin-right: 6px;
+  margin-right: var(--space-3);
   vertical-align: middle;
 }
 
@@ -279,8 +262,8 @@ table.stats td.wrap {
 }
 
 .segment {
-  margin: 0 0 2px;
-  padding: 1px 8px;
+  margin: 0 0 var(--space-1);
+  padding: var(--space-1) var(--space-4);
   white-space: pre-wrap;
   word-break: break-all;
   border-left: 3px solid;
@@ -298,7 +281,7 @@ table.stats td.wrap {
 
 table.rules td {
   vertical-align: top;
-  padding: 3px 6px;
+  padding: var(--control-pad-y) var(--space-3);
 }
 
 table.rules th {
@@ -317,17 +300,6 @@ table.rules tr.disabled input[type="text"] {
 table.rules input[type="text"] {
   font-family: var(--mono);
   font-size: var(--mono-size);
-  color: var(--vscode-input-foreground);
-  background: var(--vscode-input-background);
-  border: 1px solid var(--vscode-input-border, transparent);
-  padding: 2px 4px;
-  border-radius: 2px;
-  box-sizing: border-box;
-}
-
-table.rules input[type="text"]:focus {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: -1px;
 }
 
 table.rules .rule-name {
@@ -350,7 +322,7 @@ table.rules .rule-filter.invalid {
 table.rules .rule-problem {
   color: var(--vscode-errorForeground);
   white-space: normal;
-  font-size: 0.9em;
+  font-size: var(--text-sm);
 }
 
 table.rules .rule-problem:empty {
@@ -371,8 +343,8 @@ table.rules .rule-colors {
 }
 
 table.rules .rule-sample {
-  padding: 1px 8px;
-  border-radius: 2px;
+  padding: var(--control-pad-y-sm) var(--space-4);
+  border-radius: var(--radius);
   min-width: 10em;
   max-width: 18em;
   overflow: hidden;
@@ -384,8 +356,8 @@ table.rules .rule-actions {
 }
 
 table.rules button.icon {
-  min-width: 1.8em;
-  padding: 0 4px;
+  min-width: 0;
+  padding: var(--space-1);
 }
 
 table.rules .empty-rules {
@@ -420,8 +392,7 @@ table.rules .empty-rules {
 .flow-node {
   position: absolute;
   top: 0;
-  box-sizing: border-box;
-  padding: 6px 6px 0;
+  padding: var(--space-3) var(--space-3) 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -502,7 +473,7 @@ table.rules .empty-rules {
 
 .chart .axis-label {
   fill: var(--vscode-descriptionForeground);
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -531,14 +502,14 @@ table.rules .empty-rules {
 
 /* VoIP calls panel (the call flow shares the flow graph's classes). */
 .panel-subtitle-h {
-  margin: 8px 0 0;
+  margin: var(--space-4) 0 0;
   font-size: 1em;
   font-weight: 600;
 }
 
 table.stats caption {
   caption-side: bottom;
-  padding: 6px 8px;
+  padding: var(--space-3) var(--space-4);
   text-align: left;
   color: var(--vscode-descriptionForeground);
 }
@@ -587,28 +558,15 @@ table.stats tbody tr:focus-visible {
 }
 
 .voip-problems {
-  margin: 4px 0;
-  padding-left: 20px;
+  margin: var(--space-2) 0;
+  padding-left: calc(var(--space-6) + var(--space-2));
   font-family: var(--mono);
   font-size: var(--mono-size);
 }
 
-button.link {
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--vscode-textLink-foreground);
-  cursor: pointer;
-  font: inherit;
-}
-
-button.link:hover {
-  text-decoration: underline;
-}
-
 /* Sort indicators in table headers (stats.js, objects.js). */
 th > .codicon {
-  margin-left: 2px;
+  margin-left: var(--space-1);
   vertical-align: middle;
   opacity: 0.8;
 }

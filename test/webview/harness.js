@@ -79,6 +79,7 @@ function renderEditorHtml(origin) {
   const values = {
     cspSource: origin,
     nonce,
+    baseUri: `${origin}/base.css`,
     stylesUri: `${origin}/styles.css`,
     codiconsUri: `${origin}/codicons/codicon.css`,
     libUri: `${origin}/lib.js`,
@@ -98,7 +99,7 @@ function renderPanelHtml(origin, script, { media = false } = {}) {
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="${csp}">
   <link rel="stylesheet" href="${origin}/codicons/codicon.css">
-  <link rel="stylesheet" href="${origin}/styles.css"><link rel="stylesheet" href="${origin}/panel.css">
+  <link rel="stylesheet" href="${origin}/base.css"><link rel="stylesheet" href="${origin}/panel.css">
   </head><body class="panel"><div id="app"></div>
   ${stubScript(nonce)}
   <script nonce="${nonce}" src="${origin}/lib.js"></script>

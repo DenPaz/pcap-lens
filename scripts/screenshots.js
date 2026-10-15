@@ -7,8 +7,9 @@
  *
  *   node scripts/screenshots.js [--theme dark|light|hc] [--out <folder>]
  *
- * `--theme light` (Light Modern) and `--theme hc` (Dark High Contrast) are for
- * checking the styling; the README shows the dark ones.
+ * The default (dark) run also writes viewer-light.png for the README.
+ * `--theme light` (Light Modern) and `--theme hc` (Dark High Contrast) render
+ * every screenshot in that theme, for checking the styling.
  */
 const fs = require("node:fs");
 const path = require("node:path");
@@ -262,8 +263,8 @@ if (!THEMES[THEME]) {
 }
 
 /** Apply the theme the way VS Code does (variables on <html>, a class on <body>). */
-function applyTheme(page) {
-  const [vars, kind] = THEMES[THEME];
+function applyTheme(page, theme = THEME) {
+  const [vars, kind] = THEMES[theme];
   return page.evaluate(
     ([vars, kind]) => {
       for (const [k, v] of Object.entries(vars)) {
@@ -284,7 +285,14 @@ function forwardRpc(client, post, msg) {
   );
 }
 
-async function editorPage(browser, origin, client, rules) {
+/** Filter buttons (pcapViewer.filterButtons) for the toolbar under the filter bar. */
+const FILTER_BUTTONS = [
+  { label: "Web", filter: "http || tls" },
+  { label: "DNS errors", filter: "dns.flags.rcode != 0" },
+  { label: "TCP handshakes", filter: "tcp.flags.syn == 1" },
+];
+
+async function editorPage(browser, origin, client, rules, theme = THEME) {
   const page = await browser.newPage({ viewport: VIEWPORT });
   // (answers can still arrive after the page closed)
   const post = (m) => page.evaluate((x) => window.postMessage(x, "*"), m).catch(() => undefined);
@@ -318,13 +326,14 @@ async function editorPage(browser, origin, client, rules) {
         elapsedMs: 40,
         names: "Names: off",
       });
+      await post({ type: "filterButtons", buttons: FILTER_BUTTONS });
       await post({ type: "coloring", coloringId: info.coloring.coloringId, rules });
     } else if (msg.type === "rpc") {
       forwardRpc(client, post, msg);
     }
   });
   await page.setContent(renderEditorHtml(origin), { waitUntil: "load" });
-  await applyTheme(page);
+  await applyTheme(page, theme);
   await page.waitForSelector("#overlay.hidden", { state: "attached" });
   await page.waitForSelector("#list-rows .list-row");
   return page;
@@ -346,12 +355,15 @@ async function main() {
   );
   try {
     // 1. The viewer: an HTTP response reassembled from two segments, its tree open.
+    const viewer = async (page, file) => {
+      await page.click("#list-rows .list-row >> nth=15");
+      await page.waitForSelector("#detail-tree .node-row:has-text('Hypertext Transfer Protocol')");
+      await page.click("#detail-tree .node-row:has-text('Hypertext Transfer Protocol') .twisty");
+      await page.click("#detail-tree .node-row:has-text('Content-Type')");
+      await page.screenshot({ path: path.join(OUT, file) });
+    };
     let page = await editorPage(browser, origin, client, rules);
-    await page.click("#list-rows .list-row >> nth=15");
-    await page.waitForSelector("#detail-tree .node-row:has-text('Hypertext Transfer Protocol')");
-    await page.click("#detail-tree .node-row:has-text('Hypertext Transfer Protocol') .twisty");
-    await page.click("#detail-tree .node-row:has-text('Content-Type')");
-    await page.screenshot({ path: path.join(OUT, "viewer.png") });
+    await viewer(page, "viewer.png");
 
     // 2. Filter autocomplete from tshark's field list.
     await page.click("#filter-input");
@@ -377,6 +389,13 @@ async function main() {
     await applyTheme(page);
     await page.waitForSelector("table.stats tbody tr");
     await page.screenshot({ path: path.join(OUT, "statistics.png") });
+    await page.close();
+
+    // 4. The viewer in a light theme (README).
+    if (THEME === "dark") {
+      page = await editorPage(browser, origin, client, rules, "light");
+      await viewer(page, "viewer-light.png");
+    }
   } finally {
     await browser.close();
     await client.dispose();

@@ -97,7 +97,8 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH): lint, backend and
 - `src/webview/` plain JS/CSS/HTML (no build step). `lib.js` = pure helpers
   shared with Node tests; `main.js` = UI. Type-checked via JSDoc +
   `tsconfig.webview.json`. `codicons/` = the vendored Codicons font
-  (`scripts/sync-codicons.mjs`).
+  (`scripts/sync-codicons.mjs`). CSS: `base.css` (tokens and controls, loaded
+  by the editor and the panels), `styles.css` (the viewer), `panel.css`.
 - `src/panels/` statistics, follow-stream, coloring-rules, export-objects,
   flow-graph, TCP-graph and VoIP webview panels (`panelHtml.ts` builds their
   CSP'd HTML); their UIs are `src/webview/stats.js`, `follow.js`,
@@ -1141,7 +1142,7 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   `.prettierignore`; `-text` in `.gitattributes`, as the LICENSE files are
   CRLF), and `test/scripts/codicons.test.mjs` fails when the copy differs from
   the installed package. The editor (`{{codiconsUri}}`) and `panelHtml` link
-  the stylesheet before `styles.css`; the CSP's `font-src cspSource` allows
+  the stylesheet before `base.css`; the CSP's `font-src cspSource` allows
   the font (fonts load in CORS mode: the test harness sends
   `Access-Control-Allow-Origin: *` like VS Code's resource server, and
   `codiconFontLoaded` checks the editor and the panels). Icons are
@@ -1152,8 +1153,9 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   (● in `<option>`s and marked rows, ⚠ in a table cell, → in labels).
 - **High contrast** (`body.vscode-high-contrast`, `-high-contrast-light`): HC
   themes define no hover/selection/secondary-button fills, so the selected
-  packet and tree node used to be invisible. The last section of styles.css
-  (and of panel.css) outlines instead: `--hc-active` (=
+  packet and tree node used to be invisible. base.css defines `--hc-active`
+  and `--hc-border` and the button rules; the last sections of styles.css and
+  panel.css outline their lists. `--hc-active` (=
   `--vscode-contrastActiveBorder`) solid for selected/pressed/active, dashed
   on hover, 2 px when the list or tree has focus (and for the focused row of a
   multi-selection), menu entries with `menu-selectionBorder`, popups bordered
@@ -1162,7 +1164,30 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   own `:not(:focus-visible):hover` rule (the focus outline wins). The flow
   graph's rows are SVG: `stroke` instead of outline. `node
 scripts/screenshots.js --theme light|hc --out <dir>` renders Light Modern
-  and Dark High Contrast for checking.
+  and Dark High Contrast for checking (the default run also writes the
+  README's `viewer-light.png`).
+- **Shared stylesheet and tokens** (`src/webview/base.css`): the editor loads
+  codicon.css, base.css, styles.css; the panels codicon.css, base.css,
+  panel.css (no longer the viewer's styles.css; the panels e2e test checks the
+  list). base.css holds the design tokens (spacing `--space-1…6` = 2, 4, 6, 8,
+  12, 16 px; `--control-pad-y` 3 px / `-sm` 1 px; `--radius` 2 px,
+  `--radius-toolbar` 5 px; `--text-xs` 11 px for chart labels, `--text-sm`
+  0.9em, `--text-lg` 1.15em; `--mono`, `--mono-size`, `--row-height`,
+  `--border`, `--shadow`) and the controls both use: buttons (primary,
+  `.secondary`, `.icon`, `.link`, disabled), text/search/number inputs,
+  selects and textareas, focus outlines, `.hidden`, `.visually-hidden`, and
+  the high-contrast tokens. Paddings, margins, gaps, radii and font sizes in
+  styles.css and panel.css use the tokens; add a token rather than a new
+  literal. **Icon buttons** look like VS Code's toolbar actions: no border or
+  fill, `toolbar-hoverBackground` on hover, `toolbar-activeBackground` while
+  pressed or `aria-pressed` (plus `inputOption-activeBorder`), 5 px corners.
+  **Indent guides** in the detail tree: main.js sets `--depth` on each row;
+  `.node-row` indents by `--depth × --tree-indent` (14 px) and paints one
+  1 px line per level as a `background-image` (a repeating gradient at 7–8 px
+  of each 14 px step, under the parent's chevron) sized to the indent, so the
+  hover/selection rules set `background-color` only. The lines use
+  `tree-inactiveIndentGuidesStroke`, and `tree-indentGuidesStroke` while the
+  tree is hovered or focused (VS Code's default "onHover").
 - **Protocol**: JSON-RPC 2.0 framing (`"jsonrpc": "2.0"`), LSP-style
   cancellation code -32800; app codes in `backend/pcap_backend/protocol.py`
   and mirrored in `src/backendClient.ts` (`ErrorCodes`; -32011 unsupported format,
@@ -1215,3 +1240,5 @@ filter buttons, and Import from Hex Dump. Then foldable ☰ menu groups,
 per-capture Lua dissectors, and Open File in PCAP Viewer for files of any name.
 Then Show TShark Plugins and README instructions for Wireshark plugins.
 Then theme-aware packet colors, Codicons and high-contrast support.
+Then a shared stylesheet with design tokens, toolbar-style icon buttons and
+tree indent guides.
