@@ -1,9 +1,16 @@
-# Python 3.14
+# Python 3.12 or newer
 
 PCAP Lens runs a small backend written in Python (standard library only:
-nothing to `pip install`). It needs **Python 3.14 or newer** and looks for
-`python3.14`, then `python3` and `python` (on Windows: `py -3.14`, `py -3`,
-`python`).
+nothing to `pip install`). It needs **Python 3.12 or newer** and looks for
+`python3.14`, `python3.13`, `python3.12`, then `python3` and `python` (on
+Windows: `py -3.14` … `py -3`, `python`), and finally for a Python installed
+with [uv](https://docs.astral.sh/uv/), even when it isn't on `PATH`.
+
+## The quick way
+
+Click **Install Python**: with uv installed, it runs `uv python install 3.14`
+in a terminal (no admin rights needed) and checks again when it's done.
+Without uv, it links to python.org and to uv's installation page.
 
 ## Windows
 
@@ -18,19 +25,17 @@ nothing to `pip install`). It needs **Python 3.14 or newer** and looks for
 
 ## Linux
 
+- Ubuntu 24.04 (3.12) and Debian 13 (3.13) already have it as `python3`.
 - Fedora: `sudo dnf install python3.14`
-- Ubuntu: `sudo apt install python3.14` where your release has it (or the
-  deadsnakes PPA).
-- Any distribution: `uv python install 3.14` with
-  [uv](https://docs.astral.sh/uv/), which puts `python3.14` in
-  `~/.local/bin`.
+- Any distribution: `uv python install 3.14`.
 
 ## In a remote window
 
 In WSL, over SSH, in a Dev Container or a Codespace, PCAP Lens runs on the
 remote machine: install Python **there** (the instructions above for its
-system), not on your own computer. Set the path in **Remote** settings
-(_Preferences: Open Remote Settings_): local user settings don't apply there.
+system), not on your own computer. **Install Python** does that for you when
+uv is installed there. Set the path in **Remote** settings (_Preferences:
+Open Remote Settings_): local user settings don't apply there.
 
 ## Installed somewhere else?
 

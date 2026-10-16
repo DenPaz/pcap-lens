@@ -13,6 +13,8 @@
 Everything here is pure (text in, data out); the service runs tshark.
 """
 
+from __future__ import annotations
+
 import re
 import sys
 import wave

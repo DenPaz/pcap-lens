@@ -1,5 +1,7 @@
 """Live capture (capture.py and the capture_* methods), mostly with a fake dumpcap."""
 
+from __future__ import annotations
+
 import json
 import struct
 import sys
@@ -278,7 +280,7 @@ def test_filter_during_capture_is_not_cached(
 def _loopback_name(service: PcapService) -> str | None:
     try:
         ifaces = service.list_interfaces({}, RequestContext())["interfaces"]
-    except ToolError, OSError:
+    except (ToolError, OSError):
         return None
     return next((i["name"] for i in ifaces if i["loopback"]), None)
 

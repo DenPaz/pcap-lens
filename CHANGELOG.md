@@ -6,6 +6,18 @@ versions are plain `major.minor.patch`.
 
 ## Unreleased
 
+### Added
+
+- _PCAP: Install Python…_: when no Python is found, installs Python 3.14 with
+  [uv](https://docs.astral.sh/uv/) (no admin rights needed), or links to
+  python.org and uv's installer. The setup message and walkthrough offer it.
+
+### Changed
+
+- Python 3.12 or newer is enough (was 3.14), so the Python that comes with
+  Ubuntu 24.04 or Debian 13 works. A Python installed with uv is found even
+  when it isn't on `PATH`.
+
 ## 0.4.1 — 2026-10-15
 
 ### Changed

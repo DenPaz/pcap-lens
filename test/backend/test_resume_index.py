@@ -1,6 +1,8 @@
 """Closing a streaming open mid-index keeps an incomplete saved index, and the
 next open resumes from it (rows at once, then a catch-up re-read of the capture)."""
 
+from __future__ import annotations
+
 import json
 import threading
 import time

@@ -1,5 +1,7 @@
 """Pure helpers for Find Packet, marked-packet export and time display formats."""
 
+from __future__ import annotations
+
 import re
 from collections.abc import Iterable
 from datetime import UTC, datetime

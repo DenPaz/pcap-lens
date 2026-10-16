@@ -1,5 +1,7 @@
 """Cooperative cancellation shared by the JSON-RPC server and tshark runners."""
 
+from __future__ import annotations
+
 import subprocess
 import threading
 from collections.abc import Callable

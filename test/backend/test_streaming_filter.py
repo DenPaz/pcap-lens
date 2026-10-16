@@ -1,6 +1,8 @@
 """Streaming filters: set_filter {stream: true}, "filter" notifications, stop_filter,
 filtering while a streaming open indexes, and filter results in the saved index."""
 
+from __future__ import annotations
+
 import threading
 import time
 from array import array

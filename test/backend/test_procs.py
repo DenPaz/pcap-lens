@@ -7,6 +7,8 @@ cancellation must still raise CancelledError and leave no pipe or process
 behind (pytest turns ResourceWarning into errors).
 """
 
+from __future__ import annotations
+
 import contextlib
 import os
 import signal

@@ -5,7 +5,8 @@ line becomes an occurrence of ``frame.comment``, then the whole text again),
 so comments are read straight from the file: the ``opt_comment`` options of
 pcapng packet blocks (Enhanced and obsolete Packet Blocks; Simple Packet
 Blocks carry no options). Plain pcapng is read as is, gzip and zstd
-compressed pcapng through the standard library; anything else (pcap and the
+compressed pcapng through the standard library (zstd from Python 3.14 on);
+anything else (pcap and the
 other formats have no packet comments) has none.
 
 ``editcap -a <frame>:<comment>`` sets one comment per packet (a second ``-a``
@@ -14,9 +15,12 @@ for the same frame replaces the first), and there is no per-packet delete:
 in the same run. :func:`editcap_args` picks between the two.
 """
 
+from __future__ import annotations
+
 import gzip
 import io
 import struct
+import sys
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 
@@ -44,11 +48,14 @@ def _open(path: Path) -> io.BufferedIOBase | None:
     if head[:2] == _GZIP_MAGIC:
         stream: io.BufferedIOBase = gzip.open(path, "rb")  # noqa: SIM115 - returned open
     elif head == _ZSTD_MAGIC:
-        try:
-            from compression import zstd  # noqa: PLC0415 - Pythons built without libzstd lack it
-        except ImportError as exc:
-            raise UnreadableError("this Python can't read zstd files") from exc
-        stream = zstd.open(path, "rb")
+        if sys.version_info >= (3, 14):
+            try:
+                from compression import zstd  # noqa: PLC0415 - Pythons built without libzstd lack it
+            except ImportError as exc:
+                raise UnreadableError("this Python can't read zstd files") from exc
+            stream = zstd.open(path, "rb")
+        else:
+            raise UnreadableError("reading zstd files needs Python 3.14 or newer")
     elif head == _LZ4_MAGIC:
         raise UnreadableError("comments of LZ4-compressed files can't be read")
     else:

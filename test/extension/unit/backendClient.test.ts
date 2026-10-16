@@ -10,8 +10,11 @@ import {
   BackendClient,
   ErrorCodes,
   Progress,
+  MIN_PYTHON,
   RpcError,
   findPython,
+  pythonCandidates,
+  uvCandidates,
 } from "../../../src/backendClient";
 
 const ROOT = path.resolve(__dirname, "../../../..");
@@ -25,7 +28,7 @@ const logger = {
   error: (m: string) => logs.push(m),
 };
 
-/** PCAP_VIEWER_PYTHON, else the uv-managed .venv interpreter (Python 3.14 after `uv sync`). */
+/** PCAP_VIEWER_PYTHON, else the uv-managed .venv interpreter (Python 3.14 after `uv sync`; CI also runs it on 3.12). */
 function testPython(): string | undefined {
   const venv = path.join(
     ROOT,
@@ -73,6 +76,40 @@ suite("BackendClient", function () {
   test("findPython reports a missing interpreter", () => {
     const res = findPython("/definitely/not/python");
     assert.ok("error" in res);
+    assert.match(res.error, /No Python 3\.12\+ interpreter found/);
+  });
+
+  test("Python candidates: versioned names newest first, then generic; a set path alone", () => {
+    assert.deepEqual(MIN_PYTHON, [3, 12]);
+    assert.deepEqual(pythonCandidates(undefined, "linux"), [
+      ["python3.14"],
+      ["python3.13"],
+      ["python3.12"],
+      ["python3"],
+      ["python"],
+    ]);
+    assert.deepEqual(pythonCandidates(undefined, "win32"), [
+      ["py", "-3.14"],
+      ["py", "-3.13"],
+      ["py", "-3.12"],
+      ["py", "-3"],
+      ["python"],
+      ["python3"],
+    ]);
+    assert.deepEqual(pythonCandidates("/opt/py/bin/python3", "linux"), [["/opt/py/bin/python3"]]);
+  });
+
+  test("uv is looked for on PATH and in its usual folders", () => {
+    assert.deepEqual(uvCandidates("linux", "/home/u"), [
+      "uv",
+      "/home/u/.local/bin/uv",
+      "/home/u/.cargo/bin/uv",
+    ]);
+    assert.deepEqual(uvCandidates("win32", "C:\\Users\\u"), [
+      "uv",
+      "C:\\Users\\u\\.local\\bin\\uv.exe",
+      "C:\\Users\\u\\.cargo\\bin\\uv.exe",
+    ]);
   });
 
   test("unknown methods reject with MethodNotFound", async () => {

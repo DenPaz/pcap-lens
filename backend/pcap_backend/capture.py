@@ -16,6 +16,8 @@ statistics block) on POSIX, a kill on Windows; either way dumpcap's stdout
 ends, the index pass's stdin is closed, and tshark finishes the rows.
 """
 
+from __future__ import annotations
+
 import contextlib
 import json
 import os

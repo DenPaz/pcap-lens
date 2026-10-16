@@ -16,8 +16,9 @@ are installed.
 | Node.js 22.13+      | [nvm](https://github.com/nvm-sh/nvm): `nvm install 22`                                       |
 | pnpm                | `corepack enable pnpm` (version pinned in `package.json`)                                    |
 
-Keep `~/.local/bin` on your `PATH` (VS Code must find `python3.14`), and don't
-run VS Code as root (tshark disables Lua for root).
+Development uses Python 3.14 (`.python-version`); the backend supports 3.12+,
+which CI also tests. Keep `~/.local/bin` on your `PATH`, and don't run VS Code
+as root (tshark disables Lua for root).
 
 ```sh
 git clone https://github.com/DenPaz/vsc_pcap_viewer.git
@@ -66,8 +67,10 @@ The `Makefile` wraps everything (`make` lists the targets):
   `uv run python test/fixtures/generate.py --tls-keylog /tmp/tls.pcap /tmp/tls-keys.log`,
   then _PCAP: Set TLS Key Log File…_ with the `.log`.
 
-CI (`.github/workflows/ci.yml`) runs everything on Linux, macOS and Windows for
-pull requests and pushes to `main`.
+CI (`.github/workflows/ci.yml`) runs everything on Linux, macOS and Windows
+(plus the backend and unit tests on Python 3.12) for pull requests and pushes
+to `main` and `dev`. CodeQL (`codeql.yml`) scans the TypeScript, JavaScript,
+Python and workflows; Dependabot opens weekly update PRs against `dev`.
 
 ### Development troubleshooting
 
@@ -76,21 +79,41 @@ pull requests and pushes to `main`.
 | `make fixtures` fails with "No module named '_zstd'" | Python was built without zstd (pyenv without `libzstd-dev`). Install it and rebuild, or use a uv Python: `uv venv --python 3.14 --python-preference only-managed && uv sync`. |
 | `pnpm install` fails with "Ignored build scripts"    | Use the pinned pnpm (`corepack enable pnpm`); the policy is in `pnpm-workspace.yaml`.                                                                                         |
 
+## Branches
+
+- `main` is the default branch and holds released code only: every merge
+  into it is a release (see below). The Marketplace page's images come from
+  it.
+- `dev` is where work happens. Commit there, or open a pull request into
+  `dev` from a topic branch; CI runs on both.
+
+```sh
+git switch dev && git pull
+git switch -c my-change            # optional topic branch
+# … commit …
+git push -u origin my-change       # then open a pull request into dev
+```
+
 ## Changelog
 
 Add each user-visible change under `## Unreleased` in `CHANGELOG.md`, in the
 right group (`### Added`, `### Changed`, `### Fixed`), with a link to its pull
 request: `[#42]` in the entry and `[#42]: https://github.com/DenPaz/vsc_pcap_viewer/pull/42`
 at the end of the same section. Link definitions stay inside their version's
-section, so the GitHub release notes keep them.
+section, so the GitHub release notes keep them. A change committed straight to
+`dev` has no pull request of its own: link the commit instead
+(`[abc1234]: https://github.com/DenPaz/vsc_pcap_viewer/commit/abc1234`).
 
 ## Release
 
-On a branch, prepare the version and merge it to `main` through a pull request:
+On `dev`, prepare the version, then open a pull request from `dev` into `main`
+and merge it (a merge commit, so `dev` and `main` keep a shared history):
 
 ```sh
+git switch dev && git pull
 pnpm run release:prepare 0.5.0   # bump package.json, move "Unreleased" under "0.5.0 — <date>"
 git commit -am "Release 0.5.0"
+git push
 ```
 
 Once it is merged, tag the merge commit on `main` and push the tag:

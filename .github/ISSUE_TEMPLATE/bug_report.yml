@@ -1,0 +1,63 @@
+name: Bug report
+description: Something in PCAP Lens doesn't work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please don't attach captures with private traffic:
+        a small capture that shows the problem (or the steps to make one) is best.
+        For a security problem, follow [SECURITY.md](https://github.com/DenPaz/vsc_pcap_viewer/blob/main/SECURITY.md) instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you saw instead.
+      placeholder: |
+        1. Open a capture with …
+        2. Apply the filter …
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: extension
+    attributes:
+      label: PCAP Lens version
+      description: Extensions view, or `code --list-extensions --show-versions | grep pcap`.
+      placeholder: "0.4.1"
+    validations:
+      required: true
+  - type: input
+    id: vscode
+    attributes:
+      label: VS Code version
+      description: _Help › About_ (also say if it's VSCodium, Cursor, a remote window …).
+      placeholder: "1.105.1, local window"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "Windows 11 / macOS 15 / Ubuntu 24.04 (WSL2) …"
+    validations:
+      required: true
+  - type: textarea
+    id: tshark
+    attributes:
+      label: Output of `tshark --version`
+      description: "Its first lines are enough. _PCAP: Check Python and TShark_ shows which tshark and Python PCAP Lens found."
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: "Run _PCAP: Show Log_ and paste the lines around the problem. Remove anything private."
+      render: text
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Screenshots, settings you changed (`pcapViewer.*`), the capture's format and size …

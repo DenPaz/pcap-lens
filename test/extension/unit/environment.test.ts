@@ -51,14 +51,14 @@ suite("environment check", () => {
   });
 
   test("no Python: tshark isn't looked for, and the Python setting is the fix", async () => {
-    const d = deps({ findPython: () => ({ error: "No Python 3.14+ interpreter found." }) });
+    const d = deps({ findPython: () => ({ error: "No Python 3.12+ interpreter found." }) });
     const status = await checkEnvironment(SETTINGS, d);
-    assert.deepEqual(status.python, { ok: false, error: "No Python 3.14+ interpreter found." });
+    assert.deepEqual(status.python, { ok: false, error: "No Python 3.12+ interpreter found." });
     assert.equal(status.tshark.ok, false);
     assert.ok(!status.tshark.ok && status.tshark.skipped);
     assert.equal(d.calls.length, 0, "initialize (recorded) is never called");
     assert.equal(settingToFix(status), "pythonPath");
-    assert.equal(environmentSummary(status), "No Python 3.14+ interpreter found.");
+    assert.equal(environmentSummary(status), "No Python 3.12+ interpreter found.");
   });
 
   test("no tshark: the backend's message, and the tshark setting is the fix", async () => {
@@ -83,11 +83,11 @@ suite("environment check", () => {
     assert.match(environmentSummary(ok, "WSL"), /^Ready in WSL: Python 3\.14\.0/);
     const missing = await checkEnvironment(
       SETTINGS,
-      deps({ findPython: () => ({ error: "No Python 3.14+ interpreter found." }) }),
+      deps({ findPython: () => ({ error: "No Python 3.12+ interpreter found." }) }),
     );
     assert.equal(
       environmentSummary(missing, "the SSH host"),
-      "No Python 3.14+ interpreter found. PCAP Lens runs in the SSH host: install it there.",
+      "No Python 3.12+ interpreter found. PCAP Lens runs in the SSH host: install it there.",
     );
   });
 

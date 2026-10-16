@@ -16,6 +16,8 @@ the few dumpcap options the backend uses:
 that message. Standard library only.
 """
 
+from __future__ import annotations
+
 import os
 import struct
 import sys

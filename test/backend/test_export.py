@@ -1,5 +1,7 @@
 """Export and coloring: pure helpers plus integration tests against tshark."""
 
+from __future__ import annotations
+
 import csv
 import io
 import json

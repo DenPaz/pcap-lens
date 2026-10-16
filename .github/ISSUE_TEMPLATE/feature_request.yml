@@ -1,0 +1,21 @@
+name: Feature request
+description: Suggest something PCAP Lens should do.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do?
+      description: The task or problem, rather than a solution. "In Wireshark I can …" is a good start.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could it work?
+      description: Optional. Where it would appear (packet list, a panel, a command …) and what it would show.
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Workarounds you use today, screenshots, links.

@@ -1,5 +1,7 @@
 """Flow graph (flow_graph) and TCP stream graphs (tcp_graph)."""
 
+from __future__ import annotations
+
 import threading
 from pathlib import Path
 

@@ -28,11 +28,31 @@ The `Makefile` wraps all of these (`make` lists the targets; `make check` = lint
 
 ## Toolchain
 
-- **Python 3.14** everywhere: `requires-python >=3.14`, ruff `py314`, mypy
-  `3.14`, `.python-version` (uv and CI's setup-python read it). The extension
-  enforces the same minimum (`MIN_PYTHON` in `src/backendClient.ts`) and tries
-  `python3.14` / `py -3.14` before generic names. Code uses 3.14 idioms: PEP 695
-  generics, no `from __future__ import annotations` (PEP 649 lazy annotations).
+- **Python 3.12+ supported, 3.14 for development**: `requires-python >=3.12`,
+  ruff `py312`, mypy `3.12` (CI also runs `mypy --python-version 3.14`);
+  `.python-version` is 3.14 (uv's dev venv and CI's main jobs), and the CI job
+  `python-3-12` runs the backend and webview tests on 3.12. The extension
+  enforces the same minimum (`MIN_PYTHON` in `src/backendClient.ts`). Code
+  must stay 3.12-compatible: every module starts with `from __future__ import
+annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
+  annotations eagerly, so forward references need it), `except (A, B):` keeps
+  its parentheses (3.14's PEP 758 form is a SyntaxError before), PEP 695
+  generics are fine (3.12). 3.13+/3.14-only APIs go behind `sys.version_info`
+  checks: `compression.zstd` (packet comments of `.zst` captures are "can't be
+  read" before 3.14; `generate.py` needs 3.14 for the `.zst` fixtures), and
+  the TLS-PSK fixture (`SSLContext.set_psk_client_callback`, 3.13) skips its
+  tests on 3.12. **Finding Python** (`findPython`): `pythonCandidates` =
+  `python3.14`, `python3.13`, `python3.12`, `python3`, `python` (Windows: `py
+-3.14` … `py -3`, `python`, `python3`), then `uv python find --no-project
+--system ">=3.12"` with uv from PATH, `~/.local/bin` or `~/.cargo/bin`
+  (`uvCandidates`; a desktop-launched VS Code often lacks `~/.local/bin`;
+  `--system` skips a workspace `.venv`). _PCAP: Install Python…_
+  (`installPython` in `commands/setup.ts`, offered by `offerSetupHelp` and the
+  walkthrough) runs `uv python install 3.14` as a task (`ProcessExecution`,
+  task type `pcapViewer.installPython` in `taskDefinitions`; it runs on the
+  remote machine in a remote window) and re-runs the environment check when
+  it exits 0; without uv it links python.org and uv's install page (it never
+  pipes an install script into a shell).
 - **pnpm** (version pinned by `packageManager` in package.json; use
   `corepack enable pnpm`). pnpm refuses to install until every dependency with
   an install script is allowed or denied: `pnpm-workspace.yaml` denies
@@ -66,8 +86,18 @@ The `Makefile` wraps all of these (`make` lists the targets; `make check` = lint
   macOS (`brew install --formula wireshark`) and Windows (`choco install
 wireshark`, `C:\Program Files\Wireshark` added to PATH): lint, backend and
   acceptance tests with tshark, unit + Chromium e2e tests, and the VS Code
-  smoke test (Linux under xvfb). It runs on pull requests, pushes to main and
-  by hand (`workflow_dispatch`).
+  smoke test (Linux under xvfb), plus a Linux job on Python 3.12. It runs on
+  pull requests, pushes to `main` and `dev`, and by hand (`workflow_dispatch`).
+  The unit/webview mocha run has a 10 s timeout (`--timeout 10000` in
+  `test:unit`): the Windows runner once took over 2 s on a 30 ms test.
+- **Repository upkeep**: `codeql.yml` (javascript-typescript, python and
+  actions, `build-mode: none`, security-extended; pushes, PRs, weekly) and
+  `.github/dependabot.yml` (npm for the pnpm lockfile, uv, github-actions;
+  weekly, grouped, into `dev`; it ignores `@types/vscode`, `@types/node`
+  majors and `@vscode/codicons`, which `make update` vendors). Issue forms in
+  `.github/ISSUE_TEMPLATE/` (the bug form asks for the versions,
+  `tshark --version` and _PCAP: Show Log_); `SECURITY.md` points to private
+  advisories.
 
 ## Layout
 
@@ -1025,7 +1055,10 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   writes), so it prepares the release PR and hands over the tag commands. A
   failed run is retried with _Re-run failed jobs_ (the Windows unit job once
   hit mocha's 2 s timeout on a 30 ms synchronous test; the re-run passed).
-  Branches: `main` (default) and `dev`.
+  **Branches**: `main` (default) holds released code only; work lands on
+  `dev` (directly or through PRs into `dev`, Dependabot's too). A release is
+  `release:prepare` on `dev`, a `dev` → `main` PR, then the tag on the merge
+  commit. Claude Code sessions commit to `dev`.
 - **Remote windows and trust** (`extensionKind: ["workspace"]`, `remote.ts`):
   the extension host, backend, tshark and dumpcap all run on the remote
   machine (WSL, SSH, containers), where workspace files are `file:` URIs, so

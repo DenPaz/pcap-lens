@@ -19,6 +19,8 @@ process per open editor). All heavy lifting is delegated to tshark:
   list (CSV/JSON) straight from the row store.
 """
 
+from __future__ import annotations
+
 import itertools
 import os
 import re
@@ -1320,7 +1322,7 @@ class PcapService:
             res = run(
                 [str(tshark.capinfos), "-T", "-M", "-a", "-e", "-E", "-S", "-t", str(path)], token
             )
-        except OSError, CancelledError:
+        except (OSError, CancelledError):
             return {}
         return parse_capinfos(res.stdout.decode("utf-8", "replace"))
 
@@ -1848,7 +1850,7 @@ class PcapService:
             entry = self._catalog(ctx).lookup(fld)
         except CancelledError:
             raise
-        except RpcError, ToolError, OSError:
+        except (RpcError, ToolError, OSError):
             return False
         return entry is not None and entry.get("type") in _ADDRESS_TYPES
 
@@ -3243,7 +3245,7 @@ class PcapService:
             f.comments_ready.wait(60)
             try:
                 saved = comments.read_comments(f.path)
-            except comments.UnreadableError, OSError, ValueError, EOFError:
+            except (comments.UnreadableError, OSError, ValueError, EOFError):
                 saved = f.comments
             with self._lock:
                 f.comments = saved
@@ -3799,7 +3801,7 @@ def _comment_edits(params: dict[str, Any], frames: int) -> dict[int, str | None]
     for key, text in raw.items():
         try:
             n = int(key)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             raise InvalidParamsError(f"not a frame number: {key!r}") from None
         if not 1 <= n <= frames:
             raise InvalidParamsError(f"no frame {n} in this capture")

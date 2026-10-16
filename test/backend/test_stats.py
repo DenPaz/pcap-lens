@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pcap_backend import stats
 
 

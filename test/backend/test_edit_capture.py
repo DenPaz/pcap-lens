@@ -1,5 +1,7 @@
 """Capture editing with editcap (editing.py, edit_capture)."""
 
+from __future__ import annotations
+
 import subprocess
 import threading
 from decimal import Decimal

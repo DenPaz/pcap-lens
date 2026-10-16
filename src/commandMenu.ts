@@ -118,6 +118,7 @@ const GROUP_OF: Readonly<Record<string, CommandGroup>> = {
   "pcapViewer.clearIndexCache": "Other",
   "pcapViewer.showLog": "Other",
   "pcapViewer.checkEnvironment": "Other",
+  "pcapViewer.installPython": "Other",
   "pcapViewer.openSample": "Other",
   "pcapViewer.openWalkthrough": "Other",
 };

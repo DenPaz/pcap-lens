@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { BackendClient, findPython } from "../backendClient";
+import { BackendClient, MIN_PYTHON, findPython, findUv } from "../backendClient";
 import { readSettings } from "../config";
 import {
   EnvironmentStatus,
@@ -23,6 +23,11 @@ const DOWNLOADS = {
   pythonPath: "https://www.python.org/downloads/",
   tsharkPath: "https://www.wireshark.org/download.html",
 } as const;
+const UV_INSTALL = "https://docs.astral.sh/uv/getting-started/installation/";
+/** The Python that _PCAP: Install Python…_ installs with uv (any >= MIN_PYTHON works). */
+export const RECOMMENDED_PYTHON = "3.14";
+/** The task type of that install (package.json `taskDefinitions`). */
+const INSTALL_TASK_TYPE = "pcapViewer.installPython";
 
 /** Mark the walkthrough's setup steps done (a capture that loads proves both). */
 export function setEnvironmentContext(python: boolean, tshark: boolean): void {
@@ -44,7 +49,7 @@ export async function offerSetupHelp(
   message: string,
   setting: "pythonPath" | "tsharkPath",
 ): Promise<void> {
-  const download = setting === "pythonPath" ? "Download Python" : "Download Wireshark";
+  const download = setting === "pythonPath" ? "Install Python…" : "Download Wireshark";
   // Remotely, the tools must be on the remote machine (the download page opens locally).
   const where = whereLabel(vscode.env.remoteName);
   const text =
@@ -60,10 +65,61 @@ export async function offerSetupHelp(
   if (choice === "Setup Guide") {
     await openWalkthrough(context);
   } else if (choice === download) {
-    await vscode.env.openExternal(vscode.Uri.parse(DOWNLOADS[setting]));
+    if (setting === "pythonPath") {
+      await vscode.commands.executeCommand("pcapViewer.installPython");
+    } else {
+      await vscode.env.openExternal(vscode.Uri.parse(DOWNLOADS[setting]));
+    }
   } else if (choice === "Open Settings") {
     await vscode.commands.executeCommand("workbench.action.openSettings", `pcapViewer.${setting}`);
   }
+}
+
+/**
+ * _PCAP: Install Python…_: with uv installed, run `uv python install` as a
+ * task (a process, no shell; in a remote window it runs on the remote
+ * machine, where the backend runs) and check the environment again when it
+ * succeeds. Without uv, point to python.org and to uv's installation page:
+ * an extension shouldn't pipe an install script from the internet into a shell.
+ */
+export async function installPython(): Promise<void> {
+  const uv = findUv();
+  if (!uv) {
+    const choice = await vscode.window.showInformationMessage(
+      `PCAP Lens needs Python ${MIN_PYTHON.join(".")} or newer. Install it from python.org, ` +
+        `or install uv, then run this command again: uv installs Python ${RECOMMENDED_PYTHON} without admin rights.`,
+      "Download Python",
+      "Install uv",
+    );
+    if (choice === "Download Python") {
+      await vscode.env.openExternal(vscode.Uri.parse(DOWNLOADS.pythonPath));
+    } else if (choice === "Install uv") {
+      await vscode.env.openExternal(vscode.Uri.parse(UV_INSTALL));
+    }
+    return;
+  }
+  const task = new vscode.Task(
+    { type: INSTALL_TASK_TYPE },
+    vscode.TaskScope.Global,
+    `Install Python ${RECOMMENDED_PYTHON}`,
+    "PCAP Lens",
+    new vscode.ProcessExecution(uv, ["python", "install", RECOMMENDED_PYTHON]),
+  );
+  task.presentationOptions = { reveal: vscode.TaskRevealKind.Always, clear: true };
+  const execution = await vscode.tasks.executeTask(task);
+  const done = vscode.tasks.onDidEndTaskProcess((e) => {
+    if (e.execution !== execution) {
+      return;
+    }
+    done.dispose();
+    if (e.exitCode === 0) {
+      void vscode.commands.executeCommand("pcapViewer.checkEnvironment");
+    } else {
+      void vscode.window.showErrorMessage(
+        `PCAP Lens: installing Python with uv failed (exit code ${e.exitCode}); see the terminal.`,
+      );
+    }
+  });
 }
 
 /**
@@ -128,6 +184,7 @@ export function registerSetupCommands(
         return status;
       },
     ),
+    vscode.commands.registerCommand("pcapViewer.installPython", installPython),
     vscode.commands.registerCommand("pcapViewer.openSample", async () => {
       // A copy in the extension's storage: comments saved into it must not
       // touch the installed extension (which updates replace anyway).

@@ -7,6 +7,8 @@ names with the version already in it (``~/.local/lib/wireshark/plugins/4.6``;
 ``4-6`` on macOS, where Wireshark avoids dots in plugin folder names).
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Any
 

@@ -13,7 +13,7 @@ dissection and filtering, so results match Wireshark exactly.
    download the `.vsix` from
    [GitHub releases](https://github.com/DenPaz/vsc_pcap_viewer/releases) and
    run `code --install-extension pcap-viewer-<version>.vsix`.
-2. Install the [requirements](#requirements): **tshark** and **Python 3.14+**.
+2. Install the [requirements](#requirements): **tshark** and **Python 3.12+**.
 3. Run **PCAP: Get Started** (also under _Help › Welcome_). The walkthrough
    checks both tools, says how to install what's missing and opens a sample
    capture.
@@ -28,9 +28,11 @@ headings that unfold on click (or `→`); typing searches them all.
   `apt install tshark`, `brew install wireshark` or `choco install wireshark`.
   Found on `PATH` or in the default install locations, else set
   `pcapViewer.tsharkPath`. Older 3.x releases work too.
-- **Python 3.14+** on `PATH` (`python3.14`, `python3`, `python`, `py -3`), or
-  set `pcapViewer.pythonPath`. The backend uses only the standard library:
-  nothing to `pip install`.
+- **Python 3.12+** on `PATH` (`python3.14` … `python3.12`, `python3`, `python`,
+  `py -3`), or installed with [uv](https://docs.astral.sh/uv/), or set
+  `pcapViewer.pythonPath`. _PCAP: Install Python…_ installs it with uv when
+  uv is there. The backend uses only the standard library: nothing to
+  `pip install`.
 
 ### Supported files
 
@@ -277,7 +279,7 @@ only, so an untrusted repository can't run its own programs.
 
 | Symptom                                                         | Fix                                                                                                                                                                                                                        |
 | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "No Python 3.14+ interpreter found"                             | Set `pcapViewer.pythonPath` (e.g. to `uv python find 3.14`), or start VS Code from a terminal where `python3.14` works.                                                                                                    |
+| "No Python 3.12+ interpreter found"                             | Run _PCAP: Install Python…_, set `pcapViewer.pythonPath` (e.g. to the output of `uv python find`), or start VS Code from a terminal where `python3` is 3.12 or newer.                                                      |
 | "tshark was not found"                                          | Install tshark or set `pcapViewer.tsharkPath`.                                                                                                                                                                             |
 | "You don't have permission to read the file" (yours)            | Ubuntu's AppArmor profile for tshark allows only `/tmp`. Add `owner @{HOME}/** rw,` to `/etc/apparmor.d/local/tshark`, then `sudo apparmor_parser -r /etc/apparmor.d/tshark`. Snap tshark: use the distribution's package. |
 | Stopping a filter is slow; the log says "could not stop tshark" | The same profile blocks signals. Add `signal (receive) peer=unconfined,` and `signal (receive) peer=vscode,` to the same file and reload it.                                                                               |

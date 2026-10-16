@@ -7,6 +7,8 @@ tag-length headers without reading the values, so probe_file can say why such
 a file isn't readable instead of only "not a capture file".
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import BinaryIO
 

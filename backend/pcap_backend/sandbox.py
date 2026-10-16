@@ -9,6 +9,8 @@ of a cancelled tshark fails with ``PermissionError`` (the kernel logs
 under its own ``vscode`` profile, ``peer="unconfined"`` otherwise).
 """
 
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 

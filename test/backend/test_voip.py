@@ -1,5 +1,7 @@
 """VoIP analysis: RTP streams, SIP calls, RTP stream analysis and audio."""
 
+from __future__ import annotations
+
 import itertools
 import sys
 import wave
