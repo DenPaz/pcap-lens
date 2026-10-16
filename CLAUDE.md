@@ -1050,15 +1050,17 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   never tagged; v0.4.0 made the GitHub release, but the Marketplace refused
   the display name (see _Name_), so 0.4.1 is the first Marketplace/Open VSX
   version. A tag that reached a store is never moved: the next patch version
-  ships instead. The maintainer pushes tags; a Claude Code session can only
-  push its own `claude/…` branch (the proxy refuses tags and the API's ref
-  writes), so it prepares the release PR and hands over the tag commands. A
+  ships instead. The maintainer pushes tags; a Claude Code session can push
+  branches (`dev`, its `claude/…` branch) but not tags (the proxy refuses
+  them and the API's ref writes), so it prepares the release PR and hands
+  over the tag commands. A
   failed run is retried with _Re-run failed jobs_ (the Windows unit job once
   hit mocha's 2 s timeout on a 30 ms synchronous test; the re-run passed).
   **Branches**: `main` (default) holds released code only; work lands on
   `dev` (directly or through PRs into `dev`, Dependabot's too). A release is
   `release:prepare` on `dev`, a `dev` → `main` PR, then the tag on the merge
-  commit. Claude Code sessions commit to `dev`.
+  commit. Claude Code sessions commit and push to `dev`; a CHANGELOG entry
+  without a PR links its commit (`[abc1234]`), added in a follow-up commit.
 - **Remote windows and trust** (`extensionKind: ["workspace"]`, `remote.ts`):
   the extension host, backend, tshark and dumpcap all run on the remote
   machine (WSL, SSH, containers), where workspace files are `file:` URIs, so
