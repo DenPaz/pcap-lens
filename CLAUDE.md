@@ -114,7 +114,10 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH): lint, backend and
 ## Layout
 
 - `src/extension.ts` activation, config-change handling. `src/pcapEditor.ts`
-  custom editor + one `PcapEditorSession` per panel. `src/backendClient.ts`
+  the custom editor provider (re-exports the session and document, so
+  importers use `./pcapEditor`), `src/editorSession.ts` one
+  `PcapEditorSession` per panel (load, webview messages, rpc forwarding),
+  `src/pcapDocument.ts` the document (unsaved comment edits). `src/backendClient.ts`
   JSON-RPC client (no `vscode` import: unit-testable). `src/settingsModel.ts`
   pure settings helpers. `src/commands/` command implementations
   (`export.ts`, `coloring.ts`, `dissectors.ts`, `tls.ts`, `merge.ts`,
@@ -137,8 +140,17 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH): lint, backend and
   `src/commandMenu.ts` the viewer's ☰ command list from package.json (pure).
   `src/plugins.ts` the TShark plugins picker's rows (pure).
 - `src/webview/` plain JS/CSS/HTML (no build step). `lib.js` = pure helpers
-  shared with Node tests; `main.js` = UI. Type-checked via JSDoc +
-  `tsconfig.webview.json`. `codicons/` = the vendored Codicons font
+  shared with Node tests (a classic script, `window.PcapLib`, like the panels'
+  scripts); `main.js` = the editor's entry, an ES module (`<script
+type="module" nonce>`: imports inherit the nonce, and VS Code's resource
+  server allows the CORS fetch) that imports `viewer/*.js`, one module per
+  part of the UI (`core` = shared state, constants, element lookups and
+  rpc, and imports nothing, so it is evaluated first; `host`, `list`,
+  `columns`, `selection`, `detail`, `filterbar`, `autocomplete`,
+  `navigation`, menus, `status`…). Function declarations make the cycles
+  between modules safe; top-level code only touches `core` and its own
+  module. Shared JSDoc types live in `globals.d.ts`. Type-checked via JSDoc +
+  `tsconfig.webview.json` (`module: ES2022`). `codicons/` = the vendored Codicons font
   (`scripts/sync-codicons.mjs`). CSS: `base.css` (tokens and controls, loaded
   by the editor and the panels), `styles.css` (the viewer), `panel.css`.
 - `src/panels/` statistics, follow-stream, coloring-rules, export-objects,

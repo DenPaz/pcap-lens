@@ -46,7 +46,9 @@ function serveWebview({ media } = {}) {
         ? media
         : pathname.startsWith("/codicons/")
           ? path.join(WEBVIEW, "codicons")
-          : WEBVIEW;
+          : pathname.startsWith("/viewer/")
+            ? path.join(WEBVIEW, "viewer")
+            : WEBVIEW;
     const file = path.join(dir, path.basename(pathname));
     if (!file.startsWith(dir) || !fs.existsSync(file)) {
       res.writeHead(404).end();

@@ -1,0 +1,450 @@
+// @ts-check
+/**
+ * Navigation (history, frame links, Find Packet, conversations, marks, time
+ * reference), Apply as Column, and the keyboard commands the host sends.
+ */
+
+import { CANCELLED, cancelRpc, el, lib, rpc, state, vscode } from "./core.js";
+import { orderParams, refreshRows, scheduleRender } from "./list.js";
+import { selectAll, selectIndex, selectedFrames } from "./selection.js";
+import { deleteComment, editComment, gotoFrame } from "./comments.js";
+import { nodeIndex } from "./detail.js";
+import { copy } from "./contextmenu.js";
+import { showNotice } from "./filterbar.js";
+import { updateStatus } from "./status.js";
+/** @import { NodeEntry } from "./detail.js" */
+
+const MAX_HISTORY = 100;
+
+/** Remember where a jump starts (Alt+Left comes back here). @param {number} [target] */
+export function recordJump(target) {
+  const from = state.selectedFrame;
+  if (from !== null && from !== target) {
+    state.nav.back.push(from);
+    if (state.nav.back.length > MAX_HISTORY) {
+      state.nav.back.shift();
+    }
+    state.nav.forward = [];
+  }
+}
+
+/** Select a row found by the backend (find, marks, conversation, first/last). */
+function jumpToIndex(
+  /** @type {number} */ index,
+  /** @type {number | null} */ frame,
+  /** @type {boolean} */ focusList,
+) {
+  recordJump(frame ?? undefined);
+  selectIndex(index, true);
+  if (focusList) {
+    el.viewport.focus();
+  }
+}
+
+/** @param {"back" | "forward"} which */
+async function goHistory(which) {
+  const from = which === "back" ? state.nav.back : state.nav.forward;
+  const to = which === "back" ? state.nav.forward : state.nav.back;
+  const frame = from.pop();
+  if (frame === undefined) {
+    showNotice(
+      which === "back" ? "No earlier packet to go back to." : "No later packet to go forward to.",
+    );
+    return;
+  }
+  if (state.selectedFrame !== null) {
+    to.push(state.selectedFrame);
+  }
+  await gotoFrame(frame, { record: false });
+}
+
+/** Frame number a detail-tree node links to (FT_FRAMENUM fields such as tcp.analysis.acks_frame). @param {any} node */
+export function frameLinkTarget(node) {
+  const type = node.name ? state.fieldTypes.get(node.name)?.type : undefined;
+  if (type !== "FT_FRAMENUM") {
+    return null;
+  }
+  const n = Number(node.show);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/** @param {NodeEntry} entry */
+export function decorateFrameLink(entry) {
+  const target = frameLinkTarget(entry.node);
+  if (target !== null && !entry.row.classList.contains("frame-link")) {
+    entry.row.classList.add("frame-link");
+    entry.row.title = `Go to packet ${target} (click or Enter; Alt+Left comes back)`;
+  }
+}
+
+/** Look up the types of the packet's fields (once per name), then mark frame links. @param {any} detail */
+export async function loadFieldTypes(detail) {
+  /** @type {Set<string>} */
+  const names = new Set();
+  /** @param {any[]} nodes */
+  const walk = (nodes) => {
+    for (const n of nodes) {
+      if (n.name && !state.fieldTypes.has(n.name)) {
+        names.add(n.name);
+      }
+      if (n.children) {
+        walk(n.children);
+      }
+    }
+  };
+  walk(detail.tree);
+  if (names.size) {
+    try {
+      const res = await rpc("field_types", { names: [...names].slice(0, 2000) }).promise;
+      for (const name of names) {
+        state.fieldTypes.set(name, res.types[name] ?? { type: "", desc: "" });
+      }
+    } catch {
+      return;
+    }
+  }
+  if (state.detail === detail) {
+    for (const entry of nodeIndex.values()) {
+      decorateFrameLink(entry);
+    }
+  }
+}
+
+/** @param {any} node */
+export function canBeColumn(node) {
+  return (
+    !!node.name &&
+    !node.proto &&
+    node.name !== "fake-field-wrapper" &&
+    /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(node.name)
+  );
+}
+
+/** "Apply as Column": the host adds it to pcapViewer.columns (capture's folder scope). @param {any} node */
+export function applyColumn(node) {
+  const desc = state.fieldTypes.get(node.name)?.desc;
+  const title = desc || String(node.label).split(":")[0].trim() || node.name;
+  vscode.postMessage({ type: "applyColumn", field: node.name, title });
+}
+
+/** @type {Record<string, string>} */
+const FIND_PLACEHOLDERS = {
+  filter: "Display filter, e.g. dns.flags.rcode != 0 (Enter: next, Shift+Enter: previous)",
+  string: "Text in the packet bytes, e.g. index.html",
+  hex: "Hex bytes, e.g. 47 45 54 or 47:45:54",
+};
+/** @type {number | null} */
+let findRequest = null;
+
+function openFind() {
+  el.findBar.classList.remove("hidden");
+  updateFindMode();
+  el.findInput.focus();
+  el.findInput.select();
+}
+
+function closeFind() {
+  el.findBar.classList.add("hidden");
+  setFindStatus("");
+  el.viewport.focus();
+}
+
+function updateFindMode() {
+  el.findInput.placeholder = FIND_PLACEHOLDERS[el.findMode.value] ?? "";
+  el.findCaseLabel.classList.toggle("hidden", el.findMode.value !== "string");
+  checkFindInput();
+}
+
+/** Immediate feedback for hex input (the backend validates everything again). */
+function checkFindInput() {
+  const bad =
+    el.findMode.value === "hex" &&
+    el.findInput.value.trim() !== "" &&
+    !lib.parseHexBytes(el.findInput.value);
+  el.findInput.classList.toggle("invalid", bad);
+  if (bad) {
+    setFindStatus("Not hex bytes", true);
+  } else if (el.findStatus.classList.contains("error")) {
+    setFindStatus("");
+  }
+  return !bad;
+}
+
+/** @param {string} text @param {boolean} [error] */
+function setFindStatus(text, error = false) {
+  el.findStatus.textContent = text;
+  el.findStatus.title = text;
+  el.findStatus.classList.toggle("error", error);
+}
+
+/** Next/previous match in the current view (filter and sort order), wrapping around. @param {"next" | "previous"} direction */
+async function find(direction) {
+  if (!state.ready) {
+    return;
+  }
+  if (el.findBar.classList.contains("hidden") || !el.findInput.value.trim()) {
+    openFind();
+    return;
+  }
+  if (!checkFindInput()) {
+    return;
+  }
+  if (findRequest !== null) {
+    cancelRpc(findRequest);
+  }
+  const req = rpc("find_packet", {
+    mode: el.findMode.value,
+    value: el.findInput.value,
+    caseSensitive: el.findCase.checked,
+    from: state.selectedFrame,
+    direction,
+    ...orderParams(),
+  });
+  findRequest = req.id;
+  setFindStatus("Searching…");
+  try {
+    const res = await req.promise;
+    if (res.filterId !== state.filterId) {
+      return;
+    }
+    if (res.frame === null || res.frame === undefined) {
+      setFindStatus("Not found", true);
+      return;
+    }
+    setFindStatus(res.wrapped ? `Packet ${res.frame} (wrapped around)` : `Packet ${res.frame}`);
+    jumpToIndex(res.index, res.frame, false);
+  } catch (err) {
+    const e = /** @type {any} */ (err);
+    if (e?.code !== CANCELLED) {
+      setFindStatus(String(e?.message ?? e), true);
+    }
+  } finally {
+    if (findRequest === req.id) {
+      findRequest = null;
+    }
+  }
+}
+
+el.findMode.addEventListener("change", () => {
+  updateFindMode();
+  el.findInput.focus();
+});
+el.findInput.addEventListener("input", checkFindInput);
+el.findInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    void find(e.shiftKey ? "previous" : "next");
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    closeFind();
+  }
+});
+el.findNext.addEventListener("click", () => void find("next"));
+el.findPrev.addEventListener("click", () => void find("previous"));
+el.findClose.addEventListener("click", closeFind);
+
+/** @param {"next" | "previous"} direction */
+async function stepConversation(direction) {
+  const frame = state.selectedFrame;
+  if (frame === null) {
+    showNotice("Select a packet first.");
+    return;
+  }
+  try {
+    const res = await rpc("neighbor_frame", { frame, direction, ...orderParams() }).promise;
+    if (res.frame === null || res.frame === undefined) {
+      showNotice(
+        `No ${direction} packet in this conversation${state.appliedFilter ? " among the displayed packets" : ""}.`,
+      );
+      return;
+    }
+    jumpToIndex(res.index, res.frame, true);
+  } catch (err) {
+    showNotice(String(/** @type {any} */ (err)?.message ?? err));
+  }
+}
+
+/** Patch cached rows instead of refetching. @param {number[]} marked @param {number[]} unmarked */
+function patchMarks(marked, unmarked) {
+  const on = new Set(marked);
+  const off = new Set(unmarked);
+  for (const page of state.pages.values()) {
+    for (const row of page) {
+      if (on.has(row.number)) {
+        row.marked = true;
+      } else if (off.has(row.number)) {
+        delete row.marked;
+      }
+    }
+  }
+}
+
+/** The selected frames in view order, one per line. */
+export async function copyFrameNumbers() {
+  try {
+    const res = await rpc("view_frames", { frames: selectedFrames(), ...orderParams() }).promise;
+    copy(res.frames.join("\n"));
+  } catch (err) {
+    showNotice(String(/** @type {any} */ (err)?.message ?? err));
+  }
+}
+
+function afterMarksChanged() {
+  vscode.postMessage({ type: "marks", count: state.markCount });
+  updateStatus();
+  scheduleRender();
+}
+
+/** Ctrl+M: mark the selected packets, or unmark them if all of them are marked. */
+export async function toggleMark() {
+  const frames = selectedFrames();
+  if (!frames.length) {
+    showNotice("Select a packet to mark.");
+    return;
+  }
+  try {
+    const res = await rpc("mark_packets", { frames }).promise;
+    patchMarks(res.marked, res.unmarked);
+    state.markCount = res.count;
+    afterMarksChanged();
+  } catch (err) {
+    showNotice(String(/** @type {any} */ (err)?.message ?? err));
+  }
+}
+
+async function unmarkAll() {
+  try {
+    await rpc("unmark_all", {}).promise;
+    for (const page of state.pages.values()) {
+      for (const row of page) {
+        delete row.marked;
+      }
+    }
+    state.markCount = 0;
+    afterMarksChanged();
+  } catch (err) {
+    showNotice(String(/** @type {any} */ (err)?.message ?? err));
+  }
+}
+
+/** @param {"next" | "previous"} direction */
+async function stepMark(direction) {
+  if (!state.markCount) {
+    showNotice("No packets are marked. Mark packets with Ctrl+M.");
+    return;
+  }
+  try {
+    const res = await rpc("find_packet", {
+      mode: "marked",
+      from: state.selectedFrame,
+      direction,
+      ...orderParams(),
+    }).promise;
+    if (res.frame === null || res.frame === undefined) {
+      showNotice("None of the marked packets is displayed with the current filter.");
+      return;
+    }
+    jumpToIndex(res.index, res.frame, true);
+  } catch (err) {
+    showNotice(String(/** @type {any} */ (err)?.message ?? err));
+  }
+}
+
+export function toggleTimeReference() {
+  const frame = state.selectedFrame;
+  if (frame === null) {
+    showNotice("Select a packet to use as the time reference.");
+    return;
+  }
+  state.timeRef = state.timeRef === frame ? null : frame;
+  updateStatus();
+  refreshRows();
+}
+
+/** Viewer actions from the command palette, keybindings and menus. @param {string} command */
+export function runCommand(command) {
+  switch (command) {
+    case "find":
+      openFind();
+      break;
+    case "findNext":
+      void find("next");
+      break;
+    case "findPrevious":
+      void find("previous");
+      break;
+    case "goBack":
+      void goHistory("back");
+      break;
+    case "goForward":
+      void goHistory("forward");
+      break;
+    case "nextInConversation":
+      void stepConversation("next");
+      break;
+    case "previousInConversation":
+      void stepConversation("previous");
+      break;
+    case "firstPacket":
+      if (state.total) {
+        jumpToIndex(0, null, true);
+      }
+      break;
+    case "lastPacket":
+      if (state.total) {
+        jumpToIndex(state.total - 1, null, true);
+      }
+      break;
+    case "selectAll":
+      void selectAll();
+      break;
+    case "toggleMark":
+      void toggleMark();
+      break;
+    case "nextMark":
+      void stepMark("next");
+      break;
+    case "previousMark":
+      void stepMark("previous");
+      break;
+    case "unmarkAll":
+      void unmarkAll();
+      break;
+    case "toggleTimeReference":
+      toggleTimeReference();
+      break;
+    case "editPacketComment":
+      editComment();
+      break;
+    case "deletePacketComment":
+      if (state.selectedFrame !== null) {
+        deleteComment(state.selectedFrame);
+      }
+      break;
+  }
+}
+
+// Keys VS Code leaves to a focused webview are handled here. Keys it binds
+// globally (Ctrl+M, Ctrl+T, Ctrl+, …) are package.json keybindings that come
+// back as "command" messages, so nothing runs twice.
+document.addEventListener("keydown", (e) => {
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "f") {
+    e.preventDefault();
+    openFind();
+  } else if (e.key === "F3") {
+    e.preventDefault();
+    void find(e.shiftKey ? "previous" : "next");
+  } else if (mod && (e.key === "Home" || e.key === "End")) {
+    const t = /** @type {HTMLElement} */ (e.target);
+    if (t.tagName !== "INPUT" && t.tagName !== "SELECT") {
+      e.preventDefault();
+      runCommand(e.key === "Home" ? "firstPacket" : "lastPacket");
+    }
+  }
+});
+
+el.statusTime.addEventListener("click", () => vscode.postMessage({ type: "pickTimeFormat" }));
+el.captureStop.addEventListener("click", () => vscode.postMessage({ type: "stopCapture" }));
+el.statusNames.addEventListener("click", () => vscode.postMessage({ type: "pickNameResolution" }));
+el.statusLua.addEventListener("click", () => vscode.postMessage({ type: "pickLuaDissectors" }));

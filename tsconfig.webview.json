@@ -2,6 +2,9 @@
   // Type-checks the webview's plain JavaScript (JSDoc annotated); emits nothing.
   "compilerOptions": {
     "target": "ES2022",
+    // main.js and viewer/ are ES modules; lib.js and the panels' scripts are classic scripts.
+    "module": "ES2022",
+    "moduleResolution": "bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "allowJs": true,
     "checkJs": true,
