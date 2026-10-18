@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.8.0 — 2026-10-18
+
 ### Added
 
 - The status bar shows the capture's expert information at a glance: the

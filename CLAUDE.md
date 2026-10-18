@@ -1499,6 +1499,6 @@ tree indent guides. Released 0.4.0 (GitHub only), then renamed to PCAP Lens for
 Python. Since: the backend, viewer and editor split into modules, coverage
 and axe-core checks with the ARIA fixes they found, and protocol preferences.
 0.6.0 released. Then BER record files as packets, and the packet diagram:
-0.7.0 released. Since: Wireshark's expert indicator in the status bar,
+0.7.0 released. Then Wireshark's expert indicator in the status bar,
 related-packet marks, Conversation Filter and Colorize Conversation, and
-ignored packets.
+ignored packets: 0.8.0.
