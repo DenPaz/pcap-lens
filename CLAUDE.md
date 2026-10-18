@@ -651,7 +651,30 @@ matchCount, fraction}`; the end sends `done`, `stopped` (`stop_filter
   Unreadable: a warning with the reason; `ber.count_records` recognises
   several BER values back to back (definite lengths, high tag numbers,
   trailing 0x00/0xFF block padding; up to MAX_RECORDS) so the message says
-  so (`berRecords`). Splitting such files into packets isn't done yet.
+  so (`berRecords`) and offers _Open Records as Packets…_ (below).
+- **BER records as packets** (`split_ber {path, dest, dissector}`,
+  `dissector_names`, `ber.write_pcapng`, `commands/openBerRecords.ts`,
+  `pcapViewer.openBerRecords`): there is no pcap link type for BER (tshark's
+  BER file type is `wtap_encap` 90, one value per file), so each record
+  becomes a packet of link type 252 (Wireshark upper PDU export) starting with
+  the exported-PDU tag 12 (dissector name, padded to 4 bytes, the padding
+  counted in the tag's length: an unpadded length shifts the record by one
+  byte) and an end tag; `exported_pdu` hands the rest to that dissector. Any
+  name passing `_DISSECTOR_RE` is written (tshark looks it up only when
+  reading; a Lua `Proto` registers its lower-cased name, and a short-lived
+  backend may not have the Lua scripts loaded); an unknown one shows the
+  record as data. `records()` walks the headers (`NotRecordsError` where they
+  stop), every packet gets the file's mtime, and records longer than
+  `MAX_PACKET` (262,144 = WTAP_MAX_PACKET_SIZE_STANDARD: tshark calls a
+  longer pcapng packet corrupt) are cut there, keeping the original length
+  (`truncated`). Written through `atomic_output`, cancellable, progress by
+  offset. The host picks the file (`pickFile`), the dissector (QuickPick of
+  `tshark -G dissectors` via `Tshark.glossary`, cached per tshark and Lua
+  scripts; `ber` first, the last choice next, a typed name allowed) and
+  opens an unsaved capture (`splitFileName`: `cdrs.dat` → `cdrs.pcapng`).
+  Offered by _Open File_ and, through `UnsupportedFormatError`'s
+  `data.berRecords` (`_index_error`), by the editor (`OPEN_AS_PACKETS`).
+  `{uri, dissector}` skip the questions (smoke test).
 - **TShark plugins** (`tshark_plugins`, `plugins.py`, `commands/plugins.ts`,
   `pcapViewer.showPlugins`): Wireshark plugins (C dissectors as `.so`/`.dll`
   built for one major.minor, Lua scripts in the plugin folders) need no

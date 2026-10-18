@@ -7,6 +7,13 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- **Open BER Records as Packets**: a file of BER records back to back (call
+  detail records and similar), which tshark refuses, opens as one packet per
+  record, decoded by the dissector you choose (generic BER, any of tshark's,
+  or a Lua one). Offered when such a file fails to open.
+
 ## 0.6.0 — 2026-10-18
 
 ### Added

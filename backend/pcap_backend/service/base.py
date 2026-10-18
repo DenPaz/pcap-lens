@@ -70,6 +70,10 @@ class ServiceBase:
         self._default_prefs: LruCache[tuple[str, tuple[str, ...]], dict[str, Preference]] = (
             LruCache(2)
         )
+        # tshark's named dissectors (`-G dissectors`), by (tshark, Lua scripts).
+        self._dissector_names: LruCache[tuple[str, tuple[str, ...]], list[dict[str, str]]] = (
+            LruCache(2)
+        )
         # Coloring: rule index + 1 per frame (0 = no rule), from the latest set_coloring.
         self._colors: array[int] | None = None
         self._coloring_id = 0

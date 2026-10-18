@@ -483,6 +483,11 @@
         "category": "PCAP"
       },
       {
+        "command": "pcapViewer.openBerRecords",
+        "title": "Open BER Records as Packets…",
+        "category": "PCAP"
+      },
+      {
         "command": "pcapViewer.importHexDump",
         "title": "Import from Hex Dump…",
         "category": "PCAP"

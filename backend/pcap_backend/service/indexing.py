@@ -6,7 +6,7 @@ from collections.abc import Callable, Generator, Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
-from pcap_backend import coloring
+from pcap_backend import ber, coloring
 from pcap_backend.cache import RowStore
 from pcap_backend.capture import LiveCapture
 from pcap_backend.index_cache import IndexCache
@@ -32,9 +32,15 @@ DEFAULT_CACHE_BYTES = 1 << 30
 def _index_error(tshark: Tshark, path: Path, result: StreamResult) -> Exception:
     """The error for an index pass that produced nothing."""
     if _UNSUPPORTED_RE.search(result.stderr):
+        data: dict[str, Any] = {"path": str(path), "stderr": result.stderr}
+        try:
+            records = ber.count_records(path)
+        except OSError:
+            records = None
+        if records and records > 1:
+            data["berRecords"] = records  # (split_ber opens them as packets)
         return UnsupportedFormatError(
-            f"{path.name} is not a capture file that tshark can read",
-            {"path": str(path), "stderr": result.stderr},
+            f"{path.name} is not a capture file that tshark can read", data
         )
     return tshark.error(
         result.stderr, result.returncode, f"tshark exited with code {result.returncode}"
