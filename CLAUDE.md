@@ -97,7 +97,10 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH): lint, backend and
   majors and `@vscode/codicons`, which `make update` vendors). Issue forms in
   `.github/ISSUE_TEMPLATE/` (the bug form asks for the versions,
   `tshark --version` and _PCAP: Show Log_); `SECURITY.md` points to private
-  advisories.
+  advisories. Third-party actions (`astral-sh/setup-uv`, `pnpm/action-setup`)
+  are pinned to a commit with the version as a comment (CodeQL's
+  unpinned-tag alert); GitHub's own `actions/*` and `github/*` keep major
+  tags. Dependabot updates both kinds.
 
 ## Layout
 
