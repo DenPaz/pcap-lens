@@ -23,10 +23,13 @@ commit) that made it. The format follows
 
 - A notice under the filter bar (such as unknown columns removed) no longer
   disappears when the filter box is emptied. [985f8b3]
+- A live capture's size limit now stops at the first packet past it; a fast
+  interface could overshoot it by several packets. [91e898e]
 
 [9c1afc4]: https://github.com/DenPaz/vsc_pcap_viewer/commit/9c1afc4
 [188ddcf]: https://github.com/DenPaz/vsc_pcap_viewer/commit/188ddcf
 [985f8b3]: https://github.com/DenPaz/vsc_pcap_viewer/commit/985f8b3
+[91e898e]: https://github.com/DenPaz/vsc_pcap_viewer/commit/91e898e
 
 ## 0.6.0 — 2026-10-18
 
