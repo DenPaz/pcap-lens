@@ -177,6 +177,65 @@
   }
 
   /**
+   * How a frame-number field relates the selected packet to the packet it
+   * names (Wireshark's related-packet indicators): its request, its
+   * response, a packet it acknowledges (or duplicates the ACK of), else
+   * "related" (segments, reassembly, previous/next in a conversation…).
+   *
+   * @param {string} name a field of type FT_FRAMENUM, e.g. "dns.response_in"
+   * @returns {"request" | "response" | "ack" | "dup-ack" | "related"}
+   */
+  function relatedKind(name) {
+    if (/(^|\.)(request_in|request_to|response_to|request_frame)$/.test(name)) {
+      return "request";
+    }
+    if (/(^|\.)(response_in|response_frame)$/.test(name)) {
+      return "response";
+    }
+    if (/dup(licate)?_ack/.test(name)) {
+      return "dup-ack";
+    }
+    if (/(^|[._])acks?_frame$/.test(name)) {
+      return "ack";
+    }
+    return "related";
+  }
+
+  /**
+   * The packets the selected packet's detail tree refers to, with how
+   * (`relatedKind`): every FT_FRAMENUM field but the packet itself. A specific
+   * relation wins over "related" for the same packet.
+   *
+   * @param {any[]} tree the detail tree
+   * @param {(name: string) => string | undefined} typeOf a field's type (FT_…)
+   * @param {number} self the selected packet's number
+   * @returns {Map<number, string>}
+   */
+  function relatedFrames(tree, typeOf, self) {
+    /** @type {Map<number, string>} */
+    const out = new Map();
+    /** @param {any[]} nodes */
+    const walk = (nodes) => {
+      for (const node of nodes) {
+        if (node.name && typeOf(node.name) === "FT_FRAMENUM") {
+          const n = Number(node.show);
+          if (Number.isInteger(n) && n > 0 && n !== self) {
+            const kind = relatedKind(node.name);
+            if (!out.has(n) || (out.get(n) === "related" && kind !== "related")) {
+              out.set(n, kind);
+            }
+          }
+        }
+        if (node.children) {
+          walk(node.children);
+        }
+      }
+    };
+    walk(tree);
+    return out;
+  }
+
+  /**
    * The status bar's expert information indicator, from `expert_summary`'s
    * counts: the most severe of errors, warnings and notes (Wireshark's dot),
    * else "ok"; `label` names that count, `title` lists every severity.
@@ -1700,6 +1759,8 @@
     prefsProtocol,
     DIAGRAM_BITS,
     expertStatus,
+    relatedKind,
+    relatedFrames,
     bitPattern,
     packetDiagram,
     combineFilter,

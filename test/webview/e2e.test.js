@@ -932,6 +932,40 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     assert.doesNotMatch(await status(), /Displayed/);
   });
 
+  test("related packets of the selected one are marked in the list", async () => {
+    await cleanView();
+    /** @param {number} frame */
+    const markOf = (frame) =>
+      page.$eval(
+        "#list-rows",
+        (rows, f) => {
+          const row = rows.children[f - 1];
+          const mark = row.querySelector(".related-mark");
+          return [mark.className, mark.title, row.getAttribute("aria-description")];
+        },
+        frame,
+      );
+    await rowEl(7).click(); // HTTP response: "[Request in frame: 4]"
+    await waitSelected(7);
+    await page.waitForFunction(() =>
+      document.querySelectorAll("#list-rows .list-row")[3]?.querySelector(".codicon-arrow-right"),
+    );
+    assert.deepEqual(await markOf(4), [
+      "related-mark codicon codicon-arrow-right",
+      "Request: the selected packet answers it",
+      "Request: the selected packet answers it",
+    ]);
+    assert.deepEqual(await markOf(7), ["related-mark", "", null], "not the packet itself");
+    assert.deepEqual(await markOf(1), ["related-mark", "", null]);
+
+    // The detail dissects up to the packet only, so the request names no
+    // response; selecting it drops the marks.
+    await rowEl(4).click();
+    await waitSelected(4);
+    await page.waitForFunction(() => !document.querySelector("#list-rows .related-mark.codicon"));
+    assert.equal((await markOf(4))[2], null);
+  });
+
   test("marks: toggle, next/previous marked, the mark style wins over coloring, unmark all", async () => {
     await cleanView();
     const rules = [{ filter: "tcp", foreground: "#000000", background: "#e7e6ff" }];

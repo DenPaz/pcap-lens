@@ -82,6 +82,47 @@ suite("webview lib: virtualization", () => {
 });
 
 suite("webview lib: filters", () => {
+  test("relatedKind: requests, responses, ACKs and the rest", () => {
+    assert.equal(lib.relatedKind("dns.response_to"), "request");
+    assert.equal(lib.relatedKind("http.request_in"), "request");
+    assert.equal(lib.relatedKind("dns.response_in"), "response");
+    assert.equal(lib.relatedKind("http.response_in"), "response");
+    assert.equal(lib.relatedKind("tcp.analysis.acks_frame"), "ack");
+    assert.equal(lib.relatedKind("tcp.analysis.duplicate_ack_frame"), "dup-ack");
+    assert.equal(lib.relatedKind("tcp.reassembled_in"), "related");
+    assert.equal(lib.relatedKind("http.prev_request_in"), "related");
+  });
+
+  test("relatedFrames: the packets the selected one refers to", () => {
+    const types = { "dns.response_to": "FT_FRAMENUM", "tcp.segment": "FT_FRAMENUM" };
+    const tree = [
+      { name: "frame", children: [{ name: "frame.number", show: "7" }] },
+      {
+        name: "dns",
+        children: [
+          { name: "dns.response_to", show: "5" },
+          { name: "dns.id", show: "4660" }, // (not a frame number)
+        ],
+      },
+      {
+        name: "tcp.segments",
+        children: [
+          { name: "tcp.segment", show: "5" },
+          { name: "tcp.segment", show: "7" },
+          { name: "tcp.segment", show: "6" },
+        ],
+      },
+    ];
+    const related = lib.relatedFrames(tree, (n) => types[n], 7);
+    assert.deepEqual(
+      [...related],
+      [
+        [5, "request"],
+        [6, "related"],
+      ],
+    );
+  });
+
   test("expertStatus: the most severe of errors, warnings and notes", () => {
     const counts = { error: 0, warning: 2, note: 5, chat: 6, comment: 0 };
     assert.deepEqual(lib.expertStatus(counts), {

@@ -125,7 +125,9 @@ registered under its name in lower case).
 
 - **Find Packet** (`Ctrl+F`) by display filter, string or hex bytes.
 - **Frame links** in the tree (_Request in frame_, _ACK of frame_…) with
-  back/forward history (`Alt+Left`/`Alt+Right`).
+  back/forward history (`Alt+Left`/`Alt+Right`). The packets they refer to
+  are marked in the list while the packet is selected: an arrow on the request
+  it answers, a check on the segment it acknowledges, a dot on the rest.
 - Next/previous packet in the conversation, first/last, go to packet, and
   **marks** (`Ctrl+M`) with next/previous marked.
 

@@ -121,6 +121,11 @@ function render() {
       }
       row.append(cell);
     }
+    // (Out of the grid: absolutely positioned. Shows a related packet's relation.)
+    const mark = document.createElement("span");
+    mark.className = "related-mark";
+    mark.setAttribute("aria-hidden", "true");
+    row.append(mark);
     el.rows.append(row);
   }
   while (el.rows.children.length > win.count) {
@@ -154,6 +159,7 @@ function render() {
     rowEl.style.setProperty("--rule-bg", rule ? rule.background : "");
     rowEl.style.setProperty("--rule-fg", rule ? rule.foreground : "");
     rowEl.style.setProperty("--rule-stripe", look ? look.stripe : "");
+    markRelated(rowEl, row ? state.related.get(row.number) : undefined);
     for (let c = 0; c < cols.length; c++) {
       const cell = /** @type {HTMLElement} */ (rowEl.children[c]);
       // Times arrive formatted by the backend (pcapViewer.timeFormat, time reference).
@@ -172,6 +178,31 @@ function render() {
     }
   }
   requestPages(win.first, win.count);
+}
+
+/** What each related-packet mark means, relative to the selected packet. */
+const RELATED = {
+  request: ["arrow-right", "Request: the selected packet answers it"],
+  response: ["arrow-left", "Response to the selected packet"],
+  ack: ["check", "Acknowledged by the selected packet"],
+  "dup-ack": ["check-all", "The selected packet is a duplicate ACK of it"],
+  related: ["circle-small-filled", "Related to the selected packet"],
+};
+
+/** @param {HTMLElement} rowEl @param {string | undefined} kind */
+function markRelated(rowEl, kind) {
+  const mark = /** @type {HTMLElement} */ (rowEl.lastElementChild);
+  const [glyph, text] = kind ? RELATED[/** @type {keyof RELATED} */ (kind)] : ["", ""];
+  const cls = glyph ? `related-mark codicon codicon-${glyph}` : "related-mark";
+  if (mark.className !== cls) {
+    mark.className = cls;
+    mark.title = text;
+  }
+  if (text) {
+    rowEl.setAttribute("aria-description", text);
+  } else {
+    rowEl.removeAttribute("aria-description");
+  }
 }
 
 /** @param {number} first @param {number} count */

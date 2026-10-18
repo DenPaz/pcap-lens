@@ -107,6 +107,13 @@ export async function loadFieldTypes(detail) {
     for (const entry of nodeIndex.values()) {
       decorateFrameLink(entry);
     }
+    // The packets it refers to get a mark in the list.
+    state.related = lib.relatedFrames(
+      detail.tree,
+      (name) => state.fieldTypes.get(name)?.type,
+      detail.number,
+    );
+    scheduleRender();
   }
 }
 

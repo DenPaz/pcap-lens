@@ -1281,7 +1281,14 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   - _Frame links_: after a detail loads, the webview asks `field_types` (exact
     catalogue lookups) for the tree's field names once, and `FT_FRAMENUM`
     fields become links. The back/forward history covers jumps (links, go to,
-    find, marks, conversation, first/last), not arrow keys.
+    find, marks, conversation, first/last), not arrow keys. The same lookup
+    gives `state.related` (`lib.relatedFrames`: frame → kind by field name,
+    `relatedKind`; a specific kind beats "related"): `list.js` draws a
+    Codicon `span.related-mark` (absolutely positioned, after the cells, so
+    `children[i]` stay cells) at the No. cell's left and an
+    `aria-description` on those rows; `clearDetail` empties it. The detail
+    dissects up to the packet only (`-c N`), so forward references
+    (`http.response_in`) never appear: only earlier packets get marks.
   - _Keys_: the webview handles keys VS Code leaves to a focused webview
     (Ctrl+F, F3, Ctrl+Home/End, Esc). Keys VS Code binds globally even then
     (Ctrl+M, Ctrl+T, Ctrl+,, Ctrl+Shift+N/B, and Alt+Left, which is Back on

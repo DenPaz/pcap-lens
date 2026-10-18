@@ -169,6 +169,8 @@ export const state = {
   /** @type {Set<string>} */ expanded: new Set(saved.expanded || []),
   /** The details pane shows the tree or the packet diagram (viewer/diagram.js). */
   /** @type {"tree" | "diagram"} */ detailView: saved.detailView === "diagram" ? "diagram" : "tree",
+  /** Packets the selected one refers to, and how (lib.relatedFrames). */
+  /** @type {Map<number, string>} */ related: new Map(),
   /** Expert items per severity (expert_summary), once the capture is indexed. */
   /** @type {Record<string, number> | null} */ expert: null,
   /** The diagram's cells show the fields' values too. */
