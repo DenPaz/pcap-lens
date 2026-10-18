@@ -18,7 +18,7 @@ import { applyFilter, setHistory, validateSoon } from "./filterbar.js";
 import { showSavedMenu, suggest } from "./autocomplete.js";
 import { runCommand } from "./navigation.js";
 import { leaveAskMode, onAiSuggestions, setAiAvailable } from "./ai.js";
-import { renderFilterButtons, updateStatus } from "./status.js";
+import { loadExpertSummary, renderFilterButtons, resetExpert, updateStatus } from "./status.js";
 
 window.addEventListener("message", (event) => {
   // VS Code posts to this frame with its own origin as the target; ignore other senders.
@@ -121,6 +121,7 @@ window.addEventListener("message", (event) => {
       break;
     case "coloring":
       state.coloring = msg.rules.length ? { id: msg.coloringId, rules: msg.rules } : null;
+      state.colorized = msg.temporary ?? 0;
       state.coloringProgress = undefined;
       refreshRows();
       updateStatus();
@@ -160,6 +161,7 @@ function onInit(msg) {
   state.quickDetail = msg.quickDetail || state.quickDetail;
   state.timeRef = null;
   state.markCount = 0;
+  state.ignoredCount = 0;
   state.nav = { back: [], forward: [] };
   state.total = msg.info.frames;
   state.matchCount = msg.info.frames;
@@ -211,6 +213,11 @@ function onInit(msg) {
     resetView();
   }
   updateStatus();
+  if (state.indexing) {
+    resetExpert(); // counted once the index is done (onIndexDone)
+  } else {
+    void loadExpertSummary();
+  }
   el.viewport.focus();
 }
 

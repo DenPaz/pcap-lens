@@ -1,7 +1,7 @@
 // @ts-check
 /** Context menus (packet list, detail tree) and their actions. */
 
-import { el, icon, lib, state, vscode } from "./core.js";
+import { el, icon, lib, rpc, state, vscode } from "./core.js";
 import { visibleColumns } from "./columns.js";
 import { rowAt } from "./list.js";
 import { copyRows, focusIndex, selectAll, selectIndex, selectedFrames } from "./selection.js";
@@ -13,6 +13,7 @@ import {
   canBeColumn,
   copyFrameNumbers,
   frameLinkTarget,
+  toggleIgnore,
   toggleMark,
   toggleTimeReference,
 } from "./navigation.js";
@@ -73,6 +74,24 @@ el.rows.addEventListener("contextmenu", (e) => {
       "…and not Selected",
       filter ? () => applyFromTree(lib.combineFilter(current, filter, "not"), true) : null,
     ],
+    // A second menu at the same spot: the packet's Ethernet/IP/TCP/UDP conversations.
+    [
+      "Conversation Filter…",
+      () => void conversationMenu(row.number, e.clientX, e.clientY, (f) => applyFromTree(f, true)),
+    ],
+    [
+      "Colorize Conversation…",
+      () =>
+        void conversationMenu(row.number, e.clientX, e.clientY, (f) =>
+          vscode.postMessage({ type: "colorizeConversation", filter: f }),
+        ),
+    ],
+    [
+      "Reset Colorization",
+      state.colorized
+        ? () => vscode.postMessage({ type: "runCommand", id: "pcapViewer.resetColorization" })
+        : null,
+    ],
     ["-", null],
     ["Follow TCP Stream", follow("tcp")],
     ["Follow UDP Stream", follow("udp")],
@@ -108,6 +127,14 @@ el.rows.addEventListener("contextmenu", (e) => {
       () => void toggleMark(),
     ],
     [
+      multi
+        ? `Ignore/Unignore ${multi.toLocaleString()} Selected Packets`
+        : row.ignored
+          ? "Unignore Packet"
+          : "Ignore Packet",
+      () => void toggleIgnore(),
+    ],
+    [
       state.timeRef === row.number ? "Unset Time Reference" : "Set Time Reference",
       () => toggleTimeReference(),
     ],
@@ -132,6 +159,36 @@ el.rows.addEventListener("contextmenu", (e) => {
   ];
   showMenu(e.clientX, e.clientY, items);
 });
+
+/**
+ * The conversations of packet `frame` as a menu; picking one calls `pick`
+ * with its filter. Stream numbers need the exact detail (a quick view's are
+ * the window's), which the backend has cached when the packet is shown.
+ * @param {number} frame @param {number} x @param {number} y
+ * @param {(filter: string) => void} pick
+ */
+async function conversationMenu(frame, x, y, pick) {
+  let detail = state.detail?.number === frame && !state.detail.approximate ? state.detail : null;
+  if (!detail) {
+    showMenu(x, y, [[`Reading packet ${frame}…`, null]]);
+    try {
+      detail = await rpc("packet_detail", { number: frame }).promise;
+    } catch {
+      detail = null;
+    }
+    if (el.menu.classList.contains("hidden")) {
+      return; // closed meanwhile
+    }
+  }
+  const conversations = detail ? lib.conversationFilters(detail.tree) : [];
+  showMenu(
+    x,
+    y,
+    conversations.length
+      ? conversations.map(({ label, filter }) => [label, () => pick(filter)])
+      : [["No conversation for this packet", null]],
+  );
+}
 
 el.tree.addEventListener("contextmenu", (e) => {
   const row = /** @type {HTMLElement | null} */ (

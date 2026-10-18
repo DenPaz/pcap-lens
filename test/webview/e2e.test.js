@@ -173,6 +173,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
           "copy",
           "askAboutPackets",
           "runCommand",
+          "colorizeConversation",
           "addFilterButton",
           "editFilterButton",
         ].includes(msg.type)
@@ -535,7 +536,12 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       items.slice(0, 2).map((i) => i[0]),
       ["Apply as Filter", "Prepare as Filter"],
     );
-    assert.deepEqual(items.slice(5, 9), [
+    assert.deepEqual(items.slice(5, 8), [
+      ["Conversation Filter…", true],
+      ["Colorize Conversation…", true],
+      ["Reset Colorization", false],
+    ]);
+    assert.deepEqual(items.slice(8, 12), [
       ["Follow TCP Stream", true],
       ["Follow UDP Stream", true],
       ["Follow TLS Stream", false],
@@ -546,6 +552,51 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.click("#list-rows .list-row >> nth=3", { button: "right" });
     await page.click("#context-menu .item:has-text('Decode As')");
     await expectHostLast({ type: "decodeAs", frame: 4 });
+  });
+
+  test("Conversation Filter and Colorize Conversation list the packet's conversations", async () => {
+    await cleanView();
+    const conversations = () => rowEl(4).click({ button: "right" });
+    await conversations();
+    await page.click("#context-menu .item:has-text('Conversation Filter…')");
+    await page.waitForSelector("#context-menu .item:has-text('TCP')");
+    assert.deepEqual(
+      await page.$$eval("#context-menu .item", (els) => els.map((e) => e.textContent)),
+      ["Ethernet", "IPv4", "TCP"],
+    );
+    await page.click("#context-menu .item:has-text('TCP')");
+    await page.waitForFunction(() =>
+      /Displayed: 11/.test(document.querySelector("#status-left").textContent),
+    );
+    assert.equal(await page.inputValue("#filter-input"), "tcp.stream eq 0");
+
+    await conversations();
+    await page.click("#context-menu .item:has-text('Colorize Conversation…')");
+    await page.click("#context-menu .item:has-text('IPv4')");
+    await expectHostLast(
+      {
+        type: "colorizeConversation",
+        filter: "ip.addr == 192.168.1.10 && ip.addr == 93.184.216.34",
+      },
+      { ofType: true },
+    );
+    // The host colors it with a temporary rule: Reset Colorization comes alive.
+    await post({
+      type: "coloring",
+      coloringId: 0,
+      temporary: 1,
+      rules: [{ name: "Conversation", foreground: "#12272e", background: "#ffc0c0" }],
+    });
+    await conversations();
+    await page.click("#context-menu .item:has-text('Reset Colorization')");
+    await expectHostLast(
+      { type: "runCommand", id: "pcapViewer.resetColorization" },
+      { ofType: true },
+    );
+    await post({ type: "coloring", coloringId: 0, temporary: 0, rules: [] });
+    await cleanView();
+    await rowEl(4).click(); // (the next test starts on frame 4)
+    await waitSelected(4);
   });
 
   test("coloring rules color the rows; Colorize and Export Bytes reach the host", async () => {
@@ -932,6 +983,83 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     assert.doesNotMatch(await status(), /Displayed/);
   });
 
+  test("related packets of the selected one are marked in the list", async () => {
+    await cleanView();
+    /** @param {number} frame */
+    const markOf = (frame) =>
+      page.$eval(
+        "#list-rows",
+        (rows, f) => {
+          const row = rows.children[f - 1];
+          const mark = row.querySelector(".related-mark");
+          return [mark.className, mark.title, row.getAttribute("aria-description")];
+        },
+        frame,
+      );
+    await rowEl(7).click(); // HTTP response: "[Request in frame: 4]"
+    await waitSelected(7);
+    await page.waitForFunction(() =>
+      document.querySelectorAll("#list-rows .list-row")[3]?.querySelector(".codicon-arrow-right"),
+    );
+    assert.deepEqual(await markOf(4), [
+      "related-mark codicon codicon-arrow-right",
+      "Request: the selected packet answers it",
+      "Request: the selected packet answers it",
+    ]);
+    assert.deepEqual(await markOf(7), ["related-mark", "", null], "not the packet itself");
+    assert.deepEqual(await markOf(1), ["related-mark", "", null]);
+
+    // The detail dissects up to the packet only, so the request names no
+    // response; selecting it drops the marks.
+    await rowEl(4).click();
+    await waitSelected(4);
+    await page.waitForFunction(() => !document.querySelector("#list-rows .related-mark.codicon"));
+    assert.equal((await markOf(4))[2], null);
+  });
+
+  test("ignore packets: Ctrl+D dims them, the menu and the status bar say so, unignore all", async () => {
+    await cleanView();
+    const ignored = () =>
+      page.$$eval("#list-rows .list-row.ignored", (rows) =>
+        rows.map((r) => Number(r.children[0].textContent)),
+      );
+    await rowEl(2).click();
+    await waitSelected(2);
+    await command("toggleIgnore"); // Ctrl+D (a keybinding in VS Code)
+    await page.waitForFunction(() =>
+      /Ignored: 1/.test(document.querySelector("#status-left").textContent),
+    );
+    assert.deepEqual(await ignored(), [2]);
+    await rowEl(3).click();
+    await waitSelected(3);
+    assert.equal(
+      await page.$eval("#list-rows .list-row.ignored", (r) => r.getAttribute("aria-description")),
+      "Ignored",
+    );
+    // The expert summary is recounted without it (frame 2 has no expert items: same text).
+    await page.waitForSelector("#status-expert:not(.hidden)");
+
+    await rowEl(2).click({ button: "right" });
+    await page.click("#context-menu .item:has-text('Unignore Packet')");
+    await page.waitForFunction(() => !document.querySelector("#list-rows .list-row.ignored"));
+    assert.doesNotMatch(await status(), /Ignored/);
+
+    for (const frame of [5, 6]) {
+      await rowEl(frame).click();
+      await waitSelected(frame);
+      await command("toggleIgnore");
+      await page.waitForFunction(
+        (f) =>
+          document.querySelectorAll("#list-rows .list-row")[f - 1]?.classList.contains("ignored"),
+        frame,
+      );
+    }
+    assert.match(await status(), /Ignored: 2/);
+    await command("unignoreAll");
+    await page.waitForFunction(() => !document.querySelector("#list-rows .list-row.ignored"));
+    assert.doesNotMatch(await status(), /Ignored/);
+  });
+
   test("marks: toggle, next/previous marked, the mark style wins over coloring, unmark all", async () => {
     await cleanView();
     const rules = [{ filter: "tcp", foreground: "#000000", background: "#e7e6ff" }];
@@ -993,6 +1121,23 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await src.click({ button: "right" });
     await page.click("#context-menu .item:has-text('Protocol Preferences: ip…')");
     await expectHostLast({ type: "protocolPrefs", protocol: "ip" }, { ofType: true });
+  });
+
+  test("expert information in the status bar opens the Expert Information panel", async () => {
+    await cleanView();
+    await page.waitForSelector("#status-expert:not(.hidden)");
+    // http.pcap has notes (the connection closing) and chats, no warnings or errors.
+    assert.equal(await page.textContent("#status-expert"), "2 notes");
+    assert.ok(await page.isVisible("#status-expert .codicon-info.expert-note"));
+    assert.match(
+      await page.getAttribute("#status-expert", "title"),
+      /^Expert information: 0 errors, 0 warnings, 2 notes, \d+ chats, 0 comments\./,
+    );
+    await page.click("#status-expert");
+    await expectHostLast(
+      { type: "runCommand", id: "pcapViewer.statistics.expertInfo" },
+      { ofType: true },
+    );
   });
 
   test("packet diagram: headers to the bit, linked to the tree and bytes", async () => {
@@ -1569,7 +1714,8 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     assert.equal(await activeGroup(), "Other", "the heading clicked last stays active");
 
     // A disabled entry sends nothing (click or Enter); the hint says why.
-    const runs = () => hostLog.filter((m) => m.type === "runCommand").length;
+    const runsBefore = hostLog.filter((m) => m.type === "runCommand").length;
+    const runs = () => hostLog.filter((m) => m.type === "runCommand").length - runsBefore;
     // (force: Playwright won't click an aria-disabled element; a person can.)
     await page.click("#commands-list [data-id='pcapViewer.toggleMark']", { force: true });
     assert.equal(await menuOpen(), true, "stays open");

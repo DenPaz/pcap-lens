@@ -417,7 +417,24 @@ body {
 }
 
 #list-rows .list-row {
+  position: relative; /* (the coloring stripe and the related-packet mark) */
   cursor: default;
+}
+
+/*
+ * Related-packet marks (list.js, lib.relatedFrames): a Codicon in the No.
+ * column's empty left side of the packets the selected one refers to.
+ */
+#list-rows .related-mark {
+  position: absolute;
+  top: 0;
+  left: var(--space-4);
+  line-height: var(--row-height);
+  color: var(--vscode-textLink-foreground, var(--vscode-focusBorder));
+}
+
+#list-rows .list-row.selected .related-mark {
+  color: inherit;
 }
 
 #list-rows .list-row.odd {
@@ -433,10 +450,6 @@ body {
  * --rule-bg / --rule-fg and the color for its stripe as --rule-stripe
  * (lib.ruleStyle), and the class says how to draw them for the theme.
  */
-#list-rows .list-row.colored {
-  position: relative;
-}
-
 #list-rows .list-row.rule-full {
   color: var(--rule-fg);
   background: var(--rule-bg);
@@ -1132,6 +1145,12 @@ button.pd-cell:hover {
   content: "● ";
 }
 
+/* Ignored packets (Ctrl+D) are dimmed: left out of statistics and exports. */
+#list-rows .list-row.ignored:not(.selected):not(.marked) {
+  color: var(--vscode-disabledForeground, GrayText);
+  font-style: italic;
+}
+
 .node-row.frame-link .label {
   color: var(--vscode-textLink-foreground);
   cursor: pointer;
@@ -1154,6 +1173,24 @@ button.pd-cell:hover {
   border: none;
   font: inherit;
   cursor: pointer;
+}
+
+#status-expert {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+#status-expert .expert-error {
+  color: var(--vscode-editorError-foreground, var(--vscode-errorForeground));
+}
+
+#status-expert .expert-warning {
+  color: var(--vscode-editorWarning-foreground, var(--vscode-foreground));
+}
+
+#status-expert .expert-note {
+  color: var(--vscode-editorInfo-foreground, var(--vscode-foreground));
 }
 
 .status-link:hover {

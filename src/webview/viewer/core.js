@@ -113,6 +113,7 @@ export const el = {
   statusTime: $("status-time"),
   statusNames: $("status-names"),
   statusLua: $("status-lua"),
+  statusExpert: $("status-expert"),
   statusInfo: $("status-info"),
   statusCapture: $("status-capture"),
   captureText: $("capture-text"),
@@ -168,6 +169,10 @@ export const state = {
   /** @type {Set<string>} */ expanded: new Set(saved.expanded || []),
   /** The details pane shows the tree or the packet diagram (viewer/diagram.js). */
   /** @type {"tree" | "diagram"} */ detailView: saved.detailView === "diagram" ? "diagram" : "tree",
+  /** Packets the selected one refers to, and how (lib.relatedFrames). */
+  /** @type {Map<number, string>} */ related: new Map(),
+  /** Expert items per severity (expert_summary), once the capture is indexed. */
+  /** @type {Record<string, number> | null} */ expert: null,
   /** The diagram's cells show the fields' values too. */
   diagramValues: saved.diagramValues === true,
   activeSource: 0,
@@ -181,6 +186,8 @@ export const state = {
   /** @type {number | null} */ elapsedMs: null,
   /** Palette for rows whose list_packets result had this coloringId. */
   /** @type {{id: number, rules: ColorRule[]} | null} */ coloring: null,
+  /** How many conversations are colorized (Colorize Conversation's rules, first in `coloring`). */
+  colorized: 0,
   /** How rules are drawn (pcapViewer.coloringStyle): auto, full, subtle or stripe. */
   coloringStyle: "auto",
   /** A separate coloring pass is running (fraction, or null when unknown); undefined when not. */
@@ -216,6 +223,8 @@ export const state = {
   /** @type {Map<number, any>} */ earlyFilterEvents: new Map(),
   /** @type {number | null} */ timeRef: null,
   markCount: 0,
+  /** Number of ignored packets (Ctrl+D; the set lives in the backend). */
+  ignoredCount: 0,
   /** Back/forward history over jumps (links, go to, find, marks, conversation). */
   /** @type {{back: number[], forward: number[]}} */ nav: { back: [], forward: [] },
   /** Field name → {type, desc} from the backend's field catalogue (frame links, Apply as Column). */

@@ -389,6 +389,20 @@ def parse_expert(summary_text: str, fields_text: str, max_frames: int = 1000) ->
     return table
 
 
+EXPERT_SEVERITIES = ("error", "warning", "note", "chat", "comment")
+
+
+def parse_expert_counts(summary_text: str) -> dict[str, int]:
+    """Expert items per severity from ``-z expert``'s section headers
+    ("Warns (12)"), the total of each section's rows."""
+    counts = dict.fromkeys(EXPERT_SEVERITIES, 0)
+    for line in _lines(summary_text):
+        m = _EXPERT_SECTION.match(line.strip())
+        if m:
+            counts[_SEVERITY_NAME[m["name"]].lower()] = int(m["count"])
+    return counts
+
+
 # ---------------------------------------------------------------------- stats trees
 
 # Taps printed by tshark's generic stats_tree code (a "Topic / Item" table).

@@ -11,7 +11,7 @@ import { deleteComment, editComment, gotoFrame } from "./comments.js";
 import { nodeIndex } from "./detail.js";
 import { copy } from "./contextmenu.js";
 import { showNotice } from "./filterbar.js";
-import { updateStatus } from "./status.js";
+import { loadExpertSummary, updateStatus } from "./status.js";
 /** @import { NodeEntry } from "./detail.js" */
 
 const MAX_HISTORY = 100;
@@ -107,6 +107,13 @@ export async function loadFieldTypes(detail) {
     for (const entry of nodeIndex.values()) {
       decorateFrameLink(entry);
     }
+    // The packets it refers to get a mark in the list.
+    state.related = lib.relatedFrames(
+      detail.tree,
+      (name) => state.fieldTypes.get(name)?.type,
+      detail.number,
+    );
+    scheduleRender();
   }
 }
 
@@ -266,14 +273,22 @@ async function stepConversation(direction) {
 
 /** Patch cached rows instead of refetching. @param {number[]} marked @param {number[]} unmarked */
 function patchMarks(marked, unmarked) {
-  const on = new Set(marked);
-  const off = new Set(unmarked);
+  patchRows("marked", marked, unmarked);
+}
+
+/**
+ * Set or clear a row flag in the cached pages (instead of refetching them).
+ * @param {"marked" | "ignored"} flag @param {number[]} on @param {number[] | null} off null: every row
+ */
+function patchRows(flag, on, off) {
+  const set = new Set(on);
+  const clear = off && new Set(off);
   for (const page of state.pages.values()) {
     for (const row of page) {
-      if (on.has(row.number)) {
-        row.marked = true;
-      } else if (off.has(row.number)) {
-        delete row.marked;
+      if (set.has(row.number)) {
+        row[flag] = true;
+      } else if (!clear || clear.has(row.number)) {
+        delete row[flag];
       }
     }
   }
@@ -315,13 +330,38 @@ export async function toggleMark() {
 async function unmarkAll() {
   try {
     await rpc("unmark_all", {}).promise;
-    for (const page of state.pages.values()) {
-      for (const row of page) {
-        delete row.marked;
-      }
-    }
+    patchRows("marked", [], null);
     state.markCount = 0;
     afterMarksChanged();
+  } catch (err) {
+    showNotice(String(/** @type {any} */ (err)?.message ?? err));
+  }
+}
+
+/**
+ * Ctrl+D: ignore the selected packets (left out of statistics and exports),
+ * or stop ignoring them if all of them are ignored.
+ * @param {boolean} [all] unignore every packet instead
+ */
+export async function toggleIgnore(all = false) {
+  const frames = selectedFrames();
+  if (!all && !frames.length) {
+    showNotice("Select a packet to ignore.");
+    return;
+  }
+  try {
+    if (all) {
+      await rpc("unignore_all", {}).promise;
+      patchRows("ignored", [], null);
+      state.ignoredCount = 0;
+    } else {
+      const res = await rpc("ignore_packets", { frames }).promise;
+      patchRows("ignored", res.ignored, res.unignored);
+      state.ignoredCount = res.count;
+    }
+    updateStatus();
+    scheduleRender();
+    void loadExpertSummary(); // the status bar's counts leave them out too
   } catch (err) {
     showNotice(String(/** @type {any} */ (err)?.message ?? err));
   }
@@ -409,6 +449,12 @@ export function runCommand(command) {
       break;
     case "unmarkAll":
       void unmarkAll();
+      break;
+    case "toggleIgnore":
+      void toggleIgnore();
+      break;
+    case "unignoreAll":
+      void toggleIgnore(true);
       break;
     case "toggleTimeReference":
       toggleTimeReference();

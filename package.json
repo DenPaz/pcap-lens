@@ -7,7 +7,7 @@
     "color": "#0b3a73",
     "theme": "dark"
   },
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "denpaz",
   "license": "MIT",
   "repository": {
@@ -230,6 +230,16 @@
       {
         "command": "pcapViewer.unmarkAll",
         "title": "Unmark All Packets",
+        "category": "PCAP"
+      },
+      {
+        "command": "pcapViewer.toggleIgnore",
+        "title": "Ignore/Unignore Selected Packets",
+        "category": "PCAP"
+      },
+      {
+        "command": "pcapViewer.unignoreAll",
+        "title": "Unignore All Packets",
         "category": "PCAP"
       },
       {
@@ -560,6 +570,11 @@
         "category": "PCAP"
       },
       {
+        "command": "pcapViewer.resetColorization",
+        "title": "Reset Colorization",
+        "category": "PCAP"
+      },
+      {
         "command": "pcapViewer.manageColoringRules",
         "title": "Edit Coloring Rules",
         "category": "PCAP"
@@ -729,6 +744,10 @@
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
         },
         {
+          "command": "pcapViewer.resetColorization",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
+        },
+        {
           "command": "pcapViewer.suggestFilter",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
         },
@@ -790,6 +809,14 @@
         },
         {
           "command": "pcapViewer.unmarkAll",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
+        },
+        {
+          "command": "pcapViewer.toggleIgnore",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
+        },
+        {
+          "command": "pcapViewer.unignoreAll",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
         },
         {
@@ -886,6 +913,12 @@
         "command": "pcapViewer.toggleMark",
         "key": "ctrl+m",
         "mac": "cmd+m",
+        "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ && !sideBarFocus && !panelFocus && !auxiliaryBarFocus && !inputFocus"
+      },
+      {
+        "command": "pcapViewer.toggleIgnore",
+        "key": "ctrl+d",
+        "mac": "cmd+d",
         "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ && !sideBarFocus && !panelFocus && !auxiliaryBarFocus && !inputFocus"
       },
       {

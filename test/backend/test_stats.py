@@ -183,6 +183,17 @@ def test_parse_expert_joins_frames_and_orders_by_severity() -> None:
     ]
 
 
+def test_parse_expert_counts_per_severity() -> None:
+    assert stats.parse_expert_counts(EXPERT) == {
+        "error": 1,
+        "warning": 2,
+        "note": 0,
+        "chat": 1,
+        "comment": 0,
+    }
+    assert stats.parse_expert_counts("") == dict.fromkeys(stats.EXPERT_SEVERITIES, 0)
+
+
 def test_parse_expert_splits_only_on_newlines() -> None:
     # \x1c-\x1e are line breaks for str.splitlines but can appear in packet text.
     fields = "3\tExpert Info (Chat/Sequence): odd\x1cmessage\n"

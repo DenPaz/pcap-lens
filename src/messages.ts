@@ -91,8 +91,11 @@ export const WEBVIEW_RPC_METHODS = new Set([
   "neighbor_frame",
   "mark_packets",
   "unmark_all",
+  "ignore_packets",
+  "unignore_all",
   "field_types",
   "packet_comments",
+  "expert_summary",
 ]);
 
 /** Actions the host asks the webview to perform (command palette and keybindings). */
@@ -111,6 +114,8 @@ export const VIEWER_COMMANDS = [
   "nextMark",
   "previousMark",
   "unmarkAll",
+  "toggleIgnore",
+  "unignoreAll",
   "toggleTimeReference",
   "editPacketComment",
   "deletePacketComment",
@@ -138,6 +143,8 @@ export type WebviewToHost =
   | { type: "follow"; proto: "tcp" | "udp" | "tls" | "http"; frame: number }
   | { type: "manageSavedFilters" }
   | { type: "colorize"; filter: string }
+  /** Colorize Conversation: color `filter`'s packets in this editor (a temporary rule). */
+  | { type: "colorizeConversation"; filter: string }
   /** "✨ Ask AI": natural-language description of the wanted packets. */
   | { type: "aiSuggest"; id: number; request: string }
   | { type: "aiCancel"; id: number }
@@ -236,6 +243,8 @@ export type HostToWebview =
       type: "coloring";
       coloringId: number;
       rules: { name: string; foreground: string; background: string }[];
+      /** How many of `rules` (first) are colorized conversations. */
+      temporary: number;
     }
   /** A separate coloring pass is running (`fraction` when known), or it ended without new colors (`done`). */
   | { type: "coloringProgress"; fraction: number | null; done?: boolean }

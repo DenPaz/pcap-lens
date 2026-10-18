@@ -6,6 +6,7 @@ import { gotoFrame, showComment } from "./comments.js";
 import { copy, showMenu } from "./contextmenu.js";
 import { applyDetailView, clearDiagram, markDiagramSelection } from "./diagram.js";
 import { decorateFrameLink, frameLinkTarget, loadFieldTypes } from "./navigation.js";
+import { scheduleRender } from "./list.js";
 import { persist } from "./status.js";
 
 /** @param {number} frame */
@@ -118,6 +119,10 @@ export function postSelection() {
 
 export function clearDetail() {
   reportSelection(null);
+  if (state.related.size) {
+    state.related = new Map();
+    scheduleRender();
+  }
   void showComment(null);
   state.detail = null;
   state.selectedNodeId = null;

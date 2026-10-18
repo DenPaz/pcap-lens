@@ -82,6 +82,103 @@ suite("webview lib: virtualization", () => {
 });
 
 suite("webview lib: filters", () => {
+  test("relatedKind: requests, responses, ACKs and the rest", () => {
+    assert.equal(lib.relatedKind("dns.response_to"), "request");
+    assert.equal(lib.relatedKind("http.request_in"), "request");
+    assert.equal(lib.relatedKind("dns.response_in"), "response");
+    assert.equal(lib.relatedKind("http.response_in"), "response");
+    assert.equal(lib.relatedKind("tcp.analysis.acks_frame"), "ack");
+    assert.equal(lib.relatedKind("tcp.analysis.duplicate_ack_frame"), "dup-ack");
+    assert.equal(lib.relatedKind("tcp.reassembled_in"), "related");
+    assert.equal(lib.relatedKind("http.prev_request_in"), "related");
+  });
+
+  test("conversationFilters: Ethernet, IP and stream conversations, innermost values", () => {
+    const f = (name, show, children) => ({ name, show, ...(children ? { children } : {}) });
+    const tree = [
+      {
+        name: "eth",
+        children: [f("eth.dst", "00:00:5e:00:53:02"), f("eth.src", "00:00:5e:00:53:01")],
+      },
+      { name: "ip", children: [f("ip.src", "192.0.2.1"), f("ip.dst", "192.0.2.2")] },
+      // A tunnel: the inner header wins.
+      { name: "ip", children: [f("ip.src", "10.0.0.1"), f("ip.dst", "10.0.0.2")] },
+      { name: "tcp", children: [f("tcp.srcport", "80"), f("tcp.stream", "3")] },
+    ];
+    assert.deepEqual(lib.conversationFilters(tree), [
+      {
+        label: "Ethernet",
+        filter: "eth.addr == 00:00:5e:00:53:01 && eth.addr == 00:00:5e:00:53:02",
+      },
+      { label: "IPv4", filter: "ip.addr == 10.0.0.1 && ip.addr == 10.0.0.2" },
+      { label: "TCP", filter: "tcp.stream eq 3" },
+    ]);
+    assert.deepEqual(
+      lib.conversationFilters([
+        { name: "ipv6", children: [f("ipv6.src", "2001:db8::1"), f("ipv6.dst", "2001:db8::2")] },
+        { name: "udp", children: [f("udp.stream", "0")] },
+      ]),
+      [
+        { label: "IPv6", filter: "ipv6.addr == 2001:db8::1 && ipv6.addr == 2001:db8::2" },
+        { label: "UDP", filter: "udp.stream eq 0" },
+      ],
+    );
+    // Only addresses and numbers go into a filter.
+    assert.deepEqual(
+      lib.conversationFilters([
+        { name: "ip", children: [f("ip.src", "a || frame"), f("ip.dst", "10.0.0.2")] },
+      ]),
+      [],
+    );
+    assert.deepEqual(lib.conversationFilters([]), []);
+  });
+
+  test("relatedFrames: the packets the selected one refers to", () => {
+    const types = { "dns.response_to": "FT_FRAMENUM", "tcp.segment": "FT_FRAMENUM" };
+    const tree = [
+      { name: "frame", children: [{ name: "frame.number", show: "7" }] },
+      {
+        name: "dns",
+        children: [
+          { name: "dns.response_to", show: "5" },
+          { name: "dns.id", show: "4660" }, // (not a frame number)
+        ],
+      },
+      {
+        name: "tcp.segments",
+        children: [
+          { name: "tcp.segment", show: "5" },
+          { name: "tcp.segment", show: "7" },
+          { name: "tcp.segment", show: "6" },
+        ],
+      },
+    ];
+    const related = lib.relatedFrames(tree, (n) => types[n], 7);
+    assert.deepEqual(
+      [...related],
+      [
+        [5, "request"],
+        [6, "related"],
+      ],
+    );
+  });
+
+  test("expertStatus: the most severe of errors, warnings and notes", () => {
+    const counts = { error: 0, warning: 2, note: 5, chat: 6, comment: 0 };
+    assert.deepEqual(lib.expertStatus(counts), {
+      severity: "warning",
+      label: "2 warnings",
+      title:
+        "Expert information: 0 errors, 2 warnings, 5 notes, 6 chats, 0 comments. Click to open it.",
+    });
+    assert.equal(lib.expertStatus({ ...counts, error: 1 }).label, "1 error");
+    assert.equal(lib.expertStatus({ note: 1 }).severity, "note");
+    assert.deepEqual(
+      [lib.expertStatus({ chat: 3 }).severity, lib.expertStatus({ chat: 3 }).label],
+      ["ok", "No problems"],
+    );
+  });
+
   test("bitPattern: tshark's bit field labels", () => {
     assert.deepEqual(lib.bitPattern("0100 .... = Version: 4"), {
       width: 8,

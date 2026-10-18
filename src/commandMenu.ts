@@ -23,7 +23,8 @@ export type CommandGroup = (typeof COMMAND_GROUPS)[number];
  * What a command needs to be useful right now; the webview greys the entry
  * out with the reason when it's missing (lib.commandUnavailable).
  */
-export type Requirement = "selection" | "marks" | "filter" | "capturing" | "ai";
+export type Requirement =
+  "selection" | "marks" | "filter" | "capturing" | "ai" | "colorized" | "ignored";
 
 export interface MenuCommand {
   id: string;
@@ -68,6 +69,8 @@ const GROUP_OF: Readonly<Record<string, CommandGroup>> = {
   "pcapViewer.nextMark": "Packets",
   "pcapViewer.previousMark": "Packets",
   "pcapViewer.unmarkAll": "Packets",
+  "pcapViewer.toggleIgnore": "Packets",
+  "pcapViewer.unignoreAll": "Packets",
   "pcapViewer.toggleTimeReference": "Packets",
   "pcapViewer.editPacketComment": "Packets",
   "pcapViewer.deletePacketComment": "Packets",
@@ -116,6 +119,7 @@ const GROUP_OF: Readonly<Record<string, CommandGroup>> = {
   "pcapViewer.manageColumns": "Other",
   "pcapViewer.colorizeWithFilter": "Other",
   "pcapViewer.toggleColoring": "Other",
+  "pcapViewer.resetColorization": "Other",
   "pcapViewer.manageColoringRules": "Other",
   "pcapViewer.clearIndexCache": "Other",
   "pcapViewer.showLog": "Other",
@@ -134,6 +138,8 @@ const REQUIRES: Readonly<Record<string, Requirement[]>> = {
   "pcapViewer.nextMark": ["marks"],
   "pcapViewer.previousMark": ["marks"],
   "pcapViewer.unmarkAll": ["marks"],
+  "pcapViewer.toggleIgnore": ["selection"],
+  "pcapViewer.unignoreAll": ["ignored"],
   "pcapViewer.toggleTimeReference": ["selection"],
   "pcapViewer.editPacketComment": ["selection"],
   "pcapViewer.deletePacketComment": ["selection"],
@@ -147,6 +153,7 @@ const REQUIRES: Readonly<Record<string, Requirement[]>> = {
   "pcapViewer.exportSelected": ["selection"],
   "pcapViewer.exportPacketBytes": ["selection"],
   "pcapViewer.stopCapture": ["capturing"],
+  "pcapViewer.resetColorization": ["colorized"],
   "pcapViewer.suggestFilter": ["ai"],
   "pcapViewer.askAboutPackets": ["ai", "selection"],
   "pcapViewer.summarizeCapture": ["ai"],

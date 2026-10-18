@@ -176,6 +176,149 @@
     return name === "fake-field-wrapper" ? null : name;
   }
 
+  /** Conversation Filter's protocols: [label, address/stream fields, filter field]. */
+  const CONVERSATIONS = /** @type {const} */ ([
+    ["Ethernet", ["eth.src", "eth.dst"], "eth.addr"],
+    ["IPv4", ["ip.src", "ip.dst"], "ip.addr"],
+    ["IPv6", ["ipv6.src", "ipv6.dst"], "ipv6.addr"],
+    ["TCP", ["tcp.stream"], "tcp.stream"],
+    ["UDP", ["udp.stream"], "udp.stream"],
+  ]);
+
+  /**
+   * Conversation Filter / Colorize Conversation: the conversations a packet
+   * belongs to, from its detail tree (the innermost value of each field, as
+   * in a tunnel the inner packet's are the interesting ones): both addresses
+   * for Ethernet/IPv4/IPv6, the stream index for TCP/UDP.
+   *
+   * @param {any[]} tree packet_detail's tree
+   * @returns {{label: string, filter: string}[]}
+   */
+  function conversationFilters(tree) {
+    /** @type {Map<string, string>} */
+    const last = new Map();
+    const wanted = new Set(CONVERSATIONS.flatMap(([, fields]) => fields));
+    /** @param {any[]} nodes */
+    const walk = (nodes) => {
+      for (const node of nodes) {
+        if (wanted.has(node.name) && typeof node.show === "string" && node.show) {
+          last.set(node.name, node.show);
+        }
+        if (node.children) {
+          walk(node.children);
+        }
+      }
+    };
+    walk(tree);
+    /** @type {{label: string, filter: string}[]} */
+    const out = [];
+    for (const [label, fields, field] of CONVERSATIONS) {
+      const values = fields.map((f) => last.get(f));
+      if (values.some((v) => v === undefined || !/^[0-9A-Fa-f:.]+$/.test(v))) {
+        continue; // (also keeps anything but an address or a number out of the filter)
+      }
+      out.push({
+        label,
+        filter:
+          values.length === 1
+            ? `${field} eq ${values[0]}`
+            : values.map((v) => `${field} == ${v}`).join(" && "),
+      });
+    }
+    return out;
+  }
+
+  /**
+   * How a frame-number field relates the selected packet to the packet it
+   * names (Wireshark's related-packet indicators): its request, its
+   * response, a packet it acknowledges (or duplicates the ACK of), else
+   * "related" (segments, reassembly, previous/next in a conversation…).
+   *
+   * @param {string} name a field of type FT_FRAMENUM, e.g. "dns.response_in"
+   * @returns {"request" | "response" | "ack" | "dup-ack" | "related"}
+   */
+  function relatedKind(name) {
+    if (/(^|\.)(request_in|request_to|response_to|request_frame)$/.test(name)) {
+      return "request";
+    }
+    if (/(^|\.)(response_in|response_frame)$/.test(name)) {
+      return "response";
+    }
+    if (/dup(licate)?_ack/.test(name)) {
+      return "dup-ack";
+    }
+    if (/(^|[._])acks?_frame$/.test(name)) {
+      return "ack";
+    }
+    return "related";
+  }
+
+  /**
+   * The packets the selected packet's detail tree refers to, with how
+   * (`relatedKind`): every FT_FRAMENUM field but the packet itself. A specific
+   * relation wins over "related" for the same packet.
+   *
+   * @param {any[]} tree the detail tree
+   * @param {(name: string) => string | undefined} typeOf a field's type (FT_…)
+   * @param {number} self the selected packet's number
+   * @returns {Map<number, string>}
+   */
+  function relatedFrames(tree, typeOf, self) {
+    /** @type {Map<number, string>} */
+    const out = new Map();
+    /** @param {any[]} nodes */
+    const walk = (nodes) => {
+      for (const node of nodes) {
+        if (node.name && typeOf(node.name) === "FT_FRAMENUM") {
+          const n = Number(node.show);
+          if (Number.isInteger(n) && n > 0 && n !== self) {
+            const kind = relatedKind(node.name);
+            if (!out.has(n) || (out.get(n) === "related" && kind !== "related")) {
+              out.set(n, kind);
+            }
+          }
+        }
+        if (node.children) {
+          walk(node.children);
+        }
+      }
+    };
+    walk(tree);
+    return out;
+  }
+
+  /**
+   * The status bar's expert information indicator, from `expert_summary`'s
+   * counts: the most severe of errors, warnings and notes (Wireshark's dot),
+   * else "ok"; `label` names that count, `title` lists every severity.
+   *
+   * @param {Record<string, number>} counts error, warning, note, chat, comment
+   * @returns {{severity: "error" | "warning" | "note" | "ok", label: string, title: string}}
+   */
+  function expertStatus(counts) {
+    const n = (/** @type {string} */ k) => counts[k] ?? 0;
+    /** @param {number} count @param {string} one */
+    const plural = (count, one) => `${count.toLocaleString()} ${one}${count === 1 ? "" : "s"}`;
+    const all = [
+      plural(n("error"), "error"),
+      plural(n("warning"), "warning"),
+      plural(n("note"), "note"),
+      plural(n("chat"), "chat"),
+      plural(n("comment"), "comment"),
+    ].join(", ");
+    const title = `Expert information: ${all}. Click to open it.`;
+    for (const [key, one] of /** @type {const} */ ([
+      ["error", "error"],
+      ["warning", "warning"],
+      ["note", "note"],
+    ])) {
+      if (n(key) > 0) {
+        return { severity: key, label: plural(n(key), one), title };
+      }
+    }
+    return { severity: "ok", label: "No problems", title };
+  }
+
   /** Bits per packet diagram row (Wireshark draws 32). */
   const DIAGRAM_BITS = 32;
   /** Full rows of one field (or of unknown bytes) drawn before the rest is elided. */
@@ -1514,13 +1657,15 @@
     marks: "No packets are marked",
     filter: "No display filter is applied",
     capturing: "No capture is running",
+    colorized: "No conversation is colorized",
+    ignored: "No packets are ignored",
   };
 
   /**
    * Why a command can't run now (its first requirement that isn't met), or
    * null when it can. The menu shows such entries disabled with the reason.
    * @param {MenuCommand} command
-   * @param {{selected: boolean, marks: number, filter: boolean, capturing: boolean, ai: boolean}} ctx
+   * @param {{selected: boolean, marks: number, filter: boolean, capturing: boolean, ai: boolean, colorized?: number, ignored?: number}} ctx
    * @returns {string | null}
    */
   function commandUnavailable(command, ctx) {
@@ -1536,7 +1681,11 @@
                 ? ctx.capturing
                 : need === "ai"
                   ? ctx.ai
-                  : true;
+                  : need === "colorized"
+                    ? (ctx.colorized ?? 0) > 0
+                    : need === "ignored"
+                      ? (ctx.ignored ?? 0) > 0
+                      : true;
       if (!met) {
         return REQUIREMENT_REASONS[need] ?? "Not available now";
       }
@@ -1667,6 +1816,10 @@
     buildFieldFilter,
     prefsProtocol,
     DIAGRAM_BITS,
+    expertStatus,
+    relatedKind,
+    conversationFilters,
+    relatedFrames,
     bitPattern,
     packetDiagram,
     combineFilter,

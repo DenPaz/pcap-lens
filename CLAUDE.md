@@ -586,6 +586,16 @@ matchCount, fraction}`; the end sends `done`, `stopped` (`stop_filter
   to get frame numbers. Rows are matched by regex because multi-word groups
   ("Response code") overflow tshark's fixed-width column. The display-filter
   limit uses each tap's own filter argument (`conv,tcp,<filter>` etc.).
+- **Expert indicator** (`expert_summary`, `lib.expertStatus`,
+  `status.js` `loadExpertSummary`): one `-q -z expert,comment` pass
+  (`stats.parse_expert_counts`: the section headers' totals per severity),
+  cached on the `_Open` (`f.expert`); IndexingError while indexing, so the
+  webview asks on init when not indexing and in `onIndexDone`. It reports
+  no progress (a background pass mustn't show the busy bar; the progress-bar
+  e2e test caught that). `#status-expert` shows the most severe of errors,
+  warnings and notes ("No problems" else) with a Codicon in the editor's
+  error/warning/info color, every count in the tooltip, and posts
+  `runCommand` for _Expert Information_; `expertSeq` drops a stale answer.
 - **Service statistics** (`stats {kind: http | dns | plen | srt}`): HTTP
   (`type` packets/requests/load = `-z http,tree` / `http_req,tree` /
   `http_srv,tree`), DNS and packet lengths are tshark's stats_tree reports,
@@ -821,6 +831,22 @@ fields -e frame.number` gives progress when filtering; without a filter
   tests make with editcap). Opening a piece offers the merge once per editor
   (`offerMerge`; "Don't Ask Again" is a globalState flag). _PCAP: Merge
   Captures…_ uses the active capture's backend, else a short-lived one.
+- **Conversation filter and colorization** (row menu, `lib.conversationFilters`):
+  the packet's conversations come from its exact detail tree (the
+  innermost `eth.src/dst`, `ip.*`, `ipv6.*`, `tcp.stream`, `udp.stream`;
+  values that aren't addresses or numbers are dropped), shown as a second
+  flat menu at the same spot (`conversationMenu`; it fetches the exact
+  detail when the selected one is missing or a quick view, whose stream
+  numbers are the window's). _Conversation Filter_ applies the filter.
+  _Colorize Conversation_ posts `colorizeConversation`: the session keeps
+  `temporaryRules` (`settingsModel.colorizeConversation`: newest first, the
+  first `COLORIZE_PALETTE` color the others don't use, at most ten, i.e.
+  Wireshark's temporary colors) ahead of the configured rules in
+  `coloringRules()` (also with coloring toggled off: they were asked for),
+  per editor and kept across reloads, and runs `applyColoring`. The
+  `coloring` message carries `temporary` (their count, `state.colorized`),
+  which enables _Reset Colorization_ (`pcapViewer.resetColorization`; the
+  ☰ requirement `colorized`). No Ctrl+1…0 keys: VS Code binds them.
 - **Coloring rules editor** (`ColoringPanel`, `coloring.js`; the
   `pcapViewer.manageColoringRules` command, titled _Edit Coloring Rules_): one
   panel per window, reading and writing `pcapViewer.coloringRules` for the
@@ -1237,6 +1263,20 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
     `frame.number in {…}` with ranges compressed, split into chunks when the
     filter would exceed `MAX_FILTER_ARG` (16k characters, under Windows'
     32767-character command line), and the chunks joined with `mergecap -a`.
+  - _Ignored packets_ (Ctrl+D, `ignore_packets`/`unignore_all`, toggled like
+    marks; `_ignored`, per session) stay in every view: rows carry `ignored`
+    (dimmed, no rule color, `aria-description` "Ignored"), filters and sorts
+    are unchanged. tshark has no ignore option and re-dissecting without
+    them would renumber frames, so it is not Wireshark's "not dissected":
+    `_without_ignored(flt)` adds `navigation.exclusion_filter` (`!(frame.number
+== 2 || (frame.number >= 4 && frame.number <= 6))`: no commas, which
+    `-z io,stat` would split its filter list on) to every statistics tap,
+    the expert summary (cached per exclusion) and filter-based exports;
+    marked/selected exports and CSV/JSON drop them from their frame lists
+    (`_chosen_frames`: "Every one of the … is ignored"). More than
+    `MAX_FILTER_ARG` of exclusion is an InvalidParamsError ("unignore some").
+    Follow, flow/TCP graphs, VoIP, Export Objects, find and AI tools still
+    see them. The webview refreshes the expert indicator after each change.
   - _Times_ are formatted by the backend when `list_packets` gets `timeFormat`
     (and `timeRef`). Plain relative time uses the index pass's column; every
     other format uses `frame.time_epoch`, extracted once, parsed to integer ns.
@@ -1271,7 +1311,14 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   - _Frame links_: after a detail loads, the webview asks `field_types` (exact
     catalogue lookups) for the tree's field names once, and `FT_FRAMENUM`
     fields become links. The back/forward history covers jumps (links, go to,
-    find, marks, conversation, first/last), not arrow keys.
+    find, marks, conversation, first/last), not arrow keys. The same lookup
+    gives `state.related` (`lib.relatedFrames`: frame → kind by field name,
+    `relatedKind`; a specific kind beats "related"): `list.js` draws a
+    Codicon `span.related-mark` (absolutely positioned, after the cells, so
+    `children[i]` stay cells) at the No. cell's left and an
+    `aria-description` on those rows; `clearDetail` empties it. The detail
+    dissects up to the packet only (`-c N`), so forward references
+    (`http.response_in`) never appear: only earlier packets get marks.
   - _Keys_: the webview handles keys VS Code leaves to a focused webview
     (Ctrl+F, F3, Ctrl+Home/End, Esc). Keys VS Code binds globally even then
     (Ctrl+M, Ctrl+T, Ctrl+,, Ctrl+Shift+N/B, and Alt+Left, which is Back on
@@ -1451,4 +1498,7 @@ tree indent guides. Released 0.4.0 (GitHub only), then renamed to PCAP Lens for
 0.4.1, the first Marketplace version. 0.5.0: Python 3.12+ and Install
 Python. Since: the backend, viewer and editor split into modules, coverage
 and axe-core checks with the ARIA fixes they found, and protocol preferences.
-0.6.0 released. Since: BER record files as packets, and the packet diagram.
+0.6.0 released. Then BER record files as packets, and the packet diagram:
+0.7.0 released. Then Wireshark's expert indicator in the status bar,
+related-packet marks, Conversation Filter and Colorize Conversation, and
+ignored packets: 0.8.0.

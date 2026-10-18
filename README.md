@@ -97,7 +97,9 @@ registered under its name in lower case).
 - **Coloring rules** like Wireshark's (default set included, first match wins),
   with an editor (_PCAP: Edit Coloring Rules_) and _Colorize with Filter…_.
   Colors follow the theme: a tint and a stripe in dark themes, a stripe in high
-  contrast (`pcapViewer.coloringStyle` to choose).
+  contrast (`pcapViewer.coloringStyle` to choose). Right-click a packet and
+  _Colorize Conversation…_ to color its Ethernet, IP, TCP or UDP conversation
+  in one of ten colors for this editor (_Reset Colorization_ clears them).
 
   ![The same capture in a light theme, with Wireshark's coloring rules in full color](media/screenshots/viewer-light.png)
 
@@ -118,6 +120,8 @@ registered under its name in lower case).
   keeps them. Finished results are cached with the index.
 - **Saved and recent filters** (★), and **filter buttons** under the filter
   bar for one-click filters (**+** adds one; right-click to edit).
+- **Conversation Filter**: right-click a packet to show only its Ethernet, IP,
+  TCP or UDP conversation.
 
   ![Completions for dns.flags.r with each field's type and description](media/screenshots/filter.png)
 
@@ -125,9 +129,13 @@ registered under its name in lower case).
 
 - **Find Packet** (`Ctrl+F`) by display filter, string or hex bytes.
 - **Frame links** in the tree (_Request in frame_, _ACK of frame_…) with
-  back/forward history (`Alt+Left`/`Alt+Right`).
+  back/forward history (`Alt+Left`/`Alt+Right`). The packets they refer to
+  are marked in the list while the packet is selected: an arrow on the request
+  it answers, a check on the segment it acknowledges, a dot on the rest.
 - Next/previous packet in the conversation, first/last, go to packet, and
   **marks** (`Ctrl+M`) with next/previous marked.
+- **Ignore packets** (`Ctrl+D`): they stay in the list, dimmed, but statistics,
+  the status bar's expert counts and exports leave them out.
 
 ### Statistics and graphs
 
@@ -135,7 +143,8 @@ Each report opens in a panel beside the capture, can be limited to the current
 filter, and its rows apply or prepare the matching display filter.
 
 - Conversations, Endpoints, Protocol Hierarchy, I/O Graph, Expert Information,
-  Capture File Properties.
+  Capture File Properties. The status bar shows the capture's most severe
+  expert findings ("3 warnings"); click it for Expert Information.
 - HTTP (status codes, requests by host, load by server), DNS, packet lengths
   and service response times (ICMP, SMB, LDAP, SNMP, Diameter, GTP…).
 - **Flow graph** of the displayed packets, and **TCP stream graphs** (Stevens,

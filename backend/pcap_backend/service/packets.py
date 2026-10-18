@@ -131,29 +131,35 @@ class PacketsMixin(OpeningMixin, DissectionMixin):
             )
             for row, text in zip(rows, times, strict=True):
                 row["cells"][1] = text
-        with self._lock:
-            marks = self._marks
-            colors, coloring_id = self._colors, self._coloring_id
-        for row in rows:
-            if row["number"] in marks:
-                row["marked"] = True
+        coloring_id = self._add_flags(rows)
         self._add_comments(f, rows)
-        if colors is not None:
-            for row in rows:
-                n = row["number"]
-                if 0 < n < len(colors) and colors[n]:
-                    row["color"] = colors[n] - 1
         return {
             "offset": offset,
             "rows": rows,
             "total": len(view_ordered),
             "filterId": view.filter_id,
             # Row "color" values index the rules of this set_coloring call (0 = none).
-            "coloringId": coloring_id if colors is not None else 0,
+            "coloringId": coloring_id,
             "columns": [c.field for c in BASE_COLUMNS] + extra_fields,
             # Unknown to tshark: their cells are blank; the UI should drop them.
             "rejectedColumns": rejected,
         }
+
+    def _add_flags(self, rows: list[dict[str, Any]]) -> int:
+        """Mark rows ``marked``/``ignored`` and give them their ``color``; returns
+        the coloringId the colors belong to (0: none)."""
+        with self._lock:
+            marks, ignored = self._marks, self._ignored
+            colors, coloring_id = self._colors, self._coloring_id
+        for row in rows:
+            n = row["number"]
+            if n in marks:
+                row["marked"] = True
+            if n in ignored:
+                row["ignored"] = True
+            if colors is not None and 0 < n < len(colors) and colors[n]:
+                row["color"] = colors[n] - 1
+        return coloring_id if colors is not None else 0
 
     def _apply_sort(
         self, f: _Open, view: _View, params: dict[str, Any], ctx: RequestContext

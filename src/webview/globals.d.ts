@@ -13,6 +13,7 @@ type Row = {
   color?: number;
   cid?: number;
   marked?: boolean;
+  ignored?: boolean;
   addresses?: string[];
   comment?: string;
   commentEdited?: boolean;

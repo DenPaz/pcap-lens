@@ -3,6 +3,8 @@ import * as path from "node:path";
 import {
   audioFileName,
   COLORIZE_PALETTE,
+  colorizeConversation,
+  MAX_TEMPORARY_RULES,
   DEFAULT_NAME_RESOLUTION,
   nameResolutionLabel,
   parseCommentBackup,
@@ -207,6 +209,42 @@ suite("settingsModel", () => {
       ).length,
       255,
     );
+  });
+
+  test("colorizeConversation: newest first, a free palette color each, ten at most", () => {
+    let rules = colorizeConversation([], "tcp.stream eq 0");
+    assert.deepEqual(rules, [
+      {
+        name: "Conversation: tcp.stream eq 0",
+        filter: "tcp.stream eq 0",
+        foreground: "#12272e",
+        background: COLORIZE_PALETTE[0].background,
+        temporary: true,
+      },
+    ]);
+    rules = colorizeConversation(rules, "udp.stream eq 1");
+    assert.deepEqual(
+      rules.map((r) => [r.filter, r.background]),
+      [
+        ["udp.stream eq 1", COLORIZE_PALETTE[1].background],
+        ["tcp.stream eq 0", COLORIZE_PALETTE[0].background],
+      ],
+    );
+    // Again: moves to the top in another color.
+    rules = colorizeConversation(rules, "tcp.stream eq 0");
+    assert.deepEqual(
+      rules.map((r) => [r.filter, r.background]),
+      [
+        ["tcp.stream eq 0", COLORIZE_PALETTE[2].background],
+        ["udp.stream eq 1", COLORIZE_PALETTE[1].background],
+      ],
+    );
+    for (let i = 0; i < 12; i++) {
+      rules = colorizeConversation(rules, `ip.addr == 10.0.0.${i}`);
+    }
+    assert.equal(rules.length, MAX_TEMPORARY_RULES);
+    assert.equal(rules[0].filter, "ip.addr == 10.0.0.11");
+    assert.equal(new Set(rules.map((r) => r.background)).size, MAX_TEMPORARY_RULES);
   });
 
   test("prependColoringRule puts the new rule first and keeps raw entries", () => {

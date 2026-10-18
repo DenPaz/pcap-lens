@@ -121,6 +121,11 @@ function render() {
       }
       row.append(cell);
     }
+    // (Out of the grid: absolutely positioned. Shows a related packet's relation.)
+    const mark = document.createElement("span");
+    mark.className = "related-mark";
+    mark.setAttribute("aria-hidden", "true");
+    row.append(mark);
     el.rows.append(row);
   }
   while (el.rows.children.length > win.count) {
@@ -139,11 +144,13 @@ function render() {
     rowEl.classList.toggle("focused", index === state.selectedIndex && state.selection.size > 1);
     rowEl.setAttribute("aria-selected", String(selected));
     // Coloring rule colors, except on selected rows (they keep the theme's selection
-    // colors) and marked rows (the mark style wins).
+    // colors), marked rows (the mark style wins) and ignored rows (drawn dimmed).
     rowEl.classList.toggle("marked", !!row?.marked);
+    rowEl.classList.toggle("ignored", !!row?.ignored);
     rowEl.classList.toggle("has-comment", !!row?.comment);
     rowEl.classList.toggle("comment-edited", !!row?.commentEdited);
-    const rule = !selected && !row?.marked ? lib.rowColors(row, state.coloring) : null;
+    const rule =
+      !selected && !row?.marked && !row?.ignored ? lib.rowColors(row, state.coloring) : null;
     // Drawn for the theme (pcapViewer.coloringStyle): the colors as custom
     // properties, the way to use them as a class (styles.css).
     const look = rule ? lib.ruleStyle(rule, theme, state.coloringStyle) : null;
@@ -154,6 +161,7 @@ function render() {
     rowEl.style.setProperty("--rule-bg", rule ? rule.background : "");
     rowEl.style.setProperty("--rule-fg", rule ? rule.foreground : "");
     rowEl.style.setProperty("--rule-stripe", look ? look.stripe : "");
+    markRelated(rowEl, row ? state.related.get(row.number) : undefined, !!row?.ignored);
     for (let c = 0; c < cols.length; c++) {
       const cell = /** @type {HTMLElement} */ (rowEl.children[c]);
       // Times arrive formatted by the backend (pcapViewer.timeFormat, time reference).
@@ -172,6 +180,32 @@ function render() {
     }
   }
   requestPages(win.first, win.count);
+}
+
+/** What each related-packet mark means, relative to the selected packet. */
+const RELATED = {
+  request: ["arrow-right", "Request: the selected packet answers it"],
+  response: ["arrow-left", "Response to the selected packet"],
+  ack: ["check", "Acknowledged by the selected packet"],
+  "dup-ack": ["check-all", "The selected packet is a duplicate ACK of it"],
+  related: ["circle-small-filled", "Related to the selected packet"],
+};
+
+/** @param {HTMLElement} rowEl @param {string | undefined} kind @param {boolean} ignored */
+function markRelated(rowEl, kind, ignored) {
+  const mark = /** @type {HTMLElement} */ (rowEl.lastElementChild);
+  const [glyph, text] = kind ? RELATED[/** @type {keyof RELATED} */ (kind)] : ["", ""];
+  const cls = glyph ? `related-mark codicon codicon-${glyph}` : "related-mark";
+  if (mark.className !== cls) {
+    mark.className = cls;
+    mark.title = text;
+  }
+  const description = [text, ignored ? "Ignored" : ""].filter(Boolean).join(". ");
+  if (description) {
+    rowEl.setAttribute("aria-description", description);
+  } else {
+    rowEl.removeAttribute("aria-description");
+  }
 }
 
 /** @param {number} first @param {number} count */

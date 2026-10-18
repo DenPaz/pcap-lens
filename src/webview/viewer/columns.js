@@ -18,7 +18,7 @@ import { FILTER_BUSY, setBusy } from "./host.js";
 import { refreshRows, resetView, scheduleRender, updateSpacer } from "./list.js";
 import { relocateSelection } from "./comments.js";
 import { applyFilter, showFilterError, showNotice } from "./filterbar.js";
-import { persist, updateStatus } from "./status.js";
+import { loadExpertSummary, persist, updateStatus } from "./status.js";
 
 /** @returns {Column[]} */
 export function columns() {
@@ -263,6 +263,7 @@ export function onIndexDone(info, error, view) {
   updateSpacer();
   refreshRows(); // columns and time formats that waited for the whole index
   updateStatus();
+  void loadExpertSummary();
   if (error) {
     showNotice(`Indexing stopped after ${info.frames.toLocaleString()} packets: ${error}`);
   }
