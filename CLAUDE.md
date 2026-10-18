@@ -71,6 +71,11 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
 - Node tests that start the backend use `PCAP_VIEWER_PYTHON` if set, else the
   uv `.venv` interpreter, so they run on 3.14 even when the system `python3` is older.
 - pytest turns `ResourceWarning` into errors: leaked tshark pipes are bugs.
+- Tests change a service limit or tshark helper (`FIRST_BATCH`,
+  `stream_lines`, `find_tool`, `MAX_FILTER_ARG`…) with the `patch_service`
+  fixture (`test/backend/conftest.py`), which sets the name in every
+  `pcap_backend.service` module that imports it; `monkeypatch.setattr` on
+  `pcap_service` no longer reaches the code.
 - **Formatting and lint rules**: Prettier (`.prettierrc.json`: 100 columns
   like ruff, 80 for Markdown, double quotes, trailing commas, LF) formats
   TS/JS/CSS/HTML/JSON/YAML/Markdown; `eslint-config-prettier` (last in
@@ -86,7 +91,11 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
   macOS (`brew install --formula wireshark`) and Windows (`choco install
 wireshark`, `C:\Program Files\Wireshark` added to PATH): lint, backend and
   acceptance tests with tshark, unit + Chromium e2e tests, and the VS Code
-  smoke test (Linux under xvfb), plus a Linux job on Python 3.12. It runs on
+  smoke test (Linux under xvfb), plus a Linux job on Python 3.12. Ubuntu
+  26.04 (`ubuntu-latest` from 2026-10-19) enforces the apparmor package's
+  tshark profile, so the Linux jobs add the local rules of `sandbox.py`'s
+  hint when `/etc/apparmor.d/tshark` exists (else every fixture read fails;
+  checked on `ubuntu-26.04` runners). It runs on
   pull requests, pushes to `main` and `dev`, and by hand (`workflow_dispatch`).
   The unit/webview mocha run has a 10 s timeout (`--timeout 10000` in
   `test:unit`): the Windows runner once took over 2 s on a 30 ms test.
@@ -139,7 +148,18 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH): lint, backend and
   with `panel.css`.
 - `backend/pcap_backend/` Python package run as `python -m pcap_backend`
   with `PYTHONPATH=backend`. `server.py` (JSON-RPC), `pcap_service.py`
-  (methods), `tshark.py` (discovery/argv/process helpers), `cache.py`
+  (`PcapService`, assembled from the `service/` mixins, `rpc_methods`, and
+  re-exports for tests), `service/` (the request handlers, one mixin per
+  feature, each inheriting only the mixins it calls: `base.py`
+  `ServiceBase` = all per-session state, lifecycle and the `_require_*`
+  guards; `dissection`, `packet_comments`, `opening` (open, index pass,
+  saved indexes) → `capturing` (live capture), `packets` (pages, columns,
+  sorting, times) → `filtering` → `navigation`; `detail`, `streams`
+  (follow, TCP graphs), `statistics` → `telephony` (VoIP), `colors`,
+  `exporting`, `tools` (merge, hex import, probe, plugins, editing),
+  `flow`, `exported_objects`; plus `state.py` (constants and the per-capture
+  dataclasses `_Open`, `_View`…), `indexing.py` (the index pass's
+  module-level helpers) and `helpers.py`), `tshark.py` (discovery/argv/process helpers), `cache.py`
   (row store, frame index, LRU), `pdml.py` (PDML + hexdump parsing),
   `stats.py` (`-z` report and follow parsers), `fields.py` (field catalogue),
   `coloring.py` (coloring rules → `colorfilters`), `navigation.py` (find

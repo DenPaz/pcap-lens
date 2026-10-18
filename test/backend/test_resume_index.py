@@ -12,7 +12,6 @@ from typing import Any
 
 import pytest
 
-from pcap_backend import pcap_service
 from pcap_backend import tshark as ts
 from pcap_backend.index_cache import IndexCache
 from pcap_backend.pcap_service import PcapService
@@ -25,11 +24,13 @@ pytestmark = pytest.mark.tshark
 
 
 @pytest.fixture
-def held(slow_index: threading.Event, monkeypatch: pytest.MonkeyPatch) -> threading.Event:
+def held(
+    slow_index: threading.Event, patch_service: Callable[[str, object], None]
+) -> threading.Event:
     """slow_index (first rows after 3 packets, the pass held after 8 until
     released or cancelled), with every row published at once so tests can
     count them."""
-    monkeypatch.setattr(pcap_service, "PROGRESS_INTERVAL_S", 0.0)
+    patch_service("PROGRESS_INTERVAL_S", 0.0)
     return slow_index
 
 

@@ -5,12 +5,12 @@ from __future__ import annotations
 import io
 import json
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from pcap_backend import pcap_service
 from pcap_backend.export import DissectionWriter
 from pcap_backend.pcap_service import PcapService
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext
@@ -94,10 +94,13 @@ def test_export_dissections(opened: PcapService, ctx: RequestContext, tmp_path: 
 
 @pytest.mark.tshark
 def test_export_dissections_of_many_frames_in_chunks(
-    opened: PcapService, ctx: RequestContext, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    opened: PcapService,
+    ctx: RequestContext,
+    tmp_path: Path,
+    patch_service: Callable[[str, object], None],
 ) -> None:
     # Six scattered frames, and a filter limit that fits two per pass.
-    monkeypatch.setattr(pcap_service, "MAX_FILTER_ARG", 30)
+    patch_service("MAX_FILTER_ARG", 30)
     frames = [1, 3, 5, 7, 9, 11]
     for fmt, count in (("json", lambda p: len(json.loads(p.read_text()))),
                        ("pdml", lambda p: _pdml_packets(p.read_bytes())),

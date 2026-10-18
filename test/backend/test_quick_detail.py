@@ -4,12 +4,13 @@ the one asked for (cut out with editcap) and renumber the tree."""
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from pcap_backend import pcap_service, pdml, procs
+from pcap_backend import pdml, procs
 from pcap_backend import tshark as ts
 from pcap_backend.cancellation import CancelledError
 from pcap_backend.pcap_service import PcapService
@@ -144,16 +145,16 @@ def test_shutdown_stops_the_catalogue_warm_up(opened: PcapService, ctx: RequestC
 
 @pytest.mark.tshark
 def test_quick_detail_without_editcap(
-    opened: PcapService, ctx: RequestContext, monkeypatch: pytest.MonkeyPatch
+    opened: PcapService, ctx: RequestContext, patch_service: Callable[[str, object], None]
 ) -> None:
-    real = pcap_service.find_tool
+    real = ts.find_tool
 
     def find_tool(exe: str, *args: Any, **kwargs: Any) -> Path:
         if exe == "editcap":
             raise ToolNotFoundError(exe, [])
         return real(exe, *args, **kwargs)
 
-    monkeypatch.setattr(pcap_service, "find_tool", find_tool)
+    patch_service("find_tool", find_tool)
     res = opened.packet_detail({"number": 11, "mode": "quick", "window": 4}, ctx)
     assert res == {"number": 11, "unavailable": "editcap (part of Wireshark) was not found"}
 

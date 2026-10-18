@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
-from pcap_backend import pcap_service
 from pcap_backend.pcap_service import PcapService, parse_tcp_graph
 from pcap_backend.protocol import IndexingError, InvalidParamsError, RequestContext
 
@@ -44,9 +44,9 @@ def test_flow_graph(service: PcapService, ctx: RequestContext) -> None:
 
 @pytest.mark.tshark
 def test_flow_graph_caps_the_endpoints(
-    service: PcapService, ctx: RequestContext, monkeypatch: pytest.MonkeyPatch
+    service: PcapService, ctx: RequestContext, patch_service: Callable[[str, object], None]
 ) -> None:
-    monkeypatch.setattr(pcap_service, "MAX_FLOW_NODES", 3)
+    patch_service("MAX_FLOW_NODES", 3)
     service.open({"path": str(FIXTURES / "mixed.pcapng")}, ctx)
     flow = service.flow_graph({"offset": 0, "limit": 30}, ctx)
     assert len(flow["nodes"]) == 3 and flow["more"] == 5
