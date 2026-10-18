@@ -12,7 +12,9 @@ commit) that made it. The format follows
 - **Open BER Records as Packets**: a file of BER records back to back (call
   detail records and similar), which tshark refuses, opens as one packet per
   record, decoded by the dissector you choose (generic BER, any of tshark's,
-  or a Lua one). Offered when such a file fails to open.
+  or a Lua one). Offered when such a file fails to open. [9c1afc4]
+
+[9c1afc4]: https://github.com/DenPaz/vsc_pcap_viewer/commit/9c1afc4
 
 ## 0.6.0 — 2026-10-18
 
