@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.6.0 — 2026-10-18
+
 ### Added
 
 - **Protocol preferences**: right-click a protocol in the packet details (or
