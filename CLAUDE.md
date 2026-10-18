@@ -1263,6 +1263,20 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
     `frame.number in {…}` with ranges compressed, split into chunks when the
     filter would exceed `MAX_FILTER_ARG` (16k characters, under Windows'
     32767-character command line), and the chunks joined with `mergecap -a`.
+  - _Ignored packets_ (Ctrl+D, `ignore_packets`/`unignore_all`, toggled like
+    marks; `_ignored`, per session) stay in every view: rows carry `ignored`
+    (dimmed, no rule color, `aria-description` "Ignored"), filters and sorts
+    are unchanged. tshark has no ignore option and re-dissecting without
+    them would renumber frames, so it is not Wireshark's "not dissected":
+    `_without_ignored(flt)` adds `navigation.exclusion_filter` (`!(frame.number
+== 2 || (frame.number >= 4 && frame.number <= 6))`: no commas, which
+    `-z io,stat` would split its filter list on) to every statistics tap,
+    the expert summary (cached per exclusion) and filter-based exports;
+    marked/selected exports and CSV/JSON drop them from their frame lists
+    (`_chosen_frames`: "Every one of the … is ignored"). More than
+    `MAX_FILTER_ARG` of exclusion is an InvalidParamsError ("unignore some").
+    Follow, flow/TCP graphs, VoIP, Export Objects, find and AI tools still
+    see them. The webview refreshes the expert indicator after each change.
   - _Times_ are formatted by the backend when `list_packets` gets `timeFormat`
     (and `timeRef`). Plain relative time uses the index pass's column; every
     other format uses `frame.time_epoch`, extracted once, parsed to integer ns.
@@ -1484,4 +1498,7 @@ tree indent guides. Released 0.4.0 (GitHub only), then renamed to PCAP Lens for
 0.4.1, the first Marketplace version. 0.5.0: Python 3.12+ and Install
 Python. Since: the backend, viewer and editor split into modules, coverage
 and axe-core checks with the ARIA fixes they found, and protocol preferences.
-0.6.0 released. Since: BER record files as packets, and the packet diagram.
+0.6.0 released. Then BER record files as packets, and the packet diagram:
+0.7.0 released. Since: Wireshark's expert indicator in the status bar,
+related-packet marks, Conversation Filter and Colorize Conversation, and
+ignored packets.

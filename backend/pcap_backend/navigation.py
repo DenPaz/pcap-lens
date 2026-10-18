@@ -96,6 +96,21 @@ def frame_set_filters(frames: Iterable[int], max_length: int) -> list[str]:
     return filters
 
 
+def exclusion_filter(frames: Iterable[int]) -> str:
+    """Every packet but ``frames``: ``!(frame.number == 2 || (frame.number >= 4
+    && frame.number <= 6))``, ``""`` for none. No set (``in {…}``): its commas
+    would split ``-z io,stat``'s filter list."""
+    terms = []
+    for member in frame_ranges(frames):
+        first, _, last = member.partition("..")
+        terms.append(
+            f"(frame.number >= {first} && frame.number <= {last})"
+            if last
+            else f"frame.number == {first}"
+        )
+    return f"!({' || '.join(terms)})" if terms else ""
+
+
 def parse_ns(text: str) -> int | None:
     """``"1700000000.123456789"`` → nanoseconds (exact; no float rounding)."""
     s = text.strip().split(",")[0]

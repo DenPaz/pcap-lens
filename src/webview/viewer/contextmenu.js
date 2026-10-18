@@ -13,6 +13,7 @@ import {
   canBeColumn,
   copyFrameNumbers,
   frameLinkTarget,
+  toggleIgnore,
   toggleMark,
   toggleTimeReference,
 } from "./navigation.js";
@@ -124,6 +125,14 @@ el.rows.addEventListener("contextmenu", (e) => {
           ? "Unmark Packet"
           : "Mark Packet",
       () => void toggleMark(),
+    ],
+    [
+      multi
+        ? `Ignore/Unignore ${multi.toLocaleString()} Selected Packets`
+        : row.ignored
+          ? "Unignore Packet"
+          : "Ignore Packet",
+      () => void toggleIgnore(),
     ],
     [
       state.timeRef === row.number ? "Unset Time Reference" : "Set Time Reference",

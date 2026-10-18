@@ -233,6 +233,16 @@
         "category": "PCAP"
       },
       {
+        "command": "pcapViewer.toggleIgnore",
+        "title": "Ignore/Unignore Selected Packets",
+        "category": "PCAP"
+      },
+      {
+        "command": "pcapViewer.unignoreAll",
+        "title": "Unignore All Packets",
+        "category": "PCAP"
+      },
+      {
         "command": "pcapViewer.exportMarked",
         "title": "Export Marked Packets…",
         "category": "PCAP"
@@ -802,6 +812,14 @@
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
         },
         {
+          "command": "pcapViewer.toggleIgnore",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
+        },
+        {
+          "command": "pcapViewer.unignoreAll",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
+        },
+        {
           "command": "pcapViewer.exportMarked",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
         },
@@ -895,6 +913,12 @@
         "command": "pcapViewer.toggleMark",
         "key": "ctrl+m",
         "mac": "cmd+m",
+        "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ && !sideBarFocus && !panelFocus && !auxiliaryBarFocus && !inputFocus"
+      },
+      {
+        "command": "pcapViewer.toggleIgnore",
+        "key": "ctrl+d",
+        "mac": "cmd+d",
         "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ && !sideBarFocus && !panelFocus && !auxiliaryBarFocus && !inputFocus"
       },
       {

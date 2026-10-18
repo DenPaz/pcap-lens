@@ -86,6 +86,8 @@ def rpc_methods(service: PcapService) -> dict[str, Callable[[dict[str, Any], Req
         "neighbor_frame": service.neighbor_frame,
         "mark_packets": service.mark_packets,
         "unmark_all": service.unmark_all,
+        "ignore_packets": service.ignore_packets,
+        "unignore_all": service.unignore_all,
         "field_types": service.field_types,
         "export": service.export,
         "merge": service.merge,

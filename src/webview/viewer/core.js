@@ -223,6 +223,8 @@ export const state = {
   /** @type {Map<number, any>} */ earlyFilterEvents: new Map(),
   /** @type {number | null} */ timeRef: null,
   markCount: 0,
+  /** Number of ignored packets (Ctrl+D; the set lives in the backend). */
+  ignoredCount: 0,
   /** Back/forward history over jumps (links, go to, find, marks, conversation). */
   /** @type {{back: number[], forward: number[]}} */ nav: { back: [], forward: [] },
   /** Field name → {type, desc} from the backend's field catalogue (frame links, Apply as Column). */

@@ -161,6 +161,7 @@ function onInit(msg) {
   state.quickDetail = msg.quickDetail || state.quickDetail;
   state.timeRef = null;
   state.markCount = 0;
+  state.ignoredCount = 0;
   state.nav = { back: [], forward: [] };
   state.total = msg.info.frames;
   state.matchCount = msg.info.frames;

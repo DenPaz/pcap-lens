@@ -57,6 +57,8 @@ class ExportMixin(DetailMixin, PacketsMixin):
           (``-V``), ``pdml`` or ``json``, with the hex bytes too if ``bytes``;
           packets chosen as for pcapng (filter, ``marked`` or ``frames``).
 
+        Ignored packets (``ignore_packets``) are never exported, except as bytes.
+
         The file only appears once complete; cancelling leaves nothing behind.
         """
         kind = param(params, "kind", str)
@@ -75,31 +77,53 @@ class ExportMixin(DetailMixin, PacketsMixin):
         result.update({"ok": True, "path": str(dest), "size": dest.stat().st_size})
         return result
 
+    def _chosen_frames(self, f: _Open, params: dict[str, Any]) -> tuple[list[int], str] | None:
+        """The marked (``marked: true``) or selected (``frames``) packets an
+        export takes, minus the ignored ones, and their label; None when the
+        export takes a filter instead."""
+        if params.get("marked"):
+            with self._lock:
+                frames = sorted(self._marks - self._ignored)
+                none = "No packets are marked" if not self._marks else None
+            label = "marked packets"
+        elif "frames" in params:
+            n_frames = f.frame_count()
+            chosen = {n for n in _frame_list(params, "frames") if 1 <= n <= n_frames}
+            with self._lock:
+                frames = sorted(chosen - self._ignored)
+            none = "No packets are selected" if not chosen else None
+            label = "selected packets"
+        else:
+            return None
+        if not frames:
+            raise InvalidParamsError(none or f"Every one of the {label} is ignored")
+        return frames, label
+
     def _export_capture(
         self, f: _Open, fmt: str, dest: Path, params: dict[str, Any], ctx: RequestContext
     ) -> dict[str, Any]:
-        if params.get("marked"):
-            with self._lock:
-                marks = sorted(self._marks)
-            if not marks:
-                raise InvalidParamsError("No packets are marked")
-            return self._export_frames(f, fmt, dest, marks, "marked packets", ctx)
-        if "frames" in params:
-            n_frames = f.frame_count()
-            frames = sorted({n for n in _frame_list(params, "frames") if 1 <= n <= n_frames})
-            if not frames:
-                raise InvalidParamsError("No packets are selected")
-            return self._export_frames(f, fmt, dest, frames, "selected packets", ctx)
+        chosen = self._chosen_frames(f, params)
+        if chosen is not None:
+            return self._export_frames(f, fmt, dest, *chosen, ctx)
         if "filter" in params:
             flt = param(params, "filter", str, "").strip()
         else:
             flt = self._require_view()[1].expr
+        if flt:
+            error = f.tshark.validate_filter(flt, ctx.token)
+            if error:
+                raise FilterError(error, {"expr": flt})
+        result = self._write_capture(f, fmt, dest, self._without_ignored(flt), ctx)
+        result["filter"] = flt
+        return result
+
+    def _write_capture(
+        self, f: _Open, fmt: str, dest: Path, flt: str, ctx: RequestContext
+    ) -> dict[str, Any]:
+        """The packets matching ``flt`` (a checked filter; ``""`` = all) to a capture."""
         packets = 0
         with atomic_output(dest) as tmp:
             if flt:
-                error = f.tshark.validate_filter(flt, ctx.token)
-                if error:
-                    raise FilterError(error, {"expr": flt})
                 # -P prints each written packet's number: that is our progress.
                 argv = f.tshark.argv(
                     "-Y", flt, "-F", fmt, "-w", str(tmp),
@@ -150,7 +174,7 @@ class ExportMixin(DetailMixin, PacketsMixin):
         """
         filters = navigation.frame_set_filters(frames, MAX_FILTER_ARG)
         if len(filters) == 1:
-            result = self._export_capture(f, fmt, dest, {"filter": filters[0]}, ctx)
+            result = self._write_capture(f, fmt, dest, filters[0], ctx)
             result["filter"] = label
             return result
         try:
@@ -169,7 +193,7 @@ class ExportMixin(DetailMixin, PacketsMixin):
                 ctx.token.raise_if_cancelled()
                 part = self._work_dir / f"frames-{i}.{fmt}"
                 parts.append(part)
-                res = self._export_capture(f, fmt, part, {"filter": flt}, ctx)
+                res = self._write_capture(f, fmt, part, flt, ctx)
                 packets += res["packets"]
                 warnings += res["warnings"]
                 ctx.progress({"phase": "export", "fraction": min(0.99, (i + 1) / len(filters))})
@@ -205,9 +229,13 @@ class ExportMixin(DetailMixin, PacketsMixin):
         keys = [c.id for c in BASE_COLUMNS] + custom
         numeric = [c.numeric for c in BASE_COLUMNS] + [False] * len(custom)
         ordered = view.ordered
+        with self._lock:
+            ignored = set(self._ignored)
         if "frames" in params:
-            wanted = set(_frame_list(params, "frames"))
+            wanted = set(_frame_list(params, "frames")) - ignored
             ordered = FrameIndex.of(n for n in ordered.frames() if n in wanted)
+        elif ignored:
+            ordered = FrameIndex.of(n for n in ordered.frames() if n not in ignored)
         total = len(ordered)
         n_base = len(BASE_COLUMNS)
         with atomic_output(dest) as tmp, tmp.open("w", encoding="utf-8", newline="") as fh:
@@ -229,30 +257,26 @@ class ExportMixin(DetailMixin, PacketsMixin):
 
     def _export_scope(
         self, f: _Open, params: dict[str, Any]
-    ) -> tuple[list[str], str, int | None, bool]:
+    ) -> tuple[list[str], str, int | None, str]:
         """Which packets an export takes, as display filters (one pass each;
         ``""`` = every packet): (filters, label, expected packets if known,
-        whether the filter came from the user and needs validating)."""
-        if params.get("marked"):
-            with self._lock:
-                frames = sorted(self._marks)
-            if not frames:
-                raise InvalidParamsError("No packets are marked")
-            label = "marked packets"
-        elif "frames" in params:
-            n_frames = f.frame_count()
-            frames = sorted({n for n in _frame_list(params, "frames") if 1 <= n <= n_frames})
-            if not frames:
-                raise InvalidParamsError("No packets are selected")
-            label = "selected packets"
+        the user's filter to validate, if any). Ignored packets are left out."""
+        chosen = self._chosen_frames(f, params)
+        if chosen is not None:
+            frames, label = chosen
+            return navigation.frame_set_filters(frames, MAX_FILTER_ARG), label, len(frames), ""
+        _f, view = self._require_view()
+        flt = param(params, "filter", str, "").strip() if "filter" in params else view.expr
+        with self._lock:
+            n_ignored = len(self._ignored)
+        known = flt == view.expr and view.live is None and view.partial is None
+        if not flt:
+            expected: int | None = max(0, f.info.frames - n_ignored)
+        elif known and not n_ignored:
+            expected = len(view.matched)
         else:
-            _f, view = self._require_view()
-            flt = param(params, "filter", str, "").strip() if "filter" in params else view.expr
-            if not flt:
-                return [""], "", f.info.frames, False
-            known = flt == view.expr and view.live is None and view.partial is None
-            return [flt], flt, len(view.matched) if known else None, True
-        return navigation.frame_set_filters(frames, MAX_FILTER_ARG), label, len(frames), False
+            expected = None
+        return [self._without_ignored(flt)], flt, expected, flt
 
     def _export_dissections(
         self, f: _Open, dest: Path, params: dict[str, Any], ctx: RequestContext
@@ -264,9 +288,9 @@ class ExportMixin(DetailMixin, PacketsMixin):
             raise InvalidParamsError(f"format must be one of {', '.join(DISSECTION_FORMATS)}")
         filters, label, expected, user_filter = self._export_scope(f, params)
         if user_filter:
-            error = f.tshark.validate_filter(filters[0], ctx.token)
+            error = f.tshark.validate_filter(user_filter, ctx.token)
             if error:
-                raise FilterError(error, {"expr": filters[0]})
+                raise FilterError(error, {"expr": user_filter})
         options = [*DISSECTION_FORMATS[fmt], *(["-x"] if params.get("bytes") else [])]
         packets = 0
         warnings: list[str] = []

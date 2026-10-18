@@ -1017,6 +1017,49 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     assert.equal((await markOf(4))[2], null);
   });
 
+  test("ignore packets: Ctrl+D dims them, the menu and the status bar say so, unignore all", async () => {
+    await cleanView();
+    const ignored = () =>
+      page.$$eval("#list-rows .list-row.ignored", (rows) =>
+        rows.map((r) => Number(r.children[0].textContent)),
+      );
+    await rowEl(2).click();
+    await waitSelected(2);
+    await command("toggleIgnore"); // Ctrl+D (a keybinding in VS Code)
+    await page.waitForFunction(() =>
+      /Ignored: 1/.test(document.querySelector("#status-left").textContent),
+    );
+    assert.deepEqual(await ignored(), [2]);
+    await rowEl(3).click();
+    await waitSelected(3);
+    assert.equal(
+      await page.$eval("#list-rows .list-row.ignored", (r) => r.getAttribute("aria-description")),
+      "Ignored",
+    );
+    // The expert summary is recounted without it (frame 2 has no expert items: same text).
+    await page.waitForSelector("#status-expert:not(.hidden)");
+
+    await rowEl(2).click({ button: "right" });
+    await page.click("#context-menu .item:has-text('Unignore Packet')");
+    await page.waitForFunction(() => !document.querySelector("#list-rows .list-row.ignored"));
+    assert.doesNotMatch(await status(), /Ignored/);
+
+    for (const frame of [5, 6]) {
+      await rowEl(frame).click();
+      await waitSelected(frame);
+      await command("toggleIgnore");
+      await page.waitForFunction(
+        (f) =>
+          document.querySelectorAll("#list-rows .list-row")[f - 1]?.classList.contains("ignored"),
+        frame,
+      );
+    }
+    assert.match(await status(), /Ignored: 2/);
+    await command("unignoreAll");
+    await page.waitForFunction(() => !document.querySelector("#list-rows .list-row.ignored"));
+    assert.doesNotMatch(await status(), /Ignored/);
+  });
+
   test("marks: toggle, next/previous marked, the mark style wins over coloring, unmark all", async () => {
     await cleanView();
     const rules = [{ filter: "tcp", foreground: "#000000", background: "#e7e6ff" }];

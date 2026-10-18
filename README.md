@@ -134,6 +134,8 @@ registered under its name in lower case).
   it answers, a check on the segment it acknowledges, a dot on the rest.
 - Next/previous packet in the conversation, first/last, go to packet, and
   **marks** (`Ctrl+M`) with next/previous marked.
+- **Ignore packets** (`Ctrl+D`): they stay in the list, dimmed, but statistics,
+  the status bar's expert counts and exports leave them out.
 
 ### Statistics and graphs
 

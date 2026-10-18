@@ -23,7 +23,8 @@ export type CommandGroup = (typeof COMMAND_GROUPS)[number];
  * What a command needs to be useful right now; the webview greys the entry
  * out with the reason when it's missing (lib.commandUnavailable).
  */
-export type Requirement = "selection" | "marks" | "filter" | "capturing" | "ai" | "colorized";
+export type Requirement =
+  "selection" | "marks" | "filter" | "capturing" | "ai" | "colorized" | "ignored";
 
 export interface MenuCommand {
   id: string;
@@ -68,6 +69,8 @@ const GROUP_OF: Readonly<Record<string, CommandGroup>> = {
   "pcapViewer.nextMark": "Packets",
   "pcapViewer.previousMark": "Packets",
   "pcapViewer.unmarkAll": "Packets",
+  "pcapViewer.toggleIgnore": "Packets",
+  "pcapViewer.unignoreAll": "Packets",
   "pcapViewer.toggleTimeReference": "Packets",
   "pcapViewer.editPacketComment": "Packets",
   "pcapViewer.deletePacketComment": "Packets",
@@ -135,6 +138,8 @@ const REQUIRES: Readonly<Record<string, Requirement[]>> = {
   "pcapViewer.nextMark": ["marks"],
   "pcapViewer.previousMark": ["marks"],
   "pcapViewer.unmarkAll": ["marks"],
+  "pcapViewer.toggleIgnore": ["selection"],
+  "pcapViewer.unignoreAll": ["ignored"],
   "pcapViewer.toggleTimeReference": ["selection"],
   "pcapViewer.editPacketComment": ["selection"],
   "pcapViewer.deletePacketComment": ["selection"],

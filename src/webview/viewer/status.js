@@ -154,6 +154,9 @@ export function updateStatus() {
   if (state.markCount) {
     parts.push(`Marked: ${state.markCount.toLocaleString()}`);
   }
+  if (state.ignoredCount) {
+    parts.push(`Ignored: ${state.ignoredCount.toLocaleString()}`);
+  }
   if (state.coloringProgress !== undefined) {
     const pct =
       state.coloringProgress !== null ? ` ${Math.round(state.coloringProgress * 100)}%` : "";

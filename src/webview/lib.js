@@ -1658,13 +1658,14 @@
     filter: "No display filter is applied",
     capturing: "No capture is running",
     colorized: "No conversation is colorized",
+    ignored: "No packets are ignored",
   };
 
   /**
    * Why a command can't run now (its first requirement that isn't met), or
    * null when it can. The menu shows such entries disabled with the reason.
    * @param {MenuCommand} command
-   * @param {{selected: boolean, marks: number, filter: boolean, capturing: boolean, ai: boolean, colorized?: number}} ctx
+   * @param {{selected: boolean, marks: number, filter: boolean, capturing: boolean, ai: boolean, colorized?: number, ignored?: number}} ctx
    * @returns {string | null}
    */
   function commandUnavailable(command, ctx) {
@@ -1682,7 +1683,9 @@
                   ? ctx.ai
                   : need === "colorized"
                     ? (ctx.colorized ?? 0) > 0
-                    : true;
+                    : need === "ignored"
+                      ? (ctx.ignored ?? 0) > 0
+                      : true;
       if (!met) {
         return REQUIREMENT_REASONS[need] ?? "Not available now";
       }

@@ -143,6 +143,8 @@ suite("PCAP Lens smoke test", () => {
       "pcapViewer.nextMark",
       "pcapViewer.previousMark",
       "pcapViewer.unmarkAll",
+      "pcapViewer.toggleIgnore",
+      "pcapViewer.unignoreAll",
       "pcapViewer.exportMarked",
       "pcapViewer.exportSelected",
       "pcapViewer.selectAll",

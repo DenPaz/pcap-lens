@@ -20,6 +20,9 @@ commit) that made it. The format follows
   filter on, or color, the packet's Ethernet, IPv4, IPv6, TCP or UDP
   conversation (ten colors, for this editor only); _Reset Colorization_
   clears them.
+- Ignore packets (`Ctrl+D`, the packet list's menu): ignored packets are
+  dimmed in the list and left out of statistics, the expert counts and
+  exports; _Unignore All Packets_ brings them back.
 
 [1e2af9f]: https://github.com/DenPaz/vsc_pcap_viewer/commit/1e2af9f
 [26e01b9]: https://github.com/DenPaz/vsc_pcap_viewer/commit/26e01b9

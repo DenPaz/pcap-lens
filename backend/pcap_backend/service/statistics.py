@@ -35,7 +35,9 @@ class StatisticsMixin(ServiceBase):
             error = f.tshark.validate_filter(flt, ctx.token)
             if error:
                 raise FilterError(error, {"expr": flt})
-        suffix = f",{flt}" if flt else ""
+        # Ignored packets (Ctrl+D) are left out of every report.
+        counted = self._without_ignored(flt)
+        suffix = f",{counted}" if counted else ""
         ctx.progress({"phase": "stats", "fraction": None})
         match kind:
             case "conversations" | "endpoints":
@@ -68,7 +70,7 @@ class StatisticsMixin(ServiceBase):
                     "-E",
                     "aggregator=\x1e",
                     "-Y",
-                    f"_ws.expert && ({flt})" if flt else "_ws.expert",
+                    f"_ws.expert && ({counted})" if counted else "_ws.expert",
                 ]
                 fields_future = self._pool.submit(
                     run, f.tshark.argv(*fields_args, capture=str(f.path)), ctx.token
@@ -95,14 +97,17 @@ class StatisticsMixin(ServiceBase):
     def expert_summary(self, _params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """How many expert items of each severity the whole capture has
         (``{counts: {error, warning, note, chat, comment}}``), for the status
-        bar: one ``-q -z expert`` pass, cached per open capture. Needs the
+        bar: one ``-q -z expert`` pass without the ignored packets, cached per
+        open capture (and set of ignored packets). Needs the
         capture completely indexed (IndexingError while indexing or capturing)."""
         self._require_indexed()
         f = self._require_file()
-        if f.expert is None:
+        ignore = self._ignore_filter()
+        if f.expert is None or f.expert[0] != ignore:
             # (No progress: it runs quietly in the background, not behind the busy bar.)
-            f.expert = stats.parse_expert_counts(self._tap(f, "expert,comment", ctx))
-        return {"counts": f.expert}
+            spec = f"expert,comment,{ignore}" if ignore else "expert,comment"
+            f.expert = (ignore, stats.parse_expert_counts(self._tap(f, spec, ctx)))
+        return {"counts": f.expert[1]}
 
     def _tree_stats(self, f: _Open, kind: str, typ: str, suffix: str, ctx: RequestContext) -> Table:
         """A stats_tree report: HTTP (``type`` packets, requests or load), DNS or

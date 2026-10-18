@@ -156,6 +156,32 @@ class NavigationMixin(FilteringMixin):
             self._marks = set()
         return {"count": 0}
 
+    def ignore_packets(self, params: dict[str, Any], _ctx: RequestContext) -> dict[str, Any]:
+        """Ignore (``ignore: true``) or stop ignoring (``false``) ``frames``;
+        omitted: toggle like marks (Wireshark's Ctrl+D). Ignored packets stay in
+        the list but are left out of statistics and exports."""
+        f = self._require_file()
+        frames = [n for n in _frame_list(params, "frames") if 1 <= n <= f.frame_count()]
+        ignore = params.get("ignore")
+        with self._lock:
+            on = bool(ignore) if ignore is not None else not all(n in self._ignored for n in frames)
+            for n in frames:
+                if on:
+                    self._ignored.add(n)
+                else:
+                    self._ignored.discard(n)
+            return {
+                "count": len(self._ignored),
+                "ignored": [n for n in frames if n in self._ignored],
+                "unignored": [n for n in frames if n not in self._ignored],
+            }
+
+    def unignore_all(self, _params: dict[str, Any], _ctx: RequestContext) -> dict[str, Any]:
+        self._require_file()
+        with self._lock:
+            self._ignored = set()
+        return {"count": 0}
+
     def field_types(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """Type and display name of each field in ``names`` (unknown ones are left out),
         e.g. to render FT_FRAMENUM fields as links to the frame they reference."""

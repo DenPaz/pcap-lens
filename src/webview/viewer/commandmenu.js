@@ -46,6 +46,7 @@ function commandContext() {
   return {
     selected: state.selectedFrame !== null,
     marks: state.markCount,
+    ignored: state.ignoredCount,
     filter: !!state.appliedFilter,
     capturing: !!state.capture?.running,
     ai: state.ai.available,

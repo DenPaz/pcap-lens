@@ -12,16 +12,21 @@ from concurrent.futures import Future, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Any
 
-from pcap_backend import procs, voip
+from pcap_backend import navigation, procs, voip
 from pcap_backend.cache import FrameIndex, LruCache
 from pcap_backend.cancellation import CancelToken
 from pcap_backend.fields import FieldCatalog
 from pcap_backend.objects import ExportedObject
 from pcap_backend.prefs import Preference
-from pcap_backend.protocol import IndexingError, NotOpenError, RequestContext
+from pcap_backend.protocol import (
+    IndexingError,
+    InvalidParamsError,
+    NotOpenError,
+    RequestContext,
+)
 from pcap_backend.tshark import EMPTY_CAPTURE, Tshark
 
-from .state import _Indexing, _Open, _View
+from .state import MAX_FILTER_ARG, _Indexing, _Open, _View
 
 
 class ServiceBase:
@@ -80,6 +85,8 @@ class ServiceBase:
         self._coloring_seq = 0
         # Marked frames (Wireshark's Ctrl+M): per session, not persisted.
         self._marks: set[int] = set()
+        # Ignored frames (Ctrl+D): left out of statistics and exports; per session too.
+        self._ignored: set[int] = set()
         # Streaming open: the index pass still running after `open` returned.
         self._indexing: _Indexing | None = None
         # The last index pass, which saves the index after its "done": closing
@@ -138,6 +145,7 @@ class ServiceBase:
         self._objects = None
         self._colors = None
         self._marks = set()
+        self._ignored = set()
         self._comment_edits = {}
         self._flow = None
         for cache in (
@@ -172,6 +180,26 @@ class ServiceBase:
             if self._tshark is None:
                 self._tshark = Tshark.locate()
             return self._tshark
+
+    def _ignore_filter(self) -> str:
+        """The display filter that leaves the ignored packets out (``""`` when
+        none are): statistics and exports add it to theirs."""
+        with self._lock:
+            ignored = sorted(self._ignored)
+        expr = navigation.exclusion_filter(ignored)
+        if len(expr) > MAX_FILTER_ARG:
+            raise InvalidParamsError(
+                f"{len(ignored):,} ignored packets in so many ranges are too many to leave out "
+                "of a tshark pass; unignore some of them"
+            )
+        return expr
+
+    def _without_ignored(self, flt: str) -> str:
+        """``flt`` (``""`` = every packet) minus the ignored packets."""
+        ignore = self._ignore_filter()
+        if not ignore:
+            return flt
+        return f"({flt}) && {ignore}" if flt else ignore
 
     def _require_file(self) -> _Open:
         with self._lock:
