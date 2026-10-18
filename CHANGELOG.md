@@ -1,10 +1,13 @@
 # Changelog
 
-All notable changes, newest first. Each entry links to the pull request that
-made it. The format follows [Keep a Changelog](https://keepachangelog.com);
-versions are plain `major.minor.patch`.
+All notable changes, newest first. Each entry links to the pull request (or
+commit) that made it. The format follows
+[Keep a Changelog](https://keepachangelog.com); versions are plain
+`major.minor.patch`.
 
 ## Unreleased
+
+## 0.5.0 — 2026-10-17
 
 ### Added
 

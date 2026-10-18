@@ -20,7 +20,7 @@ CONTRIBUTING.md for building, testing and releasing (not packaged).
 | Regenerate fixtures       | `uv run python test/fixtures/generate.py`                                                                                                                |
 | Perf check                | `uv run python test/fixtures/generate.py --large 1000000 test/fixtures/large-1m.pcap && uv run python -u test/perf/bench.py test/fixtures/large-1m.pcap` |
 | Package                   | `pnpm run package` (vsce, `--no-dependencies`)                                                                                                           |
-| Prepare a release         | `pnpm run release:prepare 0.2.0` (then commit, tag `v0.2.0`, push the tag: `release.yml`)                                                                |
+| Prepare a release         | `pnpm run release:prepare 0.2.0` on `dev` (then PR `dev` → `main`, tag the merge, push the tag)                                                          |
 | Icon / screenshots        | `node scripts/render-icon.js` / `node scripts/screenshots.js` (after `pnpm run compile`; `CHROMIUM_PATH` for another Chromium)                           |
 | Update dev deps           | `make update` (`ncu -u` within `.ncurc.cjs`, `pnpm install`, `pnpm run codicons`, `uv lock --upgrade`, `uv sync`)                                        |
 
@@ -1044,7 +1044,12 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   would refuse its install scripts), each skipped with a notice when its
   secret (`VSCE_PAT`, `OVSX_PAT`) is missing. CI uploads the `.vsix` as an
   artifact. Marketplace details: `icon` (PNG: vsce refuses SVG icons),
-  `galleryBanner`, categories, keywords; README images are relative (vsce
+  `galleryBanner`, categories, keywords; README badges from img.shields.io
+  (Marketplace version and installs, Open VSX version and downloads, CI on
+  `main`: vsce only accepts SVGs from trusted badge services); the README's
+  hero is `demo.gif`, recorded by `scripts/screenshots.js` (`recordDemo`:
+  PNG frames → `encodeGif` with the dev dependencies `pngjs` and `gifenc`,
+  one palette, unchanged pixels transparent, ~350 KB); README images are relative (vsce
   rewrites them to `…/raw/HEAD/…`, i.e. the default branch, which must be
   `main`), so `media/screenshots/` is not packaged. **History**: 0.3.0 was
   never tagged; v0.4.0 made the GitHub release, but the Marketplace refused

@@ -1,10 +1,16 @@
 # PCAP Lens
 
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/denpaz.pcap-viewer?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=denpaz.pcap-viewer)
+[![Installs](https://img.shields.io/visual-studio-marketplace/i/denpaz.pcap-viewer)](https://marketplace.visualstudio.com/items?itemName=denpaz.pcap-viewer)
+[![Open VSX](https://img.shields.io/open-vsx/v/denpaz/pcap-viewer?label=Open%20VSX)](https://open-vsx.org/extension/denpaz/pcap-viewer)
+[![Open VSX downloads](https://img.shields.io/open-vsx/dt/denpaz/pcap-viewer?label=downloads)](https://open-vsx.org/extension/denpaz/pcap-viewer)
+[![CI](https://img.shields.io/github/actions/workflow/status/DenPaz/vsc_pcap_viewer/ci.yml?branch=main&label=CI)](https://github.com/DenPaz/vsc_pcap_viewer/actions/workflows/ci.yml?query=branch%3Amain)
+
 Open `.pcap` / `.pcapng` captures in VS Code with a Wireshark-like packet list,
 protocol tree and hex view. **tshark** (Wireshark's command-line tool) does all
 dissection and filtering, so results match Wireshark exactly.
 
-![The packet list, protocol tree and bytes of an HTTP response reassembled from two TCP segments](media/screenshots/viewer.png)
+![Typing the filter "dns || http" with autocomplete, applying it, then opening the HTTP response: its protocol tree and the highlighted bytes of the Content-Type header](media/screenshots/demo.gif)
 
 ## Getting started
 
@@ -64,6 +70,9 @@ them (`tshark --version`).
 - **Protocol tree and hex view** with two-way highlighting, reassembled data
   included. Right-click a field to apply or prepare it as a filter, colorize,
   add it as a column or copy it.
+
+  ![The packet list, protocol tree and bytes of an HTTP response reassembled from two TCP segments](media/screenshots/viewer.png)
+
 - **Quick view of late packets**: from packet 20,000 on, details show in about
   0.3 s by dissecting only the 300 packets before it, until the exact view
   replaces it.

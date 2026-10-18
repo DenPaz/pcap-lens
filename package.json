@@ -7,7 +7,7 @@
     "color": "#0b3a73",
     "theme": "dark"
   },
-  "version": "0.4.1",
+  "version": "0.5.0",
   "publisher": "denpaz",
   "license": "MIT",
   "repository": {
@@ -1646,8 +1646,10 @@
     "@vscode/vsce": "^4.0.0",
     "eslint": "^10.12.0",
     "eslint-config-prettier": "^10.1.8",
+    "gifenc": "1.0.3",
     "mocha": "^12.0.3",
     "playwright-core": "^1.64.0",
+    "pngjs": "7.0.0",
     "prettier": "^3.9.10",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.71.2"

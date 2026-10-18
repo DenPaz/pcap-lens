@@ -161,5 +161,5 @@ Set up once, then every tag publishes everywhere:
 Add both under the repository's _Settings › Secrets and variables › Actions_.
 
 The icon is `media/icon.svg`, rendered by `node scripts/render-icon.js`. The
-screenshots in `media/screenshots/` come from `node scripts/screenshots.js`
-(after `pnpm run compile`).
+screenshots in `media/screenshots/` and the README's animated `demo.gif` come
+from `node scripts/screenshots.js` (after `pnpm run compile`).
