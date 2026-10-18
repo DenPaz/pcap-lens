@@ -9,6 +9,10 @@ commit) that made it. The format follows
 
 ### Added
 
+- **Protocol preferences**: right-click a protocol in the packet details (or
+  run _PCAP: Protocol Preferences…_) to see its tshark preferences with their
+  descriptions and current values, and change them. Values are checked, the
+  capture reloads, and ↺ goes back to Wireshark's value. [3049e5e]
 - The dividers between the packet list, details and bytes can be moved with
   the keyboard: focus one (Tab) and use the arrow keys. [c446d3a]
 
@@ -18,6 +22,7 @@ commit) that made it. The format follows
   headers, sort order and row numbers, the flow graph's rows as a list that
   follows the selection, and the VoIP call flow's rows as buttons. [c446d3a]
 
+[3049e5e]: https://github.com/DenPaz/vsc_pcap_viewer/commit/3049e5e
 [c446d3a]: https://github.com/DenPaz/vsc_pcap_viewer/commit/c446d3a
 
 ## 0.5.0 — 2026-10-17
