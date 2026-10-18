@@ -21,6 +21,10 @@ import { leaveAskMode, onAiSuggestions, setAiAvailable } from "./ai.js";
 import { renderFilterButtons, updateStatus } from "./status.js";
 
 window.addEventListener("message", (event) => {
+  // VS Code posts to this frame with its own origin as the target; ignore other senders.
+  if (event.origin !== window.origin) {
+    return;
+  }
   const msg = event.data;
   switch (msg.type) {
     case "loading":

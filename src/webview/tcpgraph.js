@@ -135,6 +135,10 @@
   }
 
   window.addEventListener("message", (event) => {
+    // VS Code posts to this frame with its own origin as the target; ignore other senders.
+    if (event.origin !== window.origin) {
+      return;
+    }
     const msg = event.data;
     if (msg.type === "init" || msg.type === "show") {
       if (msg.type === "init") {
