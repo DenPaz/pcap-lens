@@ -19,8 +19,14 @@ commit) that made it. The format follows
   header 32 bits a row, every field to the bit, linked to the tree and bytes.
   [188ddcf]
 
+### Fixed
+
+- A notice under the filter bar (such as unknown columns removed) no longer
+  disappears when the filter box is emptied. [985f8b3]
+
 [9c1afc4]: https://github.com/DenPaz/vsc_pcap_viewer/commit/9c1afc4
 [188ddcf]: https://github.com/DenPaz/vsc_pcap_viewer/commit/188ddcf
+[985f8b3]: https://github.com/DenPaz/vsc_pcap_viewer/commit/985f8b3
 
 ## 0.6.0 — 2026-10-18
 
