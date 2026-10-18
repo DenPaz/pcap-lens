@@ -502,6 +502,13 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.waitForFunction(
       () => document.querySelectorAll("#list-rows .list-row:not(.loading)").length > 0,
     );
+    // An emptied filter box's validation (250 ms later) clears errors, not notices.
+    await page.focus("#filter-input");
+    await page.keyboard.type("x");
+    await page.keyboard.press("Backspace");
+    await page.waitForTimeout(400);
+    assert.match(await page.textContent("#filter-error"), /no\.such\.field/);
+    await page.keyboard.press("Escape");
     const headers = await page.$$eval("#list-header > div", (cells) =>
       cells.map((c) => c.firstChild.textContent),
     );

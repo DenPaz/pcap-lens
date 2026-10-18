@@ -30,7 +30,9 @@ async function validateNow() {
   const seq = ++state.validateSeq;
   if (!expr) {
     el.filterInput.classList.remove("valid", "invalid");
-    showFilterError("");
+    if (el.filterError.dataset.info !== "1") {
+      showFilterError(""); // (an emptied box clears a validation error, not a notice)
+    }
     return;
   }
   if (!state.ready) {
