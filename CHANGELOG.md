@@ -13,6 +13,8 @@ commit) that made it. The format follows
   detail records and similar), which tshark refuses, opens as one packet per
   record, decoded by the dissector you choose (generic BER, any of tshark's,
   or a Lua one). Offered when such a file fails to open. [9c1afc4]
+- **Packet diagram**: the details pane's _Diagram_ view draws each protocol's
+  header 32 bits a row, every field to the bit, linked to the tree and bytes.
 
 [9c1afc4]: https://github.com/DenPaz/vsc_pcap_viewer/commit/9c1afc4
 

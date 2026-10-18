@@ -19,6 +19,7 @@ import "./viewer/list.js";
 import "./viewer/selection.js";
 import "./viewer/comments.js";
 import "./viewer/detail.js";
+import "./viewer/diagram.js";
 import "./viewer/contextmenu.js";
 import "./viewer/commandmenu.js";
 import "./viewer/filterbar.js";

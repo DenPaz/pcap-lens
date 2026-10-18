@@ -159,7 +159,7 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   server allows the CORS fetch) that imports `viewer/*.js`, one module per
   part of the UI (`core` = shared state, constants, element lookups and
   rpc, and imports nothing, so it is evaluated first; `host`, `list`,
-  `columns`, `selection`, `detail`, `filterbar`, `autocomplete`,
+  `columns`, `selection`, `detail`, `diagram`, `filterbar`, `autocomplete`,
   `navigation`, menus, `status`…). Function declarations make the cycles
   between modules safe; top-level code only touches `core` and its own
   module. Shared JSDoc types live in `globals.d.ts`. Type-checked via JSDoc +
@@ -453,6 +453,35 @@ matchCount, fraction}`; the end sends `done`, `stopped` (`stop_filter
   one). Quick results have their own LRU (16) keyed by (frame, window). Ask
   Copilot uses quick details for late packets too, and the prompt says which
   trees are approximate.
+- **Packet diagram** (`lib.packetDiagram`, `viewer/diagram.js`): the details
+  pane's _Tree | Diagram_ switch (`#detail-views`, in the sticky
+  `#detail-head` with the comment bar and the quick-view note;
+  `state.detailView` and the _Values_ toggle `state.diagramValues` persist in
+  the webview state). Like Wireshark's, it draws each protocol's top-level
+  fields only (not `frame`, `_ws.*`), 32 bits a row (`DIAGRAM_BITS`). PDML
+  has no bit offsets or masks, so `diagramBits` reads them from the labels:
+  `bitPattern` parses tshark's "0100 .... = Version: 4" (groups of 4), placed
+  at the end of the field's bytes, or of its parent's when the pattern is
+  wider (TCP's flag bits: 12-bit patterns on 1-byte fields inside the 2-byte
+  `tcp.flags`); a field without one whose patterned children tile one width
+  gets that width (TCP's Flags, IPv4's DS field; children without a pattern,
+  like `tcp.flags.str`, are ignored; Ethernet's LG/IG bits don't tile, so the
+  address stays 48 bits); else whole bytes. Fields are sorted by start, and
+  one overlapping a field already placed (`tcp.seq_raw`, the calculated
+  window) or outside the protocol's bytes (the payload) is dropped; uncovered
+  bits are hatched gap cells. A field or gap of more than `DIAGRAM_FULL_ROWS`
+  full rows keeps one row standing for all (`rows`, dashed bottom, "…" on
+  the offset); at most `DIAGRAM_MAX_ROWS` rows (`more`). Cells are buttons
+  placed with CSSOM `gridRow`/`gridColumn` (allowed by the CSP) in a
+  33-column grid (byte offsets, 32 bits); picking one calls
+  `detail.revealPath([proto, field])`, so the tree, bytes and diagram stay in
+  step (`selectNode` → `markDiagramSelection`: the cells of any node on the
+  selected node's path, `aria-current`); one cell takes Tab, arrows move
+  between fields; right-click is the tree's menu (`showTreeMenu`). The diagram
+  is drawn when shown and redrawn per detail. The e2e test runs axe on it
+  without the bytes pane (the harness has no theme, so the field highlight's
+  fallback blue sits under the browser's black text). `scripts/screenshots.js`
+  writes `diagram.png` (README).
 - **Byte sources**: PDML does not say which data source (frame vs reassembled)
   a field's `pos` refers to. Heuristic in `pdml.py`: top-level items after a
   `*.segments`/`*.fragments` node belong to the next `-x` source. Documented
@@ -1419,3 +1448,4 @@ tree indent guides. Released 0.4.0 (GitHub only), then renamed to PCAP Lens for
 0.4.1, the first Marketplace version. 0.5.0: Python 3.12+ and Install
 Python. Since: the backend, viewer and editor split into modules, coverage
 and axe-core checks with the ARIA fixes they found, and protocol preferences.
+0.6.0 released. Since: BER record files as packets, and the packet diagram.

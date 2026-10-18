@@ -4,6 +4,7 @@
 import { CANCELLED, cancelRpc, el, lib, rpc, state, vscode } from "./core.js";
 import { gotoFrame, showComment } from "./comments.js";
 import { copy, showMenu } from "./contextmenu.js";
+import { applyDetailView, clearDiagram, markDiagramSelection } from "./diagram.js";
 import { decorateFrameLink, frameLinkTarget, loadFieldTypes } from "./navigation.js";
 import { persist } from "./status.js";
 
@@ -129,6 +130,7 @@ export function clearDetail() {
   el.bytesTabs.replaceChildren();
   el.bytesTabs.classList.add("hidden");
   hex = null;
+  clearDiagram();
 }
 
 /**
@@ -170,6 +172,7 @@ function showDetail(detail) {
       }
     }
   }
+  applyDetailView(); // (draws the diagram when it is the view shown)
   if (sameFrame) {
     el.detailPane.scrollTop = scrollTop;
   }
@@ -357,10 +360,11 @@ export function selectNode(id, opts) {
     entry.row.scrollIntoView({ block: "nearest" });
   }
   highlightBytes(entry);
+  markDiagramSelection();
 }
 
 /** Expand ancestors so a node deep in the tree becomes visible, then select it. @param {any[]} path */
-function revealPath(path) {
+export function revealPath(path) {
   for (let i = 0; i < path.length - 1; i++) {
     const entry = nodeIndex.get(path[i].id);
     if (entry && !isExpanded(entry)) {

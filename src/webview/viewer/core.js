@@ -95,6 +95,11 @@ export const el = {
   treePlaceholder: $("detail-placeholder"),
   detailPane: $("detail"),
   detailNote: $("detail-note"),
+  detailViews: $("detail-views"),
+  viewTree: $("view-tree"),
+  viewDiagram: $("view-diagram"),
+  diagramValues: $("diagram-values"),
+  diagram: $("detail-diagram"),
   commentBar: $("comment-bar"),
   commentView: $("comment-view"),
   commentText: $("comment-text"),
@@ -161,6 +166,10 @@ export const state = {
   /** @type {number | null} */ detailRequest: null,
   /** @type {number | null} */ selectedNodeId: null,
   /** @type {Set<string>} */ expanded: new Set(saved.expanded || []),
+  /** The details pane shows the tree or the packet diagram (viewer/diagram.js). */
+  /** @type {"tree" | "diagram"} */ detailView: saved.detailView === "diagram" ? "diagram" : "tree",
+  /** The diagram's cells show the fields' values too. */
+  diagramValues: saved.diagramValues === true,
   activeSource: 0,
   rowHeight: 22,
   /** @type {string[]} */ history: [],

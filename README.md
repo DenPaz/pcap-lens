@@ -80,6 +80,13 @@ registered under its name in lower case).
 
   ![The packet list, protocol tree and bytes of an HTTP response reassembled from two TCP segments](media/screenshots/viewer.png)
 
+- **Packet diagram**: switch the details from _Tree_ to _Diagram_ to see each
+  protocol's header drawn 32 bits a row, every field to the bit, as in
+  Wireshark. Pick a field to select it in the tree and its bytes; _Values_
+  shows the fields' values.
+
+  ![The IPv4 and TCP headers of a packet as a diagram, Time to Live selected and its byte highlighted](media/screenshots/diagram.png)
+
 - **Quick view of late packets**: from packet 20,000 on, details show in about
   0.3 s by dissecting only the 300 packets before it, until the exact view
   replaces it.
