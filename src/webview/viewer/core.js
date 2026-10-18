@@ -186,6 +186,8 @@ export const state = {
   /** @type {number | null} */ elapsedMs: null,
   /** Palette for rows whose list_packets result had this coloringId. */
   /** @type {{id: number, rules: ColorRule[]} | null} */ coloring: null,
+  /** How many conversations are colorized (Colorize Conversation's rules, first in `coloring`). */
+  colorized: 0,
   /** How rules are drawn (pcapViewer.coloringStyle): auto, full, subtle or stripe. */
   coloringStyle: "auto",
   /** A separate coloring pass is running (fraction, or null when unknown); undefined when not. */

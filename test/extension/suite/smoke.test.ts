@@ -92,6 +92,29 @@ suite("PCAP Lens smoke test", () => {
       "every packet of http.pcap matches a default rule",
     );
 
+    // Colorize Conversation: a temporary rule ahead of the configured ones, until reset.
+    const colorsNow = async (after: number) =>
+      waitForAsync(async () => {
+        const res = await backend.request<{ rows: { color?: number }[]; coloringId: number }>(
+          "list_packets",
+          { offset: 0, limit: 11 },
+        );
+        return res.coloringId > after ? res : undefined;
+      });
+    await session.colorizeConversation("frame.number == 4");
+    const conversation = await colorsNow(colored.coloringId);
+    assert.deepEqual(
+      conversation.rows.map((r) => r.color),
+      colored.rows.map((r, i) => (i === 3 ? 0 : (r.color ?? 0) + 1)),
+    );
+    assert.ok(session.resetColorization());
+    const reset = await colorsNow(conversation.coloringId);
+    assert.deepEqual(
+      reset.rows.map((r) => r.color),
+      colored.rows.map((r) => r.color),
+    );
+    assert.equal(session.resetColorization(), false, "nothing left to reset");
+
     const commands = await vscode.commands.getCommands(true);
     for (const id of [
       "pcapViewer.reloadDissectors",
@@ -104,6 +127,7 @@ suite("PCAP Lens smoke test", () => {
       "pcapViewer.exportPacketBytes",
       "pcapViewer.colorizeWithFilter",
       "pcapViewer.toggleColoring",
+      "pcapViewer.resetColorization",
       "pcapViewer.manageColoringRules",
       "pcapViewer.suggestFilter",
       "pcapViewer.find",

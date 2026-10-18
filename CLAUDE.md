@@ -831,6 +831,22 @@ fields -e frame.number` gives progress when filtering; without a filter
   tests make with editcap). Opening a piece offers the merge once per editor
   (`offerMerge`; "Don't Ask Again" is a globalState flag). _PCAP: Merge
   Captures…_ uses the active capture's backend, else a short-lived one.
+- **Conversation filter and colorization** (row menu, `lib.conversationFilters`):
+  the packet's conversations come from its exact detail tree (the
+  innermost `eth.src/dst`, `ip.*`, `ipv6.*`, `tcp.stream`, `udp.stream`;
+  values that aren't addresses or numbers are dropped), shown as a second
+  flat menu at the same spot (`conversationMenu`; it fetches the exact
+  detail when the selected one is missing or a quick view, whose stream
+  numbers are the window's). _Conversation Filter_ applies the filter.
+  _Colorize Conversation_ posts `colorizeConversation`: the session keeps
+  `temporaryRules` (`settingsModel.colorizeConversation`: newest first, the
+  first `COLORIZE_PALETTE` color the others don't use, at most ten, i.e.
+  Wireshark's temporary colors) ahead of the configured rules in
+  `coloringRules()` (also with coloring toggled off: they were asked for),
+  per editor and kept across reloads, and runs `applyColoring`. The
+  `coloring` message carries `temporary` (their count, `state.colorized`),
+  which enables _Reset Colorization_ (`pcapViewer.resetColorization`; the
+  ☰ requirement `colorized`). No Ctrl+1…0 keys: VS Code binds them.
 - **Coloring rules editor** (`ColoringPanel`, `coloring.js`; the
   `pcapViewer.manageColoringRules` command, titled _Edit Coloring Rules_): one
   panel per window, reading and writing `pcapViewer.coloringRules` for the

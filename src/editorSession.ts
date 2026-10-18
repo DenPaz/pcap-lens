@@ -51,11 +51,13 @@ import {
   ColumnSetting,
   DEFAULT_NAME_RESOLUTION,
   FilterButton,
+  MAX_COLORING_RULES,
   NameResolution,
   QuickDetail,
   SavedFilter,
   TimeFormat,
   addColumn,
+  colorizeConversation,
   luaLabel,
   nameResolutionLabel,
   normalizeColumns,
@@ -78,8 +80,8 @@ const reportedColoringErrors = new Set<string>();
 /** The button that opens a file of BER records as packets (pcapViewer.openBerRecords). */
 export const OPEN_AS_PACKETS = "Open Records as Packets…";
 
-/** The coloring rules to apply ([] when coloring is off). */
-function coloringRules(settings: Settings): ColoringRule[] {
+/** The configured coloring rules to apply ([] when coloring is off). */
+function configuredRules(settings: Settings): ColoringRule[] {
   return settings.colorize ? settings.coloringRules : [];
 }
 
@@ -163,6 +165,8 @@ export class PcapEditorSession {
   private indexing = false;
   /** The coloring rules changed while indexing: run a coloring pass when it's done. */
   private coloringStale = false;
+  /** Colorize Conversation's rules (this editor only, ahead of the configured ones). */
+  private temporaryRules: ColoringRule[] = [];
   /** In-flight "Ask AI" requests from the webview, by webview request id. */
   private readonly aiRequests = new Map<number, vscode.CancellationTokenSource>();
   private readonly ready: Promise<void>;
@@ -381,7 +385,10 @@ export class PcapEditorSession {
       });
       if (info.coloring) {
         // Colors come with the rows (or were saved with the index).
-        this.showColoring({ colored: 0, errors: {}, ...info.coloring }, coloringRules(settings));
+        this.showColoring(
+          { colored: 0, errors: {}, ...info.coloring },
+          this.coloringRules(settings),
+        );
       }
       if (info.indexing) {
         const known = info.warnings.length;
@@ -585,7 +592,7 @@ export class PcapEditorSession {
       });
       const coloring = p.coloring as ColoringResult | undefined;
       if (coloring && !this.coloringStale) {
-        this.showColoring(coloring, coloringRules(readSettings(this.uri))); // compile errors are known now
+        this.showColoring(coloring, this.coloringRules(readSettings(this.uri))); // compile errors are known now
       } else {
         void this.applyColoring(); // no colors yet, or the rules changed meanwhile
       }
@@ -610,8 +617,8 @@ export class PcapEditorSession {
           // Show the first rows while the rest is indexed.
           stream: true,
           // Colors come with the rows: the index pass evaluates the coloring rules.
-          coloring: coloringRules(settings).length
-            ? { rules: coloringPayload(coloringRules(settings)) }
+          coloring: this.coloringRules(settings).length
+            ? { rules: coloringPayload(this.coloringRules(settings)) }
             : undefined,
         };
         // A new capture's first load starts it; later loads (settings) open the file.
@@ -831,6 +838,11 @@ export class PcapEditorSession {
       case "colorize":
         await vscode.commands.executeCommand("pcapViewer.colorizeWithFilter", msg.filter);
         return;
+      case "colorizeConversation":
+        if (typeof msg.filter === "string" && msg.filter.trim() && !msg.filter.includes("@")) {
+          void this.colorizeConversation(msg.filter.trim());
+        }
+        return;
       case "aiSuggest":
         return this.aiSuggest(msg.id, msg.request);
       case "aiCancel":
@@ -1010,6 +1022,27 @@ export class PcapEditorSession {
 
   // ------------------------------------------------------------------ coloring
 
+  /** The rules to apply: colorized conversations (even with coloring off), then the configured ones. */
+  private coloringRules(settings: Settings): ColoringRule[] {
+    return [...this.temporaryRules, ...configuredRules(settings)].slice(0, MAX_COLORING_RULES);
+  }
+
+  /** Colorize Conversation: color the packets of `filter` in this editor until reset. */
+  colorizeConversation(filter: string): Promise<void> {
+    this.temporaryRules = colorizeConversation(this.temporaryRules, filter);
+    return this.applyColoring();
+  }
+
+  /** Reset Colorization: drop the colorized conversations (false when there were none). */
+  resetColorization(): boolean {
+    if (!this.temporaryRules.length) {
+      return false;
+    }
+    this.temporaryRules = [];
+    void this.applyColoring();
+    return true;
+  }
+
   /**
    * Evaluate the coloring rules in the backend (one tshark pass, in the
    * background) and send the palette to the webview once rows carry colors.
@@ -1027,7 +1060,7 @@ export class PcapEditorSession {
     if (this.coloring?.client === client) {
       client.cancel(this.coloring.id);
     }
-    const rules = coloringRules(readSettings(this.uri));
+    const rules = this.coloringRules(readSettings(this.uri));
     if (rules.length) {
       this.post({ type: "coloringProgress", fraction: null });
     }
@@ -1100,6 +1133,7 @@ export class PcapEditorSession {
     this.post({
       type: "coloring",
       coloringId: result.coloringId,
+      temporary: rules.filter((r) => r.temporary).length,
       rules: rules.map((r) => ({
         name: r.name,
         foreground: r.foreground,

@@ -97,7 +97,9 @@ registered under its name in lower case).
 - **Coloring rules** like Wireshark's (default set included, first match wins),
   with an editor (_PCAP: Edit Coloring Rules_) and _Colorize with Filter…_.
   Colors follow the theme: a tint and a stripe in dark themes, a stripe in high
-  contrast (`pcapViewer.coloringStyle` to choose).
+  contrast (`pcapViewer.coloringStyle` to choose). Right-click a packet and
+  _Colorize Conversation…_ to color its Ethernet, IP, TCP or UDP conversation
+  in one of ten colors for this editor (_Reset Colorization_ clears them).
 
   ![The same capture in a light theme, with Wireshark's coloring rules in full color](media/screenshots/viewer-light.png)
 
@@ -118,6 +120,8 @@ registered under its name in lower case).
   keeps them. Finished results are cached with the index.
 - **Saved and recent filters** (★), and **filter buttons** under the filter
   bar for one-click filters (**+** adds one; right-click to edit).
+- **Conversation Filter**: right-click a packet to show only its Ethernet, IP,
+  TCP or UDP conversation.
 
   ![Completions for dns.flags.r with each field's type and description](media/screenshots/filter.png)
 

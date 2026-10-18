@@ -121,6 +121,7 @@ window.addEventListener("message", (event) => {
       break;
     case "coloring":
       state.coloring = msg.rules.length ? { id: msg.coloringId, rules: msg.rules } : null;
+      state.colorized = msg.temporary ?? 0;
       state.coloringProgress = undefined;
       refreshRows();
       updateStatus();

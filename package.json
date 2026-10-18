@@ -560,6 +560,11 @@
         "category": "PCAP"
       },
       {
+        "command": "pcapViewer.resetColorization",
+        "title": "Reset Colorization",
+        "category": "PCAP"
+      },
+      {
         "command": "pcapViewer.manageColoringRules",
         "title": "Edit Coloring Rules",
         "category": "PCAP"
@@ -727,6 +732,10 @@
         {
           "command": "pcapViewer.toggleColoring",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
+        },
+        {
+          "command": "pcapViewer.resetColorization",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
         },
         {
           "command": "pcapViewer.suggestFilter",

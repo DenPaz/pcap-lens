@@ -385,6 +385,8 @@ export interface ColoringRule {
   filter: string;
   foreground: string;
   background: string;
+  /** A conversation colorized for this editor only (Colorize Conversation), not a setting. */
+  temporary?: true;
 }
 
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -472,6 +474,32 @@ export const COLORIZE_PALETTE: readonly { label: string; background: string }[] 
   { label: "Grey", background: "#e0e0e0" },
 ];
 export const COLORIZE_FOREGROUND = "#12272e";
+
+/** Conversations colorized at once (Wireshark's ten temporary colors, one each). */
+export const MAX_TEMPORARY_RULES = COLORIZE_PALETTE.length;
+
+/**
+ * Colorize Conversation: `filter` first (the newest wins) in the first
+ * palette color the others don't use. Colorizing it again gives it a new
+ * color; with every color taken the oldest conversation makes room.
+ */
+export function colorizeConversation(rules: ColoringRule[], filter: string): ColoringRule[] {
+  const others = rules.filter((r) => r.filter !== filter).slice(0, MAX_TEMPORARY_RULES - 1);
+  const again = rules.find((r) => r.filter === filter)?.background;
+  const used = new Set(others.map((r) => r.background));
+  const free = COLORIZE_PALETTE.filter((c) => !used.has(c.background));
+  const color = free.find((c) => c.background !== again) ?? free[0];
+  return [
+    {
+      name: `Conversation: ${filter}`,
+      filter,
+      foreground: COLORIZE_FOREGROUND,
+      background: color.background,
+      temporary: true,
+    },
+    ...others,
+  ];
+}
 
 /** Put a new rule first (it wins over the existing ones), keeping the raw entries as they are. */
 export function prependColoringRule(rules: unknown, rule: ColoringRule): unknown[] {

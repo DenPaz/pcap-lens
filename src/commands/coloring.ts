@@ -90,6 +90,12 @@ export function registerColoringCommands(
       await updateSetting("colorize", on, scope);
       vscode.window.setStatusBarMessage(`Packet coloring ${on ? "on" : "off"}`, 3000);
     }),
+    vscode.commands.registerCommand("pcapViewer.resetColorization", () => {
+      const session = provider.activeSession;
+      if (!session?.resetColorization()) {
+        vscode.window.setStatusBarMessage("No conversation is colorized", 3000);
+      }
+    }),
     vscode.commands.registerCommand("pcapViewer.manageColoringRules", () =>
       ColoringPanel.show(context, provider),
     ),

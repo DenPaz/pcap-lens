@@ -176,6 +176,58 @@
     return name === "fake-field-wrapper" ? null : name;
   }
 
+  /** Conversation Filter's protocols: [label, address/stream fields, filter field]. */
+  const CONVERSATIONS = /** @type {const} */ ([
+    ["Ethernet", ["eth.src", "eth.dst"], "eth.addr"],
+    ["IPv4", ["ip.src", "ip.dst"], "ip.addr"],
+    ["IPv6", ["ipv6.src", "ipv6.dst"], "ipv6.addr"],
+    ["TCP", ["tcp.stream"], "tcp.stream"],
+    ["UDP", ["udp.stream"], "udp.stream"],
+  ]);
+
+  /**
+   * Conversation Filter / Colorize Conversation: the conversations a packet
+   * belongs to, from its detail tree (the innermost value of each field, as
+   * in a tunnel the inner packet's are the interesting ones): both addresses
+   * for Ethernet/IPv4/IPv6, the stream index for TCP/UDP.
+   *
+   * @param {any[]} tree packet_detail's tree
+   * @returns {{label: string, filter: string}[]}
+   */
+  function conversationFilters(tree) {
+    /** @type {Map<string, string>} */
+    const last = new Map();
+    const wanted = new Set(CONVERSATIONS.flatMap(([, fields]) => fields));
+    /** @param {any[]} nodes */
+    const walk = (nodes) => {
+      for (const node of nodes) {
+        if (wanted.has(node.name) && typeof node.show === "string" && node.show) {
+          last.set(node.name, node.show);
+        }
+        if (node.children) {
+          walk(node.children);
+        }
+      }
+    };
+    walk(tree);
+    /** @type {{label: string, filter: string}[]} */
+    const out = [];
+    for (const [label, fields, field] of CONVERSATIONS) {
+      const values = fields.map((f) => last.get(f));
+      if (values.some((v) => v === undefined || !/^[0-9A-Fa-f:.]+$/.test(v))) {
+        continue; // (also keeps anything but an address or a number out of the filter)
+      }
+      out.push({
+        label,
+        filter:
+          values.length === 1
+            ? `${field} eq ${values[0]}`
+            : values.map((v) => `${field} == ${v}`).join(" && "),
+      });
+    }
+    return out;
+  }
+
   /**
    * How a frame-number field relates the selected packet to the packet it
    * names (Wireshark's related-packet indicators): its request, its
@@ -1605,13 +1657,14 @@
     marks: "No packets are marked",
     filter: "No display filter is applied",
     capturing: "No capture is running",
+    colorized: "No conversation is colorized",
   };
 
   /**
    * Why a command can't run now (its first requirement that isn't met), or
    * null when it can. The menu shows such entries disabled with the reason.
    * @param {MenuCommand} command
-   * @param {{selected: boolean, marks: number, filter: boolean, capturing: boolean, ai: boolean}} ctx
+   * @param {{selected: boolean, marks: number, filter: boolean, capturing: boolean, ai: boolean, colorized?: number}} ctx
    * @returns {string | null}
    */
   function commandUnavailable(command, ctx) {
@@ -1627,7 +1680,9 @@
                 ? ctx.capturing
                 : need === "ai"
                   ? ctx.ai
-                  : true;
+                  : need === "colorized"
+                    ? (ctx.colorized ?? 0) > 0
+                    : true;
       if (!met) {
         return REQUIREMENT_REASONS[need] ?? "Not available now";
       }
@@ -1760,6 +1815,7 @@
     DIAGRAM_BITS,
     expertStatus,
     relatedKind,
+    conversationFilters,
     relatedFrames,
     bitPattern,
     packetDiagram,

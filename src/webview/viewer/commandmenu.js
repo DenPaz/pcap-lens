@@ -49,6 +49,7 @@ function commandContext() {
     filter: !!state.appliedFilter,
     capturing: !!state.capture?.running,
     ai: state.ai.available,
+    colorized: state.colorized,
   };
 }
 

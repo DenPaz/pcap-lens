@@ -16,6 +16,10 @@ commit) that made it. The format follows
   refers to (the request it answers, the segment it acknowledges, the
   segments it reassembles…), like Wireshark's related-packet indicators.
   [26e01b9]
+- Conversation Filter and Colorize Conversation in the packet list's menu:
+  filter on, or color, the packet's Ethernet, IPv4, IPv6, TCP or UDP
+  conversation (ten colors, for this editor only); _Reset Colorization_
+  clears them.
 
 [1e2af9f]: https://github.com/DenPaz/vsc_pcap_viewer/commit/1e2af9f
 [26e01b9]: https://github.com/DenPaz/vsc_pcap_viewer/commit/26e01b9

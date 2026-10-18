@@ -93,6 +93,46 @@ suite("webview lib: filters", () => {
     assert.equal(lib.relatedKind("http.prev_request_in"), "related");
   });
 
+  test("conversationFilters: Ethernet, IP and stream conversations, innermost values", () => {
+    const f = (name, show, children) => ({ name, show, ...(children ? { children } : {}) });
+    const tree = [
+      {
+        name: "eth",
+        children: [f("eth.dst", "00:00:5e:00:53:02"), f("eth.src", "00:00:5e:00:53:01")],
+      },
+      { name: "ip", children: [f("ip.src", "192.0.2.1"), f("ip.dst", "192.0.2.2")] },
+      // A tunnel: the inner header wins.
+      { name: "ip", children: [f("ip.src", "10.0.0.1"), f("ip.dst", "10.0.0.2")] },
+      { name: "tcp", children: [f("tcp.srcport", "80"), f("tcp.stream", "3")] },
+    ];
+    assert.deepEqual(lib.conversationFilters(tree), [
+      {
+        label: "Ethernet",
+        filter: "eth.addr == 00:00:5e:00:53:01 && eth.addr == 00:00:5e:00:53:02",
+      },
+      { label: "IPv4", filter: "ip.addr == 10.0.0.1 && ip.addr == 10.0.0.2" },
+      { label: "TCP", filter: "tcp.stream eq 3" },
+    ]);
+    assert.deepEqual(
+      lib.conversationFilters([
+        { name: "ipv6", children: [f("ipv6.src", "2001:db8::1"), f("ipv6.dst", "2001:db8::2")] },
+        { name: "udp", children: [f("udp.stream", "0")] },
+      ]),
+      [
+        { label: "IPv6", filter: "ipv6.addr == 2001:db8::1 && ipv6.addr == 2001:db8::2" },
+        { label: "UDP", filter: "udp.stream eq 0" },
+      ],
+    );
+    // Only addresses and numbers go into a filter.
+    assert.deepEqual(
+      lib.conversationFilters([
+        { name: "ip", children: [f("ip.src", "a || frame"), f("ip.dst", "10.0.0.2")] },
+      ]),
+      [],
+    );
+    assert.deepEqual(lib.conversationFilters([]), []);
+  });
+
   test("relatedFrames: the packets the selected one refers to", () => {
     const types = { "dns.response_to": "FT_FRAMENUM", "tcp.segment": "FT_FRAMENUM" };
     const tree = [

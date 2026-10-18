@@ -173,6 +173,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
           "copy",
           "askAboutPackets",
           "runCommand",
+          "colorizeConversation",
           "addFilterButton",
           "editFilterButton",
         ].includes(msg.type)
@@ -535,7 +536,12 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       items.slice(0, 2).map((i) => i[0]),
       ["Apply as Filter", "Prepare as Filter"],
     );
-    assert.deepEqual(items.slice(5, 9), [
+    assert.deepEqual(items.slice(5, 8), [
+      ["Conversation Filter…", true],
+      ["Colorize Conversation…", true],
+      ["Reset Colorization", false],
+    ]);
+    assert.deepEqual(items.slice(8, 12), [
       ["Follow TCP Stream", true],
       ["Follow UDP Stream", true],
       ["Follow TLS Stream", false],
@@ -546,6 +552,51 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.click("#list-rows .list-row >> nth=3", { button: "right" });
     await page.click("#context-menu .item:has-text('Decode As')");
     await expectHostLast({ type: "decodeAs", frame: 4 });
+  });
+
+  test("Conversation Filter and Colorize Conversation list the packet's conversations", async () => {
+    await cleanView();
+    const conversations = () => rowEl(4).click({ button: "right" });
+    await conversations();
+    await page.click("#context-menu .item:has-text('Conversation Filter…')");
+    await page.waitForSelector("#context-menu .item:has-text('TCP')");
+    assert.deepEqual(
+      await page.$$eval("#context-menu .item", (els) => els.map((e) => e.textContent)),
+      ["Ethernet", "IPv4", "TCP"],
+    );
+    await page.click("#context-menu .item:has-text('TCP')");
+    await page.waitForFunction(() =>
+      /Displayed: 11/.test(document.querySelector("#status-left").textContent),
+    );
+    assert.equal(await page.inputValue("#filter-input"), "tcp.stream eq 0");
+
+    await conversations();
+    await page.click("#context-menu .item:has-text('Colorize Conversation…')");
+    await page.click("#context-menu .item:has-text('IPv4')");
+    await expectHostLast(
+      {
+        type: "colorizeConversation",
+        filter: "ip.addr == 192.168.1.10 && ip.addr == 93.184.216.34",
+      },
+      { ofType: true },
+    );
+    // The host colors it with a temporary rule: Reset Colorization comes alive.
+    await post({
+      type: "coloring",
+      coloringId: 0,
+      temporary: 1,
+      rules: [{ name: "Conversation", foreground: "#12272e", background: "#ffc0c0" }],
+    });
+    await conversations();
+    await page.click("#context-menu .item:has-text('Reset Colorization')");
+    await expectHostLast(
+      { type: "runCommand", id: "pcapViewer.resetColorization" },
+      { ofType: true },
+    );
+    await post({ type: "coloring", coloringId: 0, temporary: 0, rules: [] });
+    await cleanView();
+    await rowEl(4).click(); // (the next test starts on frame 4)
+    await waitSelected(4);
   });
 
   test("coloring rules color the rows; Colorize and Export Bytes reach the host", async () => {
