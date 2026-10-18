@@ -23,6 +23,13 @@ jobs:
           echo "wireshark-common wireshark-common/install-setuid boolean false" | sudo debconf-set-selections
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y tshark xvfb
+          # Ubuntu 26.04 confines tshark with AppArmor (/etc/apparmor.d/tshark):
+          # apply the local rules the backend's hint suggests (sandbox.py), so it
+          # reads the fixtures in the checkout and the tests can stop it.
+          if [ -f /etc/apparmor.d/tshark ]; then
+            printf '%s\n' 'owner @{HOME}/** rw,' 'signal (receive) peer=unconfined,' | sudo tee -a /etc/apparmor.d/local/tshark
+            sudo apparmor_parser -r /etc/apparmor.d/tshark
+          fi
           # Let dumpcap capture (the loopback live-capture test), as
           # dpkg-reconfigure wireshark-common would for the wireshark group.
           sudo setcap cap_net_raw,cap_net_admin=eip /usr/bin/dumpcap
@@ -79,6 +86,10 @@ jobs:
           echo "wireshark-common wireshark-common/install-setuid boolean false" | sudo debconf-set-selections
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y tshark
+          if [ -f /etc/apparmor.d/tshark ]; then # see the Linux job
+            printf '%s\n' 'owner @{HOME}/** rw,' 'signal (receive) peer=unconfined,' | sudo tee -a /etc/apparmor.d/local/tshark
+            sudo apparmor_parser -r /etc/apparmor.d/tshark
+          fi
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
