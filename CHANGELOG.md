@@ -7,6 +7,19 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- The dividers between the packet list, details and bytes can be moved with
+  the keyboard: focus one (Tab) and use the arrow keys. [c446d3a]
+
+### Changed
+
+- Screen readers: the packet list is announced as a grid with column
+  headers, sort order and row numbers, the flow graph's rows as a list that
+  follows the selection, and the VoIP call flow's rows as buttons. [c446d3a]
+
+[c446d3a]: https://github.com/DenPaz/vsc_pcap_viewer/commit/c446d3a
+
 ## 0.5.0 — 2026-10-17
 
 ### Added
