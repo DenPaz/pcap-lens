@@ -1156,6 +1156,24 @@ button.pd-cell:hover {
   cursor: pointer;
 }
 
+#status-expert {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+#status-expert .expert-error {
+  color: var(--vscode-editorError-foreground, var(--vscode-errorForeground));
+}
+
+#status-expert .expert-warning {
+  color: var(--vscode-editorWarning-foreground, var(--vscode-foreground));
+}
+
+#status-expert .expert-note {
+  color: var(--vscode-editorInfo-foreground, var(--vscode-foreground));
+}
+
 .status-link:hover {
   color: var(--vscode-textLink-foreground);
   text-decoration: underline;

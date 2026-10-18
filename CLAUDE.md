@@ -586,6 +586,16 @@ matchCount, fraction}`; the end sends `done`, `stopped` (`stop_filter
   to get frame numbers. Rows are matched by regex because multi-word groups
   ("Response code") overflow tshark's fixed-width column. The display-filter
   limit uses each tap's own filter argument (`conv,tcp,<filter>` etc.).
+- **Expert indicator** (`expert_summary`, `lib.expertStatus`,
+  `status.js` `loadExpertSummary`): one `-q -z expert,comment` pass
+  (`stats.parse_expert_counts`: the section headers' totals per severity),
+  cached on the `_Open` (`f.expert`); IndexingError while indexing, so the
+  webview asks on init when not indexing and in `onIndexDone`. It reports
+  no progress (a background pass mustn't show the busy bar; the progress-bar
+  e2e test caught that). `#status-expert` shows the most severe of errors,
+  warnings and notes ("No problems" else) with a Codicon in the editor's
+  error/warning/info color, every count in the tooltip, and posts
+  `runCommand` for _Expert Information_; `expertSeq` drops a stale answer.
 - **Service statistics** (`stats {kind: http | dns | plen | srt}`): HTTP
   (`type` packets/requests/load = `-z http,tree` / `http_req,tree` /
   `http_srv,tree`), DNS and packet lengths are tshark's stats_tree reports,

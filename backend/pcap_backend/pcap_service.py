@@ -79,6 +79,7 @@ def rpc_methods(service: PcapService) -> dict[str, Callable[[dict[str, Any], Req
         "check_dissectors": service.check_dissectors,
         "decode_as_options": service.decode_as_options,
         "protocol_prefs": service.protocol_prefs,
+        "expert_summary": service.expert_summary,
         "dissector_names": service.dissector_names,
         "set_coloring": service.set_coloring,
         "find_packet": service.find_packet,

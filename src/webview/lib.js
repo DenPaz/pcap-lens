@@ -176,6 +176,38 @@
     return name === "fake-field-wrapper" ? null : name;
   }
 
+  /**
+   * The status bar's expert information indicator, from `expert_summary`'s
+   * counts: the most severe of errors, warnings and notes (Wireshark's dot),
+   * else "ok"; `label` names that count, `title` lists every severity.
+   *
+   * @param {Record<string, number>} counts error, warning, note, chat, comment
+   * @returns {{severity: "error" | "warning" | "note" | "ok", label: string, title: string}}
+   */
+  function expertStatus(counts) {
+    const n = (/** @type {string} */ k) => counts[k] ?? 0;
+    /** @param {number} count @param {string} one */
+    const plural = (count, one) => `${count.toLocaleString()} ${one}${count === 1 ? "" : "s"}`;
+    const all = [
+      plural(n("error"), "error"),
+      plural(n("warning"), "warning"),
+      plural(n("note"), "note"),
+      plural(n("chat"), "chat"),
+      plural(n("comment"), "comment"),
+    ].join(", ");
+    const title = `Expert information: ${all}. Click to open it.`;
+    for (const [key, one] of /** @type {const} */ ([
+      ["error", "error"],
+      ["warning", "warning"],
+      ["note", "note"],
+    ])) {
+      if (n(key) > 0) {
+        return { severity: key, label: plural(n(key), one), title };
+      }
+    }
+    return { severity: "ok", label: "No problems", title };
+  }
+
   /** Bits per packet diagram row (Wireshark draws 32). */
   const DIAGRAM_BITS = 32;
   /** Full rows of one field (or of unknown bytes) drawn before the rest is elided. */
@@ -1667,6 +1699,7 @@
     buildFieldFilter,
     prefsProtocol,
     DIAGRAM_BITS,
+    expertStatus,
     bitPattern,
     packetDiagram,
     combineFilter,

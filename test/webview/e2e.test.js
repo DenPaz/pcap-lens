@@ -995,6 +995,23 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await expectHostLast({ type: "protocolPrefs", protocol: "ip" }, { ofType: true });
   });
 
+  test("expert information in the status bar opens the Expert Information panel", async () => {
+    await cleanView();
+    await page.waitForSelector("#status-expert:not(.hidden)");
+    // http.pcap has notes (the connection closing) and chats, no warnings or errors.
+    assert.equal(await page.textContent("#status-expert"), "2 notes");
+    assert.ok(await page.isVisible("#status-expert .codicon-info.expert-note"));
+    assert.match(
+      await page.getAttribute("#status-expert", "title"),
+      /^Expert information: 0 errors, 0 warnings, 2 notes, \d+ chats, 0 comments\./,
+    );
+    await page.click("#status-expert");
+    await expectHostLast(
+      { type: "runCommand", id: "pcapViewer.statistics.expertInfo" },
+      { ofType: true },
+    );
+  });
+
   test("packet diagram: headers to the bit, linked to the tree and bytes", async () => {
     await cleanView();
     await rowEl(4).click();
@@ -1569,7 +1586,8 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     assert.equal(await activeGroup(), "Other", "the heading clicked last stays active");
 
     // A disabled entry sends nothing (click or Enter); the hint says why.
-    const runs = () => hostLog.filter((m) => m.type === "runCommand").length;
+    const runsBefore = hostLog.filter((m) => m.type === "runCommand").length;
+    const runs = () => hostLog.filter((m) => m.type === "runCommand").length - runsBefore;
     // (force: Playwright won't click an aria-disabled element; a person can.)
     await page.click("#commands-list [data-id='pcapViewer.toggleMark']", { force: true });
     assert.equal(await menuOpen(), true, "stays open");

@@ -92,6 +92,18 @@ class StatisticsMixin(ServiceBase):
         result["filter"] = flt
         return result
 
+    def expert_summary(self, _params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """How many expert items of each severity the whole capture has
+        (``{counts: {error, warning, note, chat, comment}}``), for the status
+        bar: one ``-q -z expert`` pass, cached per open capture. Needs the
+        capture completely indexed (IndexingError while indexing or capturing)."""
+        self._require_indexed()
+        f = self._require_file()
+        if f.expert is None:
+            # (No progress: it runs quietly in the background, not behind the busy bar.)
+            f.expert = stats.parse_expert_counts(self._tap(f, "expert,comment", ctx))
+        return {"counts": f.expert}
+
     def _tree_stats(self, f: _Open, kind: str, typ: str, suffix: str, ctx: RequestContext) -> Table:
         """A stats_tree report: HTTP (``type`` packets, requests or load), DNS or
         packet lengths."""

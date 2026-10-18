@@ -1,7 +1,7 @@
 // @ts-check
 /** The status bar, persisted webview state and the filter buttons toolbar. */
 
-import { TIME_LABELS, el, icon, lib, state, vscode } from "./core.js";
+import { TIME_LABELS, el, icon, lib, rpc, state, vscode } from "./core.js";
 import { renderProgress } from "./host.js";
 import { applyFilter } from "./filterbar.js";
 
@@ -67,6 +67,54 @@ function updateFilterButtons() {
     node.setAttribute("aria-pressed", String(!!b && !!applied && b.filter === applied));
   }
 }
+
+/** Requests of the expert indicator: a newer load (or a reload) wins. */
+let expertSeq = 0;
+
+/** Hide the expert indicator (a capture is (re)loading). */
+export function resetExpert() {
+  expertSeq++;
+  state.expert = null;
+  renderExpert();
+}
+
+/**
+ * Count the capture's expert items for the status bar, once it is completely
+ * indexed (the backend refuses before).
+ */
+export async function loadExpertSummary() {
+  resetExpert();
+  const seq = expertSeq;
+  try {
+    const res = await rpc("expert_summary", {}).promise;
+    if (seq === expertSeq) {
+      state.expert = res.counts;
+      renderExpert();
+    }
+  } catch {
+    /* the indicator is optional (cancelled, closed, or tshark failed) */
+  }
+}
+
+function renderExpert() {
+  const counts = state.expert;
+  el.statusExpert.classList.toggle("hidden", !counts || !state.info);
+  if (!counts) {
+    el.statusExpert.replaceChildren();
+    return;
+  }
+  const status = lib.expertStatus(counts);
+  const glyph = { error: "error", warning: "warning", note: "info", ok: "pass" }[status.severity];
+  const mark = icon(glyph);
+  mark.classList.add(`expert-${status.severity}`);
+  el.statusExpert.replaceChildren(mark, document.createTextNode(status.label));
+  el.statusExpert.title = status.title;
+  el.statusExpert.setAttribute("aria-label", status.title);
+}
+
+el.statusExpert.addEventListener("click", () =>
+  vscode.postMessage({ type: "runCommand", id: "pcapViewer.statistics.expertInfo" }),
+);
 
 export function updateStatus() {
   updateFilterButtons();

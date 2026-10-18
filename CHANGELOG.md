@@ -7,6 +7,12 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- The status bar shows the capture's expert information at a glance: the
+  most severe findings with their count ("3 warnings"), every severity in the
+  tooltip, and a click opens Expert Information.
+
 ## 0.7.0 — 2026-10-18
 
 ### Added

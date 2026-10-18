@@ -113,6 +113,7 @@ export const el = {
   statusTime: $("status-time"),
   statusNames: $("status-names"),
   statusLua: $("status-lua"),
+  statusExpert: $("status-expert"),
   statusInfo: $("status-info"),
   statusCapture: $("status-capture"),
   captureText: $("capture-text"),
@@ -168,6 +169,8 @@ export const state = {
   /** @type {Set<string>} */ expanded: new Set(saved.expanded || []),
   /** The details pane shows the tree or the packet diagram (viewer/diagram.js). */
   /** @type {"tree" | "diagram"} */ detailView: saved.detailView === "diagram" ? "diagram" : "tree",
+  /** Expert items per severity (expert_summary), once the capture is indexed. */
+  /** @type {Record<string, number> | null} */ expert: null,
   /** The diagram's cells show the fields' values too. */
   diagramValues: saved.diagramValues === true,
   activeSource: 0,

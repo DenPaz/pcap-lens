@@ -144,6 +144,8 @@ class _Open:
     comments_ready: threading.Event = field(default_factory=threading.Event)
     # A live capture writing this file (capture_start), running or not.
     capture: LiveCapture | None = None
+    # Expert items per severity (expert_summary), once counted.
+    expert: dict[str, int] | None = None
 
     def frame_count(self) -> int:
         """Frames known so far: during a streaming open, the rows published

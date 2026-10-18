@@ -93,6 +93,7 @@ export const WEBVIEW_RPC_METHODS = new Set([
   "unmark_all",
   "field_types",
   "packet_comments",
+  "expert_summary",
 ]);
 
 /** Actions the host asks the webview to perform (command palette and keybindings). */

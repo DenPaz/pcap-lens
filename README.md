@@ -135,7 +135,8 @@ Each report opens in a panel beside the capture, can be limited to the current
 filter, and its rows apply or prepare the matching display filter.
 
 - Conversations, Endpoints, Protocol Hierarchy, I/O Graph, Expert Information,
-  Capture File Properties.
+  Capture File Properties. The status bar shows the capture's most severe
+  expert findings ("3 warnings"); click it for Expert Information.
 - HTTP (status codes, requests by host, load by server), DNS, packet lengths
   and service response times (ICMP, SMB, LDAP, SNMP, Diameter, GTP…).
 - **Flow graph** of the displayed packets, and **TCP stream graphs** (Stevens,

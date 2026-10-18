@@ -18,7 +18,7 @@ import { applyFilter, setHistory, validateSoon } from "./filterbar.js";
 import { showSavedMenu, suggest } from "./autocomplete.js";
 import { runCommand } from "./navigation.js";
 import { leaveAskMode, onAiSuggestions, setAiAvailable } from "./ai.js";
-import { renderFilterButtons, updateStatus } from "./status.js";
+import { loadExpertSummary, renderFilterButtons, resetExpert, updateStatus } from "./status.js";
 
 window.addEventListener("message", (event) => {
   // VS Code posts to this frame with its own origin as the target; ignore other senders.
@@ -211,6 +211,11 @@ function onInit(msg) {
     resetView();
   }
   updateStatus();
+  if (state.indexing) {
+    resetExpert(); // counted once the index is done (onIndexDone)
+  } else {
+    void loadExpertSummary();
+  }
   el.viewport.focus();
 }
 

@@ -82,6 +82,22 @@ suite("webview lib: virtualization", () => {
 });
 
 suite("webview lib: filters", () => {
+  test("expertStatus: the most severe of errors, warnings and notes", () => {
+    const counts = { error: 0, warning: 2, note: 5, chat: 6, comment: 0 };
+    assert.deepEqual(lib.expertStatus(counts), {
+      severity: "warning",
+      label: "2 warnings",
+      title:
+        "Expert information: 0 errors, 2 warnings, 5 notes, 6 chats, 0 comments. Click to open it.",
+    });
+    assert.equal(lib.expertStatus({ ...counts, error: 1 }).label, "1 error");
+    assert.equal(lib.expertStatus({ note: 1 }).severity, "note");
+    assert.deepEqual(
+      [lib.expertStatus({ chat: 3 }).severity, lib.expertStatus({ chat: 3 }).label],
+      ["ok", "No problems"],
+    );
+  });
+
   test("bitPattern: tshark's bit field labels", () => {
     assert.deepEqual(lib.bitPattern("0100 .... = Version: 4"), {
       width: 8,
