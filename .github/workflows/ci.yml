@@ -23,6 +23,13 @@ jobs:
           echo "wireshark-common wireshark-common/install-setuid boolean false" | sudo debconf-set-selections
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y tshark xvfb
+          # Ubuntu 26.04 confines tshark with AppArmor (/etc/apparmor.d/tshark):
+          # apply the local rules the backend's hint suggests (sandbox.py), so it
+          # reads the fixtures in the checkout and the tests can stop it.
+          if [ -f /etc/apparmor.d/tshark ]; then
+            printf '%s\n' 'owner @{HOME}/** rw,' 'signal (receive) peer=unconfined,' | sudo tee -a /etc/apparmor.d/local/tshark
+            sudo apparmor_parser -r /etc/apparmor.d/tshark
+          fi
           # Let dumpcap capture (the loopback live-capture test), as
           # dpkg-reconfigure wireshark-common would for the wireshark group.
           sudo setcap cap_net_raw,cap_net_admin=eip /usr/bin/dumpcap
@@ -31,9 +38,9 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version-file: .python-version
-      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
       # (pnpm's version comes from package.json "packageManager")
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -48,12 +55,23 @@ jobs:
           uv run ruff format --check
           uv run mypy
           uv run mypy --python-version 3.14
-      - name: Backend tests
-        run: uv run pytest
+      # Coverage here only (make coverage locally); the run's summary shows both reports.
+      - name: Backend tests (with coverage)
+        run: |
+          mkdir -p coverage
+          echo "### Backend coverage" >> "$GITHUB_STEP_SUMMARY"
+          uv run pytest --cov --cov-report=term --cov-report=markdown-append:"$GITHUB_STEP_SUMMARY"
       - name: Install Chromium for webview e2e
         run: pnpm exec playwright-core install --with-deps chromium
-      - name: Unit + webview tests
-        run: pnpm run test:unit
+      - name: Unit + webview tests (with coverage)
+        run: |
+          pnpm run test:coverage
+          {
+            echo "### TypeScript coverage (the modules the unit tests load)"
+            echo '```'
+            pnpm exec c8 report --reporter=text-summary
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: VS Code smoke test
         run: xvfb-run -a pnpm run test:extension
       - name: Package
@@ -79,11 +97,15 @@ jobs:
           echo "wireshark-common wireshark-common/install-setuid boolean false" | sudo debconf-set-selections
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y tshark
+          if [ -f /etc/apparmor.d/tshark ]; then # see the Linux job
+            printf '%s\n' 'owner @{HOME}/** rw,' 'signal (receive) peer=unconfined,' | sudo tee -a /etc/apparmor.d/local/tshark
+            sudo apparmor_parser -r /etc/apparmor.d/tshark
+          fi
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -124,8 +146,8 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version-file: .python-version
-      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@v7
         with:
           node-version: 22

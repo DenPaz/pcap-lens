@@ -332,6 +332,7 @@ body {
 }
 
 .splitter:hover,
+.splitter:focus-visible,
 .splitter.dragging {
   background: var(--vscode-sash-hoverBorder, var(--vscode-focusBorder));
 }

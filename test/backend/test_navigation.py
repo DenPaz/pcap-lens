@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -355,11 +356,14 @@ def test_export_marked(opened: PcapService, ctx: RequestContext, tmp_path: Path)
 
 @pytest.mark.tshark
 def test_export_large_mark_set_in_chunks(
-    opened: PcapService, ctx: RequestContext, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    opened: PcapService,
+    ctx: RequestContext,
+    tmp_path: Path,
+    patch_service: Callable[[str, object], None],
 ) -> None:
     """A mark set whose filter exceeds the argv budget is exported in chunks and
     joined with mergecap, keeping frame order."""
-    monkeypatch.setattr(pcap_service, "MAX_FILTER_ARG", 24)  # forces one chunk per mark
+    patch_service("MAX_FILTER_ARG", 24)  # forces one chunk per mark
     opened.mark_packets({"frames": [1, 3, 5, 7, 9, 11]}, ctx)
     res = opened.export(
         {"kind": "pcap", "dest": str(tmp_path / "chunked.pcap"), "marked": True}, ctx

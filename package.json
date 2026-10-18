@@ -7,7 +7,7 @@
     "color": "#0b3a73",
     "theme": "dark"
   },
-  "version": "0.5.0",
+  "version": "0.6.0",
   "publisher": "denpaz",
   "license": "MIT",
   "repository": {
@@ -445,6 +445,11 @@
       {
         "command": "pcapViewer.manageDecodeAs",
         "title": "Manage Decode As Rules",
+        "category": "PCAP"
+      },
+      {
+        "command": "pcapViewer.protocolPreferences",
+        "title": "Protocol Preferences…",
         "category": "PCAP"
       },
       {
@@ -979,7 +984,7 @@
             ]
           },
           "default": {},
-          "markdownDescription": "Wireshark preference overrides passed as `-o <name>:<value>`, e.g. `{ \"tcp.desegment_tcp_streams\": false }`."
+          "markdownDescription": "Wireshark preference overrides passed as `-o <name>:<value>`, e.g. `{ \"tcp.desegment_tcp_streams\": false }`. _PCAP: Protocol Preferences…_ (or right-click a protocol in the packet details) lists each protocol's preferences and edits this setting."
         },
         "pcapViewer.nameResolution.mac": {
           "type": "boolean",
@@ -1630,6 +1635,7 @@
     "format:check": "prettier --check .",
     "test": "pnpm run test:unit && pnpm run test:backend",
     "test:unit": "pnpm run compile && mocha --ui tdd --timeout 10000 \"out/test/extension/unit/**/*.test.js\" \"test/webview/**/*.test.js\" \"test/scripts/**/*.test.mjs\"",
+    "test:coverage": "pnpm run compile && c8 mocha --ui tdd --timeout 10000 \"out/test/extension/unit/**/*.test.js\" \"test/webview/**/*.test.js\" \"test/scripts/**/*.test.mjs\"",
     "test:backend": "uv run pytest",
     "test:extension": "pnpm run compile && node ./out/test/extension/runTest.js",
     "package": "vsce package --no-dependencies",
@@ -1644,11 +1650,13 @@
     "@vscode/codicons": "0.0.46-24",
     "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^4.0.0",
+    "axe-core": "^4.14.0",
+    "c8": "^12.0.0",
     "eslint": "^10.12.0",
     "eslint-config-prettier": "^10.1.8",
     "gifenc": "1.0.3",
     "mocha": "^12.0.3",
-    "playwright-core": "^1.64.0",
+    "playwright-core": "^1.64.1",
     "pngjs": "7.0.0",
     "prettier": "^3.9.10",
     "typescript": "~6.0.3",

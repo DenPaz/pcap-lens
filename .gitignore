@@ -15,5 +15,10 @@ __pycache__/
 dist/
 build/
 
+# Coverage reports (make coverage)
+coverage/
+.coverage
+.coverage.*
+
 # Large perf captures are generated locally, never committed
 test/fixtures/large*.pcap*

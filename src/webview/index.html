@@ -105,7 +105,14 @@
       <div id="main">
         <section id="list" aria-label="Packet list">
           <div id="list-header" role="row"></div>
-          <div id="list-viewport" tabindex="0" role="grid" aria-label="Packets">
+          <div
+            id="list-viewport"
+            tabindex="0"
+            role="grid"
+            aria-label="Packets"
+            aria-multiselectable="true"
+            aria-owns="list-header"
+          >
             <div id="list-spacer"></div>
             <div id="list-rows"></div>
           </div>
@@ -117,12 +124,16 @@
           class="splitter horizontal"
           role="separator"
           aria-orientation="horizontal"
-          tabindex="-1"
+          aria-label="Resize the packet list"
+          aria-valuemin="10"
+          aria-valuemax="90"
+          aria-valuenow="50"
+          tabindex="0"
         ></div>
 
         <section id="bottom">
-          <div id="detail" aria-label="Packet details">
-            <div id="comment-bar" class="hidden" aria-label="Packet comment">
+          <div id="detail" role="region" aria-label="Packet details">
+            <div id="comment-bar" class="hidden" role="group" aria-label="Packet comment">
               <div id="comment-view">
                 <span id="comment-text"></span>
                 <span
@@ -156,9 +167,13 @@
             class="splitter vertical"
             role="separator"
             aria-orientation="vertical"
-            tabindex="-1"
+            aria-label="Resize the packet details"
+            aria-valuemin="10"
+            aria-valuemax="90"
+            aria-valuenow="55"
+            tabindex="0"
           ></div>
-          <div id="bytes" aria-label="Packet bytes">
+          <div id="bytes" role="region" aria-label="Packet bytes">
             <div id="bytes-tabs" class="hidden" role="tablist"></div>
             <div id="bytes-view" tabindex="0"></div>
           </div>
@@ -213,6 +228,6 @@
     </div>
 
     <script nonce="{{nonce}}" src="{{libUri}}"></script>
-    <script nonce="{{nonce}}" src="{{mainUri}}"></script>
+    <script type="module" nonce="{{nonce}}" src="{{mainUri}}"></script>
   </body>
 </html>

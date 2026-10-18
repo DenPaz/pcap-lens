@@ -62,6 +62,11 @@ export default tseslint.config(
     },
   },
   {
+    // The capture editor's script: ES modules (main.js imports viewer/*.js).
+    files: ["src/webview/main.js", "src/webview/viewer/**/*.js"],
+    languageOptions: { sourceType: "module" },
+  },
+  {
     // Node-side webview tests (mocha tdd).
     files: ["test/webview/**/*.js"],
     languageOptions: {

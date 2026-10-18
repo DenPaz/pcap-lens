@@ -6,12 +6,12 @@ from __future__ import annotations
 import threading
 import time
 from array import array
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from pcap_backend import pcap_service
 from pcap_backend import tshark as ts
 from pcap_backend.cancellation import CancelledError
 from pcap_backend.index_cache import MAX_FILTERS, IndexCache
@@ -172,9 +172,9 @@ def test_a_new_filter_replaces_a_streaming_one(
 @pytest.mark.tshark
 @pytest.mark.usefixtures("slow_filter")
 def test_cancelling_the_request_keeps_the_previous_view(
-    service: PcapService, monkeypatch: pytest.MonkeyPatch
+    service: PcapService, patch_service: Callable[[str, object], None]
 ) -> None:
-    monkeypatch.setattr(pcap_service, "FIRST_BATCH", 100)  # wait for the whole pass
+    patch_service("FIRST_BATCH", 100)  # wait for the whole pass
     service.open({"path": MIXED}, RequestContext())
     ctx = RequestContext()
     threading.Timer(0.3, ctx.token.cancel).start()
@@ -188,12 +188,12 @@ def test_cancelling_the_request_keeps_the_previous_view(
 @pytest.mark.tshark
 @pytest.mark.usefixtures("slow_filter")
 def test_a_request_superseded_during_its_first_wait_fails(
-    service: PcapService, monkeypatch: pytest.MonkeyPatch
+    service: PcapService, patch_service: Callable[[str, object], None]
 ) -> None:
     """A newer filter installed while an older request waits for its first
     matches: the older request must not report success (its reply would come
     after the newer one's, and the client would show a view that is gone)."""
-    monkeypatch.setattr(pcap_service, "FIRST_BATCH", 100)  # wait for the whole pass
+    patch_service("FIRST_BATCH", 100)  # wait for the whole pass
     service.open({"path": MIXED}, RequestContext())
     outcome: list[object] = []
 

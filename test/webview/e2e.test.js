@@ -20,6 +20,7 @@ const {
   renderEditorHtml,
   startBackend,
   codiconFontLoaded,
+  axeViolations,
 } = require("./harness");
 
 const deps = loadDeps();
@@ -184,6 +185,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
           "selection",
           "follow",
           "decodeAs",
+          "protocolPrefs",
           "colorize",
           "exportBytes",
         ].includes(msg.type)
@@ -972,6 +974,18 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await command("unmarkAll");
     await page.waitForFunction(() => !document.querySelector("#list-rows .list-row.marked"));
     await post({ type: "coloring", coloringId: 0, rules: [] });
+  });
+
+  test("detail tree: Protocol Preferences of the node's protocol", async () => {
+    await cleanView();
+    await rowEl(4).click();
+    await waitSelected(4);
+    // A field deep in the IP tree: the preferences are the protocol's (its top level).
+    const src = page.locator("#detail-tree .node-row:has-text('Source Address')").first();
+    await src.waitFor();
+    await src.click({ button: "right" });
+    await page.click("#context-menu .item:has-text('Protocol Preferences: ip…')");
+    await expectHostLast({ type: "protocolPrefs", protocol: "ip" }, { ofType: true });
   });
 
   test("Apply as Column, header menu hide/show, drag to reorder", async () => {
@@ -2326,6 +2340,11 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       await reopenCapture("http.pcap");
     }
     assert.equal(await page.isVisible("#status-capture"), false, "a plain file: no capture");
+  });
+
+  test("accessibility: no WCAG A/AA violations (axe-core)", async () => {
+    // The viewer as the tests above left it: rows, a selected packet's tree and bytes.
+    assert.deepEqual(await axeViolations(page), []);
   });
 
   test("no script errors or CSP violations", () => {

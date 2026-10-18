@@ -6,6 +6,7 @@ import gzip
 import shutil
 import struct
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -189,11 +190,9 @@ def test_save_needs_pcapng_in_place(opened: PcapService, tmp_path: Path) -> None
 
 @pytest.mark.tshark
 def test_many_comments_run_editcap_in_chunks(
-    service: PcapService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    service: PcapService, tmp_path: Path, patch_service: Callable[[str, object], None]
 ) -> None:
-    from pcap_backend import pcap_service  # noqa: PLC0415
-
-    monkeypatch.setattr(pcap_service, "MAX_FILTER_ARG", 40)
+    patch_service("MAX_FILTER_ARG", 40)
     _open_copy(service, tmp_path)
     edits = {str(n): f"comment number {n}" for n in range(1, 12)}
     edits["2"] = ""  # a deletion: everything rewritten, over several runs

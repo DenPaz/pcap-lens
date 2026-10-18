@@ -18,6 +18,7 @@ CONTRIBUTING.md for building, testing and releasing (not packaged).
 | TS unit + webview tests   | `pnpm run test:unit` (mocha; includes the Chromium e2e test of the webview)                                                                              |
 | VS Code smoke test        | `pnpm run test:extension` (downloads VS Code; use `xvfb-run -a` on headless Linux)                                                                       |
 | Regenerate fixtures       | `uv run python test/fixtures/generate.py`                                                                                                                |
+| Coverage                  | `make coverage` (pytest-cov and c8; summaries in the terminal, HTML in `coverage/`; CI's Linux job adds both to the run summary)                         |
 | Perf check                | `uv run python test/fixtures/generate.py --large 1000000 test/fixtures/large-1m.pcap && uv run python -u test/perf/bench.py test/fixtures/large-1m.pcap` |
 | Package                   | `pnpm run package` (vsce, `--no-dependencies`)                                                                                                           |
 | Prepare a release         | `pnpm run release:prepare 0.2.0` on `dev` (then PR `dev` → `main`, tag the merge, push the tag)                                                          |
@@ -71,6 +72,23 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
 - Node tests that start the backend use `PCAP_VIEWER_PYTHON` if set, else the
   uv `.venv` interpreter, so they run on 3.14 even when the system `python3` is older.
 - pytest turns `ResourceWarning` into errors: leaked tshark pipes are bugs.
+- **Coverage**: pytest-cov (`[tool.coverage.*]` in pyproject: branch,
+  `patch = ["subprocess"]` so the backend started as a child process counts,
+  data in `coverage/`) and c8 (`.c8rc.json`: the compiled `out/src` the unit
+  tests load, mapped to the `.ts` sources, plus `lib.js` and `release.mjs`;
+  the VS Code-dependent host code only runs in the smoke test, which isn't
+  measured). No thresholds: the numbers are for finding untested code
+  (backend 93%, unit-tested TS 96% when added).
+- **Accessibility checks**: `axeViolations(page)` in `test/webview/harness.js`
+  runs axe-core (WCAG 2.0/2.1 A and AA, evaluated through the debugging
+  protocol, so the CSP doesn't block it; `preload: false`, since its
+  stylesheet fetches are refused) on the viewer after the e2e tests and on
+  every panel as its test left it; both assert no violations.
+- Tests change a service limit or tshark helper (`FIRST_BATCH`,
+  `stream_lines`, `find_tool`, `MAX_FILTER_ARG`…) with the `patch_service`
+  fixture (`test/backend/conftest.py`), which sets the name in every
+  `pcap_backend.service` module that imports it; `monkeypatch.setattr` on
+  `pcap_service` no longer reaches the code.
 - **Formatting and lint rules**: Prettier (`.prettierrc.json`: 100 columns
   like ruff, 80 for Markdown, double quotes, trailing commas, LF) formats
   TS/JS/CSS/HTML/JSON/YAML/Markdown; `eslint-config-prettier` (last in
@@ -86,7 +104,11 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
   macOS (`brew install --formula wireshark`) and Windows (`choco install
 wireshark`, `C:\Program Files\Wireshark` added to PATH): lint, backend and
   acceptance tests with tshark, unit + Chromium e2e tests, and the VS Code
-  smoke test (Linux under xvfb), plus a Linux job on Python 3.12. It runs on
+  smoke test (Linux under xvfb), plus a Linux job on Python 3.12. Ubuntu
+  26.04 (`ubuntu-latest` from 2026-10-19) enforces the apparmor package's
+  tshark profile, so the Linux jobs add the local rules of `sandbox.py`'s
+  hint when `/etc/apparmor.d/tshark` exists (else every fixture read fails;
+  checked on `ubuntu-26.04` runners). It runs on
   pull requests, pushes to `main` and `dev`, and by hand (`workflow_dispatch`).
   The unit/webview mocha run has a 10 s timeout (`--timeout 10000` in
   `test:unit`): the Windows runner once took over 2 s on a 30 ms test.
@@ -105,7 +127,10 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH): lint, backend and
 ## Layout
 
 - `src/extension.ts` activation, config-change handling. `src/pcapEditor.ts`
-  custom editor + one `PcapEditorSession` per panel. `src/backendClient.ts`
+  the custom editor provider (re-exports the session and document, so
+  importers use `./pcapEditor`), `src/editorSession.ts` one
+  `PcapEditorSession` per panel (load, webview messages, rpc forwarding),
+  `src/pcapDocument.ts` the document (unsaved comment edits). `src/backendClient.ts`
   JSON-RPC client (no `vscode` import: unit-testable). `src/settingsModel.ts`
   pure settings helpers. `src/commands/` command implementations
   (`export.ts`, `coloring.ts`, `dissectors.ts`, `tls.ts`, `merge.ts`,
@@ -128,8 +153,17 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH): lint, backend and
   `src/commandMenu.ts` the viewer's ☰ command list from package.json (pure).
   `src/plugins.ts` the TShark plugins picker's rows (pure).
 - `src/webview/` plain JS/CSS/HTML (no build step). `lib.js` = pure helpers
-  shared with Node tests; `main.js` = UI. Type-checked via JSDoc +
-  `tsconfig.webview.json`. `codicons/` = the vendored Codicons font
+  shared with Node tests (a classic script, `window.PcapLib`, like the panels'
+  scripts); `main.js` = the editor's entry, an ES module (`<script
+type="module" nonce>`: imports inherit the nonce, and VS Code's resource
+  server allows the CORS fetch) that imports `viewer/*.js`, one module per
+  part of the UI (`core` = shared state, constants, element lookups and
+  rpc, and imports nothing, so it is evaluated first; `host`, `list`,
+  `columns`, `selection`, `detail`, `filterbar`, `autocomplete`,
+  `navigation`, menus, `status`…). Function declarations make the cycles
+  between modules safe; top-level code only touches `core` and its own
+  module. Shared JSDoc types live in `globals.d.ts`. Type-checked via JSDoc +
+  `tsconfig.webview.json` (`module: ES2022`). `codicons/` = the vendored Codicons font
   (`scripts/sync-codicons.mjs`). CSS: `base.css` (tokens and controls, loaded
   by the editor and the panels), `styles.css` (the viewer), `panel.css`.
 - `src/panels/` statistics, follow-stream, coloring-rules, export-objects,
@@ -139,7 +173,18 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH): lint, backend and
   with `panel.css`.
 - `backend/pcap_backend/` Python package run as `python -m pcap_backend`
   with `PYTHONPATH=backend`. `server.py` (JSON-RPC), `pcap_service.py`
-  (methods), `tshark.py` (discovery/argv/process helpers), `cache.py`
+  (`PcapService`, assembled from the `service/` mixins, `rpc_methods`, and
+  re-exports for tests), `service/` (the request handlers, one mixin per
+  feature, each inheriting only the mixins it calls: `base.py`
+  `ServiceBase` = all per-session state, lifecycle and the `_require_*`
+  guards; `dissection`, `packet_comments`, `opening` (open, index pass,
+  saved indexes) → `capturing` (live capture), `packets` (pages, columns,
+  sorting, times) → `filtering` → `navigation`; `detail`, `streams`
+  (follow, TCP graphs), `statistics` → `telephony` (VoIP), `colors`,
+  `exporting`, `tools` (merge, hex import, probe, plugins, editing),
+  `flow`, `exported_objects`; plus `state.py` (constants and the per-capture
+  dataclasses `_Open`, `_View`…), `indexing.py` (the index pass's
+  module-level helpers) and `helpers.py`), `tshark.py` (discovery/argv/process helpers), `cache.py`
   (row store, frame index, LRU), `pdml.py` (PDML + hexdump parsing),
   `stats.py` (`-z` report and follow parsers), `fields.py` (field catalogue),
   `coloring.py` (coloring rules → `colorfilters`), `navigation.py` (find
@@ -623,6 +668,36 @@ plugins` (never cached, so a plugin just installed shows up) through
   install folder (created if missing, `revealFile`) or copy its path, then
   your plugins and Wireshark's; picking one reveals its file. `{quiet: true}`
   returns the result (smoke test). README: _Wireshark plugins_.
+- **Protocol preferences** (`protocol_prefs {protocol?}`, `prefs.py`,
+  `prefsModel.ts` (pure), `commands/prefs.ts`, `pcapViewer.protocolPreferences`):
+  `tshark -G defaultprefs` (cached per tshark and Lua scripts) and
+  `-G currentprefs` (not cached: the user's Wireshark preferences) list each
+  preference as description lines, a type line (`TRUE or FALSE`, `A decimal
+number`, `One of: …` + `(case-insensitive).`, ranges, colors, paths,
+  strings) and `name: value`, commented out while it is the default; only the
+  "Protocols" section is kept. Enum choices are joined with ", ", which three
+  choice names also contain: when the value isn't one of the pieces the
+  preference becomes free text (`other`). tshark 4.6 (macOS/Windows CI)
+  writes `true or false` (type lines match without case) and, for enums
+  whose names differ from their descriptions, adds `Equivalently, one of:
+<descriptions>`; the choices are the list that holds the value (4.6's
+  defaults are descriptions, e.g. "0 (none)"). `Tshark.glossary` adds a run with
+  the Lua scripts in `WIRESHARK_PLUGIN_DIR` (as for the field catalogue), so
+  Lua preferences are included. No protocol: `protocols` with counts. The
+  host's QuickPick shows each preference's effective value and source
+  (`effectivePref`: `pcapViewer.prefs` "changed here", else the user's
+  Wireshark value, else the default), asks booleans and enums with a pick and
+  the rest in an input box checked by `validatePrefValue` (tshark silently
+  ignores a bad enum value), stores `prefSettingValue` (booleans, numbers,
+  tshark's spelling of a choice) with `updateSetting` for the capture's
+  folder, and drops an override equal to Wireshark's value (`withPref`).
+  `tls.keylog_file` opens _Set TLS Key Log File…_ (its setting wins).
+  Writing sets a flag (`consumePrefsChange`) so extension.ts reloads the
+  sessions whose `prefs` differ (`session.prefs`, `samePrefs`, debounced)
+  instead of asking. The detail tree's menu offers _Protocol Preferences:
+  <proto>…_ for the node's top-level protocol (`lib.prefsProtocol`; not
+  geninfo or fake-field-wrapper), posting `protocolPrefs`. `{protocol,
+quiet: true}` returns the list (smoke test).
 - **Decode As choices** come from tshark itself: an invalid `-d` rule makes it
   print "Valid layer types are:" or "Valid protocols for layer type X are:"
   lists (parsed by `parse_decode_as_choices`, cached). An unknown layer gets
@@ -1214,6 +1289,19 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   `aria-label`. Checkable context-menu items (`showMenu`'s third element) are
   `menuitemcheckbox` with a check icon. Text symbols remain only inside text
   (● in `<option>`s and marked rows, ⚠ in a table cell, → in labels).
+- **ARIA structure** (checked by axe, see _Accessibility checks_): the
+  packet list's `#list-viewport` is the `grid` (`aria-multiselectable`,
+  `aria-rowcount` = rows + 1) and owns the header row outside it
+  (`aria-owns="list-header"`, `aria-rowindex` 1, `columnheader` cells with
+  `aria-sort`); pooled rows are `row` with `aria-rowindex` (index + 2) and
+  `aria-selected`, cells `gridcell`. The splitters are focusable
+  `separator`s with `aria-valuenow` (10–90, the pane's percentage): arrow
+  keys move them by 2, Home/End to the limits (`layout.js`). The detail and
+  bytes panes are labelled regions. The flow graph's scroller is a `listbox`
+  whose SVG is `role="none"`; rows are `option`s (`aria-selected`,
+  `aria-posinset`/`setsize` over the whole view) and `aria-activedescendant`
+  follows the selected one. The VoIP call flow is a labelled `group` of
+  `button` rows named by their visible text (label in name).
 - **High contrast** (`body.vscode-high-contrast`, `-high-contrast-light`): HC
   themes define no hover/selection/secondary-button fills, so the selected
   packet and tree node used to be invisible. base.css defines `--hc-active`
@@ -1305,4 +1393,6 @@ Then Show TShark Plugins and README instructions for Wireshark plugins.
 Then theme-aware packet colors, Codicons and high-contrast support.
 Then a shared stylesheet with design tokens, toolbar-style icon buttons and
 tree indent guides. Released 0.4.0 (GitHub only), then renamed to PCAP Lens for
-0.4.1, the first Marketplace version.
+0.4.1, the first Marketplace version. 0.5.0: Python 3.12+ and Install
+Python. Since: the backend, viewer and editor split into modules, coverage
+and axe-core checks with the ARIA fixes they found, and protocol preferences.

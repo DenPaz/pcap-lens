@@ -16,6 +16,8 @@ scripts/**
 media/*.svg
 media/screenshots/**
 *.vsix
+coverage/**
+.c8rc.json
 **/.ruff_cache/**
 **/.mypy_cache/**
 **/.pytest_cache/**

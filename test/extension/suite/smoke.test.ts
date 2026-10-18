@@ -134,6 +134,7 @@ suite("PCAP Lens smoke test", () => {
       "pcapViewer.mergeCaptures",
       "pcapViewer.exportObjects",
       "pcapViewer.showPlugins",
+      "pcapViewer.protocolPreferences",
       "pcapViewer.nameResolution",
       "pcapViewer.editPacketComment",
       "pcapViewer.deletePacketComment",
@@ -581,6 +582,17 @@ suite("PCAP Lens smoke test", () => {
     assert.ok(result.install, "tshark names a personal plugin folder");
     assert.equal(path.basename(result.install), "epan");
     assert.match(path.basename(path.dirname(result.install)), /^\d+[.-]\d+$/);
+  });
+
+  test("Protocol Preferences lists a protocol's preferences from tshark", async () => {
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    await ext!.activate();
+    const result = await vscode.commands.executeCommand<
+      { prefs: { name: string; type: string; default: string }[] } | undefined
+    >("pcapViewer.protocolPreferences", { protocol: "tcp", quiet: true });
+    assert.ok(result, "tshark answered");
+    const seq = result.prefs.find((p) => p.name === "tcp.analyze_sequence_numbers");
+    assert.deepEqual(seq && [seq.type, seq.default], ["bool", "TRUE"]);
   });
 
   test("file types: capture files open in the viewer, generic extensions only on request", async () => {

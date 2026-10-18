@@ -161,6 +161,22 @@
   }
 
   /**
+   * The protocol whose preferences a detail-tree node belongs to: its
+   * top-level protocol (`path[0]`, e.g. "tcp"), or null for PDML's pseudo
+   * protocols ("geninfo", "fake-field-wrapper").
+   *
+   * @param {{name?: string}[]} path the node's ancestors, from the top level
+   * @returns {string | null}
+   */
+  function prefsProtocol(path) {
+    const name = path[0]?.name;
+    if (!name || !/^[A-Za-z0-9_-]+$/.test(name) || name === "geninfo") {
+      return null;
+    }
+    return name === "fake-field-wrapper" ? null : name;
+  }
+
+  /**
    * Build a display filter matching a detail-tree node, like Wireshark's
    * "Apply as Filter". Returns null for nodes that can't be filtered on.
    *
@@ -1456,6 +1472,7 @@
     LruMap,
     quoteFilterString,
     buildFieldFilter,
+    prefsProtocol,
     combineFilter,
     findNodeForByte,
     nodeKey,

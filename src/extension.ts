@@ -3,6 +3,8 @@ import { initLuaChoices } from "./luaChoice";
 import { registerAnalysisCommands } from "./commands/analysis";
 import { registerOpenFileCommand } from "./commands/openFile";
 import { registerPluginCommands } from "./commands/plugins";
+import { consumePrefsChange, registerPrefsCommands } from "./commands/prefs";
+import { samePrefs } from "./prefsModel";
 import { registerColoringCommands } from "./commands/coloring";
 import { registerColumnCommands } from "./commands/columns";
 import { registerDissectorCommands } from "./commands/dissectors";
@@ -35,6 +37,7 @@ import { sameNameResolution } from "./settingsModel";
 
 let provider: PcapEditorProvider | undefined;
 let namesTimer: ReturnType<typeof setTimeout> | undefined;
+let prefsTimer: ReturnType<typeof setTimeout> | undefined;
 
 export interface PcapViewerApi {
   /** Exposed for integration tests. */
@@ -70,6 +73,7 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
   registerImportHexDumpCommand(context, p, log);
   registerOpenFileCommand(context, p, log);
   registerPluginCommands(context, p, log);
+  registerPrefsCommands(context, p, log);
   registerSetupCommands(context, log);
   // Unsaved captures left behind (a crash, or a restored editor long closed).
   void pruneTemporaryCaptures(context, new Set(p.allSessions.map((s) => s.uri.fsPath)));
@@ -140,6 +144,19 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
             .filter((s) => readSettings(s.uri).tlsKeyLogFile !== s.keyLogFile)
             .map((s) => s.load("TLS key log setting changed")),
         );
+      }
+      if (e.affectsConfiguration(`${SECTION}.prefs`) && consumePrefsChange()) {
+        // PCAP: Protocol Preferences…: reload the captures whose preferences
+        // changed, without asking (debounced: several changes in a row).
+        clearTimeout(prefsTimer);
+        prefsTimer = setTimeout(() => {
+          for (const s of p.allSessions.filter(
+            (s) => !samePrefs(readSettings(s.uri).prefs, s.prefs),
+          )) {
+            void s.load("protocol preferences changed");
+          }
+        }, 300);
+        return;
       }
       if (RELOAD_KEYS.some((k) => e.affectsConfiguration(k)) && p.allSessions.length) {
         const choice = await vscode.window.showInformationMessage(
