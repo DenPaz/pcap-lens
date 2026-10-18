@@ -82,6 +82,15 @@ suite("webview lib: virtualization", () => {
 });
 
 suite("webview lib: filters", () => {
+  test("prefsProtocol: a tree node's top-level protocol", () => {
+    assert.equal(lib.prefsProtocol([{ name: "tcp" }, { name: "tcp.flags" }]), "tcp");
+    assert.equal(lib.prefsProtocol([{ name: "tls" }]), "tls");
+    assert.equal(lib.prefsProtocol([{ name: "geninfo" }]), null);
+    assert.equal(lib.prefsProtocol([{ name: "fake-field-wrapper" }]), null);
+    assert.equal(lib.prefsProtocol([{}]), null);
+    assert.equal(lib.prefsProtocol([]), null);
+  });
+
   test("buildFieldFilter picks literal forms", () => {
     assert.equal(lib.buildFieldFilter({ name: "ip.src", show: "10.0.0.1" }), "ip.src == 10.0.0.1");
     assert.equal(lib.buildFieldFilter({ name: "tcp.port", show: "443" }), "tcp.port == 443");

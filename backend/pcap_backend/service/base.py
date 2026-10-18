@@ -17,6 +17,7 @@ from pcap_backend.cache import FrameIndex, LruCache
 from pcap_backend.cancellation import CancelToken
 from pcap_backend.fields import FieldCatalog
 from pcap_backend.objects import ExportedObject
+from pcap_backend.prefs import Preference
 from pcap_backend.protocol import IndexingError, NotOpenError, RequestContext
 from pcap_backend.tshark import EMPTY_CAPTURE, Tshark
 
@@ -65,6 +66,10 @@ class ServiceBase:
         self._warm_future: Future[None] | None = None
         self._field_index: LruCache[tuple[str, ...], FieldCatalog] = LruCache(2)
         self._decode_as: LruCache[str, list[dict[str, str]]] = LruCache(32)
+        # Wireshark's preferences with their defaults, by (tshark, Lua scripts).
+        self._default_prefs: LruCache[tuple[str, tuple[str, ...]], dict[str, Preference]] = (
+            LruCache(2)
+        )
         # Coloring: rule index + 1 per frame (0 = no rule), from the latest set_coloring.
         self._colors: array[int] | None = None
         self._coloring_id = 0

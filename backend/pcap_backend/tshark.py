@@ -504,15 +504,21 @@ class Tshark:
         return out
 
     def field_list(self, token: CancelToken | None = None) -> str:
-        """``tshark -G fields`` output, including fields of the configured Lua scripts.
+        """``tshark -G fields`` output, including fields of the configured Lua scripts."""
+        return "\n".join(self.glossary("fields", token))
+
+    def glossary(self, report: str, token: CancelToken | None = None) -> list[str]:
+        """``tshark -G <report>`` output, plus the same report with the configured
+        Lua scripts loaded (their fields, their preferences).
 
         ``-G`` must be tshark's first option and ignores ``-X lua_script:``, so
         the Lua scripts are copied into a temporary plugin folder and a second
-        ``-G fields`` run is made with ``WIRESHARK_PLUGIN_DIR`` pointing at it.
-        That run replaces the global plugin folder, so the normal run is kept
-        too and the caller merges both.
+        run is made with ``WIRESHARK_PLUGIN_DIR`` pointing at it. That run
+        replaces the global plugin folder, so the normal run is kept too and
+        the caller merges both.
         """
-        outputs = [run([str(self.path), "-G", "fields"], token).stdout.decode("utf-8", "replace")]
+        argv = [str(self.path), "-G", report]
+        outputs = [run(argv, token).stdout.decode("utf-8", "replace")]
         scripts = [Path(s) for s in self.options.lua_scripts if Path(s).is_file()]
         if scripts:
             with tempfile.TemporaryDirectory(prefix="pcapviewer-lua-") as tmp:
@@ -520,9 +526,9 @@ class Tshark:
                     # Numbered copies keep load order and avoid name clashes.
                     shutil.copyfile(script, Path(tmp) / f"{i:03d}_{script.name}")
                 env = {**os.environ, "WIRESHARK_PLUGIN_DIR": tmp}
-                res = run([str(self.path), "-G", "fields"], token, env=env)
+                res = run(argv, token, env=env)
                 outputs.append(res.stdout.decode("utf-8", "replace"))
-        return "\n".join(outputs)
+        return outputs
 
     def folders(self, token: CancelToken | None = None) -> str:
         """``tshark -G folders`` output (configuration and plugin locations), cached."""

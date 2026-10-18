@@ -1,4 +1,4 @@
-"""Lua dissector checks, Decode As choices and the field catalogue."""
+"""Lua dissector checks, Decode As choices, protocol preferences and the field catalogue."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from pcap_backend.fields import FieldCatalog
+from pcap_backend.prefs import Preference, parse_prefs, protocols_with_prefs
 from pcap_backend.protocol import InvalidParamsError, RequestContext, param, str_list
 from pcap_backend.tshark import EMPTY_CAPTURE, DissectionOptions, run
 
@@ -48,8 +49,19 @@ def parse_decode_as_choices(stderr: str) -> list[dict[str, str]]:
     return out
 
 
+_PROTOCOL_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
+
+
+def _merged_prefs(outputs: list[str]) -> dict[str, Preference]:
+    """The preferences of tshark's listings (plain, then with the Lua scripts)."""
+    merged: dict[str, Preference] = {}
+    for text in outputs:
+        merged.update(parse_prefs(text))
+    return merged
+
+
 class DissectionMixin(ServiceBase):
-    """Lua dissector checks, Decode As choices and the field catalogue."""
+    """Lua dissector checks, Decode As choices, protocol preferences and the field catalogue."""
 
     def check_dissectors(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """Load Lua scripts against an empty capture and report their errors.
@@ -99,6 +111,46 @@ class DissectionMixin(ServiceBase):
             cached = parse_decode_as_choices(res.stderr)
             self._decode_as.put(key, cached)
         return {"layer": layer or None, "choices": cached}
+
+    def protocol_prefs(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """Wireshark's dissector preferences, from tshark's own listings.
+
+        Without ``protocol``: ``protocols``, each with its number of
+        preferences. With ``protocol`` (a preference module: ``tcp``, ``tls``…):
+        its ``prefs`` in tshark's order, each with ``name``, ``description``,
+        ``type`` (bool, uint, hex, range, color, file, directory, string,
+        enum, other), ``choices`` for an enum, ``default`` and ``wireshark``
+        (the value in the user's Wireshark preferences, which tshark applies
+        unless ``pcapViewer.prefs`` overrides it). Lua scripts' preferences
+        are included (``-G`` ignores ``-X lua_script``; see ``Tshark.glossary``).
+        """
+        tshark = self._file.tshark if self._file else self._require_tshark()
+        protocol = param(params, "protocol", str, "").strip()
+        if protocol and not _PROTOCOL_RE.match(protocol):
+            raise InvalidParamsError(f"invalid protocol name {protocol!r}")
+        key = (str(tshark.path), tuple(tshark.options.lua_scripts))
+        defaults = self._default_prefs.get(key)
+        if defaults is None:
+            defaults = _merged_prefs(tshark.glossary("defaultprefs", ctx.token))
+            self._default_prefs.put(key, defaults)
+        if not protocol:
+            return {"protocols": protocols_with_prefs(defaults)}
+        prefs = [p for p in defaults.values() if p.module == protocol]
+        if not prefs:
+            raise InvalidParamsError(f"{protocol} has no preferences")
+        # Not cached: the user may change Wireshark's preferences meanwhile.
+        current = _merged_prefs(tshark.glossary("currentprefs", ctx.token))
+        return {
+            "protocol": protocol,
+            "prefs": [
+                {
+                    **p.to_json(),
+                    "default": p.value,
+                    "wireshark": current[p.name].value if p.name in current else p.value,
+                }
+                for p in prefs
+            ],
+        }
 
     def field_index(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """Field/protocol names from ``tshark -G fields`` for autocomplete.

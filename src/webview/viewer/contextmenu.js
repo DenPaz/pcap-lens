@@ -145,6 +145,7 @@ el.tree.addEventListener("contextmenu", (e) => {
   selectNode(entry.node.id, { scroll: false });
   const node = entry.node;
   const filter = lib.buildFieldFilter(node);
+  const prefsProtocol = lib.prefsProtocol(entry.path);
   const current = state.appliedFilter;
   /** @type {[string, (() => void) | null][]} */
   const items = [
@@ -174,6 +175,12 @@ el.tree.addEventListener("contextmenu", (e) => {
       filter ? () => vscode.postMessage({ type: "colorize", filter }) : null,
     ],
     ["Apply as Column", canBeColumn(node) ? () => applyColumn(node) : null],
+    prefsProtocol
+      ? [
+          `Protocol Preferences: ${prefsProtocol}…`,
+          () => vscode.postMessage({ type: "protocolPrefs", protocol: prefsProtocol }),
+        ]
+      : ["Protocol Preferences…", null],
     ...(frameLinkTarget(node) !== null
       ? /** @type {[string, (() => void) | null][]} */ ([
           [

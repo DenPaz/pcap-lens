@@ -62,6 +62,7 @@ import {
   pushHistory,
 } from "./settingsModel";
 import type { PcapDocument } from "./pcapDocument";
+import type { PrefOverrides } from "./prefsModel";
 
 const HISTORY_KEY = "pcapViewer.filterHistory";
 /**
@@ -119,6 +120,8 @@ export class PcapEditorSession {
   keyLogFile = "";
   /** Name resolution this capture was last loaded with. */
   names: NameResolution = DEFAULT_NAME_RESOLUTION;
+  /** The preference overrides of the latest load (incl. the TLS key log): see readSettings. */
+  prefs: PrefOverrides = {};
   /** The Lua scripts of the latest load (settings, or this capture's choice). */
   lua: string[] = [];
   private keyLogWatcher?: vscode.Disposable;
@@ -244,6 +247,7 @@ export class PcapEditorSession {
     const settings = readSettings(this.uri);
     this.watchKeyLog(settings.tlsKeyLogFile);
     this.names = settings.nameResolution;
+    this.prefs = settings.prefs;
     this.lua = settings.luaScripts;
     await this.stopBackend();
     if (this.disposed || seq !== this.loadSeq) {
@@ -797,6 +801,11 @@ export class PcapEditorSession {
         return;
       case "decodeAs":
         await vscode.commands.executeCommand("pcapViewer.decodeAs", msg.frame);
+        return;
+      case "protocolPrefs":
+        await vscode.commands.executeCommand("pcapViewer.protocolPreferences", {
+          protocol: msg.protocol,
+        });
         return;
       case "colorize":
         await vscode.commands.executeCommand("pcapViewer.colorizeWithFilter", msg.filter);

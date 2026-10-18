@@ -134,6 +134,7 @@ export type WebviewToHost =
   /** Right-click on filter button `index` (showing `filter`): edit, move or remove it. */
   | { type: "editFilterButton"; index: number; filter: string }
   | { type: "decodeAs"; frame: number }
+  | { type: "protocolPrefs"; protocol: string }
   | { type: "follow"; proto: "tcp" | "udp" | "tls" | "http"; frame: number }
   | { type: "manageSavedFilters" }
   | { type: "colorize"; filter: string }

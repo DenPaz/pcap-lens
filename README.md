@@ -160,7 +160,12 @@ and never overwrite the open capture.
   bar's _Lua_ link) picks which scripts each capture loads; the choice is
   remembered per file. A Lua dissector registered on `wtap_encap` 90 decodes
   whole BER files: `DissectorTable.get("wtap_encap"):add(90, proto)`.
-- **Decode As** rules and tshark **preference overrides**, per workspace folder.
+- **Protocol preferences**: right-click a protocol in the packet details (or
+  _PCAP: Protocol Preferences…_) to see its tshark preferences with their
+  descriptions and current values, and change them; values are checked, the
+  capture reloads, ↺ goes back to Wireshark's value. Changes are stored in
+  `pcapViewer.prefs`, per workspace folder.
+- **Decode As** rules, per workspace folder.
 - **Wireshark plugins** (dissectors in C): installed once for tshark, used by
   the viewer too; see [Wireshark plugins](#wireshark-plugins).
 
@@ -257,7 +262,8 @@ configure:
    Plugins_ now lists it under _Your plugins_; its fields work in filters,
    columns and autocomplete, and saved indexes are rebuilt with it.
 
-A plugin's port preferences go into `pcapViewer.prefs`, and _PCAP: Decode As…_
+A plugin's preferences can be changed with _PCAP: Protocol Preferences…_ (they
+go into `pcapViewer.prefs`), and _PCAP: Decode As…_
 moves its dissectors to other ports. Wireshark ignores personal plugins when it
 runs as root. In a remote window, install the plugin on the remote machine,
 where tshark runs. Lua dissectors need none of this (see

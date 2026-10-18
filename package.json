@@ -448,6 +448,11 @@
         "category": "PCAP"
       },
       {
+        "command": "pcapViewer.protocolPreferences",
+        "title": "Protocol Preferences…",
+        "category": "PCAP"
+      },
+      {
         "command": "pcapViewer.manageColumns",
         "title": "Manage Custom Columns",
         "category": "PCAP"
@@ -979,7 +984,7 @@
             ]
           },
           "default": {},
-          "markdownDescription": "Wireshark preference overrides passed as `-o <name>:<value>`, e.g. `{ \"tcp.desegment_tcp_streams\": false }`."
+          "markdownDescription": "Wireshark preference overrides passed as `-o <name>:<value>`, e.g. `{ \"tcp.desegment_tcp_streams\": false }`. _PCAP: Protocol Preferences…_ (or right-click a protocol in the packet details) lists each protocol's preferences and edits this setting."
         },
         "pcapViewer.nameResolution.mac": {
           "type": "boolean",

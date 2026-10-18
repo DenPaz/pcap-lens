@@ -668,6 +668,32 @@ plugins` (never cached, so a plugin just installed shows up) through
   install folder (created if missing, `revealFile`) or copy its path, then
   your plugins and Wireshark's; picking one reveals its file. `{quiet: true}`
   returns the result (smoke test). README: _Wireshark plugins_.
+- **Protocol preferences** (`protocol_prefs {protocol?}`, `prefs.py`,
+  `prefsModel.ts` (pure), `commands/prefs.ts`, `pcapViewer.protocolPreferences`):
+  `tshark -G defaultprefs` (cached per tshark and Lua scripts) and
+  `-G currentprefs` (not cached: the user's Wireshark preferences) list each
+  preference as description lines, a type line (`TRUE or FALSE`, `A decimal
+number`, `One of: …` + `(case-insensitive).`, ranges, colors, paths,
+  strings) and `name: value`, commented out while it is the default; only the
+  "Protocols" section is kept. Enum choices are joined with ", ", which three
+  choice names also contain: when the value isn't one of the pieces the
+  preference becomes free text (`other`). `Tshark.glossary` adds a run with
+  the Lua scripts in `WIRESHARK_PLUGIN_DIR` (as for the field catalogue), so
+  Lua preferences are included. No protocol: `protocols` with counts. The
+  host's QuickPick shows each preference's effective value and source
+  (`effectivePref`: `pcapViewer.prefs` "changed here", else the user's
+  Wireshark value, else the default), asks booleans and enums with a pick and
+  the rest in an input box checked by `validatePrefValue` (tshark silently
+  ignores a bad enum value), stores `prefSettingValue` (booleans, numbers,
+  tshark's spelling of a choice) with `updateSetting` for the capture's
+  folder, and drops an override equal to Wireshark's value (`withPref`).
+  `tls.keylog_file` opens _Set TLS Key Log File…_ (its setting wins).
+  Writing sets a flag (`consumePrefsChange`) so extension.ts reloads the
+  sessions whose `prefs` differ (`session.prefs`, `samePrefs`, debounced)
+  instead of asking. The detail tree's menu offers _Protocol Preferences:
+  <proto>…_ for the node's top-level protocol (`lib.prefsProtocol`; not
+  geninfo or fake-field-wrapper), posting `protocolPrefs`. `{protocol,
+quiet: true}` returns the list (smoke test).
 - **Decode As choices** come from tshark itself: an invalid `-d` rule makes it
   print "Valid layer types are:" or "Valid protocols for layer type X are:"
   lists (parsed by `parse_decode_as_choices`, cached). An unknown layer gets
@@ -1363,4 +1389,6 @@ Then Show TShark Plugins and README instructions for Wireshark plugins.
 Then theme-aware packet colors, Codicons and high-contrast support.
 Then a shared stylesheet with design tokens, toolbar-style icon buttons and
 tree indent guides. Released 0.4.0 (GitHub only), then renamed to PCAP Lens for
-0.4.1, the first Marketplace version.
+0.4.1, the first Marketplace version. 0.5.0: Python 3.12+ and Install
+Python. Since: the backend, viewer and editor split into modules, coverage
+and axe-core checks with the ARIA fixes they found, and protocol preferences.
