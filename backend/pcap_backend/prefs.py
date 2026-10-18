@@ -23,20 +23,23 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-# The type line, matched against the last comment line before the value.
+# The type line, matched against the last comment line before the value
+# (tshark 4.6 writes "true or false", 4.2 "TRUE or FALSE").
 _TYPES: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"^TRUE or FALSE"), "bool"),
-    (re.compile(r"^A decimal number"), "uint"),
-    (re.compile(r"^A hexadecimal number"), "hex"),
-    (re.compile(r"^A string denoting an positive integer range"), "range"),
-    (re.compile(r"^A six-digit hexadecimal RGB color"), "color"),
-    (re.compile(r"^A path to a file"), "file"),
-    (re.compile(r"^A path to a directory"), "directory"),
-    (re.compile(r"^A string$"), "string"),
+    (re.compile(r"^TRUE or FALSE", re.IGNORECASE), "bool"),
+    (re.compile(r"^A decimal number", re.IGNORECASE), "uint"),
+    (re.compile(r"^A hexadecimal number", re.IGNORECASE), "hex"),
+    (re.compile(r"^A string denoting an positive integer range \(", re.IGNORECASE), "range"),
+    (re.compile(r"^A six-digit hexadecimal RGB color", re.IGNORECASE), "color"),
+    (re.compile(r"^A path to a file", re.IGNORECASE), "file"),
+    (re.compile(r"^A path to a directory", re.IGNORECASE), "directory"),
+    (re.compile(r"^A string$", re.IGNORECASE), "string"),
 ]
 _SECTION = re.compile(r"^#{7} (.+?) #{8}$")
 _VALUE = re.compile(r"^(#?)([A-Za-z0-9_\-]+(?:\.[A-Za-z0-9_\-]+)+):[ ]?(.*)$")
-_ONE_OF = "One of: "
+_ONE_OF = "one of: "
+# tshark 4.6 adds the choices' descriptions when they differ from their names.
+_EQUIVALENTLY = "equivalently, one of: "
 _CASE_NOTE = "(case-insensitive)."
 
 
@@ -94,13 +97,20 @@ def _preference(name: str, value: str, is_default: bool, comments: list[str]) ->
     kind = "other"
     choices: list[str] = []
     lines = list(comments)
-    if lines and lines[-1] == _CASE_NOTE:
+    if lines and lines[-1].lower() == _CASE_NOTE:
         lines.pop()
+    # Enum choices: the names, and (4.6) their descriptions; the value is
+    # written as one of the two, and tshark accepts either.
+    lists: list[list[str]] = []
+    if lines and lines[-1].lower().startswith(_EQUIVALENTLY):
+        lists.append(_choices(lines.pop()[len(_EQUIVALENTLY) :]))
     typeline = lines[-1] if lines else ""
-    if typeline.startswith(_ONE_OF):
+    if typeline.lower().startswith(_ONE_OF):
         kind = "enum"
-        choices = [c.strip() for c in typeline[len(_ONE_OF) :].split(", ") if c.strip()]
+        lists.insert(0, _choices(typeline[len(_ONE_OF) :]))
         lines.pop()
+        wanted = value.strip().lower()
+        choices = next((lst for lst in lists if wanted in {c.lower() for c in lst}), lists[0])
     else:
         for pattern, typ in _TYPES:
             if pattern.match(typeline):
@@ -115,6 +125,10 @@ def _preference(name: str, value: str, is_default: bool, comments: list[str]) ->
     if kind == "enum" and value.lower() not in {c.lower() for c in choices}:
         kind, choices = "other", []
     return Preference(name, description, kind, value, is_default, choices)
+
+
+def _choices(text: str) -> list[str]:
+    return [c.strip() for c in text.split(", ") if c.strip()]
 
 
 def protocols_with_prefs(prefs: dict[str, Preference]) -> list[dict[str, Any]]:

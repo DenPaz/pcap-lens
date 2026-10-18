@@ -677,7 +677,11 @@ number`, `One of: …` + `(case-insensitive).`, ranges, colors, paths,
   strings) and `name: value`, commented out while it is the default; only the
   "Protocols" section is kept. Enum choices are joined with ", ", which three
   choice names also contain: when the value isn't one of the pieces the
-  preference becomes free text (`other`). `Tshark.glossary` adds a run with
+  preference becomes free text (`other`). tshark 4.6 (macOS/Windows CI)
+  writes `true or false` (type lines match without case) and, for enums
+  whose names differ from their descriptions, adds `Equivalently, one of:
+<descriptions>`; the choices are the list that holds the value (4.6's
+  defaults are descriptions, e.g. "0 (none)"). `Tshark.glossary` adds a run with
   the Lua scripts in `WIRESHARK_PLUGIN_DIR` (as for the field catalogue), so
   Lua preferences are included. No protocol: `protocols` with counts. The
   host's QuickPick shows each preference's effective value and source

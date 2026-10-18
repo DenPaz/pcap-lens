@@ -49,6 +49,22 @@ tcp.default_window_scaling: 1 (multiply by 2)
 # Mystery
 # Something tshark doesn't describe
 #bar.mystery: 7
+
+# Written by tshark 4.6: a lower-case boolean type line
+# true or false (case-insensitive)
+#new.flag: TRUE
+
+# 4.6 adds the choices' descriptions when they differ from their names
+# One of: none, ooo, retrans
+# Equivalently, one of: 0 (none), 1 (Out-of-Order), 2 (Retransmission)
+# (case-insensitive).
+#new.override: 0 (none)
+
+# The value is one of the names
+# One of: none, ooo
+# Equivalently, one of: 0 (none), 1 (Out-of-Order)
+# (case-insensitive).
+#new.named: ooo
 """
 
 
@@ -61,6 +77,9 @@ def test_parse_prefs_reads_the_protocols_section() -> None:
         "foo.ports",
         "wpan.sec_suite",
         "bar.mystery",
+        "new.flag",
+        "new.override",
+        "new.named",
     ]  # not gui.*: only the "Protocols" section
     checksum = prefs["tcp.check_checksum"]
     assert (checksum.type, checksum.value, checksum.is_default) == ("bool", "FALSE", True)
@@ -96,10 +115,28 @@ def test_an_enum_whose_choices_contain_commas_is_free_text() -> None:
     assert suite.value == "AES-128 Encryption, 64-bit Integrity Protection"
 
 
+def test_the_tshark_4_6_listing() -> None:
+    prefs = parse_prefs(LISTING)
+    assert prefs["new.flag"].type == "bool"
+    # The choices are the list holding the value: descriptions here, names there.
+    override = prefs["new.override"]
+    assert (override.type, override.choices) == (
+        "enum",
+        ["0 (none)", "1 (Out-of-Order)", "2 (Retransmission)"],
+    )
+    assert (
+        override.description
+        == "4.6 adds the choices' descriptions when they differ from their names"
+    )
+    named = prefs["new.named"]
+    assert (named.type, named.choices) == ("enum", ["none", "ooo"])
+
+
 def test_protocols_with_prefs_counts_per_module() -> None:
     assert protocols_with_prefs(parse_prefs(LISTING)) == [
         {"protocol": "bar", "count": 1},
         {"protocol": "foo", "count": 1},
+        {"protocol": "new", "count": 3},
         {"protocol": "tcp", "count": 2},
         {"protocol": "tls", "count": 1},
         {"protocol": "wpan", "count": 1},
