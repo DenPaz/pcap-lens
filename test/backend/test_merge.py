@@ -1,5 +1,7 @@
 """Merging capture files (a rotated capture's pieces, or any captures) with mergecap."""
 
+from __future__ import annotations
+
 import subprocess
 from pathlib import Path
 

@@ -1,6 +1,8 @@
 """tshark_plugins (Show TShark Plugins): the plugins tshark loads, which come
 from the user's own folders, and where a dissector plugin goes."""
 
+from __future__ import annotations
+
 import os
 from pathlib import Path
 

@@ -1,5 +1,7 @@
 """Find Packet, conversation stepping, marks, time formats and marked export."""
 
+from __future__ import annotations
+
 import json
 import subprocess
 from datetime import UTC, datetime

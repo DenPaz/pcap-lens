@@ -10,6 +10,8 @@ depends on the signal being delivered. A child that still runs after
 waited for and its pipes closed, so nothing leaks.
 """
 
+from __future__ import annotations
+
 import contextlib
 import signal
 import subprocess

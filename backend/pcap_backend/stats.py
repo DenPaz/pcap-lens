@@ -11,6 +11,8 @@ Parsers are pure functions of the text so they can be unit-tested against
 captured output; the tshark invocations live in ``pcap_service``.
 """
 
+from __future__ import annotations
+
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field

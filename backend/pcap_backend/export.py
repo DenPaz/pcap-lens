@@ -7,6 +7,8 @@ formula (``=``, ``+``, ``@``, ``-`` followed by a non-number, tab, CR) are
 prefixed with ``'`` so opening an export cannot run anything.
 """
 
+from __future__ import annotations
+
 import csv
 import json
 import os

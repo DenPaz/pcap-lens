@@ -6,6 +6,8 @@
  */
 import { ChildProcess, spawn, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
+import * as os from "node:os";
+import * as path from "node:path";
 
 export interface Logger {
   info(message: string): void;
@@ -407,50 +409,111 @@ function waitFor(promise: Promise<void>, ms: number): Promise<boolean> {
   });
 }
 
-/**
 /** Minimum Python for the backend (keep in sync with `requires-python` in pyproject.toml). */
-export const MIN_PYTHON: readonly [number, number] = [3, 14];
+export const MIN_PYTHON: readonly [number, number] = [3, 12];
+
+/** Python versions tried by name, newest first (`python3.14`, `py -3.14`, …). */
+const PYTHON_VERSIONS = ["3.14", "3.13", "3.12"];
 
 /**
- * Find a Python >= {@link MIN_PYTHON} interpreter. `configured` wins when set;
- * otherwise try the versioned launcher first (distros often ship an older
- * `python3` next to `python3.14`), then the generic names. Returns the argv
- * prefix to use.
+ * The interpreters {@link findPython} tries, in order: `configured` alone when
+ * set; else the versioned names, newest first (distros often ship an older
+ * `python3` next to `python3.12`), then the generic ones. Pure, for tests.
+ */
+export function pythonCandidates(
+  configured: string | undefined,
+  platform: NodeJS.Platform = process.platform,
+): string[][] {
+  if (configured) {
+    return [[configured]];
+  }
+  return platform === "win32"
+    ? [...PYTHON_VERSIONS.map((v) => ["py", `-${v}`]), ["py", "-3"], ["python"], ["python3"]]
+    : [...PYTHON_VERSIONS.map((v) => [`python${v}`]), ["python3"], ["python"]];
+}
+
+/**
+ * Where to look for uv, which can find (and install) interpreters that aren't
+ * on PATH: uv's own Pythons live in its data folder, and VS Code started from
+ * a desktop menu often lacks `~/.local/bin` on PATH. Pure, for tests.
+ */
+export function uvCandidates(
+  platform: NodeJS.Platform = process.platform,
+  home: string = os.homedir(),
+): string[] {
+  const exe = platform === "win32" ? "uv.exe" : "uv";
+  const join = platform === "win32" ? path.win32.join : path.posix.join;
+  return ["uv", join(home, ".local", "bin", exe), join(home, ".cargo", "bin", exe)];
+}
+
+/** The `major.minor` of an interpreter, or undefined if it doesn't run. */
+function pythonVersion(argv: string[]): string | undefined {
+  const [cmd, ...pre] = argv;
+  const res = spawnSync(cmd, [...pre, "-c", "import sys; print('%d.%d' % sys.version_info[:2])"], {
+    encoding: "utf8",
+    timeout: 10000,
+    windowsHide: true,
+    shell: false,
+  });
+  return res.status === 0 && res.stdout ? res.stdout.trim() : undefined;
+}
+
+/** The uv executable, if uv is installed (on PATH or in its usual folders). */
+export function findUv(): string | undefined {
+  return uvCandidates().find(
+    (uv) =>
+      spawnSync(uv, ["--version"], { timeout: 10000, windowsHide: true, shell: false }).status ===
+      0,
+  );
+}
+
+/** An interpreter uv knows about (`uv python find`), if uv is installed. */
+function uvPython(want: string): string | undefined {
+  const uv = findUv();
+  if (!uv) {
+    return undefined;
+  }
+  const res = spawnSync(uv, ["python", "find", "--no-project", "--system", `>=${want}`], {
+    encoding: "utf8",
+    timeout: 15000,
+    windowsHide: true,
+    shell: false,
+  });
+  const found = res.status === 0 ? res.stdout.trim().split(/\r?\n/)[0] : "";
+  return found || undefined;
+}
+
+/**
+ * Find a Python >= {@link MIN_PYTHON} interpreter: `configured` when set,
+ * else the names of {@link pythonCandidates}, then one uv manages. Returns
+ * the argv prefix to use.
  */
 export function findPython(
   configured: string | undefined,
 ): { python: string[]; version: string } | { error: string } {
   const [minMajor, minMinor] = MIN_PYTHON;
   const want = `${minMajor}.${minMinor}`;
-  const candidates: string[][] = configured
-    ? [[configured]]
-    : process.platform === "win32"
-      ? [["py", `-${want}`], ["py", "-3"], ["python"], ["python3"]]
-      : [[`python${want}`], ["python3"], ["python"]];
-  const tried: string[] = [];
-  for (const [cmd, ...pre] of candidates) {
-    tried.push([cmd, ...pre].join(" "));
-    const res = spawnSync(
-      cmd,
-      [...pre, "-c", "import sys; print('%d.%d' % sys.version_info[:2])"],
-      {
-        encoding: "utf8",
-        timeout: 10000,
-        windowsHide: true,
-        shell: false,
-      },
-    );
-    if (res.status !== 0 || !res.stdout) {
-      continue;
-    }
-    const version = res.stdout.trim();
+  const recent = (version: string) => {
     const [major, minor] = version.split(".").map(Number);
-    if (major > minMajor || (major === minMajor && minor >= minMinor)) {
-      return { python: [cmd, ...pre], version };
+    return major > minMajor || (major === minMajor && minor >= minMinor);
+  };
+  const tried: string[] = [];
+  for (const argv of pythonCandidates(configured)) {
+    const version = pythonVersion(argv);
+    tried.push(argv.join(" ") + (version ? ` (found ${version}, need >= ${want})` : ""));
+    if (version && recent(version)) {
+      return { python: argv, version };
     }
-    tried[tried.length - 1] += ` (found ${version}, need >= ${want})`;
+  }
+  if (!configured) {
+    const uv = uvPython(want);
+    const version = uv ? pythonVersion([uv]) : undefined;
+    if (uv && version && recent(version)) {
+      return { python: [uv], version };
+    }
+    tried.push("uv python find");
   }
   return {
-    error: `No Python ${want}+ interpreter found. Tried: ${tried.join(", ")}. Install Python ${want} or set 'pcapViewer.pythonPath'.`,
+    error: `No Python ${want}+ interpreter found. Tried: ${tried.join(", ")}. Install Python ${want} or newer, or set 'pcapViewer.pythonPath'.`,
   };
 }

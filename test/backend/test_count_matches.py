@@ -1,5 +1,7 @@
 """count_matches: counting a display filter without touching the viewer's view."""
 
+from __future__ import annotations
+
 import threading
 from pathlib import Path
 

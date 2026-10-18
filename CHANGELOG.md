@@ -1,10 +1,28 @@
 # Changelog
 
-All notable changes, newest first. Each entry links to the pull request that
-made it. The format follows [Keep a Changelog](https://keepachangelog.com);
-versions are plain `major.minor.patch`.
+All notable changes, newest first. Each entry links to the pull request (or
+commit) that made it. The format follows
+[Keep a Changelog](https://keepachangelog.com); versions are plain
+`major.minor.patch`.
 
 ## Unreleased
+
+## 0.5.0 — 2026-10-17
+
+### Added
+
+- _PCAP: Install Python…_: when no Python is found, installs Python 3.14 with
+  [uv](https://docs.astral.sh/uv/) (no admin rights needed), or links to
+  python.org and uv's installer. The setup message and walkthrough offer it.
+  [8b9486a]
+
+### Changed
+
+- Python 3.12 or newer is enough (was 3.14), so the Python that comes with
+  Ubuntu 24.04 or Debian 13 works. A Python installed with uv is found even
+  when it isn't on `PATH`. [8b9486a]
+
+[8b9486a]: https://github.com/DenPaz/vsc_pcap_viewer/commit/8b9486a
 
 ## 0.4.1 — 2026-10-15
 

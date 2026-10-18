@@ -7,12 +7,14 @@
  *
  *   node scripts/screenshots.js [--theme dark|light|hc] [--out <folder>]
  *
- * The default (dark) run also writes viewer-light.png for the README.
+ * The default (dark) run also writes viewer-light.png and demo.gif (filtering
+ * with autocomplete, then a packet's tree and bytes) for the README.
  * `--theme light` (Light Modern) and `--theme hc` (Dark High Contrast) render
  * every screenshot in that theme, for checking the styling.
  */
 const fs = require("node:fs");
 const path = require("node:path");
+const { Buffer } = require("node:buffer");
 const {
   ROOT,
   loadDeps,
@@ -31,6 +33,8 @@ function option(name, fallback) {
 const OUT = path.resolve(option("out", path.join(ROOT, "media", "screenshots")));
 const SAMPLE = path.join(ROOT, "media", "sample.pcapng");
 const VIEWPORT = { width: 1280, height: 760 };
+/** demo.gif: smaller, so it stays legible when the README scales it down. */
+const DEMO_VIEWPORT = { width: 1000, height: 600 };
 
 /** VS Code's Dark Modern theme, for the variables the webviews use. */
 const DARK_MODERN = {
@@ -276,6 +280,74 @@ function applyTheme(page, theme = THEME) {
   );
 }
 
+/**
+ * Encode PNG screenshots as one looping GIF: one palette for all frames,
+ * and pixels unchanged since the previous frame left transparent (kept from
+ * it), so a mostly still UI stays small.
+ * @param {{png: Buffer, delay: number}[]} frames delay in ms
+ */
+function encodeGif(frames) {
+  const { PNG } = require("pngjs");
+  const { GIFEncoder, quantize, applyPalette } = require("gifenc");
+  const images = frames.map((f) => PNG.sync.read(f.png));
+  const { width, height } = images[0];
+  const all = new Uint8Array(images.length * width * height * 4);
+  images.forEach((img, i) => all.set(img.data, i * width * height * 4));
+  // 255 colors; index 255 is the "unchanged" (transparent) one.
+  const palette = quantize(all, 255, { format: "rgb565" });
+  while (palette.length < 256) {
+    palette.push([0, 0, 0]);
+  }
+  const KEEP = 255;
+  const gif = GIFEncoder();
+  let previous = null;
+  images.forEach((img, i) => {
+    const index = applyPalette(img.data, palette.slice(0, 255), "rgb565");
+    const frame = previous ? index.map((v, p) => (v === previous[p] ? KEEP : v)) : index;
+    gif.writeFrame(frame, width, height, {
+      palette: i === 0 ? palette : undefined,
+      delay: frames[i].delay,
+      transparent: i > 0,
+      transparentIndex: KEEP,
+      dispose: 1,
+    });
+    previous = index;
+  });
+  gif.finish();
+  return Buffer.from(gif.bytes());
+}
+
+/** Record demo.gif: type a filter with autocomplete, apply it, open a packet. */
+async function recordDemo(browser, origin, client, rules) {
+  const page = await editorPage(browser, origin, client, rules, "dark", DEMO_VIEWPORT);
+  const frames = [];
+  const shot = async (delay) => frames.push({ png: await page.screenshot(), delay });
+  await shot(1500);
+  await page.click("#filter-input");
+  for (const [i, ch] of [..."dns || http"].entries()) {
+    await page.keyboard.type(ch);
+    if (i === 2) {
+      await page.waitForSelector("#suggest:not(.hidden) .suggest-item");
+    }
+    await page.waitForTimeout(80);
+    await shot(i === 2 ? 1200 : 140);
+  }
+  await page.keyboard.press("Enter"); // nothing is preselected: Enter applies
+  await page.waitForFunction(() =>
+    /Displayed: 8/.test(document.querySelector("#status-left").textContent),
+  );
+  await shot(1400);
+  await page.click("#list-rows .list-row:has-text('200 OK')");
+  await page.waitForSelector("#detail-tree .node-row:has-text('Hypertext Transfer Protocol')");
+  await shot(1000);
+  await page.click("#detail-tree .node-row:has-text('Hypertext Transfer Protocol') .twisty");
+  await shot(900);
+  await page.click("#detail-tree .node-row:has-text('Content-Type')");
+  await shot(3000);
+  await page.close();
+  return encodeGif(frames);
+}
+
 /** Forward the webview's rpc messages to the backend (see src/pcapEditor.ts). */
 function forwardRpc(client, post, msg) {
   client.request(msg.method, msg.params, { timeoutMs: 0 }).then(
@@ -292,8 +364,8 @@ const FILTER_BUTTONS = [
   { label: "TCP handshakes", filter: "tcp.flags.syn == 1" },
 ];
 
-async function editorPage(browser, origin, client, rules, theme = THEME) {
-  const page = await browser.newPage({ viewport: VIEWPORT });
+async function editorPage(browser, origin, client, rules, theme = THEME, viewport = VIEWPORT) {
+  const page = await browser.newPage({ viewport });
   // (answers can still arrive after the page closed)
   const post = (m) => page.evaluate((x) => window.postMessage(x, "*"), m).catch(() => undefined);
   await page.exposeFunction("__toHost", async (raw) => {
@@ -395,6 +467,13 @@ async function main() {
     if (THEME === "dark") {
       page = await editorPage(browser, origin, client, rules, "light");
       await viewer(page, "viewer-light.png");
+      await page.close();
+
+      // 5. An animated tour (README).
+      fs.writeFileSync(
+        path.join(OUT, "demo.gif"),
+        await recordDemo(browser, origin, client, rules),
+      );
     }
   } finally {
     await browser.close();

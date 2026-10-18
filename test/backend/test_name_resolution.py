@@ -1,5 +1,7 @@
 """Name resolution: -N switches, names in the list and details, addresses kept."""
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Any
 

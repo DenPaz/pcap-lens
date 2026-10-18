@@ -5,6 +5,8 @@ Security rule for this module: commands are always argv lists handed to
 string.
 """
 
+from __future__ import annotations
+
 import atexit
 import contextlib
 import os

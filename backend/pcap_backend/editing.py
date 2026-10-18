@@ -15,6 +15,8 @@ Every operation reads the whole capture file (not the view) and writes pcapng:
   ``<name>_NNNNN_<time>.pcapng`` by editcap (what rotation.ts recognises).
 """
 
+from __future__ import annotations
+
 import re
 from collections.abc import Mapping
 from decimal import Decimal, InvalidOperation

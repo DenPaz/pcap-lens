@@ -1,5 +1,7 @@
 """Export Packet Dissections: text / PDML / JSON, joined across chunked passes."""
 
+from __future__ import annotations
+
 import io
 import json
 import xml.etree.ElementTree as ET

@@ -27,6 +27,8 @@ The rows file holds packet summaries (addresses, the Info column); it lives in
 the user's own extension storage and can be turned off or cleared.
 """
 
+from __future__ import annotations
+
 import contextlib
 import hashlib
 import json
@@ -188,7 +190,7 @@ class IndexCache:
             ):
                 return None
             os.utime(entry / "meta.json")  # most recently used
-        except OSError, ValueError, TypeError:
+        except (OSError, ValueError, TypeError):
             return None
         return CachedIndex(rows, offsets, meta)
 
@@ -242,7 +244,7 @@ class IndexCache:
         try:
             data = (entry / f"colors-{rules}.bin").read_bytes()
             extra = json.loads((entry / f"colors-{rules}.json").read_text(encoding="utf-8"))
-        except OSError, ValueError:
+        except (OSError, ValueError):
             return None
         if len(data) != frames + 1 or not isinstance(extra, dict):
             return None
@@ -309,7 +311,7 @@ class IndexCache:
         belong only to those: an incomplete entry's frame count grows)."""
         try:
             meta = json.loads((entry / "meta.json").read_text(encoding="utf-8"))
-        except OSError, ValueError:
+        except (OSError, ValueError):
             return False
         return (
             isinstance(meta, dict)

@@ -4,9 +4,9 @@ version = "0.1.0"
 description = "tshark-orchestrating JSON-RPC backend for the PCAP Lens VS Code extension"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 # The backend is stdlib-only at runtime so the extension works with any
-# Python 3.14+ interpreter, without a virtualenv or `pip install`.
+# Python 3.12+ interpreter, without a virtualenv or `pip install`.
 dependencies = []
 
 [project.scripts]
@@ -44,7 +44,7 @@ bdd_features_base_dir = "test/backend/acceptance/features"
 
 [tool.ruff]
 line-length = 100
-target-version = "py314"
+target-version = "py312"
 src = ["backend", "test/backend"]
 
 [tool.ruff.format]
@@ -109,12 +109,14 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["pcap_backend"]
+# Python 3.12/3.13 evaluate annotations eagerly: forward references need it.
+required-imports = ["from __future__ import annotations"]
 
 [tool.ruff.lint.flake8-pytest-style]
 fixture-parentheses = false
 mark-parentheses = false
 
 [tool.mypy]
-python_version = "3.14"
+python_version = "3.12"
 strict = true
 files = ["backend/pcap_backend"]

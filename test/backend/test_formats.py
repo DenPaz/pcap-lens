@@ -1,5 +1,7 @@
 """Capture file types: format sniffing, and a fixture for every editor file pattern."""
 
+from __future__ import annotations
+
 import fnmatch
 import json
 from pathlib import Path

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 from pcap_backend.pdml import PdmlError, parse_hexdump, parse_pdml

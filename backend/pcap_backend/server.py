@@ -13,6 +13,8 @@ behind a long tshark pass. stdout carries protocol messages only; all logging
 goes to stderr.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import logging
@@ -69,7 +71,7 @@ class JsonRpcServer:
             try:
                 self._writer.write(data.encode("utf-8"))
                 self._writer.flush()
-            except BrokenPipeError, ValueError, OSError:
+            except (BrokenPipeError, ValueError, OSError):
                 log.debug("client went away; dropping message")
 
     def notify(self, method: str, params: Mapping[str, Any]) -> None:

@@ -33,6 +33,7 @@ uv.lock
 .python-version
 CLAUDE.md
 CONTRIBUTING.md
+SECURITY.md
 pnpm-lock.yaml
 pnpm-workspace.yaml
 .gitignore

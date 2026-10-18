@@ -149,10 +149,11 @@ function main([command, arg]) {
       const date = new Date().toISOString().slice(0, 10);
       writeFileSync(join(ROOT, "CHANGELOG.md"), prepareChangelog(changelog, arg, date));
       writeFileSync(join(ROOT, "package.json"), bumpPackageJson(pkgText, arg));
-      console.log(`Prepared ${arg}. Review the diff, then:
-  git commit -am "Release ${arg}"
-  git tag v${arg}
-  git push origin HEAD v${arg}
+      console.log(`Prepared ${arg}. Review the diff, then on dev:
+  git commit -am "Release ${arg}" && git push
+Open a pull request from dev into main and merge it, then tag the merge commit:
+  git fetch origin && git tag -a v${arg} origin/main -m "PCAP Lens ${arg}"
+  git push origin v${arg}
 Pushing the tag runs .github/workflows/release.yml.`);
       return;
     }

@@ -1,6 +1,8 @@
 """probe_file (Open File in PCAP Lens…): whether tshark reads a file,
 whatever it is called, and why not (ber.count_records for record files)."""
 
+from __future__ import annotations
+
 import shutil
 from pathlib import Path
 

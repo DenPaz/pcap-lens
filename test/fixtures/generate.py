@@ -13,12 +13,15 @@ ERF, Bluetooth logs, generic extensions); those writers use only the standard
 library, so their bytes never depend on a Wireshark version.
 """
 
+from __future__ import annotations
+
 import argparse
 import gzip
 import random
 import shutil
 import ssl
 import struct
+import sys
 from pathlib import Path
 
 from scapy.asn1.asn1 import ASN1_OID
@@ -710,7 +713,10 @@ def btsnoop_file() -> bytes:
 def zstd_compress(data: bytes) -> bytes:
     """``compression.zstd`` is optional in CPython builds: Pythons compiled without
     the libzstd headers (e.g. pyenv without libzstd-dev) lack ``_zstd``, so it is
-    imported only for the .zst fixtures, and ``--large`` works without it."""
+    imported only for the .zst fixtures, and ``--large`` works without it. It is
+    new in Python 3.14 (the backend supports 3.12, the fixtures need 3.14)."""
+    if sys.version_info < (3, 14):
+        raise SystemExit("The .zst fixtures need Python 3.14 (compression.zstd): use 'uv run'.")
     try:
         from compression import zstd  # noqa: PLC0415 - optional module, see above
     except ImportError as exc:

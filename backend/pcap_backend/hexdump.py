@@ -17,6 +17,8 @@ one packet per run of offsets starting at 0, and writes pcapng. Options:
 * ``maxPacket`` (``-m``) and ``interfaceName`` (``-N``).
 """
 
+from __future__ import annotations
+
 import ipaddress
 import re
 from collections.abc import Mapping

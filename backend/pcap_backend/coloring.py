@@ -10,6 +10,8 @@ dissection matches every other pass. Rules are named by their index, which
 keeps the file format safe from arbitrary rule names.
 """
 
+from __future__ import annotations
+
 import re
 import shutil
 from dataclasses import dataclass

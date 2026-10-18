@@ -1,0 +1,39 @@
+# Dev dependencies only (the extension has no runtime npm dependencies, the
+# backend no runtime Python ones). Limits mirror .ncurc.cjs; see CLAUDE.md.
+version: 2
+updates:
+  - package-ecosystem: npm # pnpm-lock.yaml
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      dev-dependencies:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      # Must not exceed engines.vscode (vsce refuses to package); raise both together.
+      - dependency-name: "@types/vscode"
+      # Node 20: the extension host of VS Code 1.90.
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]
+      # Vendored into src/webview/codicons/ (pnpm run codicons, which make
+      # update runs); a bump alone fails test/scripts/codicons.test.mjs.
+      - dependency-name: "@vscode/codicons"
+  - package-ecosystem: uv # uv.lock
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      dev-dependencies:
+        patterns: ["*"]
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

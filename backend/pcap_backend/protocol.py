@@ -1,5 +1,7 @@
 """JSON-RPC error types and the per-request context handed to service methods."""
 
+from __future__ import annotations
+
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any

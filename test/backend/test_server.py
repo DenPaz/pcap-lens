@@ -1,5 +1,7 @@
 """JSON-RPC protocol tests: in-process with fake handlers, and end-to-end over stdio."""
 
+from __future__ import annotations
+
 import io
 import json
 import os

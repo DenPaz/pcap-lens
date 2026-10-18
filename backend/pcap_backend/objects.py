@@ -10,6 +10,8 @@ back to the packet that carried it (:class:`Linker`): HTTP bodies by content
 file name, IMF by subject, ``object<N>`` names by N.
 """
 
+from __future__ import annotations
+
 import hashlib
 import mimetypes
 import re
@@ -98,7 +100,7 @@ class Linker:
             return
         try:
             frame = int(values["frame.number"])
-        except KeyError, ValueError:
+        except (KeyError, ValueError):
             return
         occurrences = {f: [v for v in values.get(f, "").split(AGGREGATOR) if v] for f in FIELDS[2:]}
         uris = occurrences["http.response_for.uri"] + occurrences["http.request.full_uri"]

@@ -1,5 +1,7 @@
 """Packet comments: read from pcapng, edited, saved with editcap."""
 
+from __future__ import annotations
+
 import gzip
 import shutil
 import struct

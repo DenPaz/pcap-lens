@@ -1,5 +1,7 @@
 """Integration tests: PcapService against the fixture captures with a real tshark."""
 
+from __future__ import annotations
+
 import os
 import sys
 import threading

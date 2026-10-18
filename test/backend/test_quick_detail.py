@@ -1,6 +1,8 @@
 """Quick (approximate) packet detail: dissect only a window of packets before
 the one asked for (cut out with editcap) and renumber the tree."""
 
+from __future__ import annotations
+
 import subprocess
 from pathlib import Path
 from typing import Any

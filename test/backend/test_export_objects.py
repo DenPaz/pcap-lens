@@ -1,5 +1,7 @@
 """Export Objects: one tshark pass, objects linked to packets, saving."""
 
+from __future__ import annotations
+
 import importlib.util
 import threading
 from pathlib import Path

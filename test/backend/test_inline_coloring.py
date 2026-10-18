@@ -2,6 +2,8 @@
 their colors, also while a streaming open is indexing, and colors are saved
 with the index."""
 
+from __future__ import annotations
+
 import threading
 import time
 from pathlib import Path
