@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
 
 from pcap_backend import ber, comments, editing, hexdump, objects, plugins
+from pcap_backend.cancellation import CancelledError
 from pcap_backend.export import CAPTURE_FORMATS, atomic_output, check_destination
 from pcap_backend.protocol import InvalidParamsError, RequestContext, param, str_list
 from pcap_backend.tshark import ToolError, ToolNotFoundError, find_tool, run
@@ -16,6 +18,9 @@ from pcap_backend.tshark import ToolError, ToolNotFoundError, find_tool, run
 from .base import ServiceBase
 from .helpers import _readable_capture, sniff_format
 from .state import _UNSUPPORTED_RE, _Open
+
+# What a dissector may be called (`tshark -G dissectors`: "ber", "gsm_map", "x2ap"…).
+_DISSECTOR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$")
 
 
 class ToolsMixin(ServiceBase):
@@ -127,6 +132,40 @@ class ToolsMixin(ServiceBase):
         return {
             "readable": False,
             "message": f"{path.name} isn't a capture file in a format tshark can read",
+        }
+
+    def split_ber(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """Open a file of BER records (several BER values back to back, which
+        tshark refuses) as packets: ``path`` is written to ``dest`` as a
+        pcapng (appears once complete) with one packet per record, decoded by
+        ``dissector`` (default ``ber``, the generic BER dissector; any name of
+        ``dissector_names``, a Lua dissector's too: tshark only looks it up
+        when it reads the file). See ``ber.write_pcapng``. Needs no open
+        capture. Returns ``{path, packets, truncated, dissector}``."""
+        path = _readable_capture(param(params, "path", str))
+        dissector = param(params, "dissector", str, "ber").strip() or "ber"
+        if not _DISSECTOR_RE.match(dissector):
+            raise InvalidParamsError(f"invalid dissector name {dissector!r}")
+        dest = check_destination(param(params, "dest", str), path)
+        ctx.progress({"phase": "split", "fraction": 0.0})
+        try:
+            with atomic_output(dest) as tmp, tmp.open("wb") as out:
+                packets, truncated = ber.write_pcapng(
+                    path,
+                    out,
+                    dissector,
+                    cancelled=lambda: ctx.token.cancelled,
+                    progress=lambda f: ctx.progress({"phase": "split", "fraction": f}),
+                )
+        except ber.NotRecordsError as exc:
+            raise InvalidParamsError(f"{path.name} isn't a file of BER records: {exc}") from exc
+        except InterruptedError as exc:
+            raise CancelledError("request cancelled") from exc
+        return {
+            "path": str(dest),
+            "packets": packets,
+            "truncated": truncated,
+            "dissector": dissector,
         }
 
     def tshark_plugins(self, _params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:

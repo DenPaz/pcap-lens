@@ -176,6 +176,199 @@
     return name === "fake-field-wrapper" ? null : name;
   }
 
+  /** Bits per packet diagram row (Wireshark draws 32). */
+  const DIAGRAM_BITS = 32;
+  /** Full rows of one field (or of unknown bytes) drawn before the rest is elided. */
+  const DIAGRAM_FULL_ROWS = 2;
+  /** Rows drawn per protocol at most. */
+  const DIAGRAM_MAX_ROWS = 64;
+  const BIT_PATTERN_RE = /^([01.]{4}(?: [01.]{4})*) = /;
+
+  /**
+   * A bitfield's pattern at the start of its tree label, as tshark prints it
+   * ("0100 .... = Version: 4"): the pattern's width in bits, the first and
+   * last bits it shows (from the left), and the label after it. Null when
+   * the label has none.
+   *
+   * @param {string} label
+   * @returns {{width: number, first: number, last: number, rest: string} | null}
+   */
+  function bitPattern(label) {
+    const m = BIT_PATTERN_RE.exec(label);
+    if (!m) {
+      return null;
+    }
+    const bits = m[1].replace(/ /g, "");
+    const first = bits.search(/[01]/);
+    if (first < 0) {
+      return null;
+    }
+    const last = Math.max(bits.lastIndexOf("0"), bits.lastIndexOf("1"));
+    return { width: bits.length, first, last, rest: label.slice(m[0].length) };
+  }
+
+  /**
+   * The bits a tree node covers, as absolute bit offsets in its byte source:
+   * its bit pattern, placed at the end of its bytes (or of its parent's,
+   * when the pattern is wider than the node's own bytes, as for TCP's flag
+   * bits); else the bits its children's patterns tile together (TCP's Flags,
+   * IPv4's DS field); else its whole bytes. Null without a position.
+   *
+   * @param {any} node @param {any} parent
+   * @returns {{start: number, len: number} | null}
+   */
+  function diagramBits(node, parent) {
+    if (node.pos === undefined || !node.size) {
+      return null;
+    }
+    const own = bitPattern(node.label);
+    if (own) {
+      const box = own.width <= node.size * 8 ? node : parent;
+      if (box && box.pos !== undefined && own.width <= box.size * 8) {
+        const end = (box.pos + box.size) * 8;
+        return { start: end - own.width + own.first, len: own.last - own.first + 1 };
+      }
+    }
+    // (Children without a pattern, such as TCP's flags summary, restate the field.)
+    const kids = (node.children ?? [])
+      .filter((/** @type {any} */ c) => c.pos !== undefined)
+      .map((/** @type {any} */ c) => bitPattern(c.label))
+      .filter((/** @type {any} */ k) => k !== null);
+    const width = kids[0]?.width ?? 0;
+    if (kids.length && width <= node.size * 8 && kids.every((k) => k.width === width)) {
+      const tiled = new Array(width).fill(false);
+      for (const k of kids) {
+        tiled.fill(true, k.first, k.last + 1);
+      }
+      if (tiled.every(Boolean)) {
+        return { start: (node.pos + node.size) * 8 - width, len: width };
+      }
+    }
+    return { start: node.pos * 8, len: node.size * 8 };
+  }
+
+  /**
+   * @typedef {{node: any, start: number, len: number, name: string, value: string}} DiagramItem
+   * @typedef {{col: number, width: number, item: number, cont: boolean, rows: number}} DiagramCell
+   *   `item` -1 = bits no field describes; `cont` = not the item's first cell;
+   *   `rows` > 1 = this full row stands for that many elided ones
+   * @typedef {{offset: number, cells: DiagramCell[]}} DiagramRow  offset in bits from the protocol's start
+   * @typedef {{node: any, title: string, items: DiagramItem[], rows: DiagramRow[], more: boolean}} DiagramProtocol
+   */
+
+  /**
+   * Wireshark's packet diagram: each protocol's header as rows of 32 bits,
+   * one cell per field. Only a protocol's top-level fields are drawn (bit
+   * fields to the bit, see diagramBits), in order; a field overlapping one
+   * already drawn (TCP's raw sequence number after the relative one) or
+   * lying outside the protocol's bytes (its payload) is left out. A field or
+   * gap longer than DIAGRAM_FULL_ROWS full rows keeps one, standing for all
+   * (`rows`); at most DIAGRAM_MAX_ROWS rows per protocol (`more`).
+   *
+   * @param {any[]} tree the packet's detail tree (top-level protocols)
+   * @returns {DiagramProtocol[]}
+   */
+  function packetDiagram(tree) {
+    /** @type {DiagramProtocol[]} */
+    const out = [];
+    for (const proto of tree) {
+      const name = proto.name ?? "";
+      if (!proto.proto || proto.pos === undefined || !proto.size || !name) {
+        continue;
+      }
+      if (name === "frame" || name.startsWith("_ws.") || name === "fake-field-wrapper") {
+        continue;
+      }
+      const base = proto.pos * 8;
+      const total = proto.size * 8;
+      /** @type {DiagramItem[]} */
+      const candidates = [];
+      for (const child of proto.children ?? []) {
+        if (child.name?.startsWith("_ws.")) {
+          continue;
+        }
+        const bits = diagramBits(child, proto);
+        if (!bits || bits.len <= 0 || bits.start < base || bits.start + bits.len > base + total) {
+          continue;
+        }
+        // (Text lines such as HTTP's end in an escaped CRLF.)
+        const text = (bitPattern(child.label)?.rest ?? child.label).replace(/\\r\\n$/, "");
+        const colon = text.indexOf(": ");
+        candidates.push({
+          node: child,
+          start: bits.start - base,
+          len: bits.len,
+          name: (colon > 0 ? text.slice(0, colon) : text) || child.name || child.label,
+          value: colon > 0 ? text.slice(colon + 2) : "",
+        });
+      }
+      candidates.sort((a, b) => a.start - b.start); // (stable: tree order on ties)
+      /** @type {DiagramItem[]} */
+      const items = [];
+      let end = 0;
+      for (const c of candidates) {
+        if (c.start >= end) {
+          items.push(c);
+          end = c.start + c.len;
+        }
+      }
+      if (!items.length) {
+        continue;
+      }
+      // Pieces: the fields and the gaps between them, as [start, len, item].
+      /** @type {[number, number, number][]} */
+      const pieces = [];
+      let at = 0;
+      items.forEach((item, i) => {
+        if (item.start > at) {
+          pieces.push([at, item.start - at, -1]);
+        }
+        pieces.push([item.start, item.len, i]);
+        at = item.start + item.len;
+      });
+      if (at < total) {
+        pieces.push([at, total - at, -1]);
+      }
+      /** @type {Map<number, DiagramRow>} */
+      const rows = new Map();
+      for (const [start, len, item] of pieces) {
+        for (let bit = start; bit < start + len;) {
+          const row = Math.floor(bit / DIAGRAM_BITS);
+          const col = bit % DIAGRAM_BITS;
+          const width = Math.min(start + len - bit, DIAGRAM_BITS - col);
+          if (width === DIAGRAM_BITS) {
+            const fullRows = Math.floor((start + len - bit) / DIAGRAM_BITS);
+            if (fullRows > DIAGRAM_FULL_ROWS) {
+              // One row for them all.
+              rows.set(row, {
+                offset: bit,
+                cells: [{ col: 0, width, item, cont: bit > start, rows: fullRows }],
+              });
+              bit += fullRows * DIAGRAM_BITS;
+              continue;
+            }
+          }
+          let r = rows.get(row);
+          if (!r) {
+            r = { offset: row * DIAGRAM_BITS, cells: [] };
+            rows.set(row, r);
+          }
+          r.cells.push({ col, width, item, cont: bit > start, rows: 1 });
+          bit += width;
+        }
+      }
+      const ordered = [...rows.entries()].sort((a, b) => a[0] - b[0]).map((e) => e[1]);
+      out.push({
+        node: proto,
+        title: String(proto.label).split(", ")[0],
+        items,
+        rows: ordered.slice(0, DIAGRAM_MAX_ROWS),
+        more: ordered.length > DIAGRAM_MAX_ROWS,
+      });
+    }
+    return out;
+  }
+
   /**
    * Build a display filter matching a detail-tree node, like Wireshark's
    * "Apply as Filter". Returns null for nodes that can't be filtered on.
@@ -1473,6 +1666,9 @@
     quoteFilterString,
     buildFieldFilter,
     prefsProtocol,
+    DIAGRAM_BITS,
+    bitPattern,
+    packetDiagram,
     combineFilter,
     findNodeForByte,
     nodeKey,

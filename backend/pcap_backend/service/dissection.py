@@ -1,4 +1,5 @@
-"""Lua dissector checks, Decode As choices, protocol preferences and the field catalogue."""
+"""Lua dissector checks, Decode As choices, protocol preferences, dissector names
+and the field catalogue."""
 
 from __future__ import annotations
 
@@ -61,7 +62,8 @@ def _merged_prefs(outputs: list[str]) -> dict[str, Preference]:
 
 
 class DissectionMixin(ServiceBase):
-    """Lua dissector checks, Decode As choices, protocol preferences and the field catalogue."""
+    """Lua dissector checks, Decode As choices, protocol preferences, dissector
+    names and the field catalogue."""
 
     def check_dissectors(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """Load Lua scripts against an empty capture and report their errors.
@@ -151,6 +153,26 @@ class DissectionMixin(ServiceBase):
                 for p in prefs
             ],
         }
+
+    def dissector_names(self, _params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """The dissectors tshark can be asked for by name (``tshark -G
+        dissectors``, Lua scripts' included; see ``Tshark.glossary``):
+        ``{dissectors: [{name, protocol}]}`` sorted by name, for choosing the
+        dissector of split BER records (``split_ber``). Cached per tshark and
+        Lua scripts; needs no open capture."""
+        tshark = self._file.tshark if self._file else self._require_tshark()
+        key = (str(tshark.path), tuple(tshark.options.lua_scripts))
+        names = self._dissector_names.get(key)
+        if names is None:
+            found: dict[str, str] = {}
+            for output in tshark.glossary("dissectors", ctx.token):
+                for line in output.split("\n"):
+                    name, _, protocol = line.strip().partition("\t")
+                    if name:
+                        found.setdefault(name, protocol.strip() or name)
+            names = [{"name": n, "protocol": found[n]} for n in sorted(found, key=str.lower)]
+            self._dissector_names.put(key, names)
+        return {"dissectors": names}
 
     def field_index(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """Field/protocol names from ``tshark -G fields`` for autocomplete.

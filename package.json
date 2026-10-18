@@ -7,7 +7,7 @@
     "color": "#0b3a73",
     "theme": "dark"
   },
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "denpaz",
   "license": "MIT",
   "repository": {
@@ -480,6 +480,11 @@
       {
         "command": "pcapViewer.openFile",
         "title": "Open File in PCAP Lens…",
+        "category": "PCAP"
+      },
+      {
+        "command": "pcapViewer.openBerRecords",
+        "title": "Open BER Records as Packets…",
         "category": "PCAP"
       },
       {

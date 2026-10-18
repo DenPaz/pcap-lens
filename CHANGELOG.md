@@ -7,6 +7,30 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.7.0 — 2026-10-18
+
+### Added
+
+- **Open BER Records as Packets**: a file of BER records back to back (call
+  detail records and similar), which tshark refuses, opens as one packet per
+  record, decoded by the dissector you choose (generic BER, any of tshark's,
+  or a Lua one). Offered when such a file fails to open. [9c1afc4]
+- **Packet diagram**: the details pane's _Diagram_ view draws each protocol's
+  header 32 bits a row, every field to the bit, linked to the tree and bytes.
+  [188ddcf]
+
+### Fixed
+
+- A notice under the filter bar (such as unknown columns removed) no longer
+  disappears when the filter box is emptied. [985f8b3]
+- A live capture's size limit now stops at the first packet past it; a fast
+  interface could overshoot it by several packets. [91e898e]
+
+[9c1afc4]: https://github.com/DenPaz/vsc_pcap_viewer/commit/9c1afc4
+[188ddcf]: https://github.com/DenPaz/vsc_pcap_viewer/commit/188ddcf
+[985f8b3]: https://github.com/DenPaz/vsc_pcap_viewer/commit/985f8b3
+[91e898e]: https://github.com/DenPaz/vsc_pcap_viewer/commit/91e898e
+
 ## 0.6.0 — 2026-10-18
 
 ### Added

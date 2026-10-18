@@ -143,6 +143,14 @@ el.tree.addEventListener("contextmenu", (e) => {
   }
   e.preventDefault();
   selectNode(entry.node.id, { scroll: false });
+  showTreeMenu(entry, e.clientX, e.clientY);
+});
+
+/**
+ * The detail tree's menu for a field (also the packet diagram's, for its cells).
+ * @param {NodeEntry} entry @param {number} x @param {number} y
+ */
+export function showTreeMenu(entry, x, y) {
   const node = entry.node;
   const filter = lib.buildFieldFilter(node);
   const prefsProtocol = lib.prefsProtocol(entry.path);
@@ -199,8 +207,8 @@ el.tree.addEventListener("contextmenu", (e) => {
     ["Expand Subtrees", entry.children ? () => expandAll(entry, true) : null],
     ["Collapse Subtrees", entry.children ? () => expandAll(entry, false) : null],
   ];
-  showMenu(e.clientX, e.clientY, items);
-});
+  showMenu(x, y, items);
+}
 
 /** @param {any} node */
 function fieldBytes(node) {

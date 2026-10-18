@@ -75,6 +75,8 @@ const INITIALIZE_TIMEOUT_MS = 120_000;
 const SLOW_START_MS = 5_000;
 /** Coloring problems already shown in a notification (each is reported once per window). */
 const reportedColoringErrors = new Set<string>();
+/** The button that opens a file of BER records as packets (pcapViewer.openBerRecords). */
+export const OPEN_AS_PACKETS = "Open Records as Packets…";
 
 /** The coloring rules to apply ([] when coloring is off). */
 function coloringRules(settings: Settings): ColoringRule[] {
@@ -697,23 +699,42 @@ export class PcapEditorSession {
 
   private unsupportedFormat(err: RpcError): void {
     const name = path.basename(this.uri.fsPath);
-    const stderr = (err.data as { stderr?: string } | undefined)?.stderr;
-    this.log.warn(`${this.uri.fsPath}: ${stderr ?? err.message}`);
-    this.post({
-      type: "error",
-      message:
-        `${name} is not a capture file that tshark can read.\n\n` +
-        "PCAP Lens opens pcap and pcapng (also gzip, zstd or lz4 compressed) and the other capture formats Wireshark supports, " +
-        'such as snoop, ERF, btsnoop and PacketLogger. Use "Reopen Editor With…" to open this file with another editor.',
-      canReload: true,
-    });
+    const data = err.data as { stderr?: string; berRecords?: number } | undefined;
+    this.log.warn(`${this.uri.fsPath}: ${data?.stderr ?? err.message}`);
+    const records = data?.berRecords;
+    const reopen = "Reopen Editor With…";
+    if (records) {
+      // Several BER values back to back: tshark reads one per file, but they open as packets.
+      const count = records.toLocaleString();
+      this.post({
+        type: "error",
+        message:
+          `${name} holds ${count} BER records one after another, and tshark reads a file of one BER value only.\n\n` +
+          `Use "${OPEN_AS_PACKETS}" to open them as packets, one per record.`,
+        canReload: true,
+      });
+    } else {
+      this.post({
+        type: "error",
+        message:
+          `${name} is not a capture file that tshark can read.\n\n` +
+          "PCAP Lens opens pcap and pcapng (also gzip, zstd or lz4 compressed) and the other capture formats Wireshark supports, " +
+          `such as snoop, ERF, btsnoop and PacketLogger. Use "${reopen}" to open this file with another editor.`,
+        canReload: true,
+      });
+    }
+    const buttons = records ? [OPEN_AS_PACKETS, reopen] : [reopen];
     void vscode.window
       .showWarningMessage(
-        `PCAP Lens: ${name} is not a capture file that tshark can read.`,
-        "Reopen Editor With…",
+        records
+          ? `PCAP Lens: ${name} holds ${records.toLocaleString()} BER records one after another.`
+          : `PCAP Lens: ${name} is not a capture file that tshark can read.`,
+        ...buttons,
       )
       .then((choice) => {
-        if (choice) {
+        if (choice === OPEN_AS_PACKETS) {
+          void vscode.commands.executeCommand("pcapViewer.openBerRecords", { uri: this.uri });
+        } else if (choice) {
           // The command reopens the active editor: make it this one first.
           this.panel.reveal(undefined, false);
           void vscode.commands.executeCommand("workbench.action.reopenWithEditor");

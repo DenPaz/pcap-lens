@@ -135,6 +135,7 @@ suite("PCAP Lens smoke test", () => {
       "pcapViewer.exportObjects",
       "pcapViewer.showPlugins",
       "pcapViewer.protocolPreferences",
+      "pcapViewer.openBerRecords",
       "pcapViewer.nameResolution",
       "pcapViewer.editPacketComment",
       "pcapViewer.deletePacketComment",
@@ -557,6 +558,33 @@ suite("PCAP Lens smoke test", () => {
       const before = api.provider.allSessions.length;
       assert.equal(await open("cdrs"), false);
       assert.equal(api.provider.allSessions.length, before);
+    } finally {
+      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+      await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("Open BER Records as Packets: one packet per record, as an unsaved capture", async () => {
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    const api = (await ext!.activate()) as PcapViewerApi;
+    const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "pcap-ber-")));
+    const record = Buffer.from("300a020105040568656c6c6f", "hex");
+    const cdrs = path.join(dir, "cdrs.dat");
+    fs.writeFileSync(cdrs, Buffer.concat([record, record, record]));
+    try {
+      const opened = await vscode.commands.executeCommand<string | undefined>(
+        "pcapViewer.openBerRecords",
+        { uri: vscode.Uri.file(cdrs), dissector: "ber" },
+      );
+      assert.ok(opened, "the records were split");
+      assert.equal(path.basename(opened), "cdrs.pcapng");
+      const session = await waitFor(() =>
+        api.provider.allSessions.find((s) => s.uri.fsPath === opened && indexed(s)),
+      );
+      assert.ok(session.document.temporary, "the result is an unsaved capture");
+      assert.equal(session.openInfo?.frames, 3);
+      await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
     } finally {
       await vscode.commands.executeCommand("workbench.action.closeAllEditors");
       await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);

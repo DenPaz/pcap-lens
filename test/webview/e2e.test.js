@@ -502,6 +502,13 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.waitForFunction(
       () => document.querySelectorAll("#list-rows .list-row:not(.loading)").length > 0,
     );
+    // An emptied filter box's validation (250 ms later) clears errors, not notices.
+    await page.focus("#filter-input");
+    await page.keyboard.type("x");
+    await page.keyboard.press("Backspace");
+    await page.waitForTimeout(400);
+    assert.match(await page.textContent("#filter-error"), /no\.such\.field/);
+    await page.keyboard.press("Escape");
     const headers = await page.$$eval("#list-header > div", (cells) =>
       cells.map((c) => c.firstChild.textContent),
     );
@@ -986,6 +993,88 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await src.click({ button: "right" });
     await page.click("#context-menu .item:has-text('Protocol Preferences: ip…')");
     await expectHostLast({ type: "protocolPrefs", protocol: "ip" }, { ofType: true });
+  });
+
+  test("packet diagram: headers to the bit, linked to the tree and bytes", async () => {
+    await cleanView();
+    await rowEl(4).click();
+    await waitSelected(4);
+    await page.locator("#detail-tree .node-row:has-text('Source Address')").first().waitFor();
+    assert.equal(await page.getAttribute("#view-tree", "aria-pressed"), "true");
+    await page.click("#view-diagram");
+    await page.waitForSelector("#detail-diagram:not(.hidden) .pd-proto");
+    assert.ok(await page.isHidden("#detail-tree"));
+    assert.equal(await page.getAttribute("#view-diagram", "aria-pressed"), "true");
+    // IPv4's first row: Version and Header Length are 4 bits, the DS field 8, Total Length 16.
+    const ipRows = await page.evaluate(() => {
+      const ip = [...document.querySelectorAll(".pd-proto")].find(
+        (p) => p.getAttribute("aria-label") === "Internet Protocol Version 4",
+      );
+      const rows = new Map();
+      for (const c of ip.querySelectorAll(".pd-cell")) {
+        const row = rows.get(c.style.gridRow) ?? [];
+        row.push(`${c.textContent}|${c.style.gridColumn}`);
+        rows.set(c.style.gridRow, row);
+      }
+      return [...rows.values()];
+    });
+    assert.deepEqual(ipRows[0], [
+      "Version|2 / span 4",
+      "Header Length|6 / span 4",
+      "Differentiated Services Field|10 / span 8",
+      "Total Length|18 / span 16",
+    ]);
+    assert.deepEqual(ipRows[1], [
+      "Identification|2 / span 16",
+      "Flags|18 / span 3",
+      "Fragment Offset|21 / span 13",
+    ]);
+    // TCP's Flags sit after its 4-bit header length.
+    assert.ok(
+      await page.isVisible(
+        ".pd-proto[aria-label='Transmission Control Protocol'] .pd-cell:text-is('Flags')",
+      ),
+    );
+
+    // A cell selects its field: the tree's selection, the bytes, the cell's mark.
+    const srcCell =
+      ".pd-proto[aria-label='Internet Protocol Version 4'] .pd-cell:text-is('Source Address')";
+    await page.click(srcCell);
+    await page.waitForSelector(`${srcCell}.selected[aria-current='true']`);
+    assert.equal(await page.locator("#bytes-view .b.hl").count(), 4);
+    assert.match(await page.textContent("#detail-tree .node-row.selected"), /^Source Address: /);
+    // Arrow keys move to the next field.
+    await page.focus(srcCell);
+    await page.keyboard.press("ArrowRight");
+    await page.waitForFunction(() => document.activeElement?.textContent === "Destination Address");
+    assert.match(
+      await page.textContent("#detail-tree .node-row.selected"),
+      /^Destination Address: /,
+    );
+    // A byte picks its field's cell.
+    await page.click("#bytes-view .b[data-i='22']"); // IPv4's TTL
+    await page.waitForSelector(".pd-cell.selected:text-is('Time to Live')");
+    // The tree's menu, for a cell.
+    await page.click(srcCell, { button: "right" });
+    await page.waitForSelector("#context-menu .item:has-text('Apply as Filter')");
+    await page.keyboard.press("Escape");
+    // Values on demand.
+    await page.click("#diagram-values");
+    await page.waitForSelector(".pd-cell:text-is('Version: 4')");
+    // (Not the bytes pane: without a theme, its field highlight is the fallback
+    // blue under the browser's black text; VS Code always sets both colors.)
+    assert.deepEqual(await axeViolations(page, { exclude: [["#bytes"]] }), []);
+    await page.click("#diagram-values");
+    await page.waitForSelector(".pd-cell:text-is('Version')");
+
+    // Another packet redraws it; the tree comes back with the switch.
+    await rowEl(1).click();
+    await waitSelected(1);
+    await page.waitForSelector(".pd-proto[aria-label='Transmission Control Protocol']");
+    await page.click("#view-tree");
+    await page.waitForSelector("#detail-tree:not(.hidden)");
+    assert.ok(await page.isHidden("#detail-diagram"));
+    assert.ok(await page.isHidden("#diagram-values"));
   });
 
   test("Apply as Column, header menu hide/show, drag to reorder", async () => {

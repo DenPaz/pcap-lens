@@ -204,8 +204,9 @@ class _Blocks:
         self.endian = "<"
         self.packets = 0
 
-    def feed(self, chunk: bytes) -> bytes:
-        """The complete blocks now available (b"" if none yet)."""
+    def feed(self, chunk: bytes, budget: int | None = None) -> bytes:
+        """The complete blocks now available (b"" if none yet); with
+        ``budget``, only up to the first block that reaches it."""
         buf = self.pending
         buf += chunk
         pos = 0
@@ -221,6 +222,8 @@ class _Blocks:
             if kind in _PACKET_BLOCKS:
                 self.packets += 1
             pos += total
+            if budget is not None and pos >= budget:
+                break
         done = bytes(buf[:pos])
         del buf[:pos]
         return done
@@ -400,10 +403,13 @@ class LiveCapture:
         last_stats = time.monotonic()
         tshark_gone = False
         eof = False
+        limit = self.options.max_bytes
         try:
             for chunk in self._chunks(proc):
-                if chunk:
-                    data = blocks.feed(chunk)
+                # (What dumpcap writes after the byte limit, while it stops, is dropped.)
+                if chunk and not (limit and self.bytes >= limit):
+                    # Several blocks can come in one chunk: none past the limit's.
+                    data = blocks.feed(chunk, limit - self.bytes if limit else None)
                     if data:
                         out.write(data)
                         out.flush()
@@ -415,7 +421,6 @@ class LiveCapture:
                             self.bytes += len(data)
                             self.packets = blocks.packets
                         self.started.set()
-                        limit = self.options.max_bytes
                         if limit and self.bytes >= limit:
                             self.stop()
                 if self._signal_refused:

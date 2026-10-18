@@ -7,7 +7,8 @@
  *
  *   node scripts/screenshots.js [--theme dark|light|hc] [--out <folder>]
  *
- * The default (dark) run also writes viewer-light.png and demo.gif (filtering
+ * Writes viewer.png, diagram.png (the packet diagram), filter.png and
+ * statistics.png. The default (dark) run also writes viewer-light.png and demo.gif (filtering
  * with autocomplete, then a packet's tree and bytes) for the README.
  * `--theme light` (Light Modern) and `--theme hc` (Dark High Contrast) render
  * every screenshot in that theme, for checking the styling.
@@ -436,6 +437,20 @@ async function main() {
     };
     let page = await editorPage(browser, origin, client, rules);
     await viewer(page, "viewer.png");
+
+    // 1b. The same packet's TCP and IPv4 headers as a packet diagram.
+    await page.click("#view-diagram");
+    await page.waitForSelector(".pd-proto[aria-label='Transmission Control Protocol']");
+    await page.click(
+      ".pd-proto[aria-label='Internet Protocol Version 4'] .pd-cell:text-is('Time to Live')",
+    );
+    await page.evaluate(() =>
+      document
+        .querySelector(".pd-proto[aria-label='Internet Protocol Version 4']")
+        ?.scrollIntoView({ block: "start" }),
+    );
+    await page.screenshot({ path: path.join(OUT, "diagram.png") });
+    await page.click("#view-tree");
 
     // 2. Filter autocomplete from tshark's field list.
     await page.click("#filter-input");

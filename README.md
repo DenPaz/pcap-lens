@@ -54,9 +54,16 @@ which editor VS Code offers.
 **Any other name**, or no extension at all: right-click the file in the
 Explorer, or run _PCAP: Open File in PCAP Lens…_ and pick it. It opens if
 tshark reads it (Network Monitor, Sniffer, a raw BER/ASN.1 value…), else you
-are told why. A file of several BER records back to back isn't readable:
-tshark reads one BER value per file. zstd and LZ4 need a tshark built with
-them (`tshark --version`).
+are told why. zstd and LZ4 need a tshark built with them (`tshark
+--version`).
+
+**A file of BER records** (several BER/ASN.1 values back to back, as call
+detail records and other record files are written) isn't readable as such:
+tshark reads one BER value per file. _PCAP: Open BER Records as Packets…_ (also
+offered when you open such a file) turns it into an unsaved capture with one
+packet per record, decoded by the dissector you choose: `ber` (generic tags
+and values), any of tshark's, or your Lua dissector's name (a Lua `Proto` is
+registered under its name in lower case).
 
 ## Features
 
@@ -72,6 +79,13 @@ them (`tshark --version`).
   add it as a column or copy it.
 
   ![The packet list, protocol tree and bytes of an HTTP response reassembled from two TCP segments](media/screenshots/viewer.png)
+
+- **Packet diagram**: switch the details from _Tree_ to _Diagram_ to see each
+  protocol's header drawn 32 bits a row, every field to the bit, as in
+  Wireshark. Pick a field to select it in the tree and its bytes; _Values_
+  shows the fields' values.
+
+  ![The IPv4 and TCP headers of a packet as a diagram, Time to Live selected and its byte highlighted](media/screenshots/diagram.png)
 
 - **Quick view of late packets**: from packet 20,000 on, details show in about
   0.3 s by dissecting only the 300 packets before it, until the exact view
@@ -159,7 +173,9 @@ and never overwrite the open capture.
   `backend/dissectors/example.lua`). _PCAP: Lua Dissectors…_ (or the status
   bar's _Lua_ link) picks which scripts each capture loads; the choice is
   remembered per file. A Lua dissector registered on `wtap_encap` 90 decodes
-  whole BER files: `DissectorTable.get("wtap_encap"):add(90, proto)`.
+  whole BER files: `DissectorTable.get("wtap_encap"):add(90, proto)`; for a
+  file of several BER records, pick it by name in _Open BER Records as
+  Packets…_.
 - **Protocol preferences**: right-click a protocol in the packet details (or
   _PCAP: Protocol Preferences…_) to see its tshark preferences with their
   descriptions and current values, and change them; values are checked, the

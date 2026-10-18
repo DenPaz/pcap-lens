@@ -82,6 +82,153 @@ suite("webview lib: virtualization", () => {
 });
 
 suite("webview lib: filters", () => {
+  test("bitPattern: tshark's bit field labels", () => {
+    assert.deepEqual(lib.bitPattern("0100 .... = Version: 4"), {
+      width: 8,
+      first: 0,
+      last: 3,
+      rest: "Version: 4",
+    });
+    assert.deepEqual(lib.bitPattern("...0 0000 0000 0000 = Fragment Offset: 0"), {
+      width: 16,
+      first: 3,
+      last: 15,
+      rest: "Fragment Offset: 0",
+    });
+    assert.equal(lib.bitPattern(".... .... = Nothing shown"), null);
+    assert.equal(lib.bitPattern("Total Length: 130"), null);
+    assert.equal(lib.bitPattern("01 = too short"), null);
+  });
+
+  // IPv4 and TCP headers as tshark's PDML labels them (pos/size in bytes).
+  const f = (name, label, pos, size, children) => ({ name, label, pos, size, children });
+  const IPV4 = {
+    name: "ip",
+    proto: true,
+    label: "Internet Protocol Version 4, Src: 10.0.0.1, Dst: 10.0.0.2",
+    pos: 14,
+    size: 20,
+    children: [
+      f("ip.version", "0100 .... = Version: 4", 14, 1),
+      f("ip.hdr_len", ".... 0101 = Header Length: 20 bytes (5)", 14, 1),
+      f("ip.dsfield", "Differentiated Services Field: 0x00", 15, 1, [
+        f("ip.dsfield.dscp", "0000 00.. = Differentiated Services Codepoint: Default (0)", 15, 1),
+        f("ip.dsfield.ecn", ".... ..00 = Explicit Congestion Notification: Not-ECT (0)", 15, 1),
+      ]),
+      f("ip.len", "Total Length: 130", 16, 2),
+      f("ip.id", "Identification: 0x0004 (4)", 18, 2),
+      f("ip.flags", "000. .... = Flags: 0x0", 20, 1),
+      f("ip.frag_offset", "...0 0000 0000 0000 = Fragment Offset: 0", 20, 2),
+      f("ip.ttl", "Time to Live: 64", 22, 1),
+      f("ip.proto", "Protocol: TCP (6)", 23, 1),
+      f("ip.checksum", "Header Checksum: 0x82e5", 24, 2),
+      { name: "ip.checksum.status", label: "Header checksum status: Unverified" },
+      f("ip.src", "Source Address: 10.0.0.1", 26, 4),
+      f("ip.dst", "Destination Address: 10.0.0.2", 30, 4),
+    ],
+  };
+  /** @param {any} p */
+  const layout = (p) =>
+    p.rows.map((r) =>
+      r.cells.map(
+        (c) => `${c.width}:${c.item < 0 ? "-" : p.items[c.item].name}${c.cont ? "…" : ""}`,
+      ),
+    );
+
+  test("packetDiagram: IPv4's header to the bit, 32 bits a row", () => {
+    const [ip] = lib.packetDiagram([
+      { name: "frame", proto: true, label: "Frame 1", pos: 0, size: 54 },
+      IPV4,
+    ]);
+    assert.equal(ip.title, "Internet Protocol Version 4");
+    assert.deepEqual(layout(ip), [
+      ["4:Version", "4:Header Length", "8:Differentiated Services Field", "16:Total Length"],
+      ["16:Identification", "3:Flags", "13:Fragment Offset"],
+      ["8:Time to Live", "8:Protocol", "16:Header Checksum"],
+      ["32:Source Address"],
+      ["32:Destination Address"],
+    ]);
+    assert.deepEqual(
+      ip.rows.map((r) => r.offset),
+      [0, 32, 64, 96, 128],
+    );
+    const version = ip.items[0];
+    assert.equal(version.value, "4");
+    assert.equal(version.node.name, "ip.version");
+  });
+
+  test("packetDiagram: TCP's flags, overlapping and outside fields", () => {
+    const flag = (bits, label) => f("tcp.flags.x", `${bits} = ${label}`, 47, 1);
+    const tcp = {
+      name: "tcp",
+      proto: true,
+      label: "Transmission Control Protocol, Src Port: 50000",
+      pos: 34,
+      size: 20,
+      children: [
+        f("tcp.srcport", "Source Port: 50000", 34, 2),
+        f("tcp.dstport", "Destination Port: 80", 36, 2),
+        f("tcp.seq", "Sequence Number: 1    (relative sequence number)", 38, 4),
+        f("tcp.seq_raw", "Sequence Number (raw): 1000", 38, 4),
+        f("tcp.ack", "Acknowledgment Number: 1", 42, 4),
+        f("tcp.hdr_len", "0101 .... = Header Length: 20 bytes (5)", 46, 1),
+        // The flags' patterns are 12 bits wide, the low 12 of the 2 bytes.
+        f("tcp.flags", "Flags: 0x018 (PSH, ACK)", 46, 2, [
+          flag("000. .... ....", "Reserved: Not set"),
+          flag("...0 .... ....", "Accurate ECN: Not set"),
+          flag(".... 0000 0000", "The rest"),
+          f("tcp.flags.str", "TCP Flags: ·······AP···", 46, 2),
+        ]),
+        f("tcp.window_size_value", "Window: 8192", 48, 2),
+        f("tcp.window_size", "Calculated window size: 8192", 48, 2),
+        f("tcp.checksum", "Checksum: 0xad29", 50, 2),
+        f("tcp.urgent_pointer", "Urgent Pointer: 0", 52, 2),
+        f("tcp.payload", "TCP payload (90 bytes)", 54, 90),
+      ],
+    };
+    const [d] = lib.packetDiagram([tcp]);
+    assert.deepEqual(layout(d), [
+      ["16:Source Port", "16:Destination Port"],
+      ["32:Sequence Number"],
+      ["32:Acknowledgment Number"],
+      ["4:Header Length", "12:Flags", "16:Window"],
+      ["16:Checksum", "16:Urgent Pointer"],
+    ]);
+    assert.equal(d.items[2].value, "1    (relative sequence number)");
+  });
+
+  test("packetDiagram: gaps, long fields elided, row limit", () => {
+    const proto = (children, size) => ({
+      name: "x",
+      proto: true,
+      label: "X",
+      pos: 0,
+      size,
+      children,
+    });
+    // A 2-byte field, then 2 bytes nobody describes, then 40 bytes of data.
+    const [d] = lib.packetDiagram([
+      proto([f("x.a", "A: 1", 0, 2), f("x.data", "Data (40 bytes)", 4, 40)], 44),
+    ]);
+    assert.deepEqual(layout(d), [["16:A", "16:-"], ["32:Data (40 bytes)"]]);
+    assert.equal(d.rows[1].cells[0].rows, 10); // one row stands for ten
+    assert.equal(d.rows[1].offset, 32);
+    // Two full rows are drawn as they are; a field starting mid-row continues.
+    const [e] = lib.packetDiagram([proto([f("x.a", "A: 1", 0, 2), f("x.b", "B", 2, 8)], 10)]);
+    assert.deepEqual(layout(e), [["16:A", "16:B"], ["32:B…"], ["16:B…"]]);
+    // Hundreds of small fields: 64 rows at most.
+    const many = Array.from({ length: 300 }, (_, i) => f(`x.f${i}`, `F${i}: 0`, i * 4, 4));
+    const [m] = lib.packetDiagram([proto(many, 1200)]);
+    assert.equal(m.rows.length, 64);
+    assert.equal(m.more, true);
+    // Nothing to draw: no protocol bytes, or only the frame.
+    assert.deepEqual(
+      lib.packetDiagram([{ name: "frame", proto: true, label: "F", pos: 0, size: 9 }]),
+      [],
+    );
+    assert.deepEqual(lib.packetDiagram([{ name: "x", proto: true, label: "X" }]), []);
+  });
+
   test("prefsProtocol: a tree node's top-level protocol", () => {
     assert.equal(lib.prefsProtocol([{ name: "tcp" }, { name: "tcp.flags" }]), "tcp");
     assert.equal(lib.prefsProtocol([{ name: "tls" }]), "tls");

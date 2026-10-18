@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { initLuaChoices } from "./luaChoice";
 import { registerAnalysisCommands } from "./commands/analysis";
+import { registerOpenBerRecordsCommand } from "./commands/openBerRecords";
 import { registerOpenFileCommand } from "./commands/openFile";
 import { registerPluginCommands } from "./commands/plugins";
 import { consumePrefsChange, registerPrefsCommands } from "./commands/prefs";
@@ -72,6 +73,7 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
   registerEditCaptureCommands(context, p, log);
   registerImportHexDumpCommand(context, p, log);
   registerOpenFileCommand(context, p, log);
+  registerOpenBerRecordsCommand(context, p, log);
   registerPluginCommands(context, p, log);
   registerPrefsCommands(context, p, log);
   registerSetupCommands(context, log);

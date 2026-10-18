@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { PcapEditorProvider, describeError } from "../pcapEditor";
+import { OPEN_AS_PACKETS, PcapEditorProvider, describeError } from "../pcapEditor";
 import { withBackend } from "./withBackend";
 
 /** What the backend's probe_file answers. */
@@ -17,11 +17,11 @@ const MAX_FILES = 20_000;
 type FileItem = vscode.QuickPickItem & { uri?: vscode.Uri };
 
 /** A file from the workspace folders (files.exclude applies), or any file via Browse…. */
-async function pickFile(): Promise<vscode.Uri | undefined> {
+export async function pickFile(title = "Open File in PCAP Lens"): Promise<vscode.Uri | undefined> {
   const browse = async () =>
     (
       await vscode.window.showOpenDialog({
-        title: "Open File in PCAP Lens",
+        title,
         canSelectMany: false,
         openLabel: "Open",
         defaultUri: vscode.workspace.workspaceFolders?.[0]?.uri,
@@ -31,7 +31,7 @@ async function pickFile(): Promise<vscode.Uri | undefined> {
     return browse();
   }
   const pick = vscode.window.createQuickPick<FileItem>();
-  pick.title = "Open File in PCAP Lens";
+  pick.title = title;
   pick.placeholder = "Type to find a file in the workspace (any name, with or without extension)";
   pick.matchOnDescription = true;
   pick.busy = true;
@@ -70,8 +70,9 @@ async function pickFile(): Promise<vscode.Uri | undefined> {
  * browsed to, or the Explorer's selection) in the viewer if tshark can read
  * it, whatever it is called: VS Code picks editors by file name only, so a
  * capture or a BER file without a known extension otherwise never gets the
- * viewer. Files tshark can't read get a warning saying why. Returns whether
- * the file opened.
+ * viewer. Files tshark can't read get a warning saying why; for a file of
+ * BER records it offers to open them as packets (openBerRecords.ts). Returns
+ * whether the file opened.
  */
 export async function openFileInViewer(
   provider: PcapEditorProvider,
@@ -105,11 +106,18 @@ export async function openFileInViewer(
   }
   if (!probe.readable) {
     const why = probe.message ?? `${path.basename(uri.fsPath)} can't be read by tshark`;
-    const more = probe.berRecords
-      ? " Splitting such a file into one packet per record isn't supported yet."
-      : "";
     log.warn(`open file ${uri.fsPath}: ${why}`);
-    void vscode.window.showWarningMessage(`PCAP Lens: ${why}.${more}`);
+    if (probe.berRecords) {
+      void vscode.window
+        .showWarningMessage(`PCAP Lens: ${why}.`, OPEN_AS_PACKETS)
+        .then((choice) => {
+          if (choice) {
+            void vscode.commands.executeCommand("pcapViewer.openBerRecords", { uri });
+          }
+        });
+    } else {
+      void vscode.window.showWarningMessage(`PCAP Lens: ${why}.`);
+    }
     return false;
   }
   await vscode.commands.executeCommand("vscode.openWith", uri, PcapEditorProvider.viewType);

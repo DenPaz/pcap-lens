@@ -159,7 +159,7 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   server allows the CORS fetch) that imports `viewer/*.js`, one module per
   part of the UI (`core` = shared state, constants, element lookups and
   rpc, and imports nothing, so it is evaluated first; `host`, `list`,
-  `columns`, `selection`, `detail`, `filterbar`, `autocomplete`,
+  `columns`, `selection`, `detail`, `diagram`, `filterbar`, `autocomplete`,
   `navigation`, menus, `status`…). Function declarations make the cycles
   between modules safe; top-level code only touches `core` and its own
   module. Shared JSDoc types live in `globals.d.ts`. Type-checked via JSDoc +
@@ -453,6 +453,35 @@ matchCount, fraction}`; the end sends `done`, `stopped` (`stop_filter
   one). Quick results have their own LRU (16) keyed by (frame, window). Ask
   Copilot uses quick details for late packets too, and the prompt says which
   trees are approximate.
+- **Packet diagram** (`lib.packetDiagram`, `viewer/diagram.js`): the details
+  pane's _Tree | Diagram_ switch (`#detail-views`, in the sticky
+  `#detail-head` with the comment bar and the quick-view note;
+  `state.detailView` and the _Values_ toggle `state.diagramValues` persist in
+  the webview state). Like Wireshark's, it draws each protocol's top-level
+  fields only (not `frame`, `_ws.*`), 32 bits a row (`DIAGRAM_BITS`). PDML
+  has no bit offsets or masks, so `diagramBits` reads them from the labels:
+  `bitPattern` parses tshark's "0100 .... = Version: 4" (groups of 4), placed
+  at the end of the field's bytes, or of its parent's when the pattern is
+  wider (TCP's flag bits: 12-bit patterns on 1-byte fields inside the 2-byte
+  `tcp.flags`); a field without one whose patterned children tile one width
+  gets that width (TCP's Flags, IPv4's DS field; children without a pattern,
+  like `tcp.flags.str`, are ignored; Ethernet's LG/IG bits don't tile, so the
+  address stays 48 bits); else whole bytes. Fields are sorted by start, and
+  one overlapping a field already placed (`tcp.seq_raw`, the calculated
+  window) or outside the protocol's bytes (the payload) is dropped; uncovered
+  bits are hatched gap cells. A field or gap of more than `DIAGRAM_FULL_ROWS`
+  full rows keeps one row standing for all (`rows`, dashed bottom, "…" on
+  the offset); at most `DIAGRAM_MAX_ROWS` rows (`more`). Cells are buttons
+  placed with CSSOM `gridRow`/`gridColumn` (allowed by the CSP) in a
+  33-column grid (byte offsets, 32 bits); picking one calls
+  `detail.revealPath([proto, field])`, so the tree, bytes and diagram stay in
+  step (`selectNode` → `markDiagramSelection`: the cells of any node on the
+  selected node's path, `aria-current`); one cell takes Tab, arrows move
+  between fields; right-click is the tree's menu (`showTreeMenu`). The diagram
+  is drawn when shown and redrawn per detail. The e2e test runs axe on it
+  without the bytes pane (the harness has no theme, so the field highlight's
+  fallback blue sits under the browser's black text). `scripts/screenshots.js`
+  writes `diagram.png` (README).
 - **Byte sources**: PDML does not say which data source (frame vs reassembled)
   a field's `pos` refers to. Heuristic in `pdml.py`: top-level items after a
   `*.segments`/`*.fragments` node belong to the next `-x` source. Documented
@@ -651,7 +680,30 @@ matchCount, fraction}`; the end sends `done`, `stopped` (`stop_filter
   Unreadable: a warning with the reason; `ber.count_records` recognises
   several BER values back to back (definite lengths, high tag numbers,
   trailing 0x00/0xFF block padding; up to MAX_RECORDS) so the message says
-  so (`berRecords`). Splitting such files into packets isn't done yet.
+  so (`berRecords`) and offers _Open Records as Packets…_ (below).
+- **BER records as packets** (`split_ber {path, dest, dissector}`,
+  `dissector_names`, `ber.write_pcapng`, `commands/openBerRecords.ts`,
+  `pcapViewer.openBerRecords`): there is no pcap link type for BER (tshark's
+  BER file type is `wtap_encap` 90, one value per file), so each record
+  becomes a packet of link type 252 (Wireshark upper PDU export) starting with
+  the exported-PDU tag 12 (dissector name, padded to 4 bytes, the padding
+  counted in the tag's length: an unpadded length shifts the record by one
+  byte) and an end tag; `exported_pdu` hands the rest to that dissector. Any
+  name passing `_DISSECTOR_RE` is written (tshark looks it up only when
+  reading; a Lua `Proto` registers its lower-cased name, and a short-lived
+  backend may not have the Lua scripts loaded); an unknown one shows the
+  record as data. `records()` walks the headers (`NotRecordsError` where they
+  stop), every packet gets the file's mtime, and records longer than
+  `MAX_PACKET` (262,144 = WTAP_MAX_PACKET_SIZE_STANDARD: tshark calls a
+  longer pcapng packet corrupt) are cut there, keeping the original length
+  (`truncated`). Written through `atomic_output`, cancellable, progress by
+  offset. The host picks the file (`pickFile`), the dissector (QuickPick of
+  `tshark -G dissectors` via `Tshark.glossary`, cached per tshark and Lua
+  scripts; `ber` first, the last choice next, a typed name allowed) and
+  opens an unsaved capture (`splitFileName`: `cdrs.dat` → `cdrs.pcapng`).
+  Offered by _Open File_ and, through `UnsupportedFormatError`'s
+  `data.berRecords` (`_index_error`), by the editor (`OPEN_AS_PACKETS`).
+  `{uri, dissector}` skip the questions (smoke test).
 - **TShark plugins** (`tshark_plugins`, `plugins.py`, `commands/plugins.ts`,
   `pcapViewer.showPlugins`): Wireshark plugins (C dissectors as `.so`/`.dll`
   built for one major.minor, Lua scripts in the plugin folders) need no
@@ -909,7 +961,10 @@ limits: {packets, seconds, bytes}, promiscuous, snaplen}` + the open
   (`procs.interrupt_process`), a kill on Windows (only complete blocks are
   written, so the file stays readable); a refused signal makes the copy loop
   close dumpcap's stdout. `limits.bytes` is enforced by the copy loop (`-a
-filesize` needs a file), packets/seconds by dumpcap (`-c`, `-a duration`).
+filesize` needs a file) block by block: one chunk can hold many blocks, so
+  `_Blocks.feed(chunk, budget)` stops at the first block reaching the limit,
+  and what dumpcap writes while it stops is dropped. Packets/seconds are
+  dumpcap's (`-c`, `-a duration`).
   Closing cancels the index token, which aborts the capture. A streaming
   filter started while capturing only sees the packets captured so far: its
   view is `stale` (the same filter reruns) and never cached
@@ -1396,3 +1451,4 @@ tree indent guides. Released 0.4.0 (GitHub only), then renamed to PCAP Lens for
 0.4.1, the first Marketplace version. 0.5.0: Python 3.12+ and Install
 Python. Since: the backend, viewer and editor split into modules, coverage
 and axe-core checks with the ARIA fixes they found, and protocol preferences.
+0.6.0 released. Since: BER record files as packets, and the packet diagram.
