@@ -961,7 +961,10 @@ limits: {packets, seconds, bytes}, promiscuous, snaplen}` + the open
   (`procs.interrupt_process`), a kill on Windows (only complete blocks are
   written, so the file stays readable); a refused signal makes the copy loop
   close dumpcap's stdout. `limits.bytes` is enforced by the copy loop (`-a
-filesize` needs a file), packets/seconds by dumpcap (`-c`, `-a duration`).
+filesize` needs a file) block by block: one chunk can hold many blocks, so
+  `_Blocks.feed(chunk, budget)` stops at the first block reaching the limit,
+  and what dumpcap writes while it stops is dropped. Packets/seconds are
+  dumpcap's (`-c`, `-a duration`).
   Closing cancels the index token, which aborts the capture. A streaming
   filter started while capturing only sees the packets captured so far: its
   view is `stale` (the same filter reruns) and never cached

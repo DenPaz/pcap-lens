@@ -212,6 +212,42 @@ def test_limits_stop_the_capture(service: PcapService, tmp_path: Path) -> None:
 
 
 @pytest.mark.tshark
+def test_byte_limit_ends_at_the_first_block_past_it(
+    service: PcapService, fake: Callable[..., None], tmp_path: Path
+) -> None:
+    """Even when dumpcap's output arrives in one chunk of many blocks (no delay
+    here; a slow reader on Windows CI), nothing after the block that reaches
+    the limit is written, nor anything dumpcap writes while it stops."""
+    fake(delay=0)
+    events = _events(service)
+    service.capture_start(
+        {"dest": str(tmp_path / "c.pcapng"), "interfaces": ["fake0"], "limits": {"bytes": 1000}},
+        RequestContext(),
+    )
+    _wait(lambda: _index_done(events) is not None)
+    expected = 0
+    blocks = capture._Blocks()
+    for block in _source_blocks():
+        blocks.feed(block)
+        expected += len(block)
+        if expected >= 1000:
+            break
+    assert (tmp_path / "c.pcapng").stat().st_size == expected
+    assert service.capture_info({}, RequestContext())["frames"] == blocks.packets
+
+
+def _source_blocks() -> list[bytes]:
+    """The fake dumpcap's source (mixed.pcapng), block by block."""
+    data = (FIXTURES / "mixed.pcapng").read_bytes()
+    out = []
+    while data:
+        (total,) = struct.unpack_from("<I", data, 4)
+        out.append(data[:total])
+        data = data[total:]
+    return out
+
+
+@pytest.mark.tshark
 def test_capture_failures(service: PcapService, fake: Callable[..., None], tmp_path: Path) -> None:
     fake(fail="You don't have permission to capture on that device (socket: Operation not "
          "permitted)")  # fmt: skip
