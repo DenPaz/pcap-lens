@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.7.0 — 2026-10-18
+
 ### Added
 
 - **Open BER Records as Packets**: a file of BER records back to back (call
