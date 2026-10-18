@@ -76,11 +76,12 @@ def records(fh: BinaryIO, size: int) -> Iterator[tuple[int, int]]:
     past the end, an indefinite length, or bytes after the padding)."""
     count = 0
     while (start := fh.tell()) < size:
+        # Padding when only 0x00/0xFF bytes are left (0xFF also starts a
+        # private constructed tag with a high tag number, a record then).
         if count and fh.read(1) in (b"\x00", b"\xff"):
             fh.seek(start)
-            if not _only_padding(fh):
-                raise NotRecordsError(start)
-            return
+            if _only_padding(fh):
+                return
         fh.seek(start)
         length = _header(fh)
         if length is None or fh.tell() + length > size:

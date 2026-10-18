@@ -37,6 +37,10 @@ def test_count_records(tmp_path: Path) -> None:
     assert ber.count_records(_write(tmp_path, "long", long_value + RECORD)) == 2
     high_tag = bytes.fromhex("1f810103") + b"abc"
     assert ber.count_records(_write(tmp_path, "tag", high_tag * 2)) == 2
+    # 0xFF starts a record too (private constructed tag 31), not only padding.
+    private = bytes.fromhex("ff1f03020105")
+    assert ber.count_records(_write(tmp_path, "ff-tag", RECORD + private + RECORD)) == 3
+    assert ber.count_records(_write(tmp_path, "ff-tag-pad", RECORD + private + b"\xff" * 5)) == 2
     # Not BER records: a cut-off record, junk after the records, an indefinite length, text.
     assert ber.count_records(_write(tmp_path, "cut", RECORD + RECORD[:-1])) is None
     assert ber.count_records(_write(tmp_path, "junk", RECORD + b"\x00junk")) is None
