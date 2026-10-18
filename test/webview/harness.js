@@ -102,6 +102,7 @@ function renderPanelHtml(origin, script, { media = false } = {}) {
   <meta http-equiv="Content-Security-Policy" content="${csp}">
   <link rel="stylesheet" href="${origin}/codicons/codicon.css">
   <link rel="stylesheet" href="${origin}/base.css"><link rel="stylesheet" href="${origin}/panel.css">
+  <title>${script}</title>
   </head><body class="panel"><div id="app"></div>
   ${stubScript(nonce)}
   <script nonce="${nonce}" src="${origin}/lib.js"></script>
@@ -135,7 +136,7 @@ async function startBackend(deps) {
 /** A page that records script errors and CSP violations. */
 async function newPage(browser) {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  const problems = { errors: [], csp: [] };
+  const problems = { errors: [], csp: [], page };
   page.on("pageerror", (err) => problems.errors.push(err.message));
   page.on("console", (m) => {
     if (/Content Security Policy/i.test(m.text())) {
@@ -156,7 +157,37 @@ async function codiconFontLoaded(page) {
   });
 }
 
+/**
+ * axe-core's WCAG 2.x A/AA violations on the page, as "rule (impact): targets"
+ * lines. axe is evaluated through the debugging protocol, so the page's CSP
+ * doesn't apply to it.
+ */
+async function axeViolations(page, { exclude = [], disable = [] } = {}) {
+  const source = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
+  await page.evaluate(source);
+  const violations = await page.evaluate(
+    async ([exclude, disable]) =>
+      /** @type {any} */ (window).axe
+        .run(
+          { include: [document], exclude },
+          {
+            runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+            rules: Object.fromEntries(disable.map((id) => [id, { enabled: false }])),
+            resultTypes: ["violations"],
+            // (axe would fetch the stylesheets for css-orientation-lock; the CSP refuses)
+            preload: false,
+          },
+        )
+        .then((r) => r.violations),
+    [exclude, disable],
+  );
+  return violations.map(
+    (v) => `${v.id} (${v.impact}): ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`,
+  );
+}
+
 module.exports = {
+  axeViolations,
   codiconFontLoaded,
   ROOT,
   WEBVIEW,

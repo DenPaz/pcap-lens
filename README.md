@@ -182,21 +182,22 @@ capture data asks first; see [Security](#security) for exactly what is sent.
 
 On macOS use `Cmd` for `Ctrl`. They apply while a capture is the active editor.
 
-| Key                            | Action                                 |
-| ------------------------------ | -------------------------------------- |
-| `Ctrl+/`                       | Apply display filter                   |
-| `Ctrl+F`, `F3`, `Shift+F3`     | Find packet, next, previous            |
-| `Ctrl+G`                       | Go to packet                           |
-| `Alt+Left`, `Alt+Right`        | Back / forward through jumps           |
-| `Ctrl+.`, `Ctrl+,`             | Next / previous packet in conversation |
-| `Ctrl+Home`, `Ctrl+End`        | First / last packet                    |
-| `Ctrl+A`                       | Select all displayed packets           |
-| `Ctrl+M`                       | Mark / unmark selected packets         |
-| `Ctrl+Shift+N`, `Ctrl+Shift+B` | Next / previous marked packet          |
-| `Ctrl+T`                       | Set / unset time reference             |
-| `Ctrl+Alt+C`                   | Add or edit packet comment             |
-| `Enter` / `→` in the list      | Move to the protocol tree              |
-| `Esc`                          | Restore the filter, close the find bar |
+| Key                            | Action                                  |
+| ------------------------------ | --------------------------------------- |
+| `Ctrl+/`                       | Apply display filter                    |
+| `Ctrl+F`, `F3`, `Shift+F3`     | Find packet, next, previous             |
+| `Ctrl+G`                       | Go to packet                            |
+| `Alt+Left`, `Alt+Right`        | Back / forward through jumps            |
+| `Ctrl+.`, `Ctrl+,`             | Next / previous packet in conversation  |
+| `Ctrl+Home`, `Ctrl+End`        | First / last packet                     |
+| `Ctrl+A`                       | Select all displayed packets            |
+| `Ctrl+M`                       | Mark / unmark selected packets          |
+| `Ctrl+Shift+N`, `Ctrl+Shift+B` | Next / previous marked packet           |
+| `Ctrl+T`                       | Set / unset time reference              |
+| `Ctrl+Alt+C`                   | Add or edit packet comment              |
+| `Enter` / `→` in the list      | Move to the protocol tree               |
+| Arrow keys on a pane divider   | Resize the panes (`Home`/`End`: limits) |
+| `Esc`                          | Restore the filter, close the find bar  |
 
 ## Settings
 

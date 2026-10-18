@@ -55,12 +55,23 @@ jobs:
           uv run ruff format --check
           uv run mypy
           uv run mypy --python-version 3.14
-      - name: Backend tests
-        run: uv run pytest
+      # Coverage here only (make coverage locally); the run's summary shows both reports.
+      - name: Backend tests (with coverage)
+        run: |
+          mkdir -p coverage
+          echo "### Backend coverage" >> "$GITHUB_STEP_SUMMARY"
+          uv run pytest --cov --cov-report=term --cov-report=markdown-append:"$GITHUB_STEP_SUMMARY"
       - name: Install Chromium for webview e2e
         run: pnpm exec playwright-core install --with-deps chromium
-      - name: Unit + webview tests
-        run: pnpm run test:unit
+      - name: Unit + webview tests (with coverage)
+        run: |
+          pnpm run test:coverage
+          {
+            echo "### TypeScript coverage (the modules the unit tests load)"
+            echo '```'
+            pnpm exec c8 report --reporter=text-summary
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: VS Code smoke test
         run: xvfb-run -a pnpm run test:extension
       - name: Package

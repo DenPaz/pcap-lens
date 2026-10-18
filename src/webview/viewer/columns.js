@@ -61,11 +61,13 @@ export function rebuildColumns() {
     ...cols.map((c) => {
       const cell = document.createElement("div");
       cell.className = "list-row-cell" + (NUMERIC_IDS.has(c.id) ? " num" : "");
+      cell.setAttribute("role", "columnheader");
       cell.title = `${c.field} (drag to reorder, right-click for options)`;
       cell.dataset.id = c.id;
       cell.draggable = true;
       cell.append(c.title);
       if (state.sort && state.sort.field === c.field) {
+        cell.setAttribute("aria-sort", state.sort.desc ? "descending" : "ascending");
         const ind = icon(state.sort.desc ? "triangle-down" : "triangle-up");
         ind.classList.add("sort-indicator");
         cell.append(ind);
@@ -86,6 +88,7 @@ export function rebuildColumns() {
     }),
   );
   el.header.className = "list-row";
+  el.header.setAttribute("aria-rowindex", "1");
   // Row elements are rebuilt with the new column count on next render.
   el.rows.replaceChildren();
 }

@@ -50,6 +50,7 @@ The `Makefile` wraps everything (`make` lists the targets):
 | `make test-extension`           | VS Code smoke test (uses `xvfb-run` when there's no display)        |
 | `make fixtures` / `make perf`   | Regenerate test captures / benchmark 1M packets                     |
 | `make update` / `make outdated` | Upgrade dev dependencies / list available updates                   |
+| `make coverage`                 | Backend and TS unit tests with coverage (HTML in `coverage/`)       |
 | `make package` / `make clean`   | Build the `.vsix` / remove build output                             |
 
 - Formatting: Prettier (TS, JS, CSS, HTML, JSON, YAML, Markdown) and ruff

@@ -339,7 +339,7 @@
     const svg = s("svg", {
       width,
       height,
-      role: "img",
+      role: "group",
       "aria-label": `Call flow of ${call.from} to ${call.to}`,
     });
     nodes.forEach((/** @type {string} */ addr, /** @type {number} */ i) => {
@@ -356,8 +356,8 @@
       const g = s("g", {
         class: `flow-row${rtp ? " voip-rtp" : ""}`,
         tabindex: "0",
+        // (named by its visible time and label, as WCAG's label-in-name asks)
         role: "button",
-        "aria-label": `${num(row.time)} s ${row.label}`,
       });
       g.append(
         s("rect", { x: 0, y, width, height: FLOW.row, class: "flow-bg" }),

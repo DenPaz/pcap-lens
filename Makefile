@@ -13,7 +13,7 @@ PERF_ARGS ?= --no-tcp-analysis
 
 .DEFAULT_GOAL := help
 .PHONY: help install update outdated compile watch lint format test test-backend \
-	test-acceptance test-unit test-extension check fixtures large-fixture perf package \
+	test-acceptance test-unit test-extension coverage check fixtures large-fixture perf package \
 	release-prepare icon screenshots clean
 
 help: ## List the targets
@@ -73,6 +73,12 @@ test-unit: ## TS unit tests and the Chromium webview tests (stale out/ removed f
 test-extension: ## VS Code smoke test (downloads VS Code; uses xvfb-run when headless)
 	$(XVFB) $(PNPM) run test:extension
 
+coverage: ## Backend and TS unit tests with coverage: summaries here, HTML in coverage/
+	rm -rf out coverage
+	mkdir -p coverage
+	$(UV) run pytest --cov --cov-report=term --cov-report=html
+	$(PNPM) run test:coverage
+
 check: lint test ## Everything CI runs except the VS Code smoke test
 
 # ---------------------------------------------------------------- fixtures, perf, packaging
@@ -101,5 +107,5 @@ screenshots: compile ## Render media/screenshots/*.png from the webviews and the
 	node scripts/screenshots.js
 
 clean: ## Remove build output, test downloads, caches and .vsix files
-	rm -rf out .vscode-test .pytest_cache .ruff_cache .mypy_cache *.vsix
+	rm -rf out .vscode-test .pytest_cache .ruff_cache .mypy_cache coverage *.vsix
 	find backend test -name __pycache__ -type d -prune -exec rm -rf {} +

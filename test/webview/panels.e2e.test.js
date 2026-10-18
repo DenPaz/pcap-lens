@@ -17,6 +17,7 @@ const {
   startBackend,
   newPage,
   codiconFontLoaded,
+  axeViolations,
 } = require("./harness");
 
 const deps = loadDeps();
@@ -938,6 +939,18 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     } finally {
       await voip.dispose();
     }
+  });
+
+  test("accessibility: no WCAG A/AA violations in any panel (axe-core)", async () => {
+    // Each panel as its test left it (tables filled, graphs drawn, a call selected…).
+    const found = [];
+    for (const { page } of pages) {
+      const title = await page.evaluate(() => document.querySelector("h1, h2")?.textContent);
+      for (const v of await axeViolations(page)) {
+        found.push(`${title}: ${v}`);
+      }
+    }
+    assert.deepEqual(found, []);
   });
 
   test("no script errors or CSP violations in any panel", () => {

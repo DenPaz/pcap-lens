@@ -20,6 +20,7 @@ const {
   renderEditorHtml,
   startBackend,
   codiconFontLoaded,
+  axeViolations,
 } = require("./harness");
 
 const deps = loadDeps();
@@ -2326,6 +2327,11 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       await reopenCapture("http.pcap");
     }
     assert.equal(await page.isVisible("#status-capture"), false, "a plain file: no capture");
+  });
+
+  test("accessibility: no WCAG A/AA violations (axe-core)", async () => {
+    // The viewer as the tests above left it: rows, a selected packet's tree and bytes.
+    assert.deepEqual(await axeViolations(page), []);
   });
 
   test("no script errors or CSP violations", () => {

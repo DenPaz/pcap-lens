@@ -20,3 +20,4 @@ test/fixtures/formats/
 
 # Python is formatted by ruff
 *.py
+coverage/

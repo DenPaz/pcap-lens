@@ -106,13 +106,16 @@ function render() {
     rowHeight: state.rowHeight,
   });
   el.rows.style.transform = `translateY(${win.top}px)`;
+  el.viewport.setAttribute("aria-rowcount", String(state.total + 1));
   const cols = visibleColumns();
   // Reuse row elements (pooling keeps scrolling cheap).
   while (el.rows.children.length < win.count) {
     const row = document.createElement("div");
     row.className = "list-row";
+    row.setAttribute("role", "row");
     for (let i = 0; i < cols.length; i++) {
       const cell = document.createElement("div");
+      cell.setAttribute("role", "gridcell");
       if (NUMERIC_IDS.has(cols[i].column.id)) {
         cell.className = "num";
       }
@@ -128,6 +131,7 @@ function render() {
     const rowEl = /** @type {HTMLElement} */ (el.rows.children[i]);
     const row = rowAt(index);
     rowEl.dataset.index = String(index);
+    rowEl.setAttribute("aria-rowindex", String(index + 2)); // (the header is row 1)
     rowEl.classList.toggle("odd", index % 2 === 1);
     rowEl.classList.toggle("loading", !row);
     const selected = index === state.selectedIndex || (!!row && state.selection.has(row.number));

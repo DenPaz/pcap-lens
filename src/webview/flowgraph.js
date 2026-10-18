@@ -72,7 +72,8 @@
   const notice = h("div", { class: "notice error hidden", role: "alert" });
   const header = h("div", { class: "flow-header" });
   const body = h("div", { class: "flow-body" });
-  const svg = /** @type {SVGSVGElement} */ (s("svg", { class: "flow-window" }));
+  // (presentational: its rows are the listbox's options)
+  const svg = /** @type {SVGSVGElement} */ (s("svg", { class: "flow-window", role: "none" }));
   body.append(svg);
   const scroller = h(
     "div",
@@ -221,8 +222,15 @@
         continue;
       }
       const y = i * ROW;
+      const selected = arrow.number === state.selected;
       const g = s("g", {
-        class: arrow.number === state.selected ? "flow-row selected" : "flow-row",
+        class: selected ? "flow-row selected" : "flow-row",
+        id: `flow-row-${arrow.number}`,
+        role: "option",
+        "aria-selected": String(selected),
+        // (only the rows on screen exist: their place in the whole list)
+        "aria-posinset": String(index + 1),
+        "aria-setsize": String(state.total),
       });
       g.dataset.frame = String(arrow.number);
       g.append(
@@ -273,6 +281,13 @@
       tip.textContent = `${arrow.number}: ${text}`;
       g.append(label, tip);
       svg.append(g);
+    }
+    // Screen readers follow the selected packet while it is on screen.
+    const current = svg.querySelector(".flow-row.selected");
+    if (current) {
+      scroller.setAttribute("aria-activedescendant", current.id);
+    } else {
+      scroller.removeAttribute("aria-activedescendant");
     }
   }
 

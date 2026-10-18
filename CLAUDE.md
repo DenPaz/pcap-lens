@@ -18,6 +18,7 @@ CONTRIBUTING.md for building, testing and releasing (not packaged).
 | TS unit + webview tests   | `pnpm run test:unit` (mocha; includes the Chromium e2e test of the webview)                                                                              |
 | VS Code smoke test        | `pnpm run test:extension` (downloads VS Code; use `xvfb-run -a` on headless Linux)                                                                       |
 | Regenerate fixtures       | `uv run python test/fixtures/generate.py`                                                                                                                |
+| Coverage                  | `make coverage` (pytest-cov and c8; summaries in the terminal, HTML in `coverage/`; CI's Linux job adds both to the run summary)                         |
 | Perf check                | `uv run python test/fixtures/generate.py --large 1000000 test/fixtures/large-1m.pcap && uv run python -u test/perf/bench.py test/fixtures/large-1m.pcap` |
 | Package                   | `pnpm run package` (vsce, `--no-dependencies`)                                                                                                           |
 | Prepare a release         | `pnpm run release:prepare 0.2.0` on `dev` (then PR `dev` → `main`, tag the merge, push the tag)                                                          |
@@ -71,6 +72,18 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
 - Node tests that start the backend use `PCAP_VIEWER_PYTHON` if set, else the
   uv `.venv` interpreter, so they run on 3.14 even when the system `python3` is older.
 - pytest turns `ResourceWarning` into errors: leaked tshark pipes are bugs.
+- **Coverage**: pytest-cov (`[tool.coverage.*]` in pyproject: branch,
+  `patch = ["subprocess"]` so the backend started as a child process counts,
+  data in `coverage/`) and c8 (`.c8rc.json`: the compiled `out/src` the unit
+  tests load, mapped to the `.ts` sources, plus `lib.js` and `release.mjs`;
+  the VS Code-dependent host code only runs in the smoke test, which isn't
+  measured). No thresholds: the numbers are for finding untested code
+  (backend 93%, unit-tested TS 96% when added).
+- **Accessibility checks**: `axeViolations(page)` in `test/webview/harness.js`
+  runs axe-core (WCAG 2.0/2.1 A and AA, evaluated through the debugging
+  protocol, so the CSP doesn't block it; `preload: false`, since its
+  stylesheet fetches are refused) on the viewer after the e2e tests and on
+  every panel as its test left it; both assert no violations.
 - Tests change a service limit or tshark helper (`FIRST_BATCH`,
   `stream_lines`, `find_tool`, `MAX_FILTER_ARG`…) with the `patch_service`
   fixture (`test/backend/conftest.py`), which sets the name in every
@@ -1246,6 +1259,19 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   `aria-label`. Checkable context-menu items (`showMenu`'s third element) are
   `menuitemcheckbox` with a check icon. Text symbols remain only inside text
   (● in `<option>`s and marked rows, ⚠ in a table cell, → in labels).
+- **ARIA structure** (checked by axe, see _Accessibility checks_): the
+  packet list's `#list-viewport` is the `grid` (`aria-multiselectable`,
+  `aria-rowcount` = rows + 1) and owns the header row outside it
+  (`aria-owns="list-header"`, `aria-rowindex` 1, `columnheader` cells with
+  `aria-sort`); pooled rows are `row` with `aria-rowindex` (index + 2) and
+  `aria-selected`, cells `gridcell`. The splitters are focusable
+  `separator`s with `aria-valuenow` (10–90, the pane's percentage): arrow
+  keys move them by 2, Home/End to the limits (`layout.js`). The detail and
+  bytes panes are labelled regions. The flow graph's scroller is a `listbox`
+  whose SVG is `role="none"`; rows are `option`s (`aria-selected`,
+  `aria-posinset`/`setsize` over the whole view) and `aria-activedescendant`
+  follows the selected one. The VoIP call flow is a labelled `group` of
+  `button` rows named by their visible text (label in name).
 - **High contrast** (`body.vscode-high-contrast`, `-high-contrast-light`): HC
   themes define no hover/selection/secondary-button fills, so the selected
   packet and tree node used to be invisible. base.css defines `--hc-active`

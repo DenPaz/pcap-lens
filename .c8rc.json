@@ -1,0 +1,6 @@
+{
+  "include": ["out/src/**/*.js", "src/webview/lib.js", "scripts/release.mjs"],
+  "exclude": ["out/test/**"],
+  "reporter": ["text-summary", "html"],
+  "reports-dir": "coverage/ts"
+}
