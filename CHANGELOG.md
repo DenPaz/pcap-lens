@@ -11,10 +11,14 @@ commit) that made it. The format follows
 
 - The status bar shows the capture's expert information at a glance: the
   most severe findings with their count ("3 warnings"), every severity in the
-  tooltip, and a click opens Expert Information.
+  tooltip, and a click opens Expert Information. [1e2af9f]
 - Related packets: while a packet is selected, the list marks the packets it
   refers to (the request it answers, the segment it acknowledges, the
   segments it reassembles…), like Wireshark's related-packet indicators.
+  [26e01b9]
+
+[1e2af9f]: https://github.com/DenPaz/vsc_pcap_viewer/commit/1e2af9f
+[26e01b9]: https://github.com/DenPaz/vsc_pcap_viewer/commit/26e01b9
 
 ## 0.7.0 — 2026-10-18
 
