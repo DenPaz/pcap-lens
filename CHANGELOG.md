@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.13.0 — 2026-10-19
+
 ### Added
 
 - VoIP calls show how long each call rang and took to answer, who hung up,
