@@ -8,7 +8,7 @@ from typing import Any
 from pcap_backend import voip
 from pcap_backend.export import atomic_output, check_destination
 from pcap_backend.protocol import InvalidParamsError, RequestContext, param
-from pcap_backend.tshark import StreamResult, run, stream_lines
+from pcap_backend.tshark import StreamResult, stream_lines
 
 from .helpers import _fields_args
 from .state import _Open
@@ -25,35 +25,70 @@ class TelephonyMixin(StatisticsMixin):
 
     def voip_calls(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """SIP calls and RTP streams of the capture (the VoIP panel): ``streams``
-        from tshark's ``rtp,streams`` report and ``calls`` from one pass over
-        the SIP messages (see voip.py), both passes at once. ``heuristic``
-        also finds RTP that no SIP/SDP set up (tshark's rtp.heuristic_rtp).
-        Cached per open capture, once it is completely indexed."""
+        from tshark's ``rtp,streams`` report plus a media pass over the RTP
+        packets (payload types, DTMF events, gaps, E-model quality), and
+        ``calls`` from one pass over the SIP messages (see voip.py), the three
+        passes at once. ``heuristic`` also finds RTP that no SIP/SDP set up
+        (tshark's rtp.heuristic_rtp). Cached per open capture, once it is
+        completely indexed."""
         f = self._require_file()
         heuristic = param(params, "heuristic", bool, False)
         cached = self._voip.get(heuristic)
         if cached is not None:
             return cached
         ctx.progress({"phase": "voip", "fraction": None})
-        fields = [
-            "aggregator=" + voip.AGGREGATOR if a == "aggregator=," else a
-            for a in _fields_args(voip.SIP_FIELDS)
-        ]
-        sip_argv = f.tshark.argv("-n", "-Y", "sip", *fields, capture=str(f.path))
-        sip_future = self._pool.submit(run, sip_argv, ctx.token)
+        sip_future = self._pool.submit(self._sip_lines, f, ctx)
+        media_future = self._pool.submit(self._media_pass, f, heuristic, ctx)
         streams = voip.parse_rtp_streams(
             self._tap(f, "rtp,streams", ctx, _heuristic_args(heuristic))
         )
+        media = media_future.result()
         for stream in streams:
             stream["heuristic"] = heuristic
-        sip = sip_future.result()
-        if sip.returncode != 0 and not sip.stdout:
-            raise f.tshark.error(sip.stderr, sip.returncode, "reading the SIP messages failed")
-        calls = voip.parse_sip_calls(sip.stdout.decode("utf-8", "replace"), streams)
+            voip.stream_media(stream, media.get(voip.StreamKey.from_json(stream)))
+        calls = voip.parse_sip_calls(sip_future.result(), streams)
         result = {"calls": calls, "streams": streams, "heuristic": heuristic}
         if self._indexing is None:  # (a capture still growing would change)
             self._voip.put(heuristic, result)
         return result
+
+    def _sip_lines(self, f: _Open, ctx: RequestContext) -> list[str]:
+        """The SIP pass's lines (voip.SIP_FIELDS), message bodies kept only for
+        INFO requests (DTMF): an INVITE's SDP is read from its own fields."""
+        fields = [
+            "aggregator=" + voip.AGGREGATOR if a == "aggregator=," else a
+            for a in _fields_args(voip.SIP_FIELDS)
+        ]
+        argv = f.tshark.argv("-n", "-Y", "sip", *fields, capture=str(f.path))
+        method, body = voip.SIP_FIELDS.index("sip.Method"), voip.SIP_FIELDS.index("sip.msg_body")
+        result = StreamResult()
+        lines: list[str] = []
+        for raw in stream_lines(argv, result, ctx.token):
+            cells = raw.decode("utf-8", "replace").split("\t")
+            if len(cells) > body and cells[method] != "INFO":
+                cells[body] = ""
+            lines.append("\t".join(cells))
+        ctx.token.raise_if_cancelled()
+        if not lines and result.returncode not in (0, None):
+            raise f.tshark.error(
+                result.stderr, result.returncode, "reading the SIP messages failed"
+            )
+        return lines
+
+    def _media_pass(
+        self, f: _Open, heuristic: bool, ctx: RequestContext
+    ) -> dict[voip.StreamKey, Any]:
+        """voip.parse_media over every RTP packet (streamed: it can be most of
+        the capture). A failure only leaves the streams without its findings."""
+        argv = f.tshark.argv(
+            *_heuristic_args(heuristic), "-n", "-Y", "rtp", *_fields_args(voip.MEDIA_FIELDS),
+            capture=str(f.path),
+        )  # fmt: skip
+        result = StreamResult()
+        lines = (raw.decode("utf-8", "replace") for raw in stream_lines(argv, result, ctx.token))
+        media = voip.parse_media(lines)
+        ctx.token.raise_if_cancelled()
+        return media
 
     def rtp_stream(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """Packet-by-packet analysis of one RTP stream (``stream``: an entry

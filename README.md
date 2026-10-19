@@ -176,6 +176,13 @@ filter, and its rows apply or prepare the matching display filter.
   throughput, round-trip time, window).
 - **VoIP calls**: SIP calls with their call flow, RTP streams with loss and
   jitter, per-packet stream analysis, and G.711 audio to play or save as WAV.
+  For each call: how long it rang and took to answer, who hung up and why
+  (final response, `Reason` header such as "Q.850 cause 16"), an estimated
+  MOS (ITU-T E-model, from loss, jitter and codec), the DTMF digits sent
+  (RFC 4733 events and SIP INFO), and media problems: no RTP or one-way audio
+  after the answer, a codec the SDP didn't agree on, an SSRC change, long
+  silences. _Filter Call_ shows the call's packets; _Save Call…_ writes them
+  to a new capture.
 - **Follow TCP / UDP / TLS / HTTP / HTTP/2 / QUIC / WebSocket stream**, with
   each HTTP/2 or QUIC stream of a connection picked from a list (QUIC and
   HTTP/2 over TLS need the TLS key log). Show the data as ASCII, UTF-8, UTF-16,

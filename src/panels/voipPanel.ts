@@ -2,6 +2,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { exportFilterAs } from "../commands/export";
 import { revealFile, revealLabel } from "../commands/reveal";
 import { ErrorCodes, RpcError } from "../backendClient";
 import type { PcapEditorSession } from "../pcapEditor";
@@ -22,7 +23,7 @@ export interface RtpStream {
   heuristic?: boolean;
 }
 
-/** A SIP call as the backend's voip_calls lists it. */
+/** A SIP call as the backend's voip_calls lists it (see voip.parse_sip_calls). */
 export interface VoipCall {
   id: number;
   callId: string;
@@ -30,6 +31,16 @@ export interface VoipCall {
   to: string;
   state: string;
   streams: number[];
+  /** Ringing and answer delays from the INVITE, and the talk time (s). */
+  ringing: number | null;
+  setup: number | null;
+  duration: number | null;
+  endedBy: "caller" | "callee" | null;
+  final: string;
+  reasons: string[];
+  quality: { mos: number; r: number; rating: string; stream: number } | null;
+  dtmf: { digit: string; frame: number; method: string }[];
+  problems: { kind: string; text: string; frame: number | null }[];
   filter: string;
 }
 
@@ -40,11 +51,13 @@ type FromPanel =
   | { type: "play"; id: number; stream: RtpStream }
   | { type: "save"; stream: RtpStream; format: "wav" | "raw" }
   | { type: "filter"; expr: string }
+  | { type: "saveCall"; call: { id: number; filter: string } }
   | { type: "goto"; frame: number };
 
 /**
- * VoIP calls of one capture: the SIP calls (with their message flow and
- * media), the RTP streams (packets, loss, jitter), a stream's packet-by-packet
+ * VoIP calls of one capture: the SIP calls (with their message flow, media,
+ * timings, quality, DTMF and media problems; one can be saved alone), the
+ * RTP streams (packets, loss, jitter, MOS), a stream's packet-by-packet
  * analysis, and its audio, played in the panel or saved as WAV. The backend
  * does the passes and the decoding; audio reaches the webview as a file in
  * this panel's own folder (never through postMessage).
@@ -134,6 +147,12 @@ export class VoipPanel {
         if (typeof msg.expr === "string" && msg.expr) {
           this.session.applyFilter(msg.expr);
           this.session.reveal();
+        }
+        return;
+      case "saveCall":
+        if (typeof msg.call?.filter === "string" && msg.call.filter) {
+          const n = Number(msg.call.id) + 1;
+          await exportFilterAs(this.session, msg.call.filter, `call-${n}`, `call ${n}`);
         }
         return;
       case "goto":

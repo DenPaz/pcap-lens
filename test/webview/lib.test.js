@@ -1243,6 +1243,60 @@ suite("webview lib: navigation and customisation", () => {
     ]);
   });
 
+  test("call details: timings, ending, quality and DTMF labels", () => {
+    const call = {
+      ringing: 0.3,
+      setup: 1.5,
+      duration: 2.1,
+      final: "200 OK",
+      endedBy: "callee",
+      caller: "10.0.1.1",
+      callee: "10.0.1.2",
+      reasons: ["Q.850 cause 16: Normal call clearing"],
+    };
+    assert.deepEqual(lib.callFacts(call), [
+      "Rang after 0.300 s",
+      "answered after 1.500 s",
+      "lasted 0:02",
+      "final response 200 OK",
+      "ended by the callee (10.0.1.2)",
+      "Reason: Q.850 cause 16: Normal call clearing",
+    ]);
+    assert.deepEqual(
+      lib.callFacts({
+        ringing: null,
+        setup: null,
+        duration: null,
+        final: "480 Temporarily Unavailable",
+        endedBy: "callee",
+        caller: "a",
+        callee: "b",
+      }),
+      ["Not answered", "final response 480 Temporarily Unavailable", "ended by the callee (b)"],
+    );
+    const streams = [{ src: "10.0.0.1", srcPort: 40000, dst: "10.0.0.2", dstPort: 50000 }];
+    const q = { mos: 4.23, r: 85.9, rating: "High", codec: "G.711", assumed: false, stream: 0 };
+    assert.equal(lib.mosLabel(q), "4.23 (High)");
+    assert.equal(lib.mosLabel(null), "");
+    assert.equal(
+      lib.callQualityText(q, streams),
+      "MOS 4.23 (High, R 85.9) for 10.0.0.1:40000 → 10.0.0.2:50000, the call's worst stream; G.711",
+    );
+    assert.match(
+      lib.callQualityText({ ...q, assumed: true, stream: 5 }, streams),
+      /^MOS 4\.23 \(High, R 85\.9\); codec not known to the E-model: rated as G\.711$/,
+    );
+    assert.equal(lib.callQualityText(null, streams), "No RTP to rate.");
+    assert.equal(
+      lib.dtmfLabel({ digit: "4", method: "RFC 4733", src: "10.0.1.1", duration: 80 }),
+      "4 · RFC 4733 from 10.0.1.1, 80 ms",
+    );
+    assert.equal(
+      lib.dtmfLabel({ digit: "*", method: "SIP INFO", src: "10.0.1.2", duration: null }),
+      "* · SIP INFO from 10.0.1.2",
+    );
+  });
+
   test("groupCommands: headings in order, commands in their order, unknown groups under Other", () => {
     const c = (id, group) => ({ id, title: id, category: "PCAP", group });
     const groups = lib.groupCommands([

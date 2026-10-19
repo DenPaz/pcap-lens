@@ -1243,6 +1243,36 @@ filesize` needs a file) block by block: one chunk can hold many blocks, so
   chart with flagged packets, `lib.rtpProblems` as links). `voip.pcap`
   (`generate.voip_packets`, a µ-law encoder in the generator) has a call with
   440/880 Hz tones, one lost packet and jitter, and a 486-rejected call.
+  **Call details** (0.13.0): `voip_calls` runs a third pass in parallel, the
+  media pass (`-Y rtp`, `MEDIA_FIELDS`, streamed: it can be most of the
+  capture; `parse_media`) giving each stream (`stream_media`) its audio
+  `payloadTypes`, RFC 4733 events as `dtmf` (one per event and RTP
+  timestamp, the end packet comes three times; `rtpevent.*` decode through
+  the SDP's rtpmap), `gaps` ≥ `SILENCE_GAP_S` (1 s), `firstFrame` and
+  `quality` = `emodel(loss %, mean jitter, payload type)`: ITU-T G.107 with
+  defaults and random loss, R = 93.2 − Id − Ie,eff, Ie/Bpl from G.113
+  (`EMODEL_CODECS`: G.711 0/25.1 with PLC, G.729, G.723.1; others rated as
+  G.711 with `assumed`), delay = 2 × mean jitter + `CODEC_DELAY_MS` (the
+  network delay can't be measured at one point), G.109's ratings. The SIP
+  pass appends `SIP_EXTRA_FIELDS` (Reason, Content-Type, msg_body, sdp.media,
+  sdp.media_attr; bodies are blanked except for INFO, so INVITEs' SDP hex
+  doesn't pile up) and calls gain `ringing` (INVITE → first 18x), `final`,
+  `endedBy` (BYE sender's side, CANCEL = caller, a failure = callee),
+  `reasons` (`describe_reasons`, `Q850_CAUSES` for causes without text),
+  `dtmf` (SIP INFO `application/dtmf-relay`/`dtmf` bodies plus the linked
+  streams' events), `quality` (worst linked stream) and `problems`
+  (`_problems`: no-rtp, one-way (sides from who sent each SDP), codec
+  (payload types outside the answer's m= line, else the offer's), ssrc (two
+  linked streams on one path), gap; one entry per text). The call filter
+  also takes the streams' RTCP (source port + 1). The panel shows
+  `#voip-call-details` (`lib.callFacts`, `callQualityText`, `dtmfLabel`;
+  lists whose items link to packets), MOS and problem counts in the calls
+  table, MOS and DTMF in the streams table, and _Save Call…_ (`saveCall` →
+  `exportFilterAs`, a pcapng export of the call filter). `voip-calls.pcap`
+  (`generate.voip_calls_packets`, `_CallScript`) has five calls to erin:
+  DTMF both ways with a Q.850 BYE, one-way audio with a codec mismatch, a
+  1.5 s pause and an SSRC change, an answered call without RTP, a cancelled
+  one and a 480 with a bare Q.850 cause.
 - **Capture editing** (`editing.py`, `edit_capture {operation, …, dest | dir}`;
   `commands/editCapture.ts`): one editcap run over the whole file (not the
   view; comment edits not included) into `dest` via `atomic_output`, `-F
