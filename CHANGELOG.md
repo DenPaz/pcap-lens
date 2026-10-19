@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.14.0 — 2026-10-19
+
 ### Added
 
 - _Play Call_ plays both directions of a VoIP call together (caller left,
