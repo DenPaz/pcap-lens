@@ -137,6 +137,9 @@ registered under its name in lower case).
   marks) its response.
 - Next/previous packet in the conversation, first/last, go to packet, and
   **marks** (`Ctrl+M`) with next/previous marked.
+- **Compare packets**: select two packets (or one, and give the other's
+  number) and _Compare…_ from the row menu shows their details side by side,
+  the fields that differ marked; _Only differences_ hides the rest.
 - **Ignore packets** (`Ctrl+D`): they stay in the list, dimmed, but statistics,
   the status bar's expert counts and exports leave them out.
 

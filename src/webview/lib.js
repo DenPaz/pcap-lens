@@ -176,6 +176,91 @@
     return name === "fake-field-wrapper" ? null : name;
   }
 
+  /**
+   * Compare two packets' detail trees (the Compare Packets panel): one row per
+   * field, the two packets' nodes aligned by their path of field names
+   * (repeated names, and unnamed nodes, by occurrence), in packet A's
+   * order with B's extra fields after their predecessor. `status`: "same"
+   * (same label), "changed", "a" or "b" (only in that packet); `differs` is
+   * true when the row or anything below it isn't "same".
+   *
+   * @param {any[]} treeA @param {any[]} treeB
+   * @returns {{depth: number, a: string | null, b: string | null, status: "same" | "changed" | "a" | "b", differs: boolean}[]}
+   */
+  function comparePackets(treeA, treeB) {
+    /** @type {{depth: number, a: string | null, b: string | null, status: "same" | "changed" | "a" | "b", differs: boolean}[]} */
+    const rows = [];
+    /** @param {any[]} nodes */
+    const keys = (nodes) => {
+      /** @type {Map<string, number>} */
+      const seen = new Map();
+      return nodes.map((n) => {
+        const base = n.name || "#"; // (unnamed nodes pair up in order)
+        const i = seen.get(base) ?? 0;
+        seen.set(base, i + 1);
+        return `${base}\u0000${i}`;
+      });
+    };
+    /** @param {any} node @param {number} depth @param {"a" | "b"} side */
+    const only = (node, depth, side) => {
+      rows.push({
+        depth,
+        a: side === "a" ? node.label : null,
+        b: side === "b" ? node.label : null,
+        status: side,
+        differs: true,
+      });
+      for (const child of node.children ?? []) {
+        only(child, depth + 1, side);
+      }
+    };
+    /** @param {any} a @param {any} b @param {number} depth */
+    const pair = (a, b, depth) => {
+      const row = {
+        depth,
+        a: a.label,
+        b: b.label,
+        status: /** @type {"same" | "changed"} */ (a.label === b.label ? "same" : "changed"),
+        differs: false,
+      };
+      rows.push(row);
+      const below = lists(a.children ?? [], b.children ?? [], depth + 1);
+      row.differs = row.status !== "same" || below;
+    };
+    /** @param {any[]} as @param {any[]} bs @param {number} depth @returns {boolean} any difference */
+    const lists = (as, bs, depth) => {
+      const before = rows.length;
+      const ka = keys(as);
+      const kb = keys(bs);
+      /** @type {Map<string, number>} */
+      const bIndex = new Map(kb.map((k, i) => [k, i]));
+      const matched = new Set(ka.filter((k) => bIndex.has(k)));
+      let j = 0;
+      as.forEach((a, i) => {
+        const m = bIndex.get(ka[i]);
+        if (m === undefined) {
+          only(a, depth, "a");
+          return;
+        }
+        for (; j < m; j++) {
+          if (!matched.has(kb[j])) {
+            only(bs[j], depth, "b");
+          }
+        }
+        j = Math.max(j, m + 1);
+        pair(a, bs[m], depth);
+      });
+      for (; j < bs.length; j++) {
+        if (!matched.has(kb[j])) {
+          only(bs[j], depth, "b");
+        }
+      }
+      return rows.slice(before).some((r) => r.differs);
+    };
+    lists(treeA ?? [], treeB ?? [], 0);
+    return rows;
+  }
+
   /** Conversation Filter's protocols: [label, address/stream fields, filter field]. */
   const CONVERSATIONS = /** @type {const} */ ([
     ["Ethernet", ["eth.src", "eth.dst"], "eth.addr"],
@@ -1819,6 +1904,7 @@
     expertStatus,
     relatedKind,
     conversationFilters,
+    comparePackets,
     relatedFrames,
     bitPattern,
     packetDiagram,

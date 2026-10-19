@@ -238,6 +238,11 @@
         "category": "PCAP"
       },
       {
+        "command": "pcapViewer.comparePackets",
+        "title": "Compare Packets…",
+        "category": "PCAP"
+      },
+      {
         "command": "pcapViewer.unignoreAll",
         "title": "Unignore All Packets",
         "category": "PCAP"
@@ -813,6 +818,10 @@
         },
         {
           "command": "pcapViewer.toggleIgnore",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
+        },
+        {
+          "command": "pcapViewer.comparePackets",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
         },
         {

@@ -167,10 +167,10 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   (`scripts/sync-codicons.mjs`). CSS: `base.css` (tokens and controls, loaded
   by the editor and the panels), `styles.css` (the viewer), `panel.css`.
 - `src/panels/` statistics, follow-stream, coloring-rules, export-objects,
-  flow-graph, TCP-graph and VoIP webview panels (`panelHtml.ts` builds their
-  CSP'd HTML); their UIs are `src/webview/stats.js`, `follow.js`,
-  `coloring.js`, `objects.js`, `flowgraph.js`, `tcpgraph.js` and `voip.js`
-  with `panel.css`.
+  flow-graph, TCP-graph, VoIP and compare-packets webview panels
+  (`panelHtml.ts` builds their CSP'd HTML); their UIs are
+  `src/webview/stats.js`, `follow.js`, `coloring.js`, `objects.js`,
+  `flowgraph.js`, `tcpgraph.js`, `voip.js` and `compare.js` with `panel.css`.
 - `backend/pcap_backend/` Python package run as `python -m pcap_backend`
   with `PYTHONPATH=backend`. `server.py` (JSON-RPC), `pcap_service.py`
   (`PcapService`, assembled from the `service/` mixins, `rpc_methods`, and
@@ -970,6 +970,24 @@ transport,external}`, `open {names}`): `DissectionOptions.names` holds the
   sent more data, draws at most 6000 marks, and puts the time axis around the
   stream (`lib.niceRange`). One panel per editor; showing it again switches
   stream. Opened from the command or the row menu (`tcpGraph` message).
+- **Compare packets** (`pcapViewer.comparePackets {frames}`,
+  `ComparePanel`, `compare.js`, `lib.comparePackets`): one panel per editor
+  (showing it again compares the new pair). The row menu posts `compare`
+  with the two selected frames (_Compare 2 Selected Packets_) or the clicked
+  one (_Compare with Packet…_: the command asks for the other's number;
+  disabled for more than two); without args the command takes the
+  selection. The host fetches both details with `session.detailParams`
+  (two-pass for small captures, like the viewer) and posts `show {a, b}`;
+  _Swap_ and _Go to Packet N_ go back to it. `lib.comparePackets` aligns
+  the trees by the path of field names, repeated names and unnamed nodes
+  by occurrence (unnamed ones keyed by label made two different DNS
+  queries look like two one-sided subtrees), in A's order with B's extra
+  fields after their predecessor; rows are same/changed/a/b with `differs`
+  for the row or anything below. The table (`table.stats.compare`, fixed
+  layout, labels wrap) marks rows with a diff Codicon plus visually hidden
+  text, colors cells with the diff editor's removed/inserted backgrounds,
+  and shows only differing rows (with their parents) by default, at most
+  5000 rows.
 - **Live capture** (`capture.py`, `capture_start {dest, interfaces, filter,
 limits: {packets, seconds, bytes}, promiscuous, snaplen}` + the open
   parameters minus `path`/`cache`, `capture_stop`, `list_interfaces` =

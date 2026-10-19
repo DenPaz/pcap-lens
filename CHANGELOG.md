@@ -12,6 +12,9 @@ commit) that made it. The format follows
 - Two-pass details for small captures (up to 10,000 packets,
   `pcapViewer.twoPassDetail`): references to later packets appear too, so a
   request names and marks its response, as in Wireshark.
+- Compare Packets: two packets' details side by side, aligned field by
+  field, with the fields that differ (or exist in only one) marked and an
+  _Only differences_ switch. From the packet list's menu or the ☰ menu.
 
 ## 0.8.0 — 2026-10-18
 

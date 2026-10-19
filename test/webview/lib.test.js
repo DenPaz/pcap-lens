@@ -93,6 +93,49 @@ suite("webview lib: filters", () => {
     assert.equal(lib.relatedKind("http.prev_request_in"), "related");
   });
 
+  test("comparePackets: aligns fields by name path, marks changed and one-sided rows", () => {
+    const n = (name, label, children) => ({ name, label, ...(children ? { children } : {}) });
+    const a = [
+      n("frame", "Frame 4", [n("frame.number", "Frame Number: 4"), n("frame.len", "Length: 60")]),
+      n("tcp", "TCP", [
+        n("tcp.flags", "Flags: 0x018 (PSH, ACK)"),
+        n("tcp.option", "Option: NOP"),
+        n("tcp.option", "Option: Timestamps"),
+        n("", "[Expert: retransmission]"),
+      ]),
+      n("http", "HTTP", [n("http.request.method", "Request Method: GET")]),
+    ];
+    const b = [
+      n("frame", "Frame 7", [n("frame.number", "Frame Number: 7"), n("frame.len", "Length: 60")]),
+      n("tcp", "TCP", [
+        n("tcp.flags", "Flags: 0x018 (PSH, ACK)"),
+        n("tcp.option", "Option: NOP"),
+        n("tcp.window", "Window: 512"),
+      ]),
+    ];
+    const rows = lib.comparePackets(a, b);
+    assert.deepEqual(
+      rows.map((r) => [r.depth, r.a, r.b, r.status, r.differs]),
+      [
+        [0, "Frame 4", "Frame 7", "changed", true],
+        [1, "Frame Number: 4", "Frame Number: 7", "changed", true],
+        [1, "Length: 60", "Length: 60", "same", false],
+        [0, "TCP", "TCP", "same", true],
+        [1, "Flags: 0x018 (PSH, ACK)", "Flags: 0x018 (PSH, ACK)", "same", false],
+        [1, "Option: NOP", "Option: NOP", "same", false],
+        // The second tcp.option has no partner; B's window comes after the last match.
+        [1, "Option: Timestamps", null, "a", true],
+        [1, "[Expert: retransmission]", null, "a", true],
+        [1, null, "Window: 512", "b", true],
+        [0, "HTTP", null, "a", true],
+        [1, "Request Method: GET", null, "a", true],
+      ],
+    );
+    const same = lib.comparePackets(b, b);
+    assert.ok(same.every((r) => r.status === "same" && !r.differs));
+    assert.deepEqual(lib.comparePackets([], []), []);
+  });
+
   test("conversationFilters: Ethernet, IP and stream conversations, innermost values", () => {
     const f = (name, show, children) => ({ name, show, ...(children ? { children } : {}) });
     const tree = [

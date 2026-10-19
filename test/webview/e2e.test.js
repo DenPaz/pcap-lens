@@ -174,6 +174,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
           "askAboutPackets",
           "runCommand",
           "colorizeConversation",
+          "compare",
           "addFilterButton",
           "editFilterButton",
         ].includes(msg.type)
@@ -596,6 +597,19 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await post({ type: "coloring", coloringId: 0, temporary: 0, rules: [] });
     await cleanView();
     await rowEl(4).click(); // (the next test starts on frame 4)
+    await waitSelected(4);
+  });
+
+  test("Compare with Packet… and Compare 2 Selected Packets reach the host", async () => {
+    await cleanView();
+    await rowEl(4).click({ button: "right" });
+    await page.click("#context-menu .item:has-text('Compare with Packet…')");
+    await expectHostLast({ type: "compare", frames: [4] }, { ofType: true });
+    await rowEl(7).click({ modifiers: ["Control"] });
+    await rowEl(7).click({ button: "right" });
+    await page.click("#context-menu .item:has-text('Compare 2 Selected Packets')");
+    await expectHostLast({ type: "compare", frames: [4, 7] }, { ofType: true });
+    await rowEl(4).click(); // (the next test starts on frame 4, alone)
     await waitSelected(4);
   });
 
