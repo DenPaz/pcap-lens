@@ -40,8 +40,14 @@ el.rows.addEventListener("contextmenu", (e) => {
   }
   const multi = state.selection.size;
   const protocol = (row.cells[4] || "").toUpperCase();
-  /** @param {"tcp" | "udp" | "tls" | "http"} proto */
+  /** @param {"tcp" | "udp" | "tls" | "http" | "http2" | "quic" | "websocket"} proto */
   const follow = (proto) => () => vscode.postMessage({ type: "follow", proto, frame: row.number });
+  /**
+   * A follow entry, or none when the packet isn't of that protocol.
+   * @param {string} label @param {Parameters<typeof follow>[0]} proto @param {boolean} offered
+   * @returns {[string, () => void][]}
+   */
+  const followIf = (label, proto, offered) => (offered ? [[label, follow(proto)]] : []);
   // The clicked cell: Apply as Filter on its value (validated when applied).
   const cellEl = /** @type {HTMLElement | null} */ (
     /** @type {HTMLElement} */ (e.target).closest(".list-row > div")
@@ -97,6 +103,10 @@ el.rows.addEventListener("contextmenu", (e) => {
     ["Follow UDP Stream", follow("udp")],
     ["Follow TLS Stream", /TLS|SSL/.test(protocol) ? follow("tls") : null],
     ["Follow HTTP Stream", /HTTP/.test(protocol) ? follow("http") : null],
+    // Only offered on their own packets (the menu stays short).
+    ...followIf("Follow HTTP/2 Stream", "http2", /HTTP2/.test(protocol)),
+    ...followIf("Follow QUIC Stream", "quic", /QUIC|HTTP3/.test(protocol)),
+    ...followIf("Follow WebSocket Stream", "websocket", /WEBSOCKET/.test(protocol)),
     ["TCP Stream Graph", () => vscode.postMessage({ type: "tcpGraph", frame: row.number })],
     [
       multi === 2 ? "Compare 2 Selected Packets" : "Compare with Packet…",

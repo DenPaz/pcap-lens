@@ -3,6 +3,7 @@
  * (src/webview/main.js). Keep both sides in sync.
  */
 import type { MenuCommand } from "./commandMenu";
+import type { FollowProto } from "./panels/followPanel";
 import type {
   ColoringStyle,
   ColumnLayout,
@@ -142,7 +143,7 @@ export type WebviewToHost =
   /** Compare Packets: these two, or this one and one the host asks for. */
   | { type: "compare"; frames: number[] }
   | { type: "protocolPrefs"; protocol: string }
-  | { type: "follow"; proto: "tcp" | "udp" | "tls" | "http"; frame: number }
+  | { type: "follow"; proto: FollowProto; frame: number }
   | { type: "manageSavedFilters" }
   | { type: "colorize"; filter: string }
   /** Colorize Conversation: color `filter`'s packets in this editor (a temporary rule). */

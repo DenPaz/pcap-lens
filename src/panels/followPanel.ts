@@ -2,16 +2,34 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { ErrorCodes, RpcError } from "../backendClient";
 import type { PcapEditorSession } from "../pcapEditor";
+import { filterOutExpr } from "../settingsModel";
 import { panelHtml, webviewRoot } from "./panelHtml";
 
-export type FollowProto = "tcp" | "udp" | "tls" | "http";
+export type FollowProto = "tcp" | "udp" | "tls" | "http" | "http2" | "quic" | "websocket";
 
 export const FOLLOW_LABELS: Record<FollowProto, string> = {
   tcp: "TCP",
   udp: "UDP",
   tls: "TLS",
   http: "HTTP",
+  http2: "HTTP/2",
+  quic: "QUIC",
+  websocket: "WebSocket",
 };
+
+/** The "Follow <proto> Stream" command of each protocol. */
+export const FOLLOW_COMMANDS: Record<FollowProto, string> = {
+  tcp: "pcapViewer.followTcpStream",
+  udp: "pcapViewer.followUdpStream",
+  tls: "pcapViewer.followTlsStream",
+  http: "pcapViewer.followHttpStream",
+  http2: "pcapViewer.followHttp2Stream",
+  quic: "pcapViewer.followQuicStream",
+  websocket: "pcapViewer.followWebSocketStream",
+};
+
+/** Extensions a stream saved as text may get (the panel names one per view). */
+const TEXT_EXTENSIONS = new Set(["txt", "c", "yaml"]);
 
 export interface FollowResult {
   proto: FollowProto;
@@ -22,13 +40,25 @@ export interface FollowResult {
   bytes: [number, number];
   truncated: boolean;
   hint?: string;
+  /** HTTP/2 and QUIC: the sub-stream followed and those the connection has. */
+  substream?: number;
+  substreams?: number[];
 }
 
 type FromPanel =
   | { type: "ready" }
-  | { type: "stream"; stream: number }
+  | { type: "stream"; stream: number; substream?: number }
   | { type: "filter"; expr: string; apply: boolean }
-  | { type: "save"; dir: "both" | 0 | 1; format: "raw" | "text"; text?: string };
+  /** "Filter Out This Stream": every packet but the stream's (the host knows the display filter). */
+  | { type: "filterOut"; expr: string }
+  | {
+      type: "save";
+      dir: "both" | 0 | 1;
+      format: "raw" | "text";
+      text?: string;
+      /** For text: "txt", "c" (C arrays) or "yaml". */
+      ext?: string;
+    };
 
 /**
  * "Follow Stream": the reassembled payload of one conversation, colored by
@@ -57,7 +87,7 @@ export class FollowPanel {
     context: vscode.ExtensionContext,
     private readonly session: PcapEditorSession,
     private readonly proto: FollowProto,
-    private target: { frame?: number; stream?: number },
+    private target: { frame?: number; stream?: number; substream?: number },
   ) {
     const title = `Follow ${FOLLOW_LABELS[proto]} Stream · ${path.basename(session.uri.fsPath)}`;
     const root = webviewRoot(context);
@@ -94,7 +124,10 @@ export class FollowPanel {
       case "ready":
         return this.load();
       case "stream":
-        this.target = { stream: msg.stream };
+        this.target =
+          typeof msg.substream === "number"
+            ? { stream: msg.stream, substream: msg.substream }
+            : { stream: msg.stream };
         return this.load();
       case "filter":
         if (msg.apply) {
@@ -104,8 +137,12 @@ export class FollowPanel {
         }
         this.session.reveal();
         return;
+      case "filterOut":
+        this.session.applyFilter(filterOutExpr(this.session.currentFilter, msg.expr));
+        this.session.reveal();
+        return;
       case "save":
-        return this.save(msg.dir, msg.format, msg.text);
+        return this.save(msg.dir, msg.format, msg.text, msg.ext);
     }
   }
 
@@ -144,20 +181,27 @@ export class FollowPanel {
   }
 
   /** Save the stream: raw bytes of the chosen direction(s), or the text the panel shows. */
-  private async save(dir: "both" | 0 | 1, format: "raw" | "text", text?: string): Promise<void> {
+  private async save(
+    dir: "both" | 0 | 1,
+    format: "raw" | "text",
+    text?: string,
+    ext?: string,
+  ): Promise<void> {
     const result = this.result;
     if (!result) {
       return;
     }
-    const base = `${result.proto}-stream-${result.stream}${dir === "both" ? "" : dir === 0 ? "-client" : "-server"}`;
+    const sub = typeof result.substream === "number" ? `-${result.substream}` : "";
+    const base = `${result.proto}-stream-${result.stream}${sub}${dir === "both" ? "" : dir === 0 ? "-client" : "-server"}`;
+    const textExt = ext && TEXT_EXTENSIONS.has(ext) ? ext : "txt";
     const folder = vscode.Uri.file(path.dirname(this.session.uri.fsPath));
     const target = await vscode.window.showSaveDialog({
-      defaultUri: vscode.Uri.joinPath(folder, `${base}.${format === "raw" ? "bin" : "txt"}`),
+      defaultUri: vscode.Uri.joinPath(folder, `${base}.${format === "raw" ? "bin" : textExt}`),
       title: `Save ${FOLLOW_LABELS[result.proto]} stream ${result.stream}`,
       filters:
         format === "raw"
           ? { "Raw data": ["bin", "raw"], "All files": ["*"] }
-          : { Text: ["txt"], "All files": ["*"] },
+          : { Text: [textExt], "All files": ["*"] },
     });
     if (!target) {
       return;

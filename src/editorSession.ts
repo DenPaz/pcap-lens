@@ -41,7 +41,7 @@ import {
 } from "./messages";
 import { saveFilterInteractive, showSavedFilters } from "./commands/savedFilters";
 import { addFilterButtonInteractive, editFilterButton } from "./commands/filterButtons";
-import { FollowPanel } from "./panels/followPanel";
+import { FOLLOW_LABELS, FollowPanel } from "./panels/followPanel";
 import { rotatedSiblings } from "./rotation";
 import { MenuCommand, buildCommandMenu } from "./commandMenu";
 import {
@@ -832,7 +832,9 @@ export class PcapEditorSession {
           : [];
         return;
       case "follow":
-        FollowPanel.show(this.context, this, msg.proto, msg.frame);
+        if (Object.hasOwn(FOLLOW_LABELS, msg.proto)) {
+          FollowPanel.show(this.context, this, msg.proto, msg.frame);
+        }
         return;
       case "tcpGraph":
         await vscode.commands.executeCommand("pcapViewer.statistics.tcpStreamGraph", msg.frame);

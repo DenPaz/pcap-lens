@@ -32,6 +32,8 @@ export default tseslint.config(
         getComputedStyle: "readonly",
         ResizeObserver: "readonly",
         MutationObserver: "readonly",
+        TextDecoder: "readonly",
+        btoa: "readonly",
         HTMLElement: "readonly",
         KeyboardEvent: "readonly",
         MouseEvent: "readonly",

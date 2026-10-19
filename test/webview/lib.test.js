@@ -628,10 +628,83 @@ suite("webview lib: follow stream and statistics helpers", () => {
     assert.equal(lib.hexDump(new Uint8Array([])), "");
   });
 
+  test("findRanges: case-insensitive, non-overlapping, capped", () => {
+    assert.deepEqual(lib.findRanges("GET / HTTP/1.1\nHost: x\nhttp", "http"), [
+      [6, 10],
+      [23, 27],
+    ]);
+    assert.deepEqual(lib.findRanges("aaaa", "aa"), [
+      [0, 2],
+      [2, 4],
+    ]);
+    assert.deepEqual(lib.findRanges("abcabc", "b", 1), [[1, 2]]);
+    assert.deepEqual(lib.findRanges("abc", ""), []);
+    assert.deepEqual(lib.findRanges("abc", "x"), []);
+  });
+
   test("streamFilter", () => {
     assert.equal(lib.streamFilter("tcp", 3), "tcp.stream eq 3");
     assert.equal(lib.streamFilter("http", 0), "tcp.stream eq 0");
     assert.equal(lib.streamFilter("udp", 7), "udp.stream eq 7");
+    assert.equal(lib.streamFilter("websocket", 1), "tcp.stream eq 1");
+    assert.equal(lib.streamFilter("http2", 0), "tcp.stream eq 0");
+    assert.equal(lib.streamFilter("http2", 0, 3), "tcp.stream eq 0 and http2.streamid eq 3");
+    assert.equal(lib.streamFilter("quic", 2), "quic.connection.number eq 2");
+    assert.equal(
+      lib.streamFilter("quic", 2, 0),
+      "quic.connection.number eq 2 and quic.stream.stream_id eq 0",
+    );
+    assert.equal(lib.streamFilter("tcp", 3, 1), "tcp.stream eq 3", "no sub-streams in TCP");
+  });
+
+  test("decodeStream: the text views", () => {
+    const bytes = (...b) => new Uint8Array(b);
+    // "é" in UTF-8, CR LF, a NUL, a tab.
+    const utf8 = bytes(0x63, 0x61, 0x66, 0xc3, 0xa9, 0x0d, 0x0a, 0x00, 0x09);
+    assert.equal(lib.decodeStream(utf8, "ascii"), "caf..\n.\t");
+    assert.equal(lib.decodeStream(utf8, "utf-8"), "café\n.\t");
+    assert.equal(lib.decodeStream(utf8, "latin1"), "cafÃ©\n.\t");
+    assert.equal(lib.decodeStream(bytes(0xff), "utf-8"), "\ufffd", "undecodable bytes");
+    assert.equal(lib.decodeStream(bytes(0x80, 0x9f, 0xa0), "latin1"), "..\u00a0", "C1 controls");
+    assert.equal(lib.decodeStream(bytes(0x68, 0, 0x69, 0, 0x0a, 0), "utf-16"), "hi\n");
+    // EBCDIC "Hello" (code page 037), newline 0x25, a control.
+    assert.equal(
+      lib.decodeStream(bytes(0xc8, 0x85, 0x93, 0x93, 0x96, 0x25, 0x00), "ebcdic"),
+      "Hello\n.",
+    );
+    assert.equal(lib.decodeStream(bytes(0x4a, 0x5b, 0xe0), "ebcdic"), "¢$\\");
+  });
+
+  test("cArray: eight bytes a line, named by peer and index", () => {
+    const bytes = new Uint8Array([...Array(10).keys()]);
+    assert.equal(
+      lib.cArray(bytes, 1, 2),
+      "char peer1_2[] = {\n0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,\n0x08, 0x09 };",
+    );
+  });
+
+  test("YAML view: peers, then segments as base64", () => {
+    assert.equal(
+      lib.yamlPeers(["10.0.0.1:50300", "fe80::1:443"]),
+      [
+        "peers:",
+        "  - peer: 0",
+        "    host: '10.0.0.1'",
+        "    port: 50300",
+        "  - peer: 1",
+        "    host: 'fe80::1'",
+        "    port: 443",
+        "packets:",
+      ].join("\n"),
+    );
+    assert.equal(lib.yamlPeers([""]), "peers:\n  - peer: 0\n    host: ''\npackets:");
+    assert.equal(
+      lib.yamlSegment(new Uint8Array(Buffer.from("GET /hello.txt\r\n")), 0, 3),
+      "  - peer: 0\n    index: 3\n    data: !!binary |\n      R0VUIC9oZWxsby50eHQNCg==",
+    );
+    const long = lib.yamlSegment(new Uint8Array(60), 1, 0).split("\n");
+    assert.deepEqual(long.slice(3), ["      " + "A".repeat(64), "      " + "A".repeat(16)]);
+    assert.equal(lib.bytesToBase64(new Uint8Array(70000)).length, 93336, "past one chunk");
   });
 
   test("formatCell", () => {

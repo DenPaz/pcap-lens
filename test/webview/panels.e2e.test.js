@@ -414,6 +414,33 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       ),
     );
 
+    // Search: matches highlighted, Enter / Shift+Enter step through them, Esc clears.
+    await page.fill("#follow-find", "html");
+    await page.waitForFunction(() =>
+      /^1 of \d+$/.test(document.querySelector("#follow-find-count").textContent),
+    );
+    const total = Number((await page.textContent("#follow-find-count")).split(" of ")[1]);
+    assert.ok(total >= 2, "index.html and text/html at least");
+    assert.equal(await page.locator("mark.find-match").count(), total);
+    assert.equal(await page.textContent("mark.find-match.current"), "html");
+    await page.press("#follow-find", "Enter");
+    assert.equal(await page.textContent("#follow-find-count"), `2 of ${total}`);
+    await page.press("#follow-find", "Shift+Enter");
+    await page.press("#follow-find", "Shift+Enter");
+    assert.equal(await page.textContent("#follow-find-count"), `${total} of ${total}`, "wraps");
+    assert.ok(
+      (await page.textContent("pre.segment.dir0")).startsWith("GET /index.html HTTP/1.1"),
+      "the text around the matches is intact",
+    );
+    await page.fill("#follow-find", "no such text");
+    await page.waitForFunction(
+      () => document.querySelector("#follow-find-count").textContent === "No matches",
+    );
+    await page.press("#follow-find", "Escape");
+    await page.waitForFunction(() => !document.querySelector("mark.find-match"));
+    assert.equal(await page.textContent("#follow-find-count"), "");
+    await page.fill("#follow-find", "HTTP/1.1"); // (left on for the accessibility check)
+
     await page.selectOption("select[aria-label='Direction']", "1");
     assert.equal(await page.locator("pre.segment.dir0").count(), 0);
     await page.selectOption("select[aria-label='Show data as']", "hex");
@@ -439,6 +466,14 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       log.find((m) => m.type === "filter"),
       { type: "filter", expr: "tcp.stream eq 0", apply: true },
     );
+    await page.click("button:has-text('Filter Out This Stream')");
+    assert.deepEqual(
+      log.find((m) => m.type === "filterOut"),
+      {
+        type: "filterOut",
+        expr: "tcp.stream eq 0",
+      },
+    );
 
     // There is only one TCP stream in the capture: the next one is empty.
     await page.click("button[title='Next stream']");
@@ -447,6 +482,111 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     );
     assert.equal(await page.textContent(".status"), "No payload in this stream.");
     assert.equal(await page.locator("pre.segment").count(), 0);
+  });
+
+  test("follow HTTP/2 and QUIC: sub-streams, more views, filter and save", async () => {
+    // A backend of its own on the streams capture (HTTP/2, WebSocket, QUIC).
+    const streams = await startBackend(deps);
+    try {
+      await streams.request(
+        "open",
+        { path: path.join(FIXTURES, "streams.pcapng") },
+        { timeoutMs: 0 },
+      );
+      /** follow.js with a stand-in for FollowPanel, following `proto`. */
+      const openFollow = async (proto, label, first) => {
+        const { page, problems, post } = await newPage(browser);
+        pages.push(problems);
+        const log = [];
+        let target = first;
+        const load = () =>
+          streams.request("follow_stream", { proto, ...target }, { timeoutMs: 0 }).then(
+            (result) => post({ type: "result", result, label }),
+            (err) => post({ type: "error", message: err.message }),
+          );
+        await page.exposeFunction("__toHost", async (raw) => {
+          const msg = JSON.parse(raw);
+          log.push(msg);
+          if (msg.type === "ready") {
+            await load();
+          } else if (msg.type === "stream") {
+            target = { stream: msg.stream, substream: msg.substream };
+            await load();
+          }
+        });
+        await page.setContent(renderPanelHtml(origin, "follow.js"), { waitUntil: "load" });
+        await page.waitForSelector("pre.segment");
+        return { page, log };
+      };
+      const title = (page, text) =>
+        page.waitForFunction((t) => document.querySelector(".panel-title").textContent === t, text);
+      const options = (page) =>
+        page.$$eval("#follow-substream option", (o) => o.map((x) => x.textContent));
+
+      // HTTP/2 from packet 12: its sub-stream 3, then sub-stream 1 from the picker.
+      const h2 = await openFollow("http2", "HTTP/2", { frame: 12 });
+      await title(h2.page, "HTTP/2 stream 0, sub-stream 3");
+      assert.deepEqual(await options(h2.page), ["0 (connection)", "1", "3"]);
+      assert.equal(await h2.page.inputValue("#follow-substream"), "3");
+      assert.match(await h2.page.textContent("pre.segment.dir1"), /second stream body/);
+      await h2.page.selectOption("#follow-substream", "1");
+      await expectLast(h2.log, { type: "stream", stream: 0, substream: 1 });
+      await title(h2.page, "HTTP/2 stream 0, sub-stream 1");
+      assert.match(await h2.page.textContent("pre.segment.dir1"), /first stream body/);
+      await h2.page.click("button:has-text('Filter to Stream')");
+      await expectLast(h2.log, {
+        type: "filter",
+        expr: "tcp.stream eq 0 and http2.streamid eq 1",
+        apply: true,
+      });
+      // The WebSocket conversation is TCP stream 1: no HTTP/2 there.
+      await h2.page.click("button[title='Next stream']");
+      await title(h2.page, "HTTP/2 stream 1, sub-stream 0");
+      assert.match(await h2.page.textContent(".notice"), /No HTTP\/2 in TCP stream 1/);
+      assert.ok(await h2.page.isDisabled("#follow-substream"));
+
+      // QUIC (decrypted with the keys in the capture), then the other views.
+      const q = await openFollow("quic", "QUIC", { frame: 33 });
+      await title(q.page, "QUIC stream 0, sub-stream 0");
+      assert.deepEqual(await options(q.page), ["0", "4"]);
+      assert.equal(await q.page.textContent("pre.segment.dir0"), "GET /hello.txt\n");
+      assert.equal(await q.page.textContent("pre.segment.dir1"), "Hello over QUIC!\n");
+      const as = (format) => q.page.selectOption("select[aria-label='Show data as']", format);
+      await as("carray");
+      assert.equal(
+        await q.page.textContent("pre.segment.dir0"),
+        "char peer0_0[] = {\n0x47, 0x45, 0x54, 0x20, 0x2f, 0x68, 0x65, 0x6c,\n" +
+          "0x6c, 0x6f, 0x2e, 0x74, 0x78, 0x74, 0x0d, 0x0a };",
+      );
+      await q.page.click("button:has-text('Save as…')");
+      const saved = await lastOfType(q.log, "save");
+      assert.equal(saved.ext, "c");
+      assert.ok(saved.text.includes("char peer1_0[] = {\n0x48, 0x65"));
+      await as("yaml");
+      assert.equal(
+        await q.page.textContent("pre.segment:not(.dir0):not(.dir1)"),
+        "peers:\n  - peer: 0\n    host: '10.0.0.1'\n    port: 50300\n" +
+          "  - peer: 1\n    host: '10.0.0.2'\n    port: 443\npackets:",
+      );
+      assert.equal(
+        await q.page.textContent("pre.segment.dir0"),
+        "  - peer: 0\n    index: 0\n    data: !!binary |\n      R0VUIC9oZWxsby50eHQNCg==",
+      );
+      await as("utf-16");
+      assert.equal(await q.page.locator("pre.segment.dir0").count(), 1);
+      await as("ascii");
+      await q.page.selectOption("#follow-substream", "4");
+      await title(q.page, "QUIC stream 0, sub-stream 4");
+      assert.equal(await q.page.textContent("pre.segment.dir0"), "second stream data\n");
+      assert.equal(await q.page.locator("pre.segment.dir1").count(), 0);
+      await q.page.click("button:has-text('Filter Out This Stream')");
+      await expectLast(q.log, {
+        type: "filterOut",
+        expr: "quic.connection.number eq 0 and quic.stream.stream_id eq 4",
+      });
+    } finally {
+      await streams.dispose();
+    }
   });
 
   /** Open coloring.js with a stand-in for ColoringPanel (src/panels/coloringPanel.ts). */

@@ -32,3 +32,49 @@ Feature: Follow stream
     When I follow the "tls" stream of packet 4
     Then the followed stream is empty
     And the follow hint mentions "tls.keylog_file"
+
+  Scenario: Follow an HTTP/2 stream from a packet: its own sub-stream
+    Given the capture "streams.pcapng" is open
+    When I follow the "http2" stream of packet 12
+    Then the followed stream is number 0 between "192.168.1.10:50100" and "192.168.1.20:8080"
+    And the sub-streams are 0, 1 and 3, following 3
+    And the client data contains "/two.txt"
+    And the server data contains "second stream body"
+
+  Scenario: Follow another HTTP/2 sub-stream by number
+    Given the capture "streams.pcapng" is open
+    When I follow "http2" stream number 0 sub-stream 1
+    Then the client data contains "/one.txt"
+    And the server data contains "first stream body"
+
+  Scenario: A TCP stream without HTTP/2
+    Given the capture "streams.pcapng" is open
+    When I follow "http2" stream number 1
+    Then the followed stream is empty
+    And the follow hint mentions "Decode As"
+
+  Scenario: Follow a WebSocket conversation: the messages, unmasked
+    Given the capture "streams.pcapng" is open
+    When I follow the "websocket" stream of packet 24
+    Then the followed stream is number 1 between "192.168.1.10:50200" and "192.168.1.30:80"
+    And the client sent 12 bytes and the server sent 12 bytes
+    And the client data starts with "hello server"
+    And the server data starts with "hello client"
+
+  Scenario: Follow a QUIC stream decrypted with the keys stored in the capture
+    Given the capture "streams.pcapng" is open
+    When I follow the "quic" stream of packet 33
+    Then the followed stream is number 0 between "10.0.0.1:50300" and "10.0.0.2:443"
+    And the sub-streams are 0 and 4, following 0
+    And the client data starts with "GET /hello.txt"
+    And the server data starts with "Hello over QUIC!"
+
+  Scenario: A QUIC stream carrying data one way
+    Given the capture "streams.pcapng" is open
+    When I follow "quic" stream number 0 sub-stream 4
+    Then the client sent 19 bytes and the server sent 0 bytes
+
+  Scenario: A packet outside any QUIC connection
+    Given the capture "streams.pcapng" is open
+    When I follow the "quic" stream of packet 1
+    Then the request fails with "not part of a QUIC connection"

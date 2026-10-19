@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { FOLLOW_LABELS, FollowPanel, FollowProto } from "../panels/followPanel";
+import { FOLLOW_COMMANDS, FOLLOW_LABELS, FollowPanel, FollowProto } from "../panels/followPanel";
 import { FlowGraphPanel } from "../panels/flowGraphPanel";
 import { ObjectsPanel } from "../panels/objectsPanel";
 import { StatsKind, StatsPanel } from "../panels/statsPanel";
@@ -56,11 +56,8 @@ export function registerAnalysisCommands(
     vscode.commands.registerCommand("pcapViewer.followStream", (frame?: number) =>
       follow(undefined, frame),
     ),
-    ...(Object.keys(FOLLOW_LABELS) as FollowProto[]).map((proto) =>
-      vscode.commands.registerCommand(
-        `pcapViewer.follow${FOLLOW_LABELS[proto][0]}${FOLLOW_LABELS[proto].slice(1).toLowerCase()}Stream`,
-        (frame?: number) => follow(proto, frame),
-      ),
+    ...(Object.entries(FOLLOW_COMMANDS) as [FollowProto, string][]).map(([proto, command]) =>
+      vscode.commands.registerCommand(command, (frame?: number) => follow(proto, frame)),
     ),
     ...Object.entries(STATS_COMMANDS).map(([command, kind]) =>
       vscode.commands.registerCommand(command, () => {

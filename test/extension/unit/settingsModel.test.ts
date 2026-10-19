@@ -21,6 +21,7 @@ import {
   normalizeColoringRules,
   normalizeColumns,
   prependColoringRule,
+  filterOutExpr,
   normalizeSavedFilters,
   normalizeFilterButtons,
   moveFilterButton,
@@ -245,6 +246,13 @@ suite("settingsModel", () => {
     assert.equal(rules.length, MAX_TEMPORARY_RULES);
     assert.equal(rules[0].filter, "ip.addr == 10.0.0.11");
     assert.equal(new Set(rules.map((r) => r.background)).size, MAX_TEMPORARY_RULES);
+  });
+
+  test("filterOutExpr: the stream left out, within the filter applied", () => {
+    assert.equal(filterOutExpr("", "tcp.stream eq 3"), "!(tcp.stream eq 3)");
+    assert.equal(filterOutExpr("  http ", "tcp.stream eq 3"), "(http) && !(tcp.stream eq 3)");
+    // Filtered to that stream already: leaving it out of itself would show nothing.
+    assert.equal(filterOutExpr("tcp.stream eq 3", "tcp.stream eq 3"), "!(tcp.stream eq 3)");
   });
 
   test("prependColoringRule puts the new rule first and keeps raw entries", () => {

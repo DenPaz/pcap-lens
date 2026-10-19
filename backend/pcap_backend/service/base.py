@@ -62,6 +62,8 @@ class ServiceBase:
         # Quick (approximate) details by (frame, window); see _quick_detail.
         self._quick: LruCache[tuple[int, int], dict[str, Any]] = LruCache(16)
         self._tcp_graphs: LruCache[int, dict[str, Any]] = LruCache(4)
+        # Follow Stream: the sub-streams (HTTP/2, QUIC) of a (proto, stream), by frame.
+        self._substreams: LruCache[tuple[str, int], list[tuple[int, list[int]]]] = LruCache(8)
         # VoIP: calls and streams (by heuristic RTP on/off), stream analyses.
         self._voip: LruCache[bool, dict[str, Any]] = LruCache(2)
         self._rtp_streams: LruCache[tuple[voip.StreamKey, bool], dict[str, Any]] = LruCache(8)
@@ -156,6 +158,7 @@ class ServiceBase:
             self._details,
             self._quick,
             self._tcp_graphs,
+            self._substreams,
             self._voip,
             self._rtp_streams,
         ):

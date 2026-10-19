@@ -742,6 +742,14 @@ def follow_by_number(world: World, proto: str, stream: int) -> None:
     world.followed = world.call(world.service.follow_stream, {"proto": proto, "stream": stream})
 
 
+@when(
+    parsers.re(r'I follow "(?P<proto>\w+)" stream number (?P<stream>\d+) sub-stream (?P<sub>\d+)$')
+)
+def follow_substream(world: World, proto: str, stream: str, sub: str) -> None:
+    params = {"proto": proto, "stream": int(stream), "substream": int(sub)}
+    world.followed = world.call(world.service.follow_stream, params)
+
+
 def _followed(world: World) -> dict[str, Any]:
     assert world.error is None, world.error
     assert world.followed is not None
@@ -770,6 +778,18 @@ def follow_byte_counts(world: World, c2s: int, s2c: int) -> None:
 @then(parsers.re(r'the (?P<side>client|server) data starts with "(?P<text>[^"]+)"$'))
 def follow_data_starts(world: World, side: str, text: str) -> None:
     assert _direction_bytes(world, 0 if side == "client" else 1).startswith(text.encode())
+
+
+@then(parsers.re(r'the (?P<side>client|server) data contains "(?P<text>[^"]+)"$'))
+def follow_data_contains(world: World, side: str, text: str) -> None:
+    assert text.encode() in _direction_bytes(world, 0 if side == "client" else 1)
+
+
+@then(parsers.re(r"the sub-streams are (?P<ids>[\d, and]+), following (?P<current>\d+)$"))
+def follow_substreams(world: World, ids: str, current: str) -> None:
+    followed = _followed(world)
+    assert followed["substreams"] == numbers(ids)
+    assert followed["substream"] == int(current)
 
 
 @then(parsers.parse('the stream filter is "{flt}"'))

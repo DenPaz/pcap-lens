@@ -10,7 +10,7 @@ import * as vscode from "vscode";
 import type { PcapViewerApi } from "../../../src/extension";
 // Same module instances as the extension's (both load out/src/panels/*.js).
 import { FlowGraphPanel } from "../../../src/panels/flowGraphPanel";
-import { FollowPanel } from "../../../src/panels/followPanel";
+import { FOLLOW_COMMANDS, FollowPanel } from "../../../src/panels/followPanel";
 import { ObjectsPanel } from "../../../src/panels/objectsPanel";
 import { StatsPanel } from "../../../src/panels/statsPanel";
 import { TcpGraphPanel } from "../../../src/panels/tcpGraphPanel";
@@ -19,6 +19,15 @@ import { VoipPanel } from "../../../src/panels/voipPanel";
 import type { PluginsResult } from "../../../src/plugins";
 
 const FIXTURES = path.resolve(__dirname, "../../../../test/fixtures");
+
+/**
+ * Remove a test folder. On Windows a capture closed a moment ago can still be
+ * held open by the backend or a tshark it is stopping (EPERM/EBUSY, seen on
+ * CI), so retry for a few seconds as rmSync can.
+ */
+function removeDir(dir: string): void {
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+}
 
 async function waitFor<T>(fn: () => T | undefined, timeoutMs = 30_000): Promise<T> {
   const start = Date.now();
@@ -129,6 +138,7 @@ suite("PCAP Lens smoke test", () => {
       "pcapViewer.colorizeWithFilter",
       "pcapViewer.toggleColoring",
       "pcapViewer.resetColorization",
+      ...Object.values(FOLLOW_COMMANDS),
       "pcapViewer.manageColoringRules",
       "pcapViewer.suggestFilter",
       "pcapViewer.find",
@@ -310,7 +320,7 @@ suite("PCAP Lens smoke test", () => {
 
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
     await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
-    fs.rmSync(dir, { recursive: true, force: true });
+    removeDir(dir);
   });
 
   test("live capture: an unsaved capture that fills, stops, saves elsewhere and is discarded", async () => {
@@ -353,7 +363,7 @@ suite("PCAP Lens smoke test", () => {
     await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
     await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
     await waitFor(() => (fs.existsSync(uri.fsPath) ? undefined : true), 20_000);
-    fs.rmSync(dir, { recursive: true, force: true });
+    removeDir(dir);
   });
 
   test("language model tools: registered, and answering, where VS Code has the API", async function () {
@@ -602,7 +612,7 @@ suite("PCAP Lens smoke test", () => {
     } finally {
       await vscode.commands.executeCommand("workbench.action.closeAllEditors");
       await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeDir(dir);
     }
   });
 
@@ -629,7 +639,7 @@ suite("PCAP Lens smoke test", () => {
     } finally {
       await vscode.commands.executeCommand("workbench.action.closeAllEditors");
       await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeDir(dir);
     }
   });
 

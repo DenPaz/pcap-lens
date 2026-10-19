@@ -7,7 +7,7 @@
     "color": "#0b3a73",
     "theme": "dark"
   },
-  "version": "0.9.0",
+  "version": "0.10.0",
   "publisher": "denpaz",
   "license": "MIT",
   "repository": {
@@ -368,6 +368,21 @@
         "category": "PCAP"
       },
       {
+        "command": "pcapViewer.followHttp2Stream",
+        "title": "Follow HTTP/2 Stream",
+        "category": "PCAP"
+      },
+      {
+        "command": "pcapViewer.followQuicStream",
+        "title": "Follow QUIC Stream",
+        "category": "PCAP"
+      },
+      {
+        "command": "pcapViewer.followWebSocketStream",
+        "title": "Follow WebSocket Stream",
+        "category": "PCAP"
+      },
+      {
         "command": "pcapViewer.statistics.conversations",
         "title": "Conversations",
         "category": "PCAP Statistics"
@@ -662,6 +677,18 @@
         },
         {
           "command": "pcapViewer.followHttpStream",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
+        },
+        {
+          "command": "pcapViewer.followHttp2Stream",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
+        },
+        {
+          "command": "pcapViewer.followQuicStream",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
+        },
+        {
+          "command": "pcapViewer.followWebSocketStream",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
         },
         {

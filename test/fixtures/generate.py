@@ -24,6 +24,7 @@ import struct
 import sys
 from pathlib import Path
 
+import quic  # test/fixtures/quic.py: the hand-encrypted QUIC connection
 from scapy.asn1.asn1 import ASN1_OID
 from scapy.layers.dns import DNS, DNSQR, DNSRR
 from scapy.layers.inet import ICMP, IP, TCP, UDP
@@ -413,6 +414,84 @@ def voip_packets() -> list[Packet]:
     return [pkt for _, pkt in timed]
 
 
+def _h2_frame(kind: int, flags: int, stream: int, payload: bytes) -> bytes:
+    return (
+        struct.pack(">I", len(payload))[1:]
+        + bytes([kind, flags])
+        + struct.pack(">I", stream)
+        + payload
+    )
+
+
+def _hpack(*headers: tuple[bytes, bytes]) -> bytes:
+    """HPACK literal header fields without indexing, new names (no Huffman)."""
+    return b"".join(b"\0" + bytes([len(n)]) + n + bytes([len(v)]) + v for n, v in headers)
+
+
+def _ws_frame(payload: bytes, mask: bytes | None = None) -> bytes:
+    """A final WebSocket text frame; clients mask theirs (RFC 6455)."""
+    if mask is None:
+        return b"\x81" + bytes([len(payload)]) + payload
+    masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+    return b"\x81" + bytes([0x80 | len(payload)]) + mask + masked
+
+
+def streams_packets() -> list[Packet]:
+    """Streams Follow Stream reads above TCP and UDP: an HTTP/2 connection
+    (prior knowledge, two requests on HTTP/2 streams 1 and 3; tcp.stream 0),
+    a WebSocket conversation (tcp.stream 1) and a QUIC connection with
+    STREAM data on streams 0 and 4 (decrypted with the key log that
+    ``main`` stores in the file's Decryption Secrets Block)."""
+    h2 = _TcpSession("192.168.1.10", "192.168.1.20", 50100, 8080)
+    h2.handshake()
+    settings, settings_ack = _h2_frame(4, 0, 0, b""), _h2_frame(4, 1, 0, b"")
+
+    def request(stream: int, path: bytes) -> bytes:
+        headers = _hpack(
+            (b":method", b"GET"), (b":scheme", b"http"), (b":path", path),
+            (b":authority", b"example.test"),
+        )  # fmt: skip
+        return _h2_frame(1, 0x05, stream, headers)  # END_STREAM | END_HEADERS
+
+    def response(stream: int, body: bytes) -> bytes:
+        headers = _hpack((b":status", b"200"), (b"content-type", b"text/plain"))
+        return _h2_frame(1, 0x04, stream, headers) + _h2_frame(0, 0x01, stream, body)
+
+    h2.client_send(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" + settings)
+    h2.server_send(settings + settings_ack)
+    h2.client_send(settings_ack + request(1, b"/one.txt") + request(3, b"/two.txt"))
+    h2.server_send(response(1, b"first stream body\n"))
+    h2.server_send(response(3, b"second stream body\n"))
+    h2.close()
+
+    ws = _TcpSession("192.168.1.10", "192.168.1.30", 50200, 80)
+    ws.handshake()
+    ws.client_send(
+        b"GET /chat HTTP/1.1\r\nHost: example.test\r\nUpgrade: websocket\r\n"
+        b"Connection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+        b"Sec-WebSocket-Version: 13\r\n\r\n"
+    )
+    ws.server_send(
+        b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+        b"Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+    )
+    ws.client_send(_ws_frame(b"hello server", mask=b"\x01\x02\x03\x04"))
+    ws.server_send(_ws_frame(b"hello client"))
+    ws.close()
+
+    ends = [("10.0.0.1", 50300), ("10.0.0.2", 443)]
+    datagrams: list[Packet] = []
+    for direction, payload in quic.datagrams():
+        (src, sport), (dst, dport) = ends[direction], ends[1 - direction]
+        datagrams.append(
+            Ether(src=CLIENT_MAC if direction == 0 else SERVER_MAC)
+            / IP(src=src, dst=dst)
+            / UDP(sport=sport, dport=dport)
+            / Raw(payload)
+        )
+    return _stamp(h2.packets + ws.packets + datagrams)
+
+
 def services_packets() -> list[Packet]:
     """Traffic for the service statistics: HTTP requests with several methods and
     status codes on two hosts, DNS queries of several types (one NXDOMAIN), SNMP
@@ -737,9 +816,14 @@ PACKET_COMMENTS = {
 }
 
 
-def comments_pcapng(records: list[tuple[float, bytes]], comments: dict[int, list[str]]) -> bytes:
+def comments_pcapng(
+    records: list[tuple[float, bytes]],
+    comments: dict[int, list[str]],
+    key_log: bytes = b"",
+) -> bytes:
     """A little-endian pcapng (Ethernet) whose packets carry ``comments``
-    (opt_comment options of Enhanced Packet Blocks), written by hand."""
+    (opt_comment options of Enhanced Packet Blocks), written by hand. A TLS
+    key log in ``key_log`` goes into a Decryption Secrets Block before them."""
 
     def block(kind: int, body: bytes) -> bytes:
         body += b"\0" * (-len(body) % 4)
@@ -751,6 +835,8 @@ def comments_pcapng(records: list[tuple[float, bytes]], comments: dict[int, list
 
     out = block(0x0A0D0D0A, struct.pack("<IHHq", 0x1A2B3C4D, 1, 0, -1))
     out += block(1, struct.pack("<HHI", 1, 0, 65535))
+    if key_log:
+        out += block(10, struct.pack("<II", 0x544C534B, len(key_log)) + key_log)  # "TLSK"
     for n, (ts, data) in enumerate(records, start=1):
         micros = round(ts * 1_000_000)
         body = struct.pack("<IIIII", 0, micros >> 32, micros & 0xFFFFFFFF, len(data), len(data))
@@ -883,6 +969,9 @@ def main() -> None:
     hexdump_fixtures()
     (HERE / "comments.pcapng").write_bytes(
         comments_pcapng(_records(http_packets()), PACKET_COMMENTS)
+    )
+    (HERE / "streams.pcapng").write_bytes(
+        comments_pcapng(_records(streams_packets()), {}, key_log=quic.KEYLOG)
     )
     # A truncated file to exercise malformed-capture handling.
     data = (HERE / "http.pcap").read_bytes()
