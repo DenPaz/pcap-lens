@@ -194,6 +194,35 @@ export async function exportFiltered(
   return result;
 }
 
+/**
+ * Save the packets a display filter picks (a VoIP call's SIP messages and
+ * media) as a new pcapng file, asking where; `suffix` names the file
+ * ("trace-call-1.pcapng").
+ */
+export async function exportFilterAs(
+  session: PcapEditorSession,
+  filter: string,
+  suffix: string,
+  what: string,
+): Promise<ExportResult | undefined> {
+  if (!backendOf(session)) {
+    return undefined;
+  }
+  const dest = await chooseDestination(session, suffix, "pcapng", { pcapng: ["pcapng"] });
+  if (!dest) {
+    return undefined;
+  }
+  const result = await runExport(session, `Saving ${what} to ${path.basename(dest)}`, {
+    kind: "pcapng",
+    dest,
+    filter,
+  });
+  if (result) {
+    void reportExport(result, `${what} (${plural(result.packets ?? 0, "packet")})`, true);
+  }
+  return result;
+}
+
 /** "PCAP: Export Marked Packets…": the packets marked with Ctrl+M to pcapng or pcap. */
 export async function exportMarked(
   provider: PcapEditorProvider,

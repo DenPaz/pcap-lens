@@ -1920,6 +1920,88 @@ def wav_tone(world: World, seconds: str, rate: str, tone: str) -> None:
     assert crossings / 2 / int(seconds) == pytest.approx(int(tone), rel=0.02)
 
 
+def _call(world: World, n: str) -> dict[str, Any]:
+    return _voip(world)["calls"][int(n) - 1]
+
+
+@then(
+    parsers.re(
+        r"call (?P<n>\d+) rang after (?P<ringing>[\d.]+) s, was answered after "
+        r"(?P<setup>[\d.]+) s and lasted (?P<duration>[\d.]+) s$"
+    )
+)
+def call_timings(world: World, n: str, ringing: str, setup: str, duration: str) -> None:
+    call = _call(world, n)
+    assert call["ringing"] == pytest.approx(float(ringing))
+    assert call["setup"] == pytest.approx(float(setup))
+    assert call["duration"] == pytest.approx(float(duration))
+
+
+@then(
+    parsers.re(
+        r"call (?P<n>\d+) was ended by the (?P<side>caller|callee)"
+        r'(?: with "(?P<reason>[^"]+)")?$'
+    )
+)
+def call_ended_by(world: World, n: str, side: str, reason: str | None) -> None:
+    call = _call(world, n)
+    assert call["endedBy"] == side
+    if reason:
+        assert call["reasons"] == [reason]
+
+
+@then(
+    parsers.re(
+        r"(?:call (?P<n>\d+)|the RTP stream from \"(?P<source>[^\"]+)\") is rated "
+        r"(?P<rating>Best|High|Medium|Low|Poor) with a MOS of (?P<mos>[\d.]+)$"
+    )
+)
+def rated(world: World, n: str | None, source: str | None, rating: str, mos: str) -> None:
+    quality = _call(world, n)["quality"] if n else _rtp_stream(world, source or "")["quality"]
+    assert (quality["rating"], quality["mos"]) == (rating, float(mos))
+
+
+@then(parsers.re(r"call (?P<n>\d+) has no quality rating$"))
+def not_rated(world: World, n: str) -> None:
+    assert _call(world, n)["quality"] is None
+
+
+@then(parsers.re(r"call (?P<n>\d+) has the DTMF digits (?P<digits>.+)$"))
+def call_dtmf(world: World, n: str, digits: str) -> None:
+    assert [d["digit"] for d in _call(world, n)["dtmf"]] == items(digits)
+
+
+@then(
+    parsers.re(
+        r"the DTMF digit (?P<digit>\S+) of call (?P<n>\d+) came in a SIP INFO "
+        r"and the others as RFC 4733 events$"
+    )
+)
+def dtmf_methods(world: World, digit: str, n: str) -> None:
+    for d in _call(world, n)["dtmf"]:
+        assert d["method"] == ("SIP INFO" if d["digit"] == digit else "RFC 4733"), d
+
+
+@then(parsers.re(r"call (?P<n>\d+) has no media problems$"))
+def no_media_problems(world: World, n: str) -> None:
+    assert _call(world, n)["problems"] == []
+
+
+@then(parsers.re(r"call (?P<n>\d+) has the media problems (?P<kinds>.+)$"))
+def media_problems(world: World, n: str, kinds: str) -> None:
+    assert [p["kind"] for p in _call(world, n)["problems"]] == items(kinds)
+
+
+@when(parsers.re(r"I apply the filter of call (?P<n>\d+)$"))
+def apply_call_filter(world: World, n: str) -> None:
+    world.filter_result = world.call(world.service.set_filter, {"expr": _call(world, n)["filter"]})
+
+
+@when(parsers.re(r"I export the packets of call (?P<n>\d+) as (?P<fmt>pcapng|pcap)$"))
+def export_call(world: World, tmp_path: Path, n: str, fmt: str) -> None:
+    _export(world, tmp_path, fmt, f"call.{fmt}", filter=_call(world, n)["filter"])
+
+
 @when(parsers.re(r'I apply the filter of the RTP stream from "(?P<source>[^"]+)"$'))
 def apply_stream_filter(world: World, source: str) -> None:
     world.filter_result = world.call(

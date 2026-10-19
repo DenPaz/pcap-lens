@@ -1,7 +1,9 @@
 // @ts-check
 /**
- * VoIP calls panel: the SIP calls of a capture with a sequence diagram of the
- * selected call, its RTP streams (packets, loss, jitter), the analysis of a
+ * VoIP calls panel: the SIP calls of a capture with the selected call's
+ * timings, how it ended, its quality (E-model MOS), DTMF digits and media
+ * problems, a sequence diagram of it, its RTP streams (packets, loss, jitter,
+ * MOS), the analysis of a
  * stream packet by packet with a jitter graph, and its audio (played here
  * from a WAV file the host writes, or saved). Everything is built with
  * createElement/textContent: SIP URIs and payload names come from packets.
@@ -90,9 +92,25 @@
     "voip-filter-call",
     "Show the call's SIP messages and RTP in the capture",
   );
-  const callTools = h("div", { class: "toolbar", role: "toolbar" }, [filterCall]);
+  const saveCall = button(
+    "Save Call…",
+    "voip-save-call",
+    "Save the call's SIP messages and RTP as a new capture file",
+  );
+  const callTools = h("div", { class: "toolbar", role: "toolbar" }, [filterCall, saveCall]);
+  const callDetails = h("section", {
+    class: "hidden",
+    id: "voip-call-details",
+    "aria-label": "Call details",
+  });
   const flow = h("div", { class: "voip-flow", id: "voip-flow", "aria-label": "Call flow" });
-  app.append(h("h2", { class: "panel-subtitle-h" }, ["SIP Calls"]), callsTable, callTools, flow);
+  app.append(
+    h("h2", { class: "panel-subtitle-h" }, ["SIP Calls"]),
+    callsTable,
+    callTools,
+    callDetails,
+    flow,
+  );
 
   const streamsTable = h("table", {
     class: "stats",
@@ -141,6 +159,12 @@
     const call = state.call !== null ? state.calls[state.call] : null;
     if (call) {
       vscode.postMessage({ type: "filter", expr: call.filter });
+    }
+  });
+  saveCall.addEventListener("click", () => {
+    const call = state.call !== null ? state.calls[state.call] : null;
+    if (call) {
+      vscode.postMessage({ type: "saveCall", call: { id: call.id, filter: call.filter } });
     }
   });
   filterStream.addEventListener("click", () => {
@@ -239,11 +263,24 @@
       c.duration === null ? "" : lib.formatDuration(c.duration),
       c.streams.length,
       c.messages.length,
+      lib.mosLabel(c.quality),
+      c.problems.length ? `⚠ ${c.problems.length}` : "",
     ]);
     fillTable(
       callsTable,
-      ["Start (s)", "From", "To", "State", "Setup (s)", "Duration", "Streams", "Messages"],
-      ["Start (s)", "Setup (s)", "Streams", "Messages"],
+      [
+        "Start (s)",
+        "From",
+        "To",
+        "State",
+        "Setup (s)",
+        "Duration",
+        "Streams",
+        "Messages",
+        "MOS",
+        "Problems",
+      ],
+      ["Start (s)", "Setup (s)", "Streams", "Messages", "MOS"],
       rows,
       state.call,
       selectCall,
@@ -252,6 +289,64 @@
       callsTable.append(h("caption", {}, ["No SIP calls in this capture."]));
     }
     filterCall.toggleAttribute("disabled", state.call === null);
+    saveCall.toggleAttribute("disabled", state.call === null);
+  }
+
+  /**
+   * A list of findings, each starting with a link to its packet.
+   * @param {string} id @param {{frame: number | null, text: string}[]} items
+   */
+  function packetList(id, items) {
+    const ul = h("ul", { class: "voip-problems", id });
+    for (const item of items) {
+      const li = h("li");
+      if (item.frame !== null) {
+        const frame = item.frame;
+        const link = h("button", { type: "button", class: "link" }, [`Packet ${frame}`]);
+        link.addEventListener("click", () => vscode.postMessage({ type: "goto", frame }));
+        li.append(link, ": ");
+      }
+      li.append(item.text);
+      ul.append(li);
+    }
+    return ul;
+  }
+
+  /** The selected call's timings, ending, quality, DTMF digits and media problems. */
+  function renderCallDetails() {
+    const call = state.call !== null ? state.calls[state.call] : null;
+    callDetails.replaceChildren();
+    callDetails.classList.toggle("hidden", !call);
+    if (!call) {
+      return;
+    }
+    callDetails.append(
+      h("div", { class: "status", id: "voip-call-facts" }, [lib.callFacts(call).join(" · ")]),
+      h("div", { class: "status", id: "voip-call-quality" }, [
+        lib.callQualityText(call.quality, state.streams),
+      ]),
+    );
+    if (call.dtmf.length) {
+      callDetails.append(
+        h("h3", { class: "panel-subtitle-h" }, [
+          `DTMF: ${call.dtmf.map((/** @type {any} */ d) => d.digit).join(" ")}`,
+        ]),
+        packetList(
+          "voip-dtmf",
+          call.dtmf.map((/** @type {any} */ d) => ({ frame: d.frame, text: lib.dtmfLabel(d) })),
+        ),
+      );
+    }
+    callDetails.append(h("h3", { class: "panel-subtitle-h" }, ["Media Problems"]));
+    if (call.problems.length) {
+      callDetails.append(packetList("voip-call-problems", call.problems));
+    } else {
+      callDetails.append(
+        h("div", { class: "status" }, [
+          call.setup === null ? "Not answered: no media expected." : "No media problems found.",
+        ]),
+      );
+    }
   }
 
   function renderStreams() {
@@ -266,6 +361,8 @@
       num(st.maxDelta),
       num(st.maxJitter),
       num(st.meanJitter),
+      lib.mosLabel(st.quality),
+      (st.dtmf ?? []).map((/** @type {any} */ d) => d.digit).join(" "),
       st.problem ? "⚠" : "",
     ]);
     fillTable(
@@ -280,9 +377,11 @@
         "Max Delta (ms)",
         "Max Jitter (ms)",
         "Mean Jitter (ms)",
+        "MOS",
+        "DTMF",
         "Problem",
       ],
-      ["Packets", "Lost", "Max Delta (ms)", "Max Jitter (ms)", "Mean Jitter (ms)"],
+      ["Packets", "Lost", "Max Delta (ms)", "Max Jitter (ms)", "Mean Jitter (ms)", "MOS"],
       rows,
       state.stream,
       selectStream,
@@ -306,6 +405,7 @@
   function selectCall(i) {
     state.call = i;
     renderCalls();
+    renderCallDetails();
     renderStreams();
     renderFlow();
     /** @type {HTMLElement | null} */ (callsTable.querySelector("tr.selected"))?.focus();
@@ -542,6 +642,7 @@
         state.analysis = null;
         status.textContent = `${msg.calls.length} SIP call${msg.calls.length === 1 ? "" : "s"}, ${msg.streams.length} RTP stream${msg.streams.length === 1 ? "" : "s"}`;
         renderCalls();
+        renderCallDetails();
         renderStreams();
         renderFlow();
         renderAnalysis();

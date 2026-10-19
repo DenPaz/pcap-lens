@@ -115,6 +115,112 @@ def test_sip_call_states() -> None:
     assert in_call["state"] == "In call" and in_call["setup"] == pytest.approx(0.1)
     assert odd["state"] == "Calling"
     assert odd["filter"] == 'sip.Call-ID == "odd\\"id\\\\"', "quotes and backslashes escaped"
+    # Timings and who ended it.
+    assert (cancelled["ringing"], cancelled["endedBy"]) == (pytest.approx(0.1), "caller")
+    assert cancelled["final"] == "487 Request Terminated"
+    assert (in_call["ringing"], in_call["final"], in_call["endedBy"]) == (None, "200 OK", None)
+
+
+def test_how_calls_end_and_sip_info_dtmf() -> None:
+    def info(frame: int, time: float, ctype: str, body: bytes) -> list[str]:
+        row = _sip(frame, time, "b", "a", "c1", method="INFO")
+        row[voip.SIP_FIELDS.index("sip.Content-Type")] = ctype
+        row[voip.SIP_FIELDS.index("sip.msg_body")] = body.hex()
+        return row
+
+    bye = _sip(9, 5.0, "b", "a", "c1", method="BYE")
+    bye[voip.SIP_FIELDS.index("sip.Reason")] = (
+        'Q.850;cause=16;text="Normal call clearing"\x1eSIP;cause=200'
+    )
+    text = _sip_lines(
+        _sip(1, 0.0, "a", "b", "c1", method="INVITE"),
+        _sip(2, 0.2, "b", "a", "c1", code="183", line="SIP/2.0 183 Session Progress",
+             cseq="INVITE"),
+        _sip(3, 1.0, "b", "a", "c1", code="200", line="SIP/2.0 200 OK", cseq="INVITE"),
+        info(4, 2.0, "application/dtmf-relay", b"Signal=5\r\nDuration=160\r\n"),
+        info(5, 2.5, "application/dtmf-relay; charset=x", b"Signal=11\nDuration=x\n"),
+        info(6, 3.0, "application/dtmf", b"*\r\n"),
+        info(7, 3.5, "text/plain", b"Signal=9"),
+        info(8, 4.0, "application/dtmf-relay", b"Duration=100"),
+        bye,
+        _sip(10, 6.0, "a", "b", "c2", method="INVITE"),
+        _sip(11, 6.5, "b", "a", "c2", code="603", line="SIP/2.0 603 Decline", cseq="INVITE"),
+    )  # fmt: skip
+    call, declined = voip.parse_sip_calls(text, [])
+    assert (call["ringing"], call["setup"], call["duration"]) == (0.2, 1.0, 4.0)
+    assert (call["state"], call["endedBy"]) == ("Completed", "callee")
+    assert call["reasons"] == ["Q.850 cause 16: Normal call clearing", "SIP 200"]
+    assert [(d["digit"], d["duration"], d["frame"]) for d in call["dtmf"]] == [
+        ("5", 160, 4), ("#", None, 5), ("*", None, 6),
+    ]  # fmt: skip
+    assert {d["method"] for d in call["dtmf"]} == {"SIP INFO"}
+    assert call["problems"] == [
+        {"kind": "no-rtp", "text": "No RTP after the call was answered", "frame": 3,
+         "stream": None},
+    ]  # fmt: skip
+    assert (declined["state"], declined["endedBy"], declined["problems"]) == (
+        "Rejected", "callee", [],
+    )  # fmt: skip
+
+
+def test_reason_headers() -> None:
+    assert voip.describe_reasons("Q.850;cause=17") == ["Q.850 cause 17: User busy"]
+    assert voip.describe_reasons("q.850 ; cause = 999") == ["Q.850 cause 999"]
+    assert voip.describe_reasons('SIP;cause=600;text="Busy Everywhere"') == [
+        "SIP 600: Busy Everywhere"
+    ]
+    assert voip.describe_reasons("nonsense") == []
+
+
+def test_emodel() -> None:
+    clean = voip.emodel(0.0, 0.0, 0)
+    assert clean == {"r": 93.0, "mos": 4.4, "rating": "Best", "codec": "G.711", "assumed": False}
+    # 2 % random loss with packet loss concealment: Ie,eff = 95 · 2 / (2 + 25.1).
+    lossy = voip.emodel(2.0, 1.0, 8)
+    assert (lossy["r"], lossy["mos"], lossy["rating"]) == (85.9, 4.23, "High")
+    # G.729 starts lower (Ie 11); an unknown codec is rated as G.711, "assumed".
+    assert voip.emodel(0.0, 0.0, 18)["r"] == 82.0
+    assert voip.emodel(0.0, 0.0, 96)["assumed"] is True
+    assert voip.emodel(0.0, 0.0, None)["codec"] == "G.711"
+    # A jitter buffer past 177.3 ms adds the steep part of the delay impairment.
+    assert voip.emodel(0.0, 100.0, 0)["r"] == pytest.approx(93.2 - 5.04 - 0.11 * 32.7, abs=0.05)
+    bad = voip.emodel(40.0, 30.0, 0)
+    assert bad["rating"] == "Poor" and bad["mos"] < 2.6
+    assert voip.emodel(100.0, 1000.0, 4) == {
+        "r": 0.0, "mos": 1.0, "rating": "Poor", "codec": "G.723.1", "assumed": False,
+    }  # fmt: skip
+
+
+def test_media_pass() -> None:
+    def rtp(frame: int, time: float, pt: int, ts: int, event: str = "", dur: str = "") -> str:
+        cells = [str(frame), str(time), "10.0.0.1", "", "4000", "10.0.0.2", "", "5000",
+                 "0x00000010", str(pt), str(ts), event, dur]  # fmt: skip
+        return "\t".join(cells)
+
+    media = voip.parse_media([
+        rtp(1, 0.00, 0, 0), rtp(2, 0.02, 0, 160),
+        rtp(3, 0.04, 101, 320, "11", "160"), rtp(4, 0.06, 101, 320, "11", "480"),
+        rtp(5, 0.08, 101, 320, "11", "480"), rtp(6, 1.50, 0, 480), rtp(7, 1.52, 13, 640),
+        "garbage",
+    ])  # fmt: skip
+    (key,) = media
+    assert key == voip.StreamKey("10.0.0.1", 4000, "10.0.0.2", 5000, 16)
+    m = media[key]
+    assert (m.first_frame, m.audio_types, m.gaps) == (1, {0: 3, 13: 1}, [[6, 0.08, 1.42]])
+    stream = {"src": "10.0.0.1", "srcPort": 4000, "payload": "g711U", "lostPercent": 0.0,
+              "meanJitter": 0.0}  # fmt: skip
+    voip.stream_media(stream, m)
+    assert stream["payloadTypes"] == [0, 13]
+    assert stream["dtmf"] == [
+        {"digit": "#", "frame": 3, "time": 0.04, "duration": 60, "method": "RFC 4733",
+         "src": "10.0.0.1"},
+    ]  # fmt: skip
+    assert stream["quality"]["mos"] == 4.4
+    # Without the media pass the report's payload name picks the codec.
+    bare = {"src": "a", "srcPort": 1, "payload": "g729", "lostPercent": -5.0, "maxJitter": 0.0}
+    voip.stream_media(bare, None)
+    assert (bare["payloadTypes"], bare["dtmf"], bare["firstFrame"]) == ([], [], None)
+    assert bare["quality"]["codec"] == "G.729"
 
 
 def test_g711_tables() -> None:
@@ -261,3 +367,34 @@ def test_heuristic_rtp_finds_streams_without_signalling(
     assert all(s["heuristic"] for s in found)
     analysis = service.rtp_stream({"stream": found[0]}, ctx)
     assert analysis["summary"]["packets"] in (49, 50)
+
+
+@pytest.mark.tshark
+def test_call_details(service: PcapService, ctx: RequestContext) -> None:
+    """voip-calls.pcap: DTMF, Reason headers and every kind of media problem."""
+    service.open({"path": str(FIXTURES / "voip-calls.pcap")}, ctx)
+    result = service.voip_calls({}, ctx)
+    dtmf, oneway, silent, cancelled, unavailable = result["calls"]
+    assert [(d["digit"], d["method"], d["src"]) for d in dtmf["dtmf"]] == [
+        ("4", "RFC 4733", generate.DAVE), ("7", "SIP INFO", generate.ERIN),
+        ("#", "RFC 4733", generate.DAVE),
+    ]  # fmt: skip
+    assert dtmf["dtmf"][0]["duration"] == 80 and dtmf["dtmf"][1]["duration"] == 250
+    assert dtmf["quality"]["rating"] == "Best" and dtmf["problems"] == []
+    texts = [p["text"] for p in oneway["problems"]]
+    assert texts == [
+        "One-way audio: only the caller sends RTP, the callee sends none",
+        "10.0.1.3:34000 → 10.0.1.2:36000 sends PCMA (8), but the SDP answer agreed on PCMU (0)",
+        "10.0.1.3:34000 → 10.0.1.2:36000 changed SSRC from 0x33333333 to 0x44444444 at 7.520 s",
+        "No RTP from 10.0.1.3:34000 for 1.52 s before packet 225",
+    ]
+    # Each problem points at a packet: the 200 OK, a stream's first packet, the gap's end.
+    frames = [p["frame"] for p in oneway["problems"]]
+    assert frames[0] == next(m[0] for m in oneway["messages"] if m[4] == "200 OK (SDP)")
+    assert frames[3] == 225
+    assert [p["kind"] for p in silent["problems"]] == ["no-rtp"]
+    assert (cancelled["state"], cancelled["endedBy"]) == ("Cancelled", "caller")
+    assert unavailable["reasons"] == ["Q.850 cause 18: No user responding"]
+    # The call's filter adds its streams' RTCP (none in this capture).
+    assert "(rtcp && ip.src == 10.0.1.3 && udp.srcport == 34001)" in oneway["filter"]
+    assert oneway["filter"].count("rtcp") == 1, "one per sending endpoint"

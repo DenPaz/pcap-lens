@@ -72,6 +72,18 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
 - Node tests that start the backend use `PCAP_VIEWER_PYTHON` if set, else the
   uv `.venv` interpreter, so they run on 3.14 even when the system `python3` is older.
 - pytest turns `ResourceWarning` into errors: leaked tshark pipes are bugs.
+- **Tests use an empty home**: tshark reads the personal configuration
+  (preferences, Decode As, colors) and loads personal plugins from the home
+  folder, so a developer's own Wireshark setup changed results (a personal
+  UDP/9999 dissector or Decode As rule turned `mixed.pcapng`'s UDP rows into
+  another protocol and failed four coloring tests on one machine). pytest's
+  `pytest_configure` (`test/backend/conftest.py`) sets `HOME`, `APPDATA` and
+  `XDG_CONFIG_HOME` to a temporary folder and drops `WIRESHARK_CONFIG_DIR`/
+  `WIRESHARK_PLUGIN_DIR` for the session; the Node tests that start the
+  backend (`test/webview/harness.js`, `backendClient.test.ts`) swap them in
+  only around `client.start()`, since Playwright finds its browsers under
+  the real home. A test that needs a personal file writes it there (or sets
+  its own `HOME`, as `test_plugins.py` does).
 - **Coverage**: pytest-cov (`[tool.coverage.*]` in pyproject: branch,
   `patch = ["subprocess"]` so the backend started as a child process counts,
   data in `coverage/`) and c8 (`.c8rc.json`: the compiled `out/src` the unit
@@ -1231,6 +1243,36 @@ filesize` needs a file) block by block: one chunk can hold many blocks, so
   chart with flagged packets, `lib.rtpProblems` as links). `voip.pcap`
   (`generate.voip_packets`, a µ-law encoder in the generator) has a call with
   440/880 Hz tones, one lost packet and jitter, and a 486-rejected call.
+  **Call details** (0.13.0): `voip_calls` runs a third pass in parallel, the
+  media pass (`-Y rtp`, `MEDIA_FIELDS`, streamed: it can be most of the
+  capture; `parse_media`) giving each stream (`stream_media`) its audio
+  `payloadTypes`, RFC 4733 events as `dtmf` (one per event and RTP
+  timestamp, the end packet comes three times; `rtpevent.*` decode through
+  the SDP's rtpmap), `gaps` ≥ `SILENCE_GAP_S` (1 s), `firstFrame` and
+  `quality` = `emodel(loss %, mean jitter, payload type)`: ITU-T G.107 with
+  defaults and random loss, R = 93.2 − Id − Ie,eff, Ie/Bpl from G.113
+  (`EMODEL_CODECS`: G.711 0/25.1 with PLC, G.729, G.723.1; others rated as
+  G.711 with `assumed`), delay = 2 × mean jitter + `CODEC_DELAY_MS` (the
+  network delay can't be measured at one point), G.109's ratings. The SIP
+  pass appends `SIP_EXTRA_FIELDS` (Reason, Content-Type, msg_body, sdp.media,
+  sdp.media_attr; bodies are blanked except for INFO, so INVITEs' SDP hex
+  doesn't pile up) and calls gain `ringing` (INVITE → first 18x), `final`,
+  `endedBy` (BYE sender's side, CANCEL = caller, a failure = callee),
+  `reasons` (`describe_reasons`, `Q850_CAUSES` for causes without text),
+  `dtmf` (SIP INFO `application/dtmf-relay`/`dtmf` bodies plus the linked
+  streams' events), `quality` (worst linked stream) and `problems`
+  (`_problems`: no-rtp, one-way (sides from who sent each SDP), codec
+  (payload types outside the answer's m= line, else the offer's), ssrc (two
+  linked streams on one path), gap; one entry per text). The call filter
+  also takes the streams' RTCP (source port + 1). The panel shows
+  `#voip-call-details` (`lib.callFacts`, `callQualityText`, `dtmfLabel`;
+  lists whose items link to packets), MOS and problem counts in the calls
+  table, MOS and DTMF in the streams table, and _Save Call…_ (`saveCall` →
+  `exportFilterAs`, a pcapng export of the call filter). `voip-calls.pcap`
+  (`generate.voip_calls_packets`, `_CallScript`) has five calls to erin:
+  DTMF both ways with a Q.850 BYE, one-way audio with a codec mismatch, a
+  1.5 s pause and an SSRC change, an answered call without RTP, a cancelled
+  one and a 480 with a bare Q.850 cause.
 - **Capture editing** (`editing.py`, `edit_capture {operation, …, dest | dir}`;
   `commands/editCapture.ts`): one editcap run over the whole file (not the
   view; comment edits not included) into `dest` via `atomic_output`, `-F
@@ -1704,3 +1746,5 @@ Then field info in the status bar, the packet list's overview strip and the
 keyboard shortcuts list: 0.11.0.
 Then friendlier empty lists with hints, the display filter builder and the
 Recent Captures view: 0.12.0.
+Then VoIP call details: timings and how a call ended, an E-model MOS, DTMF
+digits, media problems and Save Call: 0.13.0.

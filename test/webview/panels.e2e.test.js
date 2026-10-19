@@ -1060,6 +1060,26 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       assert.deepEqual(call.slice(1, 4), ["alice@10.0.0.1", "bob@10.0.0.2", "Completed"]);
       assert.equal(call[5], "0:01", "answered for about a second");
       assert.deepEqual(busy.slice(3, 7), ["Rejected (486 Busy Here)", "", "", "0"]);
+      assert.deepEqual(call.slice(8), ["4.23 (High)", ""], "MOS of the worst stream, no problems");
+
+      // The selected call's details: timings, how it ended, quality.
+      assert.equal(
+        await page.textContent("#voip-call-facts"),
+        "Rang after 0.050 s · answered after 1.000 s · lasted 0:01 · final response 200 OK · " +
+          "ended by the caller (10.0.0.1)",
+      );
+      assert.match(
+        await page.textContent("#voip-call-quality"),
+        /^MOS 4\.23 \(High, R 85\.9\) for 10\.0\.0\.1:40000 → 10\.0\.0\.2:50000/,
+      );
+      assert.match(await page.textContent("#voip-call-details"), /No media problems found\./);
+      assert.equal(await page.$("#voip-dtmf"), null, "no DTMF in this call");
+      await page.click("#voip-save-call");
+      assert.deepEqual((await waitLog("saveCall")).call.id, 0);
+      assert.match(
+        (await waitLog("saveCall")).call.filter,
+        /^sip\.Call-ID == "call-1@10\.0\.0\.1"/,
+      );
 
       // The first call is selected: its flow (7 SIP messages + 2 RTP streams) and its streams.
       assert.equal((await page.$$("#voip-flow .flow-row")).length, 9);
@@ -1081,7 +1101,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       const streams = await cells("#voip-streams");
       const alice = streams.findIndex((r) => r[0] === "10.0.0.1:40000");
       assert.deepEqual(streams[alice].slice(3, 6), ["g711U", "49", "1 (2.0%)"]);
-      assert.equal(streams[alice][9], "⚠");
+      assert.deepEqual(streams[alice].slice(9), ["4.23 (High)", "", "⚠"]);
       assert.ok(await page.$eval("#voip-analyse", (b) => b.disabled), "no stream selected yet");
       await page.click("#voip-flow .flow-row.voip-rtp:has-text('1 lost')");
       await page.waitForSelector(`#voip-streams tbody tr:nth-child(${alice + 1}).selected`);
@@ -1127,6 +1147,11 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         () => document.querySelectorAll("#voip-flow .flow-row").length === 4,
       );
       assert.equal((await page.$$("#voip-streams tbody tr.linked")).length, 0);
+      assert.match(
+        await page.textContent("#voip-call-facts"),
+        /^Not answered · final response 486 Busy Here · ended by the callee \(10\.0\.0\.2\)$/,
+      );
+      assert.match(await page.textContent("#voip-call-details"), /Not answered: no media expected/);
 
       await page.check("#voip-heuristic");
       assert.equal(
@@ -1136,6 +1161,90 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       await page.screenshot({
         path: process.env.PCAP_SCREENSHOTS ? `${process.env.PCAP_SCREENSHOTS}/voip.png` : undefined,
       });
+    } finally {
+      await voip.dispose();
+    }
+  });
+
+  test("VoIP call details: DTMF digits and media problems link to their packets", async () => {
+    const voip = await startBackend(deps);
+    try {
+      await voip.request(
+        "open",
+        { path: path.join(FIXTURES, "voip-calls.pcap") },
+        { timeoutMs: 0 },
+      );
+      const { page, problems, post } = await newPage(browser);
+      const log = [];
+      await page.exposeFunction("__toHost", async (raw) => {
+        const msg = JSON.parse(raw);
+        log.push(msg);
+        if (msg.type === "ready") {
+          await post({ type: "init", title: "VoIP Calls · voip-calls.pcap" });
+        } else if (msg.type === "list") {
+          const r = await voip.request("voip_calls", { heuristic: false }, { timeoutMs: 0 });
+          await post({ type: "calls", ...r, heuristic: false });
+        }
+      });
+      await page.setContent(renderPanelHtml(origin, "voip.js", { media: true }), {
+        waitUntil: "load",
+      });
+      pages.push(problems);
+      await page.waitForFunction(
+        () => document.querySelectorAll("#voip-calls tbody tr").length === 5,
+      );
+      const calls = await page.$$eval("#voip-calls tbody tr", (trs) =>
+        trs.map((tr) => [...tr.children].slice(8).map((td) => td.textContent)),
+      );
+      assert.deepEqual(calls, [
+        ["4.40 (Best)", ""],
+        ["4.40 (Best)", "⚠ 4"],
+        ["", "⚠ 1"],
+        ["", ""],
+        ["", ""],
+      ]);
+
+      // Call 1: DTMF from both sides, the callee hung up with a Q.850 cause.
+      assert.match(
+        await page.textContent("#voip-call-facts"),
+        / · ended by the callee \(10\.0\.1\.2\) · Reason: Q\.850 cause 16: Normal call clearing$/,
+      );
+      assert.equal(await page.textContent("#voip-call-details h3"), "DTMF: 4 7 #");
+      assert.deepEqual(await page.$$eval("#voip-dtmf li", (li) => li.map((l) => l.textContent)), [
+        "Packet 46: 4 · RFC 4733 from 10.0.1.1, 80 ms",
+        "Packet 85: 7 · SIP INFO from 10.0.1.2, 250 ms",
+        "Packet 128: # · RFC 4733 from 10.0.1.1, 80 ms",
+      ]);
+      await page.click("#voip-dtmf button >> nth=1");
+      assert.deepEqual(log.at(-1), { type: "goto", frame: 85 });
+      const streamDtmf = await page.$$eval("#voip-streams tbody tr", (trs) =>
+        trs.map((tr) => tr.children[10].textContent),
+      );
+      assert.ok(streamDtmf.includes("4 #"), "the caller's stream lists its RFC 4733 digits");
+
+      // Call 2: four media problems, each a link to its packet.
+      await page.click("#voip-calls tbody tr >> nth=1");
+      await page.waitForSelector("#voip-call-problems");
+      const listed = await page.$$eval("#voip-call-problems li", (li) =>
+        li.map((l) => l.textContent),
+      );
+      assert.equal(listed.length, 4);
+      assert.match(listed[0], /^Packet \d+: One-way audio: only the caller sends RTP/);
+      assert.match(listed[1], /sends PCMA \(8\), but the SDP answer agreed on PCMU \(0\)$/);
+      assert.match(listed[2], /changed SSRC from 0x33333333 to 0x44444444/);
+      assert.equal(
+        listed[3],
+        "Packet 225: No RTP from 10.0.1.3:34000 for 1.52 s before packet 225",
+      );
+      await page.click("#voip-call-problems li >> nth=3 >> button");
+      assert.deepEqual(log.at(-1), { type: "goto", frame: 225 });
+
+      // Call 3: answered, no RTP; no quality to show.
+      await page.click("#voip-calls tbody tr >> nth=2");
+      await page.waitForFunction(() =>
+        document.querySelector("#voip-call-problems")?.textContent?.includes("No RTP after"),
+      );
+      assert.equal(await page.textContent("#voip-call-quality"), "No RTP to rate.");
     } finally {
       await voip.dispose();
     }

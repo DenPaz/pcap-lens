@@ -5,6 +5,7 @@
 import * as assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import {
   BackendClient,
@@ -51,6 +52,48 @@ function makeClient(): BackendClient {
   });
 }
 
+/**
+ * Start the backend with an empty home (as test/backend/conftest.py runs
+ * pytest and test/webview/harness.js the e2e backend): the developer's own
+ * Wireshark setup (personal plugins, Decode As, preferences) must not change
+ * what the tests see. Only the spawn sees the swap.
+ */
+const ISOLATED_ENV = [
+  "HOME",
+  "APPDATA",
+  "XDG_CONFIG_HOME",
+  "WIRESHARK_CONFIG_DIR",
+  "WIRESHARK_PLUGIN_DIR",
+];
+let isolatedHome: string | undefined;
+function startIsolated(client: BackendClient): void {
+  if (!isolatedHome) {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "pcapviewer-home-"));
+    process.on("exit", () => fs.rmSync(home, { recursive: true, force: true }));
+    isolatedHome = home;
+  }
+  const saved = ISOLATED_ENV.map((name) => [name, process.env[name]] as const);
+  for (const name of ISOLATED_ENV) {
+    delete process.env[name];
+  }
+  Object.assign(process.env, {
+    HOME: isolatedHome,
+    APPDATA: isolatedHome, // Windows: %APPDATA%\Wireshark
+    XDG_CONFIG_HOME: path.join(isolatedHome, ".config"),
+  });
+  try {
+    client.start(); // (spawn copies the environment now)
+  } finally {
+    for (const [name, value] of saved) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+  }
+}
+
 function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -66,7 +109,7 @@ suite("BackendClient", function () {
 
   setup(() => {
     client = makeClient();
-    client.start();
+    startIsolated(client);
   });
 
   teardown(async () => {

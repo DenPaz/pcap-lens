@@ -323,20 +323,25 @@ def _sip(src: str, dst: str, text: str) -> Packet:
     return Ether() / IP(src=src, dst=dst) / UDP(sport=5060, dport=5060) / Raw(body)
 
 
-def _sdp(addr: str, port: int, formats: str) -> str:
+def _sdp(addr: str, port: int, formats: str, maps: str = "0 PCMU/8000") -> str:
+    """An SDP offer or answer; ``maps`` = rtpmap lines ("8 PCMA/8000, 101 …")."""
+    rtpmap = "".join(f"a=rtpmap:{m.strip()}\n" for m in maps.split(","))
     return (
         f"v=0\no=- 1 1 IN IP4 {addr}\ns=call\nc=IN IP4 {addr}\nt=0 0\n"
-        f"m=audio {port} RTP/AVP {formats}\na=rtpmap:0 PCMU/8000\n"
+        f"m=audio {port} RTP/AVP {formats}\n{rtpmap}"
     )
 
 
 def _sip_message(first: str, src: str, call_id: str, cseq: str, frm: str, to: str,
-                 sdp: str = "") -> str:  # fmt: skip
-    ctype = "Content-Type: application/sdp\n" if sdp else ""
+                 sdp: str = "", headers: str = "",
+                 ctype: str = "application/sdp") -> str:  # fmt: skip
+    """A SIP message; ``sdp`` is the body (of type ``ctype``), ``headers``
+    extra header lines (each ending in a newline)."""
+    content = f"Content-Type: {ctype}\n" if sdp else ""
     return (
         f"{first}\nVia: SIP/2.0/UDP {src}:5060;branch=z9hG4bK{sum(map(ord, call_id + cseq))}\n"
         f"From: <sip:{frm}>;tag=a1\nTo: <sip:{to}>\nCall-ID: {call_id}\nCSeq: {cseq}\n"
-        f"Contact: <sip:{frm.partition('@')[0]}@{src}>\nMax-Forwards: 70\n{ctype}"
+        f"Contact: <sip:{frm.partition('@')[0]}@{src}>\nMax-Forwards: 70\n{headers}{content}"
         f"Content-Length: {len(sdp.replace(chr(10), chr(13) + chr(10)))}\n\n{sdp}"
     )
 
@@ -412,6 +417,169 @@ def voip_packets() -> list[Packet]:
     for at, pkt in timed:
         pkt.time = at
     return [pkt for _, pkt in timed]
+
+
+# voip-calls.pcap: the calls' parties (erin answers them all).
+DAVE, ERIN, FRANK, GRACE, HEIDI, IVAN = (f"10.0.1.{i}" for i in range(1, 7))
+EVENT_PT = 101  # telephone-event (RFC 4733), mapped by the SDP's rtpmap
+DTMF_EVENTS = {"4": (20, 4), "#": (60, 11)}  # digit: (dave's packet index, event id)
+SSRC_CHANGE_AT = 25  # frank's stream changes SSRC at this packet
+SILENCE_AFTER, SILENCE_S = 10, 1.5  # frank sends nothing for 1.5 s after packet 10
+
+
+def _rtp(src: str, dst: str, sport: int, dport: int, pt: int, seq: int, ts: int, ssrc: int,
+         payload: bytes, marker: int = 0) -> Packet:  # fmt: skip
+    return (
+        Ether() / IP(src=src, dst=dst) / UDP(sport=sport, dport=dport)
+        / RTP(version=2, payload_type=pt, sequence=seq, timestamp=ts, sourcesync=ssrc,
+              marker=marker)
+        / Raw(payload)
+    )  # fmt: skip
+
+
+class _CallScript:
+    """The packets of voip-calls.pcap, each at a time from VOIP_START; SIP
+    helpers for calls to erin."""
+
+    def __init__(self) -> None:
+        self.timed: list[tuple[float, Packet]] = []
+
+    def at(self, time: float, pkt: Packet) -> None:
+        self.timed.append((VOIP_START + time, pkt))
+
+    def sip(self, time: float, src: str, dst: str, first: str, cid: str, cseq: str, frm: str,
+            to: str, body: str = "", headers: str = "",
+            ctype: str = "application/sdp") -> None:  # fmt: skip
+        message = _sip_message(first, src, cid, cseq, frm, to, body, headers, ctype)
+        self.at(time, _sip(src, dst, message))
+
+    def invite(self, time: float, caller: str, name: str, cid: str, body: str) -> None:
+        self.sip(time, caller, ERIN, f"INVITE sip:erin@{ERIN} SIP/2.0", cid, "1 INVITE",
+                 f"{name}@{caller}", f"erin@{ERIN}", body)  # fmt: skip
+
+    def reply(self, time: float, caller: str, name: str, cid: str, status: str,
+              cseq: str = "1 INVITE", body: str = "", headers: str = "") -> None:  # fmt: skip
+        self.sip(time, ERIN, caller, f"SIP/2.0 {status}", cid, cseq, f"{name}@{caller}",
+                 f"erin@{ERIN}", body, headers)  # fmt: skip
+
+    def ack(self, time: float, caller: str, name: str, cid: str) -> None:
+        self.sip(time, caller, ERIN, f"ACK sip:erin@{ERIN} SIP/2.0", cid, "1 ACK",
+                 f"{name}@{caller}", f"erin@{ERIN}")  # fmt: skip
+
+    def bye(self, time: float, caller: str, name: str, cid: str) -> None:
+        """The caller hangs up; erin answers."""
+        self.sip(time, caller, ERIN, f"BYE sip:erin@{ERIN} SIP/2.0", cid, "2 BYE",
+                 f"{name}@{caller}", f"erin@{ERIN}")  # fmt: skip
+        self.reply(time + 0.01, caller, name, cid, "200 OK", cseq="2 BYE")
+
+    def packets(self) -> list[Packet]:
+        self.timed.sort(key=lambda tp: tp[0])
+        for time, pkt in self.timed:
+            pkt.time = time
+        return [pkt for _, pkt in self.timed]
+
+
+_ALAW_SILENCE = bytes([0xD5]) * 160
+
+
+def _dtmf_call(c: _CallScript) -> None:
+    """dave → erin: DTMF both ways, erin hangs up."""
+    events = "8 PCMA/8000, 101 telephone-event/8000"
+    cid = "dtmf@10.0.1.1"
+    c.invite(0.0, DAVE, "dave", cid, _sdp(DAVE, 30000, "8 101", events))
+    c.reply(0.01, DAVE, "dave", cid, "100 Trying")
+    c.reply(0.3, DAVE, "dave", cid, "180 Ringing")
+    c.reply(1.5, DAVE, "dave", cid, "200 OK", body=_sdp(ERIN, 32000, "8 101", events))
+    c.ack(1.51, DAVE, "dave", cid)
+    by_index = dict(DTMF_EVENTS.values())  # packet index → event id
+    for i in range(100):
+        t = 1.52 + 0.02 * i
+        c.at(t + 0.001, _rtp(ERIN, DAVE, 32000, 30000, 8, 5000 + i, 160 * i, 0x66666666,
+                             _ALAW_SILENCE, int(i == 0)))  # fmt: skip
+        start = next((k for k in by_index if k <= i < k + 6), None)
+        if start is None:
+            c.at(t, _rtp(DAVE, ERIN, 30000, 32000, 8, 3000 + i, 160 * i, 0x55555555,
+                         _ALAW_SILENCE, int(i == 0)))  # fmt: skip
+            continue
+        # Six event packets of one digit (all with the timestamp of its start),
+        # the last three its end, sent three times as RFC 4733 asks.
+        step = min(i - start, 3)
+        end = 0x80 if i - start >= 3 else 0
+        body = bytes([by_index[start], end | 10]) + struct.pack(">H", 160 * (step + 1))
+        c.at(t, _rtp(DAVE, ERIN, 30000, 32000, EVENT_PT, 3000 + i, 160 * start, 0x55555555,
+                     body, int(i == start)))  # fmt: skip
+    c.sip(2.3, ERIN, DAVE, f"INFO sip:dave@{DAVE} SIP/2.0", cid, "1 INFO", f"erin@{ERIN}",
+          f"dave@{DAVE}", "Signal=7\nDuration=250\n", ctype="application/dtmf-relay")  # fmt: skip
+    c.sip(2.31, DAVE, ERIN, "SIP/2.0 200 OK", cid, "1 INFO", f"erin@{ERIN}", f"dave@{DAVE}")
+    reason = 'Reason: Q.850;cause=16;text="Normal call clearing"\n'
+    c.sip(3.6, ERIN, DAVE, f"BYE sip:dave@{DAVE} SIP/2.0", cid, "2 BYE", f"erin@{ERIN}",
+          f"dave@{DAVE}", headers=reason)  # fmt: skip
+    c.sip(3.61, DAVE, ERIN, "SIP/2.0 200 OK", cid, "2 BYE", f"erin@{ERIN}", f"dave@{DAVE}")
+
+
+def _one_way_call(c: _CallScript) -> None:
+    """frank → erin: one-way audio, codec mismatch, a pause, an SSRC change."""
+    cid, base = "oneway@10.0.1.3", 5.0
+    c.invite(base, FRANK, "frank", cid, _sdp(FRANK, 34000, "0 8", "0 PCMU/8000, 8 PCMA/8000"))
+    c.reply(base + 0.2, FRANK, "frank", cid, "180 Ringing")
+    c.reply(base + 0.5, FRANK, "frank", cid, "200 OK", body=_sdp(ERIN, 36000, "0"))
+    c.ack(base + 0.51, FRANK, "frank", cid)
+    for i in range(50):
+        t = base + 0.52 + 0.02 * i + (SILENCE_S if i > SILENCE_AFTER else 0.0)
+        ssrc = 0x33333333 if i < SSRC_CHANGE_AT else 0x44444444
+        ts = 160 * i + (int(SILENCE_S * 8000) if i > SILENCE_AFTER else 0)
+        c.at(t, _rtp(FRANK, ERIN, 34000, 36000, 8, 7000 + i, ts, ssrc, _ALAW_SILENCE,
+                     int(i in (0, SSRC_CHANGE_AT))))  # fmt: skip
+    c.bye(base + 3.2, FRANK, "frank", cid)
+
+
+def _calls_without_media(c: _CallScript) -> None:
+    """grace's answered call without RTP, heidi's cancelled one and ivan's
+    unanswered one."""
+    cid, base = "silent@10.0.1.4", 9.0
+    c.invite(base, GRACE, "grace", cid, _sdp(GRACE, 38000, "0"))
+    c.reply(base + 0.1, GRACE, "grace", cid, "180 Ringing")
+    c.reply(base + 0.4, GRACE, "grace", cid, "200 OK", body=_sdp(ERIN, 40000, "0"))
+    c.ack(base + 0.41, GRACE, "grace", cid)
+    c.bye(base + 2.4, GRACE, "grace", cid)
+
+    cid, base = "cancel@10.0.1.5", 12.0
+    c.invite(base, HEIDI, "heidi", cid, _sdp(HEIDI, 42000, "0"))
+    c.reply(base + 0.1, HEIDI, "heidi", cid, "180 Ringing")
+    c.sip(base + 1.0, HEIDI, ERIN, f"CANCEL sip:erin@{ERIN} SIP/2.0", cid, "1 CANCEL",
+          f"heidi@{HEIDI}", f"erin@{ERIN}",
+          headers='Reason: SIP;cause=200;text="Call completed elsewhere"\n')  # fmt: skip
+    c.reply(base + 1.01, HEIDI, "heidi", cid, "200 OK", cseq="1 CANCEL")
+    c.reply(base + 1.02, HEIDI, "heidi", cid, "487 Request Terminated")
+    c.ack(base + 1.03, HEIDI, "heidi", cid)
+
+    cid, base = "unavailable@10.0.1.6", 14.0
+    c.invite(base, IVAN, "ivan", cid, _sdp(IVAN, 44000, "0"))
+    c.reply(base + 0.01, IVAN, "ivan", cid, "100 Trying")
+    c.reply(base + 0.8, IVAN, "ivan", cid, "480 Temporarily Unavailable",
+            headers="Reason: Q.850;cause=18\n")  # fmt: skip
+    c.ack(base + 0.81, IVAN, "ivan", cid)
+
+
+def voip_calls_packets() -> list[Packet]:
+    """Calls for call quality, timings, media problems and DTMF (all to erin):
+
+    1. dave → erin, G.711 A-law both ways with telephone-events (the digits
+       "4" and "#" from dave as RFC 4733 events, "7" from erin as a SIP INFO
+       with application/dtmf-relay); erin hangs up with a Q.850 Reason.
+    2. frank → erin: the answer agrees on PCMU but frank sends PCMA, erin
+       sends nothing (one-way audio), frank's stream pauses for 1.5 s and
+       then changes SSRC; frank hangs up.
+    3. grace → erin: answered, no RTP at all.
+    4. heidi → erin: cancelled while ringing (Reason: SIP cause 200).
+    5. ivan → erin: 480 Temporarily Unavailable (Reason: Q.850 cause 18, no
+       text).
+    """
+    script = _CallScript()
+    _dtmf_call(script)
+    _one_way_call(script)
+    _calls_without_media(script)
+    return script.packets()
 
 
 def _h2_frame(kind: int, flags: int, stream: int, payload: bytes) -> bytes:
@@ -965,6 +1133,7 @@ def main() -> None:
     shutil.copyfile(HERE / "mixed.pcapng", HERE.parents[1] / "media" / "sample.pcapng")
     wrpcap(str(HERE / "objects.pcap"), objects_packets())
     wrpcap(str(HERE / "voip.pcap"), voip_packets())
+    wrpcap(str(HERE / "voip-calls.pcap"), voip_calls_packets())
     wrpcap(str(HERE / "services.pcap"), services_packets())
     hexdump_fixtures()
     (HERE / "comments.pcapng").write_bytes(

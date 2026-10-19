@@ -2375,6 +2375,77 @@
     return out;
   }
 
+  /**
+   * "4.40 (Best)": an E-model estimate (voip.emodel), or "" without one.
+   * @param {{mos: number, rating: string} | null | undefined} q
+   */
+  function mosLabel(q) {
+    return q ? `${q.mos.toFixed(2)} (${q.rating})` : "";
+  }
+
+  /**
+   * A call's timings and how it ended, for the line above its flow: "Rang
+   * after 0.300 s", "answered after 1.500 s", "lasted 0:02", "final response
+   * 486 Busy Here", "ended by the callee (10.0.0.2)", "Reason: Q.850 cause
+   * 16: Normal call clearing".
+   * @param {{ringing?: number | null, setup: number | null, duration: number | null,
+   *   final?: string, endedBy?: string | null, caller: string, callee: string,
+   *   reasons?: string[]}} call
+   * @returns {string[]}
+   */
+  function callFacts(call) {
+    const facts = [];
+    if (call.ringing !== null && call.ringing !== undefined) {
+      facts.push(`rang after ${call.ringing.toFixed(3)} s`);
+    }
+    facts.push(call.setup === null ? "not answered" : `answered after ${call.setup.toFixed(3)} s`);
+    if (call.duration !== null) {
+      facts.push(`lasted ${formatDuration(call.duration)}`);
+    }
+    if (call.final) {
+      facts.push(`final response ${call.final}`);
+    }
+    if (call.endedBy) {
+      const who = call.endedBy === "caller" ? call.caller : call.callee;
+      facts.push(`ended by the ${call.endedBy} (${who})`);
+    }
+    for (const reason of call.reasons ?? []) {
+      facts.push(`Reason: ${reason}`);
+    }
+    if (facts.length) {
+      facts[0] = facts[0][0].toUpperCase() + facts[0].slice(1);
+    }
+    return facts;
+  }
+
+  /**
+   * The line on a call's quality: "MOS 4.23 (High, R 85.9) for 10.0.0.1:40000
+   * → 10.0.0.2:50000, the call's worst stream; G.711".
+   * @param {{mos: number, r: number, rating: string, codec: string, assumed: boolean,
+   *   stream: number} | null} q
+   * @param {{src: string, srcPort: number, dst: string, dstPort: number}[]} streams
+   */
+  function callQualityText(q, streams) {
+    if (!q) {
+      return "No RTP to rate.";
+    }
+    const s = streams[q.stream];
+    const where = s
+      ? ` for ${s.src}:${s.srcPort} → ${s.dst}:${s.dstPort}, the call's worst stream`
+      : "";
+    const codec = q.assumed ? "codec not known to the E-model: rated as G.711" : q.codec;
+    return `MOS ${q.mos.toFixed(2)} (${q.rating}, R ${q.r.toFixed(1)})${where}; ${codec}`;
+  }
+
+  /**
+   * "4 · RFC 4733 from 10.0.1.1, 80 ms".
+   * @param {{digit: string, method: string, src: string, duration: number | null}} d
+   */
+  function dtmfLabel(d) {
+    const ms = d.duration === null || d.duration === undefined ? "" : `, ${d.duration} ms`;
+    return `${d.digit} · ${d.method} from ${d.src}${ms}`;
+  }
+
   const api = {
     COMMAND_GROUP_ORDER,
     groupCommands,
@@ -2385,6 +2456,10 @@
     callFlow,
     rtpStreamLabel,
     rtpProblems,
+    mosLabel,
+    callFacts,
+    callQualityText,
+    dtmfLabel,
     RP,
     indexingLabel,
     progressView,
