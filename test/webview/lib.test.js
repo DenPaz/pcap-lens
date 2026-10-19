@@ -1297,6 +1297,40 @@ suite("webview lib: navigation and customisation", () => {
     );
   });
 
+  test("waveformPath and rtcpLabel", () => {
+    assert.equal(lib.waveformPath([], 100, 40), "M0,20H100");
+    // Two buckets: an envelope around the row's middle (y 20 + top), closed.
+    assert.equal(
+      lib.waveformPath([1000, 0], 100, 40, 40),
+      "M0,60L25,41L75,59.5L100,60L75,60.5L25,79Z",
+    );
+    assert.equal(lib.rtcpLabel(null), "No RTCP reports about this stream.");
+    assert.equal(
+      lib.rtcpLabel({
+        reports: 1,
+        from: "10.0.1.7",
+        fractionLost: 10.2,
+        maxFractionLost: 10.2,
+        cumulativeLost: 2,
+        maxJitter: 5,
+        rtt: 41,
+      }),
+      "RTCP from 10.0.1.7 (1 report): 10.2% lost (at most 10.2%), 2 lost in all, jitter up to 5 ms, round trip 41 ms",
+    );
+    assert.match(
+      lib.rtcpLabel({
+        reports: 3,
+        from: "a",
+        fractionLost: 0,
+        maxFractionLost: 1.2,
+        cumulativeLost: 0,
+        maxJitter: 0.1254,
+        rtt: null,
+      }),
+      /^RTCP from a \(3 reports\): .* jitter up to 0\.125 ms$/,
+    );
+  });
+
   test("groupCommands: headings in order, commands in their order, unknown groups under Other", () => {
     const c = (id, group) => ({ id, title: id, category: "PCAP", group });
     const groups = lib.groupCommands([

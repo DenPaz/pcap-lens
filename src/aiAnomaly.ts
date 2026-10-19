@@ -1,7 +1,7 @@
 /**
  * "Ask Copilot…" about anomalies (`@pcap /anomaly`): expert information rows
- * (the Expert Information panel) and one TCP stream (the TCP Stream Graph
- * panel). Argument parsing, derived TCP facts, downsampling and the prompts.
+ * (the Expert Information panel), one TCP stream (the TCP Stream Graph
+ * panel) and one VoIP call (the VoIP Calls panel). Argument parsing, derived TCP facts, downsampling and the prompts.
  * No `vscode` import, so it is unit-testable; src/ai.ts supplies the data.
  *
  * Privacy: never payloads or bytes. For expert information: the selected
@@ -12,7 +12,12 @@
  * most `maxPoints` sampled packets as frame, time, direction, sequence
  * number, length, ack, window, RTT, retransmission and SYN flags, plus facts
  * computed from all of them (retransmission rate, RTT min/median/max,
- * zero-window events, bytes each way). Gated like the capture summary
+ * zero-window events, bytes each way). For a VoIP call: its SIP message flow
+ * (at most `maxCallMessages` message names with times and addresses; no
+ * bodies), the parties' SIP URIs, timings and how it ended, its RTP streams'
+ * statistics (at most `maxCallStreams`: codec, packets, loss, jitter, MOS,
+ * what RTCP reported) and the problems the panel found; DTMF only as a count
+ * (digits can be PINs). Gated like the capture summary
  * (`pcapViewer.ai.allowCaptureStatistics`, aiConsent.ts).
  */
 import {
@@ -34,6 +39,10 @@ export interface AnomalyLimits {
   maxConversations: number;
   /** Sampled TCP packets. */
   maxPoints: number;
+  /** SIP messages of a call. */
+  maxCallMessages: number;
+  /** RTP streams of a call. */
+  maxCallStreams: number;
   /** Characters per message / cell. */
   maxCell: number;
   /** The whole prompt. */
@@ -45,6 +54,8 @@ export const ANOMALY_LIMITS: AnomalyLimits = {
   maxFramesPerRow: 5,
   maxConversations: 5,
   maxPoints: 200,
+  maxCallMessages: 60,
+  maxCallStreams: 8,
   maxCell: 160,
   maxPromptChars: 24_000,
 };
@@ -94,15 +105,26 @@ export function notableExpertRows(rows: readonly ExpertRow[], max: number): Expe
 
 // ---------------------------------------------------------------------- arguments
 
-export type AnomalyTarget = { kind: "expert"; ref?: number } | { kind: "stream"; stream: number };
+export type AnomalyTarget =
+  | { kind: "expert"; ref?: number }
+  | { kind: "stream"; stream: number }
+  | { kind: "call"; ref: number };
 
 /**
  * `/anomaly` arguments: `stream 3 [question]` (TCP stream 3), `expert #2
- * [question]` (the expert rows the panel sent, by reference), `expert
- * [question]` or nothing (the capture's errors and warnings).
+ * [question]` (the expert rows the panel sent, by reference), `call #4
+ * [question]` (a VoIP call the panel sent), `expert [question]` or nothing
+ * (the capture's errors and warnings).
  */
 export function parseAnomalyArgs(prompt: string): { target: AnomalyTarget; question: string } {
   const text = prompt.trim();
+  const call = /^call\s+#(\d{1,9})\b\s*/i.exec(text);
+  if (call) {
+    return {
+      target: { kind: "call", ref: Number(call[1]) },
+      question: oneLine(text.slice(call[0].length), MAX_QUESTION),
+    };
+  }
   const stream = /^(?:tcp\s+)?stream\s+#?(\d{1,9})\b\s*/i.exec(text);
   if (stream) {
     return {
@@ -125,9 +147,11 @@ export function anomalyQuery(target: AnomalyTarget, question = ""): string {
   const what =
     target.kind === "stream"
       ? `stream ${target.stream}`
-      : target.ref !== undefined
-        ? `expert #${target.ref}`
-        : "expert";
+      : target.kind === "call"
+        ? `call #${target.ref}`
+        : target.ref !== undefined
+          ? `expert #${target.ref}`
+          : "expert";
   const q = oneLine(question, MAX_QUESTION);
   return `@pcap /anomaly ${what}${q ? ` ${q}` : ""}`;
 }
@@ -449,4 +473,177 @@ export function framesFilter(rows: readonly ExpertRow[], maxFrames: number): str
     (x, y) => x - y,
   );
   return frames.length ? `frame.number in {${frames.join(" ")}}` : undefined;
+}
+
+// ---------------------------------------------------------------------- VoIP calls
+
+/** A call as the backend's voip_calls lists it (the fields used here). */
+export interface VoipCallData {
+  from: string;
+  to: string;
+  caller: string;
+  callee: string;
+  state: string;
+  final?: string;
+  reasons?: string[];
+  endedBy?: string | null;
+  ringing?: number | null;
+  setup: number | null;
+  duration: number | null;
+  messages: [number, number, string, string, string][];
+  streams: number[];
+  sides?: string[];
+  dtmf?: unknown[];
+  problems?: { kind: string; text: string; frame: number | null }[];
+}
+
+/** An RTP stream as voip_calls lists it (the fields used here). */
+export interface VoipStreamData {
+  src: string;
+  srcPort: number;
+  dst: string;
+  dstPort: number;
+  payload: string;
+  packets: number;
+  lost: number;
+  lostPercent?: number;
+  maxJitter?: number;
+  meanJitter?: number;
+  maxDelta?: number;
+  quality?: { mos: number; r: number; rating: string } | null;
+  rtcp?: {
+    fractionLost: number;
+    cumulativeLost: number;
+    maxJitter: number;
+    rtt: number | null;
+  } | null;
+}
+
+/** What is sent about one call: no message bodies, no DTMF digits. */
+export interface CallSummary {
+  from: string;
+  to: string;
+  caller: string;
+  callee: string;
+  state: string;
+  final: string;
+  reasons: string[];
+  endedBy: string | null;
+  ringing: number | null;
+  setup: number | null;
+  duration: number | null;
+  messages: [number, number, string, string, string][];
+  /** Messages left out (beyond maxCallMessages). */
+  moreMessages: number;
+  streams: (VoipStreamData & { side: string })[];
+  moreStreams: number;
+  problems: { kind: string; text: string; frame: number | null }[];
+  dtmfCount: number;
+}
+
+/** The part of a listed call that goes into the prompt, within the limits. */
+export function callSummary(
+  call: VoipCallData,
+  streams: readonly VoipStreamData[],
+  limits: AnomalyLimits = ANOMALY_LIMITS,
+): CallSummary {
+  const linked = call.streams
+    .map((i, n) => (streams[i] ? { ...streams[i], side: call.sides?.[n] ?? "?" } : undefined))
+    .filter((s): s is VoipStreamData & { side: string } => s !== undefined);
+  return {
+    from: call.from,
+    to: call.to,
+    caller: call.caller,
+    callee: call.callee,
+    state: call.state,
+    final: call.final ?? "",
+    reasons: call.reasons ?? [],
+    endedBy: call.endedBy ?? null,
+    ringing: call.ringing ?? null,
+    setup: call.setup,
+    duration: call.duration,
+    messages: call.messages.slice(0, limits.maxCallMessages),
+    moreMessages: Math.max(0, call.messages.length - limits.maxCallMessages),
+    streams: linked.slice(0, limits.maxCallStreams),
+    moreStreams: Math.max(0, linked.length - limits.maxCallStreams),
+    problems: call.problems ?? [],
+    dtmfCount: call.dtmf?.length ?? 0,
+  };
+}
+
+const ms = (v: number | undefined | null) =>
+  typeof v === "number" ? `${formatNumber(v)} ms` : "-";
+const secs = (v: number | null) => (v === null ? "-" : formatSeconds(v));
+
+export interface CallAnomalyInput {
+  question: string;
+  call: CallSummary;
+}
+
+export function buildCallPrompt(
+  input: CallAnomalyInput,
+  limits: AnomalyLimits = ANOMALY_LIMITS,
+): string {
+  const c = input.call;
+  const cell = (v: string) => oneLine(v, limits.maxCell);
+  const lines = [
+    "You are a VoIP and SIP expert helping someone read a packet capture.",
+    "Explain this call: how its signalling went, why it failed or ended as it did, and whether its audio was likely",
+    "good, and if not why (packet loss, jitter, one-way audio from NAT or firewall problems, a codec mismatch, an",
+    "SSRC change, silences). You get the SIP message flow (message names only, no bodies), the call's timings, its",
+    "RTP streams' statistics (MOS estimated with the ITU-T E-model) and the problems the viewer detected.",
+    "Refer to packets by frame number. Be concise: a short diagnosis, then bullets.",
+    ...COMMON_RULES,
+    "",
+    `Question: ${oneLine(input.question, MAX_QUESTION) || "Explain this call."}`,
+    "",
+    "## Call",
+    `From ${cell(c.from)} (caller, ${cell(c.caller)}) to ${cell(c.to)} (callee, ${cell(c.callee)})`,
+    `State: ${cell(c.state)}; final response: ${cell(c.final) || "-"}; ended by: ${c.endedBy ?? "-"}`,
+    `Ringing after ${secs(c.ringing)}, answered after ${secs(c.setup)}, talk time ${secs(c.duration)}`,
+    ...(c.reasons.length ? [`Reason headers: ${c.reasons.map(cell).join("; ")}`] : []),
+    ...(c.dtmfCount ? [`DTMF: ${c.dtmfCount} digit(s) sent (the digits are not included)`] : []),
+    "",
+    "## SIP messages (frame | time s | from | to | message)",
+    ...c.messages.map(
+      ([frame, time, src, dst, label]) =>
+        `${frame} | ${formatNumber(time)} | ${cell(src)} | ${cell(dst)} | ${cell(label)}`,
+    ),
+    ...(c.moreMessages ? [`[${c.moreMessages} more messages not included]`] : []),
+    "",
+    "## RTP streams (sender | from | to | codec | packets | lost | max jitter | mean jitter | max delta | MOS | RTCP from the receiver)",
+    ...(c.streams.length
+      ? c.streams.map((s) => {
+          const lost = `${s.lost} (${formatNumber(s.lostPercent ?? 0)}%)`;
+          const mos = s.quality ? `${s.quality.mos.toFixed(2)} ${s.quality.rating}` : "-";
+          const r = s.rtcp;
+          const rtcp = r
+            ? `${formatNumber(r.fractionLost)}% lost, ${r.cumulativeLost} in all, jitter ${ms(r.maxJitter)}, round trip ${ms(r.rtt)}`
+            : "-";
+          return [
+            s.side,
+            `${cell(s.src)}:${s.srcPort}`,
+            `${cell(s.dst)}:${s.dstPort}`,
+            cell(s.payload),
+            s.packets,
+            lost,
+            ms(s.maxJitter),
+            ms(s.meanJitter),
+            ms(s.maxDelta),
+            mos,
+            rtcp,
+          ].join(" | ");
+        })
+      : ["None: no RTP was linked to this call."]),
+    ...(c.moreStreams ? [`[${c.moreStreams} more streams not included]`] : []),
+    "",
+    "## Problems the viewer detected",
+    ...(c.problems.length
+      ? c.problems.map((p) => `${p.frame ?? "-"} | ${p.kind} | ${cell(p.text)}`)
+      : ["None."]),
+  ];
+  const prompt = lines.join("\n");
+  return prompt.length <= limits.maxPromptChars
+    ? prompt
+    : `${prompt.slice(0, limits.maxPromptChars - 30)}\n[data cut short]`;
 }

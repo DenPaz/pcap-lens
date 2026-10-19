@@ -3,7 +3,7 @@
  * VoIP calls panel: the SIP calls of a capture with the selected call's
  * timings, how it ended, its quality (E-model MOS), DTMF digits and media
  * problems, a sequence diagram of it, its RTP streams (packets, loss, jitter,
- * MOS), the analysis of a
+ * MOS, RTCP), the analysis of a
  * stream packet by packet with a jitter graph, and its audio (played here
  * from a WAV file the host writes, or saved). Everything is built with
  * createElement/textContent: SIP URIs and payload names come from packets.
@@ -26,6 +26,7 @@
     /** @type {number | null} */ stream: null,
     requestId: 0,
     /** @type {any} */ analysis: null,
+    /** @type {any[]} */ registrations: [],
     listing: false,
   };
 
@@ -97,7 +98,44 @@
     "voip-save-call",
     "Save the call's SIP messages and RTP as a new capture file",
   );
-  const callTools = h("div", { class: "toolbar", role: "toolbar" }, [filterCall, saveCall]);
+  const playCall = button(
+    "Play Call",
+    "voip-play-call",
+    "Play both directions together: the caller left, the callee right",
+  );
+  const saveCallAudio = button(
+    "Save Call Audio…",
+    "voip-save-call-audio",
+    "Save both directions as one stereo WAV file",
+  );
+  const askCall = h(
+    "button",
+    {
+      type: "button",
+      class: "secondary hidden",
+      id: "voip-ask",
+      title:
+        "Ask Copilot about this call (sends its SIP message flow and stream statistics, never audio, message bodies or DTMF digits)",
+    },
+    ["Ask Copilot…"],
+  );
+  const callTools = h("div", { class: "toolbar", role: "toolbar" }, [
+    filterCall,
+    saveCall,
+    playCall,
+    saveCallAudio,
+    askCall,
+  ]);
+  const callAudio = /** @type {HTMLAudioElement} */ (
+    h("audio", { controls: "", id: "voip-call-audio", preload: "auto" })
+  );
+  const callAudioNote = h("span", { class: "status", id: "voip-call-audio-note" });
+  const waveform = h("div", { class: "voip-waveform", id: "voip-waveform" });
+  const callAudioBox = h("section", {
+    class: "hidden voip-call-audio",
+    "aria-label": "Call audio",
+  });
+  callAudioBox.append(h("div", { class: "toolbar" }, [callAudio, callAudioNote]), waveform);
   const callDetails = h("section", {
     class: "hidden",
     id: "voip-call-details",
@@ -108,6 +146,7 @@
     h("h2", { class: "panel-subtitle-h" }, ["SIP Calls"]),
     callsTable,
     callTools,
+    callAudioBox,
     callDetails,
     flow,
   );
@@ -122,7 +161,11 @@
     "voip-analyse",
     "Packet-by-packet analysis: jitter, delta, lost packets",
   );
-  const play = button("Play", "voip-play", "Decode the stream's G.711 audio and play it here");
+  const play = button(
+    "Play",
+    "voip-play",
+    "Decode the stream's audio (G.711, G.722, G.726-32, L16) and play it here",
+  );
   const save = button("Save Audio…", "voip-save", "Save the stream's audio as a WAV file");
   const filterStream = button(
     "Filter Stream",
@@ -141,6 +184,7 @@
     audio,
     audioNote,
   ]);
+  const rtcpLine = h("div", { class: "status hidden", id: "voip-rtcp" });
   const analysisBox = h("section", {
     class: "hidden",
     id: "voip-analysis",
@@ -150,8 +194,17 @@
     h("h2", { class: "panel-subtitle-h" }, ["RTP Streams"]),
     streamsTable,
     streamTools,
+    rtcpLine,
     analysisBox,
   );
+
+  const regsHeading = h("h2", { class: "panel-subtitle-h hidden" }, ["Registrations"]);
+  const regsTable = h("table", {
+    class: "stats hidden",
+    id: "voip-registrations",
+    "aria-label": "SIP registrations",
+  });
+  app.append(regsHeading, regsTable);
 
   refresh.addEventListener("click", () => list());
   heuristic.addEventListener("change", () => list());
@@ -167,6 +220,48 @@
       vscode.postMessage({ type: "saveCall", call: { id: call.id, filter: call.filter } });
     }
   });
+  playCall.addEventListener("click", () => {
+    const streams = callStreams();
+    if (streams.length) {
+      const id = ++state.requestId;
+      notice.classList.add("hidden");
+      callAudioBox.classList.remove("hidden");
+      callAudioNote.textContent = "Decoding the call's audio…";
+      vscode.postMessage({ type: "playCall", id, call: state.call, streams });
+    }
+  });
+  askCall.addEventListener("click", () => {
+    if (state.call !== null) {
+      vscode.postMessage({ type: "askCopilot", call: state.call });
+    }
+  });
+  saveCallAudio.addEventListener("click", () => {
+    const streams = callStreams();
+    if (streams.length) {
+      vscode.postMessage({ type: "saveCallAudio", call: state.call, streams });
+    }
+  });
+  waveform.addEventListener("click", (e) => {
+    const box = waveform.getBoundingClientRect();
+    if (callAudio.duration > 0 && box.width > 0) {
+      callAudio.currentTime = ((e.clientX - box.left) / box.width) * callAudio.duration;
+      movePlayhead();
+    }
+  });
+  for (const event of ["timeupdate", "seeked", "play"]) {
+    callAudio.addEventListener(event, () => {
+      movePlayhead();
+      if (event === "play") {
+        const tick = () => {
+          movePlayhead();
+          if (!callAudio.paused && !callAudio.ended) {
+            requestAnimationFrame(tick);
+          }
+        };
+        requestAnimationFrame(tick);
+      }
+    });
+  }
   filterStream.addEventListener("click", () => {
     const stream = selectedStream();
     if (stream) {
@@ -188,6 +283,67 @@
     status.textContent = "Reading SIP calls and RTP streams…";
     notice.classList.add("hidden");
     vscode.postMessage({ type: "list", heuristic: state.heuristic });
+  }
+
+  /** The selected call's streams with their channel (0: the caller's, left) and start. */
+  function callStreams() {
+    const call = state.call !== null ? state.calls[state.call] : null;
+    if (!call) {
+      return [];
+    }
+    return call.streams.map((/** @type {number} */ i, /** @type {number} */ n) => ({
+      ...state.streams[i],
+      channel: call.sides?.[n] === "callee" ? 1 : 0,
+    }));
+  }
+
+  function movePlayhead() {
+    const line = waveform.querySelector(".playhead");
+    if (line && callAudio.duration > 0) {
+      const x = (callAudio.currentTime / callAudio.duration) * 100;
+      line.setAttribute("x1", `${x}%`);
+      line.setAttribute("x2", `${x}%`);
+    }
+  }
+
+  /**
+   * The call's waveform: one row per channel (caller above), a playhead, and
+   * a click to seek. @param {number[][]} peaks @param {string[]} labels
+   */
+  function renderWaveform(peaks, labels) {
+    waveform.replaceChildren();
+    const width = 1000;
+    const row = 48;
+    const svg = s("svg", {
+      viewBox: `0 0 ${width} ${row * peaks.length}`,
+      preserveAspectRatio: "none",
+      role: "img",
+      "aria-label": `Waveform: ${labels.join(", ")}. Click to seek.`,
+    });
+    peaks.forEach((channel, i) => {
+      svg.append(
+        s("path", {
+          d: lib.waveformPath(channel, width, row, i * row),
+          class: `wave wave-${i}`,
+        }),
+      );
+    });
+    svg.append(s("line", { x1: "0%", x2: "0%", y1: 0, y2: "100%", class: "playhead" }));
+    waveform.append(
+      svg,
+      h(
+        "div",
+        { class: "wave-labels", "aria-hidden": "true" },
+        labels.map((l) => h("span", {}, [l])),
+      ),
+    );
+  }
+
+  /** "RTCP from 10.0.1.7 (1 report): 10.2% lost, 2 lost in all, jitter 5.000 ms, round trip 41 ms". @param {any} st */
+  function renderRtcp(st) {
+    const r = st?.rtcp;
+    rtcpLine.classList.toggle("hidden", !st);
+    rtcpLine.textContent = st ? lib.rtcpLabel(r) : "";
   }
 
   function selectedStream() {
@@ -253,6 +409,30 @@
     table.append(h("thead", {}, [head]), body);
   }
 
+  function renderRegistrations() {
+    const regs = state.registrations;
+    regsHeading.classList.toggle("hidden", !regs.length);
+    regsTable.classList.toggle("hidden", !regs.length);
+    fillTable(
+      regsTable,
+      ["Start (s)", "Address of Record", "Client", "Registrar", "State", "Final", "Expires (s)"],
+      ["Start (s)", "Expires (s)"],
+      regs.map((/** @type {any} */ r) => [
+        num(r.start, 3),
+        r.aor,
+        r.client,
+        r.registrar,
+        r.challenges
+          ? `${r.state} (${r.challenges} challenge${r.challenges === 1 ? "" : "s"})`
+          : r.state,
+        r.final,
+        r.expires ?? "",
+      ]),
+      null,
+      (i) => vscode.postMessage({ type: "goto", frame: regs[i].frames[1] }),
+    );
+  }
+
   function renderCalls() {
     const rows = state.calls.map((c) => [
       num(c.start, 3),
@@ -290,6 +470,10 @@
     }
     filterCall.toggleAttribute("disabled", state.call === null);
     saveCall.toggleAttribute("disabled", state.call === null);
+    const silent = state.call === null || !state.calls[state.call].streams.length;
+    playCall.toggleAttribute("disabled", silent);
+    askCall.toggleAttribute("disabled", state.call === null);
+    saveCallAudio.toggleAttribute("disabled", silent);
   }
 
   /**
@@ -361,6 +545,7 @@
       num(st.maxDelta),
       num(st.maxJitter),
       num(st.meanJitter),
+      st.rtcp?.rtt ?? "",
       lib.mosLabel(st.quality),
       (st.dtmf ?? []).map((/** @type {any} */ d) => d.digit).join(" "),
       st.problem ? "⚠" : "",
@@ -377,11 +562,20 @@
         "Max Delta (ms)",
         "Max Jitter (ms)",
         "Mean Jitter (ms)",
+        "RTT (ms)",
         "MOS",
         "DTMF",
         "Problem",
       ],
-      ["Packets", "Lost", "Max Delta (ms)", "Max Jitter (ms)", "Mean Jitter (ms)", "MOS"],
+      [
+        "Packets",
+        "Lost",
+        "Max Delta (ms)",
+        "Max Jitter (ms)",
+        "Mean Jitter (ms)",
+        "RTT (ms)",
+        "MOS",
+      ],
       rows,
       state.stream,
       selectStream,
@@ -403,6 +597,9 @@
 
   /** @param {number} i */
   function selectCall(i) {
+    if (state.call !== i) {
+      resetCallAudio();
+    }
     state.call = i;
     renderCalls();
     renderCallDetails();
@@ -422,7 +619,16 @@
     }
     state.stream = i;
     renderStreams();
+    renderRtcp(state.streams[i]);
     /** @type {HTMLElement | null} */ (streamsTable.querySelector("tr.selected"))?.focus();
+  }
+
+  function resetCallAudio() {
+    callAudio.pause();
+    callAudio.removeAttribute("src");
+    callAudioBox.classList.add("hidden");
+    callAudioNote.textContent = "";
+    waveform.replaceChildren();
   }
 
   // ------------------------------------------------------------------ call flow
@@ -631,12 +837,14 @@
     switch (msg.type) {
       case "init":
         title.textContent = msg.title;
+        askCall.classList.toggle("hidden", !msg.ai);
         list();
         return;
       case "calls": {
         state.listing = false;
         state.calls = msg.calls;
         state.streams = msg.streams;
+        state.registrations = msg.registrations ?? [];
         state.call = state.calls.length ? 0 : null;
         state.stream = null;
         state.analysis = null;
@@ -644,8 +852,11 @@
         renderCalls();
         renderCallDetails();
         renderStreams();
+        renderRtcp(null);
         renderFlow();
         renderAnalysis();
+        renderRegistrations();
+        resetCallAudio();
         audio.classList.add("hidden");
         return;
       }
@@ -666,6 +877,18 @@
           void audio.play().catch(() => undefined);
         }
         return;
+      case "callAudio":
+        if (msg.id === state.requestId) {
+          const call = state.calls[msg.call];
+          const skipped = msg.skipped?.length
+            ? ` · ${msg.skipped.length} stream${msg.skipped.length === 1 ? "" : "s"} not decoded`
+            : "";
+          callAudioNote.textContent = `${msg.codec}, ${num(msg.seconds, 1)} s, caller left, callee right${skipped}`;
+          renderWaveform(msg.peaks, [`Caller ${call?.from ?? ""}`, `Callee ${call?.to ?? ""}`]);
+          callAudio.src = msg.uri;
+          void callAudio.play().catch(() => undefined);
+        }
+        return;
       case "error":
         if (msg.id !== undefined && msg.id !== state.requestId) {
           return;
@@ -673,6 +896,7 @@
         state.listing = false;
         status.textContent = "";
         audioNote.textContent = "";
+        callAudioNote.textContent = "";
         if (!msg.cancelled) {
           notice.textContent = msg.unsupported
             ? `${msg.message}. Use Save Audio… to save the raw payload instead.`

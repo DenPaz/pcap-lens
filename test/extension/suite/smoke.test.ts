@@ -189,6 +189,7 @@ suite("PCAP Lens smoke test", () => {
       "pcapViewer.statistics.flowGraph",
       "pcapViewer.statistics.tcpStreamGraph",
       "pcapViewer.statistics.voipCalls",
+      "pcapViewer.statistics.sip",
       "pcapViewer.toggleTimeReference",
       "pcapViewer.timeFormat",
     ]) {
@@ -304,7 +305,7 @@ suite("PCAP Lens smoke test", () => {
     session.reveal();
     await vscode.commands.executeCommand("pcapViewer.statistics.voipCalls");
     const voip = await waitFor(() => VoipPanel.all.find((p) => p.session === session)?.calls);
-    assert.deepEqual(voip, { calls: [], streams: [], heuristic: false });
+    assert.deepEqual(voip, { calls: [], streams: [], registrations: [], heuristic: false });
 
     // The ☰ menu: a listed command runs on this capture; anything else is ignored.
     assert.ok(session.menuCommands.some((c) => c.id === "pcapViewer.statistics.endpoints"));

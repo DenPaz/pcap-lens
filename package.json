@@ -7,7 +7,7 @@
     "color": "#0b3a73",
     "theme": "dark"
   },
-  "version": "0.13.0",
+  "version": "0.14.0",
   "publisher": "denpaz",
   "license": "MIT",
   "repository": {
@@ -458,6 +458,11 @@
         "category": "PCAP Statistics"
       },
       {
+        "command": "pcapViewer.statistics.sip",
+        "title": "SIP Statistics",
+        "category": "PCAP Statistics"
+      },
+      {
         "command": "pcapViewer.reloadDissectors",
         "title": "Reload Dissectors",
         "category": "PCAP"
@@ -831,6 +836,10 @@
         {
           "command": "pcapViewer.statistics.serviceResponseTime",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
+        },
+        {
+          "command": "pcapViewer.statistics.sip",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow || activeWebviewPanelId == pcapViewer.voip"
         },
         {
           "command": "pcapViewer.decodeAs",

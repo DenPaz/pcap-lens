@@ -168,9 +168,10 @@ def slow_filter(patch_service: Callable[[str, object], None]) -> Iterator[thread
 
 
 @pytest.fixture
-def tls_keylog(tmp_path: Path) -> tuple[Path, Path]:
+def tls_keylog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
     """A TLS capture carrying HTTP and the key log file that decrypts it
     (generated: TLS randoms differ on every run)."""
+    monkeypatch.syspath_prepend(str(FIXTURES))  # (generate.py imports quic.py beside it)
     spec = importlib.util.spec_from_file_location("generate", FIXTURES / "generate.py")
     assert spec is not None and spec.loader is not None
     generate = importlib.util.module_from_spec(spec)

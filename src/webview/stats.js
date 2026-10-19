@@ -37,7 +37,7 @@
     fc: "Fibre Channel",
   };
   /** Reports that are trees: their row order is the tree's, so no sorting. */
-  const TREES = ["phs", "http", "dns", "plen"];
+  const TREES = ["phs", "http", "dns", "plen", "sip"];
   /** @type {Record<string, string>} */
   const DEFAULT_TYPE = { http: "packets", srt: "auto" };
   const INTERVALS = [

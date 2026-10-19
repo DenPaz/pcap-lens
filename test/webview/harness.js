@@ -56,10 +56,26 @@ function serveWebview({ media } = {}) {
       return;
     }
     // (Fonts load in CORS mode; VS Code's webview resource server allows any origin too.)
-    res.writeHead(200, {
+    const headers = {
       "content-type": types[path.extname(file)] || "application/octet-stream",
       "access-control-allow-origin": "*",
-    });
+      "accept-ranges": "bytes",
+    };
+    // Byte ranges, as VS Code serves them: an <audio> element can only seek with them.
+    const size = fs.statSync(file).size;
+    const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? "");
+    if (range && size > 0) {
+      const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+      const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+      res.writeHead(206, {
+        ...headers,
+        "content-range": `bytes ${start}-${end}/${size}`,
+        "content-length": end - start + 1,
+      });
+      fs.createReadStream(file, { start, end }).pipe(res);
+      return;
+    }
+    res.writeHead(200, { ...headers, "content-length": size });
     fs.createReadStream(file).pipe(res);
   });
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));

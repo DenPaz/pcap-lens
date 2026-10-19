@@ -106,6 +106,7 @@ def rpc_methods(service: PcapService) -> dict[str, Callable[[dict[str, Any], Req
         "voip_calls": service.voip_calls,
         "rtp_stream": service.rtp_stream,
         "rtp_audio": service.rtp_audio,
+        "call_audio": service.call_audio,
         "set_comments": service.set_comments,
         "packet_comments": service.packet_comments,
         "save_comments": service.save_comments,

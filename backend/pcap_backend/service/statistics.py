@@ -24,8 +24,8 @@ class StatisticsMixin(ServiceBase):
         tcp, udp), ``phs`` (protocol hierarchy), ``io`` (with optional
         ``interval`` in seconds), ``expert``, ``properties`` (capinfos),
         ``http`` (``type`` packets, requests or load), ``dns``, ``plen``
-        (packet lengths) or ``srt`` (service response time, ``type`` a
-        protocol of ``stats.SRT_PROTOCOLS`` or ``auto``).
+        (packet lengths), ``srt`` (service response time, ``type`` a
+        protocol of ``stats.SRT_PROTOCOLS`` or ``auto``) or ``sip``.
         ``filter`` limits the statistics to packets matching a display filter.
         """
         kind = param(params, "kind", str)
@@ -65,24 +65,13 @@ class StatisticsMixin(ServiceBase):
                 text = self._tap(f, f"io,stat,{interval:g}{suffix}", ctx)
                 table = stats.parse_io_stat(text, interval)
             case "expert":
-                fields_args = ["-T", "fields", "-e", "frame.number", "-e", "_ws.expert"]
-                fields_args += [
-                    "-E",
-                    "aggregator=\x1e",
-                    "-Y",
-                    f"_ws.expert && ({counted})" if counted else "_ws.expert",
-                ]
-                fields_future = self._pool.submit(
-                    run, f.tshark.argv(*fields_args, capture=str(f.path)), ctx.token
-                )
-                # "comment" is the lowest severity, i.e. everything.
-                summary = self._tap(f, f"expert,comment{suffix}", ctx)
-                fields_text = fields_future.result().stdout.decode("utf-8", "replace")
-                table = stats.parse_expert(summary, fields_text)
+                table = self._expert(f, counted, ctx)
             case "http" | "dns" | "plen":
                 table = self._tree_stats(f, kind, param(params, "type", str, ""), suffix, ctx)
             case "srt":
                 table = self._srt(f, param(params, "type", str, "auto"), suffix, ctx)
+            case "sip":
+                table = stats.parse_sip_stat(self._tap(f, f"sip,stat{suffix}", ctx))
             case "properties":
                 if f.tshark.capinfos is None:
                     raise ToolError("capinfos (part of Wireshark) was not found")
@@ -93,6 +82,25 @@ class StatisticsMixin(ServiceBase):
         result = table.to_json()
         result["filter"] = flt
         return result
+
+    def _expert(self, f: _Open, counted: str, ctx: RequestContext) -> Table:
+        """Expert info: the ``-z expert`` summary joined with a fields pass for
+        the frames of each item (``counted``: the filter, without ignored)."""
+        fields_args = ["-T", "fields", "-e", "frame.number", "-e", "_ws.expert"]
+        fields_args += [
+            "-E",
+            "aggregator=\x1e",
+            "-Y",
+            f"_ws.expert && ({counted})" if counted else "_ws.expert",
+        ]
+        fields_future = self._pool.submit(
+            run, f.tshark.argv(*fields_args, capture=str(f.path)), ctx.token
+        )
+        # "comment" is the lowest severity, i.e. everything.
+        suffix = f",{counted}" if counted else ""
+        summary = self._tap(f, f"expert,comment{suffix}", ctx)
+        fields_text = fields_future.result().stdout.decode("utf-8", "replace")
+        return stats.parse_expert(summary, fields_text)
 
     def expert_summary(self, _params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """How many expert items of each severity the whole capture has

@@ -39,3 +39,9 @@ Feature: VoIP call details
     Then 209 packets are displayed
     When I export the packets of call 2 as pcapng
     Then the exported capture is a pcapng file with 56 packets
+
+  Scenario: Registrations and SIP statistics
+    When I list the VoIP calls
+    Then the registrations are dave@example.test Registered, frank@example.test Failed and grace@example.test Unregistered
+    When I ask for the SIP statistics
+    Then the SIP statistics count 5 INVITE and 4 REGISTER requests

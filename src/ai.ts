@@ -26,8 +26,10 @@ import {
 } from "./aiExplain";
 import {
   AnomalyTarget,
+  CallSummary,
   ExpertRow,
   TcpPoint,
+  buildCallPrompt,
   buildExpertPrompt,
   buildTcpPrompt,
   expertRowsFromTable,
@@ -106,6 +108,8 @@ export interface AnomalyRequest {
   target: AnomalyTarget;
   /** The expert rows the panel sent (else the capture's notable ones). */
   rows?: ExpertRow[];
+  /** The call the VoIP panel sent (target "call"). */
+  call?: CallSummary;
   question: string;
   currentFilter: string;
 }
@@ -584,7 +588,23 @@ export class FilterAssistant implements vscode.Disposable {
     try {
       let prompt: string;
       let frames: number[] = [];
-      if (req.target.kind === "stream") {
+      if (req.target.kind === "call") {
+        if (!req.call) {
+          return {
+            frames: [],
+            filters: [],
+            message:
+              "That call is no longer available: use Ask Copilot… in the VoIP Calls panel again.",
+          };
+        }
+        prompt = buildCallPrompt({ question: req.question, call: req.call });
+        frames = [
+          ...new Set([
+            ...req.call.problems.flatMap((p) => (p.frame === null ? [] : [p.frame])),
+            ...req.call.messages.slice(0, 1).map((m) => m[0]),
+          ]),
+        ].slice(0, 3);
+      } else if (req.target.kind === "stream") {
         sink.progress(`Reading TCP stream ${req.target.stream}…`);
         const graph = await untilCancelled(
           backend.request<{ stream: number; endpoints: string[]; points: TcpPoint[] }>(
