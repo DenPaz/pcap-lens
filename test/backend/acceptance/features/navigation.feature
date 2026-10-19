@@ -33,7 +33,7 @@ Feature: Navigating a capture
       | Recursion desired | list    | no packet is found     |
       | Recursion desired | details | the found packet is 4  |
       | Broadcast         | list    | the found packet is 1  |
-      | reassembled       | list    | the found packet is 15 |
+      | Echo (ping) reply | list    | the found packet is 3  |
 
   Scenario: A case-sensitive search in the packet list
     When I find the next packet matching the string "broadcast" in the packet list case-sensitively
