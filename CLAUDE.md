@@ -167,10 +167,10 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   (`scripts/sync-codicons.mjs`). CSS: `base.css` (tokens and controls, loaded
   by the editor and the panels), `styles.css` (the viewer), `panel.css`.
 - `src/panels/` statistics, follow-stream, coloring-rules, export-objects,
-  flow-graph, TCP-graph and VoIP webview panels (`panelHtml.ts` builds their
-  CSP'd HTML); their UIs are `src/webview/stats.js`, `follow.js`,
-  `coloring.js`, `objects.js`, `flowgraph.js`, `tcpgraph.js` and `voip.js`
-  with `panel.css`.
+  flow-graph, TCP-graph, VoIP and compare-packets webview panels
+  (`panelHtml.ts` builds their CSP'd HTML); their UIs are
+  `src/webview/stats.js`, `follow.js`, `coloring.js`, `objects.js`,
+  `flowgraph.js`, `tcpgraph.js`, `voip.js` and `compare.js` with `panel.css`.
 - `backend/pcap_backend/` Python package run as `python -m pcap_backend`
   with `PYTHONPATH=backend`. `server.py` (JSON-RPC), `pcap_service.py`
   (`PcapService`, assembled from the `service/` mixins, `rpc_methods`, and
@@ -430,7 +430,16 @@ matchCount, fraction}`; the end sends `done`, `stopped` (`stop_filter
   parallel. `-c N` stops reading after frame N (it counts packets _read_), so
   cost is proportional to N, and earlier packets are still dissected (TCP
   reassembly etc. stay correct). Detail of frame ~1M therefore costs about one
-  pass over the file (20 s on the benchmark capture).
+  pass over the file (20 s on the benchmark capture). **Two-pass details**
+  (`packet_detail {twoPass: true}`): the webview asks for them when the
+  capture is complete (not indexing or capturing) and has at most
+  `pcapViewer.twoPassDetail` packets (default 10,000; carried in the
+  `quickDetail` message as `twoPass`); the backend then runs `-2 -Y
+frame.number==N` (no `-c`, both the PDML and the `-x` run), so references
+  to later packets (`http.response_in`, …) appear, at the cost of two passes
+  over the file per packet. It ignores the flag while `_indexing` is set.
+  `_details` is keyed by (frame, two-pass); a quick request may answer with
+  either kind's cached exact detail; a two-pass result carries `twoPass`.
 - **Quick detail** (`packet_detail {mode: "quick", window}`): for frames past
   `pcapViewer.quickDetail.after` (default 20k) the webview asks for the exact
   and the quick detail together and shows whichever comes first; the exact one
@@ -961,6 +970,24 @@ transport,external}`, `open {names}`): `DissectionOptions.names` holds the
   sent more data, draws at most 6000 marks, and puts the time axis around the
   stream (`lib.niceRange`). One panel per editor; showing it again switches
   stream. Opened from the command or the row menu (`tcpGraph` message).
+- **Compare packets** (`pcapViewer.comparePackets {frames}`,
+  `ComparePanel`, `compare.js`, `lib.comparePackets`): one panel per editor
+  (showing it again compares the new pair). The row menu posts `compare`
+  with the two selected frames (_Compare 2 Selected Packets_) or the clicked
+  one (_Compare with Packet…_: the command asks for the other's number;
+  disabled for more than two); without args the command takes the
+  selection. The host fetches both details with `session.detailParams`
+  (two-pass for small captures, like the viewer) and posts `show {a, b}`;
+  _Swap_ and _Go to Packet N_ go back to it. `lib.comparePackets` aligns
+  the trees by the path of field names, repeated names and unnamed nodes
+  by occurrence (unnamed ones keyed by label made two different DNS
+  queries look like two one-sided subtrees), in A's order with B's extra
+  fields after their predecessor; rows are same/changed/a/b with `differs`
+  for the row or anything below. The table (`table.stats.compare`, fixed
+  layout, labels wrap) marks rows with a diff Codicon plus visually hidden
+  text, colors cells with the diff editor's removed/inserted backgrounds,
+  and shows only differing rows (with their parents) by default, at most
+  5000 rows.
 - **Live capture** (`capture.py`, `capture_start {dest, interfaces, filter,
 limits: {packets, seconds, bytes}, promiscuous, snaplen}` + the open
   parameters minus `path`/`cache`, `capture_stop`, `list_interfaces` =
@@ -1316,9 +1343,10 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
     `relatedKind`; a specific kind beats "related"): `list.js` draws a
     Codicon `span.related-mark` (absolutely positioned, after the cells, so
     `children[i]` stay cells) at the No. cell's left and an
-    `aria-description` on those rows; `clearDetail` empties it. The detail
-    dissects up to the packet only (`-c N`), so forward references
-    (`http.response_in`) never appear: only earlier packets get marks.
+    `aria-description` on those rows; `clearDetail` empties it. A one-pass
+    detail dissects up to the packet only (`-c N`), so forward references
+    (`http.response_in`) only appear with two-pass details (small captures,
+    see _Detail_); otherwise only earlier packets get marks.
   - _Keys_: the webview handles keys VS Code leaves to a focused webview
     (Ctrl+F, F3, Ctrl+Home/End, Esc). Keys VS Code binds globally even then
     (Ctrl+M, Ctrl+T, Ctrl+,, Ctrl+Shift+N/B, and Alt+Left, which is Back on
@@ -1501,4 +1529,5 @@ and axe-core checks with the ARIA fixes they found, and protocol preferences.
 0.6.0 released. Then BER record files as packets, and the packet diagram:
 0.7.0 released. Then Wireshark's expert indicator in the status bar,
 related-packet marks, Conversation Filter and Colorize Conversation, and
-ignored packets: 0.8.0.
+ignored packets: 0.8.0. Then two-pass details for small captures and
+Compare Packets: 0.9.0.

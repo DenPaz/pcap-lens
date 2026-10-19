@@ -174,6 +174,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
           "askAboutPackets",
           "runCommand",
           "colorizeConversation",
+          "compare",
           "addFilterButton",
           "editFilterButton",
         ].includes(msg.type)
@@ -599,6 +600,19 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await waitSelected(4);
   });
 
+  test("Compare with Packet… and Compare 2 Selected Packets reach the host", async () => {
+    await cleanView();
+    await rowEl(4).click({ button: "right" });
+    await page.click("#context-menu .item:has-text('Compare with Packet…')");
+    await expectHostLast({ type: "compare", frames: [4] }, { ofType: true });
+    await rowEl(7).click({ modifiers: ["ControlOrMeta"] });
+    await rowEl(7).click({ button: "right" });
+    await page.click("#context-menu .item:has-text('Compare 2 Selected Packets')");
+    await expectHostLast({ type: "compare", frames: [4, 7] }, { ofType: true });
+    await rowEl(4).click(); // (the next test starts on frame 4, alone)
+    await waitSelected(4);
+  });
+
   test("coloring rules color the rows; Colorize and Export Bytes reach the host", async () => {
     // Frame 4 is still selected from the previous test.
     const rules = [
@@ -1015,6 +1029,31 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await waitSelected(4);
     await page.waitForFunction(() => !document.querySelector("#list-rows .related-mark.codicon"));
     assert.equal((await markOf(4))[2], null);
+
+    // Two-pass details (pcapViewer.twoPassDetail, for small captures) see later
+    // packets too: the request names its response.
+    await post({ type: "quickDetail", quickDetail: { after: 20000, window: 300, twoPass: 100 } });
+    await rowEl(1).click();
+    await waitSelected(1);
+    await page.waitForFunction(() =>
+      document.querySelector("#detail-tree")?.textContent.startsWith("Frame 1:"),
+    );
+    await rowEl(4).click();
+    await waitSelected(4);
+    await page.waitForFunction(() =>
+      document.querySelectorAll("#list-rows .list-row")[6]?.querySelector(".codicon-arrow-left"),
+    );
+    assert.equal((await markOf(7))[1], "Response to the selected packet");
+    const http = page
+      .locator("#detail-tree .node-row:has-text('Hypertext Transfer Protocol')")
+      .first();
+    if ((await http.getAttribute("aria-expanded")) !== "true") {
+      await http.locator(".twisty").click();
+    }
+    const link = page.locator("#detail-tree .node-row.frame-link:has-text('Response in frame')");
+    await link.waitFor();
+    assert.match(await link.getAttribute("title"), /Go to packet 7/);
+    await post({ type: "quickDetail", quickDetail: { after: 20000, window: 300 } });
   });
 
   test("ignore packets: Ctrl+D dims them, the menu and the status bar say so, unignore all", async () => {

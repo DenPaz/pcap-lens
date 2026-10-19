@@ -196,8 +196,9 @@ export const state = {
   /** @type {{order: string[], hidden: string[]}} */ layout: { order: [], hidden: [] },
   /** Time column format (pcapViewer.timeFormat) and time reference frame (Ctrl+T). */
   timeFormat: "relative",
-  /** Quick (approximate) detail from frame `after` on (0 = never), dissecting `window` packets (pcapViewer.quickDetail). */
-  quickDetail: { after: 20000, window: 300 },
+  /** Quick (approximate) detail from frame `after` on (0 = never), dissecting `window` packets
+   * (pcapViewer.quickDetail); two-pass details up to `twoPass` packets (pcapViewer.twoPassDetail). */
+  quickDetail: { after: 20000, window: 300, twoPass: 10000 },
   /** @type {number | null} */ quickRequest: null,
   /** Streaming open: the index pass still runs (rows keep arriving; sorting waits). */
   indexing: false,

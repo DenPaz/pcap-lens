@@ -57,7 +57,8 @@ class ServiceBase:
             max_cached_frames, lambda v: v.cost
         )
         self._sort_columns: LruCache[str, list[str]] = LruCache(2)
-        self._details: LruCache[int, dict[str, Any]] = LruCache(detail_cache_size)
+        # Exact details by (frame, two-pass); see packet_detail.
+        self._details: LruCache[tuple[int, bool], dict[str, Any]] = LruCache(detail_cache_size)
         # Quick (approximate) details by (frame, window); see _quick_detail.
         self._quick: LruCache[tuple[int, int], dict[str, Any]] = LruCache(16)
         self._tcp_graphs: LruCache[int, dict[str, Any]] = LruCache(4)

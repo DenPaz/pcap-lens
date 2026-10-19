@@ -799,6 +799,66 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     assert.match(await page.textContent(".status"), /No packets in this stream/);
   });
 
+  test("compare packets: fields side by side, differences marked, only differences, swap", async () => {
+    let frames = [4, 6];
+    const { page, log } = await openGraphPanel("compare.js", async (msg, reply) => {
+      // A stand-in for ComparePanel (src/panels/comparePanel.ts).
+      if (msg.type === "swap") {
+        frames = [frames[1], frames[0]];
+      }
+      if (msg.type === "ready" || msg.type === "swap") {
+        await reply({ type: "loading", frames });
+        const [a, b] = await Promise.all(
+          frames.map((number) => client.request("packet_detail", { number }, { timeoutMs: 0 })),
+        );
+        await reply({ type: "show", a, b });
+      }
+    });
+    // mixed.pcapng: frames 4 and 6 are DNS queries for example.com and wireshark.org.
+    await page.waitForFunction(() =>
+      /^Compare Packets 4 and 6$/.test(document.querySelector(".panel-title").textContent),
+    );
+    assert.match(
+      await page.textContent(".status"),
+      /^\d+ fields differ · 0 only in packet 4 · 0 only in packet 6$/,
+    );
+    const cells = () =>
+      page.$$eval("table.compare tbody tr", (trs) =>
+        trs.map((tr) => [tr.className, tr.children[1].textContent, tr.children[2].textContent]),
+      );
+    let shown = await cells();
+    // Only differences (the default): every row differs or holds one that does.
+    assert.ok(
+      shown.some(
+        ([cls, a, b]) =>
+          cls === "cmp-changed" &&
+          a === "example.com: type A, class IN" &&
+          b === "wireshark.org: type A, class IN",
+      ),
+    );
+    assert.ok(!shown.some(([, a]) => /^Type: IPv4/.test(a)), "Ethernet's type is the same in both");
+    assert.ok(
+      shown.some(([cls]) => /cmp-proto/.test(cls)),
+      "protocols stay as headings",
+    );
+    assert.equal(
+      await page.$eval(
+        "table.compare tr.cmp-changed .cmp-mark .visually-hidden",
+        (s) => s.textContent,
+      ),
+      "Differs",
+    );
+    await page.click("#cmp-only");
+    shown = await cells();
+    assert.ok(shown.some(([cls, a]) => cls === "cmp-same" && /^Type: IPv4/.test(a)));
+    await page.click("#cmp-swap");
+    await page.waitForFunction(() =>
+      /^Compare Packets 6 and 4$/.test(document.querySelector(".panel-title").textContent),
+    );
+    await page.click("#cmp-goto-a");
+    await expectLast(log, { type: "goto", frame: 6 });
+  });
+
   test("VoIP calls: calls, call flow, streams, analysis, audio, filters", async () => {
     const voip = await startBackend(deps);
     try {

@@ -14,6 +14,7 @@ import { FollowPanel } from "../../../src/panels/followPanel";
 import { ObjectsPanel } from "../../../src/panels/objectsPanel";
 import { StatsPanel } from "../../../src/panels/statsPanel";
 import { TcpGraphPanel } from "../../../src/panels/tcpGraphPanel";
+import { ComparePanel } from "../../../src/panels/comparePanel";
 import { VoipPanel } from "../../../src/panels/voipPanel";
 import type { PluginsResult } from "../../../src/plugins";
 
@@ -145,6 +146,7 @@ suite("PCAP Lens smoke test", () => {
       "pcapViewer.unmarkAll",
       "pcapViewer.toggleIgnore",
       "pcapViewer.unignoreAll",
+      "pcapViewer.comparePackets",
       "pcapViewer.exportMarked",
       "pcapViewer.exportSelected",
       "pcapViewer.selectAll",
@@ -267,6 +269,19 @@ suite("PCAP Lens smoke test", () => {
     );
     assert.equal(graph.stream, 0);
     assert.equal(graph.points.length, 11);
+    // Compare Packets: a small capture, so both details are two-pass.
+    session.reveal();
+    await vscode.commands.executeCommand("pcapViewer.comparePackets", { frames: [4, 7] });
+    const compared = await waitFor(
+      () => ComparePanel.all.find((p) => p.session === session)?.current,
+    );
+    assert.deepEqual(
+      compared.map((p) => [p.number, p.twoPass]),
+      [
+        [4, true],
+        [7, true],
+      ],
+    );
     // VoIP Calls: this capture has neither SIP nor RTP.
     session.reveal();
     await vscode.commands.executeCommand("pcapViewer.statistics.voipCalls");

@@ -132,8 +132,14 @@ registered under its name in lower case).
   back/forward history (`Alt+Left`/`Alt+Right`). The packets they refer to
   are marked in the list while the packet is selected: an arrow on the request
   it answers, a check on the segment it acknowledges, a dot on the rest.
+  Captures of up to 10,000 packets (`pcapViewer.twoPassDetail`) are dissected
+  twice for the details, as Wireshark does, so a request also names (and
+  marks) its response.
 - Next/previous packet in the conversation, first/last, go to packet, and
   **marks** (`Ctrl+M`) with next/previous marked.
+- **Compare packets**: select two packets (or one, and give the other's
+  number) and _Compare…_ from the row menu shows their details side by side,
+  the fields that differ marked; _Only differences_ hides the rest.
 - **Ignore packets** (`Ctrl+D`): they stay in the list, dimmed, but statistics,
   the status bar's expert counts and exports leave them out.
 

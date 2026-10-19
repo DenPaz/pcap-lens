@@ -72,6 +72,7 @@ export function readQuickDetail(scope?: vscode.Uri): QuickDetail {
   return {
     after: num("quickDetail.after", 20_000, 0, Number.MAX_SAFE_INTEGER),
     window: num("quickDetail.window", 300, 2, 5000),
+    twoPass: num("twoPassDetail", 10_000, 0, Number.MAX_SAFE_INTEGER),
   };
 }
 

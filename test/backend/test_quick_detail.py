@@ -116,7 +116,7 @@ def test_quick_detail_uses_the_exact_one_when_it_is_as_cheap(
 ) -> None:
     whole = opened.packet_detail({"number": 5, "mode": "quick", "window": 10}, ctx)
     assert "approximate" not in whole, "the window starts at frame 1: that is the exact detail"
-    assert opened._details.get(5) is whole
+    assert opened._details.get((5, False)) is whole
     exact = opened.packet_detail({"number": 9}, ctx)
     assert opened.packet_detail({"number": 9, "mode": "quick", "window": 3}, ctx) is exact  # cached
 

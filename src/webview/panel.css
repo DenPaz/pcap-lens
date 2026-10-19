@@ -564,6 +564,46 @@ table.stats tbody tr:focus-visible {
   font-size: var(--mono-size);
 }
 
+/* ------------------------------------------------------------------ compare packets */
+
+table.compare {
+  table-layout: fixed;
+}
+
+table.compare th {
+  cursor: default;
+}
+
+table.compare th:hover {
+  background: var(--vscode-editor-background);
+}
+
+table.compare .cmp-mark {
+  width: 2em;
+  padding-right: 0;
+}
+
+table.compare td.cmp-cell {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+table.compare tr.cmp-proto td.cmp-cell {
+  font-weight: 600;
+}
+
+table.compare tr:is(.cmp-changed, .cmp-a) td.cmp-a {
+  background: var(--vscode-diffEditor-removedTextBackground, rgba(255, 0, 0, 0.12));
+}
+
+table.compare tr:is(.cmp-changed, .cmp-b) td.cmp-b {
+  background: var(--vscode-diffEditor-insertedTextBackground, rgba(0, 160, 0, 0.12));
+}
+
+table.compare .cmp-more {
+  color: var(--vscode-descriptionForeground);
+}
+
 /* Sort indicators in table headers (stats.js, objects.js). */
 th > .codicon {
   margin-left: var(--space-1);
@@ -572,6 +612,14 @@ th > .codicon {
 }
 
 /* High contrast (see styles.css): borders where other themes fill. */
+:is(.vscode-high-contrast, .vscode-high-contrast-light)
+  table.compare
+  tr:is(.cmp-changed, .cmp-a, .cmp-b)
+  td.cmp-cell:not(:empty) {
+  outline: 1px dashed var(--hc-active);
+  outline-offset: -1px;
+}
+
 :is(.vscode-high-contrast, .vscode-high-contrast-light)
   :is(table.stats th, table.stats tbody tr):hover {
   outline: 1px dashed var(--hc-active);

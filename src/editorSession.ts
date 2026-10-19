@@ -209,6 +209,16 @@ export class PcapEditorSession {
     return this.info;
   }
 
+  /**
+   * packet_detail's parameters for `frame`, as the viewer asks: two passes
+   * (pcapViewer.twoPassDetail) for a small capture that is completely indexed.
+   */
+  detailParams(frame: number): { number: number; twoPass?: boolean } {
+    const limit = readQuickDetail(this.uri).twoPass ?? 0;
+    const small = !!this.info && !this.indexing && this.info.frames <= limit;
+    return small ? { number: frame, twoPass: true } : { number: frame };
+  }
+
   /** Send the document's comment edits to this editor's backend and refresh the viewer. */
   private async pushComments(reload: boolean): Promise<void> {
     const client = this.client;
@@ -829,6 +839,11 @@ export class PcapEditorSession {
         return;
       case "decodeAs":
         await vscode.commands.executeCommand("pcapViewer.decodeAs", msg.frame);
+        return;
+      case "compare":
+        await vscode.commands.executeCommand("pcapViewer.comparePackets", {
+          frames: Array.isArray(msg.frames) ? msg.frames.slice(0, 2) : [],
+        });
         return;
       case "protocolPrefs":
         await vscode.commands.executeCommand("pcapViewer.protocolPreferences", {

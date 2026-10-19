@@ -7,7 +7,7 @@
     "color": "#0b3a73",
     "theme": "dark"
   },
-  "version": "0.8.0",
+  "version": "0.9.0",
   "publisher": "denpaz",
   "license": "MIT",
   "repository": {
@@ -235,6 +235,11 @@
       {
         "command": "pcapViewer.toggleIgnore",
         "title": "Ignore/Unignore Selected Packets",
+        "category": "PCAP"
+      },
+      {
+        "command": "pcapViewer.comparePackets",
+        "title": "Compare Packets…",
         "category": "PCAP"
       },
       {
@@ -816,6 +821,10 @@
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
         },
         {
+          "command": "pcapViewer.comparePackets",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
+        },
+        {
           "command": "pcapViewer.unignoreAll",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
         },
@@ -1372,6 +1381,12 @@
           "minimum": 2,
           "maximum": 5000,
           "markdownDescription": "How many packets (up to and including the selected one) the quick view of `#pcapViewer.quickDetail.after#` dissects. More packets give more context (e.g. longer TCP reassembly) and take a little longer."
+        },
+        "pcapViewer.twoPassDetail": {
+          "type": "integer",
+          "default": 10000,
+          "minimum": 0,
+          "markdownDescription": "Captures of at most this many packets show each packet's details from two passes over the whole capture, as Wireshark does, so references to later packets appear too (_Response in frame_…, and their marks in the list). Every packet's details then cost two passes over the file. `0` turns it off (details dissect the capture up to the packet only)."
         },
         "pcapViewer.requestTimeoutSeconds": {
           "type": "integer",

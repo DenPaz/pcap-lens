@@ -98,6 +98,16 @@ el.rows.addEventListener("contextmenu", (e) => {
     ["Follow TLS Stream", /TLS|SSL/.test(protocol) ? follow("tls") : null],
     ["Follow HTTP Stream", /HTTP/.test(protocol) ? follow("http") : null],
     ["TCP Stream Graph", () => vscode.postMessage({ type: "tcpGraph", frame: row.number })],
+    [
+      multi === 2 ? "Compare 2 Selected Packets" : "Compare with Packet…",
+      multi > 2
+        ? null
+        : () =>
+            vscode.postMessage({
+              type: "compare",
+              frames: multi === 2 ? selectedFrames().sort((a, b) => a - b) : [row.number],
+            }),
+    ],
     ["-", null],
     // Sends packet data: the host asks for consent first (pcapViewer.ai.allowPacketData).
     ...(state.ai.available

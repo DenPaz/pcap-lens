@@ -139,6 +139,8 @@ export type WebviewToHost =
   /** Right-click on filter button `index` (showing `filter`): edit, move or remove it. */
   | { type: "editFilterButton"; index: number; filter: string }
   | { type: "decodeAs"; frame: number }
+  /** Compare Packets: these two, or this one and one the host asks for. */
+  | { type: "compare"; frames: number[] }
   | { type: "protocolPrefs"; protocol: string }
   | { type: "follow"; proto: "tcp" | "udp" | "tls" | "http"; frame: number }
   | { type: "manageSavedFilters" }
