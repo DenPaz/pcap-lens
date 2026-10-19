@@ -7,6 +7,21 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- VoIP calls show how long each call rang and took to answer, who hung up,
+  the final response and its `Reason` header. [5ebe171]
+- An estimated MOS (ITU-T E-model) for each RTP stream and call, from packet
+  loss, jitter and codec. [5ebe171]
+- The DTMF digits of a call, sent as RFC 4733 events or SIP INFO, each
+  linked to its packet. [5ebe171]
+- Media problems per call: no RTP or one-way audio, a codec the SDP didn't
+  agree on, an SSRC change, long silences. [5ebe171]
+- _Save Call…_ writes one call's SIP, RTP and RTCP packets to a new capture.
+  [5ebe171]
+
+[5ebe171]: https://github.com/DenPaz/vsc_pcap_viewer/commit/5ebe171
+
 ## 0.12.0 — 2026-10-19
 
 ### Added

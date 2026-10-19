@@ -2,6 +2,7 @@
 Feature: VoIP call quality with packet loss
   The quality estimate follows the worst stream of a call: one lost packet
   in 50 brings a G.711 call from Best down to High.
+
   Background:
     Given the capture "voip.pcap" is open
 
