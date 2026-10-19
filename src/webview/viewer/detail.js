@@ -138,6 +138,16 @@ export function clearDetail() {
   el.bytesTabs.classList.add("hidden");
   hex = null;
   clearDiagram();
+  showFieldStatus();
+}
+
+/** The selected field's name, filter field and size in the status bar ("" when none). */
+export function showFieldStatus() {
+  const node = state.selectedNodeId !== null ? nodeIndex.get(state.selectedNodeId)?.node : null;
+  const text = node ? lib.fieldStatus(node, state.fieldTypes.get(node.name)?.desc) : "";
+  el.statusField.textContent = text;
+  el.statusField.title = text;
+  el.statusField.classList.toggle("hidden", !text);
 }
 
 /**
@@ -179,6 +189,7 @@ function showDetail(detail) {
       }
     }
   }
+  showFieldStatus(); // (the same field in this packet, or none)
   if (!revealFindMatch()) {
     applyDetailView(); // (draws the diagram when it is the view shown)
     if (sameFrame) {
@@ -262,7 +273,8 @@ export function setExpanded(entry, open, remember = true) {
   entry.children.classList.toggle("hidden", !open);
   const twisty = /** @type {HTMLElement} */ (entry.row.firstChild);
   twisty.className = `twisty codicon codicon-chevron-${open ? "down" : "right"}`;
-  entry.row.setAttribute("aria-expanded", String(open));
+  // On the treeitem: the row itself has no role (axe: aria-allowed-attr).
+  entry.row.parentElement?.setAttribute("aria-expanded", String(open));
   if (remember) {
     const key = lib.nodeKey(entry.path);
     if (open) {
@@ -384,6 +396,7 @@ export function selectNode(id, opts) {
   }
   state.selectedNodeId = id;
   entry.row.classList.add("selected");
+  showFieldStatus();
   if (opts.scroll) {
     entry.row.scrollIntoView({ block: "nearest" });
   }

@@ -88,6 +88,8 @@ class ServiceBase:
         self._coloring_seq = 0
         # Marked frames (Wireshark's Ctrl+M): per session, not persisted.
         self._marks: set[int] = set()
+        # The latest Find Packet's matches (a byte per frame), for the list's overview.
+        self._find_hits: bytearray | None = None
         # Ignored frames (Ctrl+D): left out of statistics and exports; per session too.
         self._ignored: set[int] = set()
         # Streaming open: the index pass still running after `open` returned.
@@ -148,6 +150,7 @@ class ServiceBase:
         self._objects = None
         self._colors = None
         self._marks = set()
+        self._find_hits = None
         self._ignored = set()
         self._comment_edits = {}
         self._flow = None

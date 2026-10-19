@@ -108,7 +108,12 @@ export const el = {
   commentInput: /** @type {HTMLTextAreaElement} */ ($("comment-input")),
   bytesTabs: $("bytes-tabs"),
   bytesView: $("bytes-view"),
+  overview: /** @type {HTMLCanvasElement} */ ($("list-overview")),
+  shortcuts: $("shortcuts"),
+  shortcutsBody: $("shortcuts-body"),
+  shortcutsClose: $("shortcuts-close"),
   statusLeft: $("status-left"),
+  statusField: $("status-field"),
   statusRight: $("status-right"),
   statusTime: $("status-time"),
   statusNames: $("status-names"),
@@ -231,6 +236,10 @@ export const state = {
   /** @type {Map<number, any>} */ earlyFilterEvents: new Map(),
   /** @type {number | null} */ timeRef: null,
   markCount: 0,
+  /** Bumped when the rows' contents change (colors, comments…): the overview asks again. */
+  rowsVersion: 0,
+  /** Bumped by each Find Packet hit or miss: the overview shows its matches. */
+  findVersion: 0,
   /** Number of ignored packets (Ctrl+D; the set lives in the backend). */
   ignoredCount: 0,
   /** Back/forward history over jumps (links, go to, find, marks, conversation). */

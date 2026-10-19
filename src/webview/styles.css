@@ -395,7 +395,30 @@ body {
   background: var(--vscode-sash-hoverBorder, var(--vscode-focusBorder));
 }
 
+#list-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* The overview strip beside the scrollbar (viewer/overview.js); drawn on a canvas. */
+#list-overview {
+  flex: none;
+  width: 12px;
+  cursor: pointer;
+  border-left: 1px solid var(--border);
+  --overview-mark: var(--vscode-editor-foreground, CanvasText);
+  --overview-comment: var(--vscode-editorInfo-foreground, #3794ff);
+  --overview-found: var(--vscode-editorOverviewRuler-findMatchForeground, rgba(209, 134, 22, 0.9));
+  --overview-window: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4));
+}
+
+#list-overview.hidden {
+  display: none;
+}
+
 #list-viewport {
+  min-width: 0;
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
@@ -852,6 +875,85 @@ button.pd-cell:hover {
   background: var(--field-highlight);
 }
 
+/* ------------------------------------------------------------------ shortcuts overlay */
+
+#shortcuts {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+#shortcuts.hidden {
+  display: none;
+}
+
+.shortcuts-box {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, 92vw);
+  max-height: 80vh;
+  background: var(--vscode-editorWidget-background, var(--vscode-editor-background, Canvas));
+  color: var(--vscode-editorWidget-foreground, var(--vscode-foreground, CanvasText));
+  border: 1px solid var(--vscode-editorWidget-border, var(--border));
+  border-radius: var(--radius-toolbar);
+  box-shadow: var(--shadow);
+}
+
+.shortcuts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.shortcuts-head h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+#shortcuts-body {
+  overflow: auto;
+  padding: var(--space-4) var(--space-5);
+}
+
+#shortcuts-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: var(--space-5);
+}
+
+#shortcuts-body caption {
+  text-align: left;
+  font-weight: 600;
+  padding: var(--space-2) 0;
+}
+
+#shortcuts-body td {
+  padding: var(--space-1) var(--space-3);
+  vertical-align: top;
+}
+
+#shortcuts-body td:first-child {
+  width: 45%;
+}
+
+#shortcuts-body kbd {
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--vscode-keybindingLabel-border, var(--border));
+  border-bottom-color: var(--vscode-keybindingLabel-bottomBorder, var(--border));
+  border-radius: var(--radius);
+  background: var(--vscode-keybindingLabel-background, transparent);
+  color: var(--vscode-keybindingLabel-foreground, inherit);
+}
+
 /* ------------------------------------------------------------------ status bar */
 
 #status-bar {
@@ -869,6 +971,19 @@ button.pd-cell:hover {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* The selected field ("Time to Live (ip.ttl), 1 byte"): takes up to half the bar. */
+#status-bar #status-field {
+  flex: 0 1 auto;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--vscode-foreground);
+}
+
+#status-bar #status-field.hidden {
+  display: none;
 }
 
 #status-capture {

@@ -278,6 +278,11 @@
         "category": "PCAP"
       },
       {
+        "command": "pcapViewer.showShortcuts",
+        "title": "Keyboard Shortcuts",
+        "category": "PCAP"
+      },
+      {
         "command": "pcapViewer.timeFormat",
         "title": "Time Display Format…",
         "category": "PCAP"
@@ -873,6 +878,10 @@
         },
         {
           "command": "pcapViewer.deletePacketComment",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
+        },
+        {
+          "command": "pcapViewer.showShortcuts",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
         },
         {

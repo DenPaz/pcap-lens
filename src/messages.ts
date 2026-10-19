@@ -89,6 +89,7 @@ export const WEBVIEW_RPC_METHODS = new Set([
   "field_index",
   "capture_info",
   "find_packet",
+  "view_overview",
   "neighbor_frame",
   "mark_packets",
   "unmark_all",
@@ -120,6 +121,7 @@ export const VIEWER_COMMANDS = [
   "toggleTimeReference",
   "editPacketComment",
   "deletePacketComment",
+  "showShortcuts",
 ] as const;
 export type ViewerCommand = (typeof VIEWER_COMMANDS)[number];
 

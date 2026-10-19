@@ -75,6 +75,7 @@ const GROUP_OF: Readonly<Record<string, CommandGroup>> = {
   "pcapViewer.toggleTimeReference": "Packets",
   "pcapViewer.editPacketComment": "Packets",
   "pcapViewer.deletePacketComment": "Packets",
+  "pcapViewer.showShortcuts": "Other",
   "pcapViewer.deleteAllPacketComments": "Packets",
   "pcapViewer.followStream": "Statistics",
   "pcapViewer.followTcpStream": "Statistics",

@@ -672,6 +672,69 @@ suite("webview lib: follow stream and statistics helpers", () => {
     assert.equal(lib.findTreeMatch(tree, { value: "" }), null);
   });
 
+  test("fieldStatus: Wireshark's status bar text for the selected field", () => {
+    assert.equal(
+      lib.fieldStatus({ name: "ip.ttl", size: 1 }, "Time to Live"),
+      "Time to Live (ip.ttl), 1 byte",
+    );
+    assert.equal(
+      lib.fieldStatus({ name: "ip.src", size: 4 }, "Source Address"),
+      "Source Address (ip.src), 4 bytes",
+    );
+    assert.equal(
+      lib.fieldStatus({ name: "tcp.stream" }, "Stream index"),
+      "Stream index (tcp.stream)",
+    );
+    assert.equal(
+      lib.fieldStatus({ name: "ip.ttl", size: 1 }),
+      "ip.ttl, 1 byte",
+      "while the catalogue loads",
+    );
+    assert.equal(lib.fieldStatus({ size: 20 }), "", "a text line");
+  });
+
+  test("shortcutSections: the viewer's keys, then the commands' bindings by title", () => {
+    const commands = [
+      { title: "Toggle Mark", keys: { key: "ctrl+m", mac: "cmd+m" } },
+      { title: "Conversations" },
+      { title: "Next Mark", keys: { key: "ctrl+shift+n", mac: "cmd+shift+n" } },
+    ];
+    const pc = lib.shortcutSections(commands, false);
+    assert.deepEqual(
+      pc.map((s) => s.area),
+      ["Packet list", "Packet details", "Find and filter", "Help", "Commands"],
+    );
+    assert.deepEqual(pc.at(-1).keys, [
+      ["Ctrl+Shift+N", "Next Mark"],
+      ["Ctrl+M", "Toggle Mark"],
+    ]);
+    assert.ok(pc[2].keys.some(([k]) => k === "Ctrl+F"));
+    const mac = lib.shortcutSections(commands, true);
+    assert.ok(
+      mac[2].keys.some(([k]) => k === "⌘F"),
+      "Ctrl reads ⌘ on macOS",
+    );
+    assert.deepEqual(mac.at(-1).keys[1], ["⌘M", "Toggle Mark"]);
+    assert.equal(lib.shortcutSections([], false).at(-1).area, "Help", "no commands section");
+  });
+
+  test("overview strip geometry", () => {
+    assert.deepEqual(lib.overviewBox(0, 10, 100, 200), { y: 0, h: 20 });
+    assert.deepEqual(lib.overviewBox(50, 10, 100, 200), { y: 100, h: 20 });
+    assert.deepEqual(
+      lib.overviewBox(999_990, 40, 1_000_000, 300),
+      { y: 296, h: 4 },
+      "at least 4 px, inside",
+    );
+    assert.deepEqual(lib.overviewBox(0, 11, 11, 300), { y: 0, h: 300 });
+    assert.equal(lib.overviewBox(0, 0, 0, 300), null);
+    assert.equal(lib.overviewIndexAt(0, 200, 100), 0);
+    assert.equal(lib.overviewIndexAt(100, 200, 100), 50);
+    assert.equal(lib.overviewIndexAt(250, 200, 100), 99, "clamped");
+    assert.equal(lib.overviewIndexAt(-5, 200, 100), 0);
+    assert.equal(lib.overviewIndexAt(10, 200, 0), null);
+  });
+
   test("streamFilter", () => {
     assert.equal(lib.streamFilter("tcp", 3), "tcp.stream eq 3");
     assert.equal(lib.streamFilter("http", 0), "tcp.stream eq 0");

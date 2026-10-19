@@ -87,6 +87,10 @@ registered under its name in lower case).
 
   ![The IPv4 and TCP headers of a packet as a diagram, Time to Live selected and its byte highlighted](media/screenshots/diagram.png)
 
+- **Field info in the status bar**: the selected field's name, filter field
+  and size, as in Wireshark ("Time to Live (ip.ttl), 1 byte").
+- **Overview strip** beside the packet list: the whole view's colors, marks,
+  comments and Find matches in one column; click or drag it to scroll there.
 - **Quick view of late packets**: from packet 20,000 on, details show in about
   0.3 s by dissecting only the 300 packets before it, until the exact view
   replaces it.
@@ -224,6 +228,7 @@ capture data asks first; see [Security](#security) for exactly what is sent.
 ## Keyboard shortcuts
 
 On macOS use `Cmd` for `Ctrl`. They apply while a capture is the active editor.
+Press `?` in the viewer (or _PCAP: Keyboard Shortcuts_) for this list.
 
 | Key                            | Action                                  |
 | ------------------------------ | --------------------------------------- |
@@ -241,6 +246,7 @@ On macOS use `Cmd` for `Ctrl`. They apply while a capture is the active editor.
 | `Enter` / `→` in the list      | Move to the protocol tree               |
 | Arrow keys on a pane divider   | Resize the panes (`Home`/`End`: limits) |
 | `Esc`                          | Restore the filter, close the find bar  |
+| `?`                            | Show the keyboard shortcuts             |
 
 ## Settings
 
