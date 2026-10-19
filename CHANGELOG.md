@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.11.0 — 2026-10-19
+
 ### Added
 
 - The status bar shows the selected field's name, filter field and size, as

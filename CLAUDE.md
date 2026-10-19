@@ -1630,4 +1630,4 @@ streams, and more "show as" views: 0.10.0.
 Then Find Packet in the packet list and details, and by regular expression:
 0.10.1.
 Then field info in the status bar, the packet list's overview strip and the
-keyboard shortcuts list.
+keyboard shortcuts list: 0.11.0.
