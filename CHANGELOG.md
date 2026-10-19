@@ -11,7 +11,9 @@ commit) that made it. The format follows
 
 - Follow Stream: search the stream (`Ctrl+F`, Enter / Shift+Enter, matches
   highlighted) and _Filter Out This Stream_, which hides the stream within
-  the display filter already applied.
+  the display filter already applied. [03478e0]
+
+[03478e0]: https://github.com/DenPaz/vsc_pcap_viewer/commit/03478e0
 
 ## 0.9.0 — 2026-10-19
 
