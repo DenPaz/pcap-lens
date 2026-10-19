@@ -277,6 +277,25 @@ table.stats td.wrap {
   background: color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 8%, transparent);
 }
 
+/* Follow Stream search (theme find colors; the text keeps its own color). */
+.segment mark.find-match {
+  color: inherit;
+  background: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
+}
+
+.segment mark.find-match.current {
+  background: var(--vscode-editor-findMatchBackground, rgba(234, 92, 0, 0.6));
+  outline: 1px solid var(--vscode-editor-findMatchBorder, transparent);
+}
+
+#follow-find {
+  width: 18em;
+}
+
+.find-count {
+  color: var(--vscode-descriptionForeground);
+}
+
 /* ------------------------------------------------------------------ coloring rules editor */
 
 table.rules td {

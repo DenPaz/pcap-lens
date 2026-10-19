@@ -584,6 +584,15 @@ frame.number==N` (no `-c`, both the PDML and the `-x` run), so references
   stream number for a packet comes from `tcp.stream`/`udp.stream`, extracted
   once through the row-store column machinery (first follow costs one pass).
   TLS/HTTP follow the TCP stream number. Payload is capped (`maxBytes`, 16 MB).
+  The panel's search (`#follow-find`, `lib.findRanges`: case-insensitive,
+  non-overlapping, at most 10,000 matches) works on the rendered text of the
+  current direction and format, per segment (a match can't span two), and
+  rebuilds the segments with `<mark class="find-match">` text nodes (never
+  markup); Enter / Shift+Enter / the arrows move `current` (wrapping,
+  scrolled into view), Esc clears, Ctrl/Cmd+F focuses it. _Filter Out This
+  Stream_ posts `filterOut {expr}` (`lib.streamFilter`); the host applies
+  `settingsModel.filterOutExpr(currentFilter, expr)`: `(current) && !(…)`, or
+  only `!(…)` when there is no filter or it is that stream's.
 - **Statistics** parse tshark's human-readable `-z` reports into one generic
   table model (`stats.py`: columns, rows with optional `filter`/`frame`/`depth`),
   rendered by one panel (`src/webview/stats.js`). Sizes like "12 kB" are

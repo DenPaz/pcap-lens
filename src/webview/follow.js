@@ -2,8 +2,9 @@
 /**
  * Follow-stream panel: the reassembled payload of one conversation, colored
  * by direction, with a direction filter, ASCII / hex dump / raw views,
- * stream stepping, "filter to this stream" and save. Payload is untrusted and
- * only ever inserted with textContent.
+ * search, stream stepping, "filter to / out this stream" and save. Payload is
+ * untrusted and only ever inserted with textContent (search matches are
+ * <mark> elements holding text nodes).
  */
 (function () {
   "use strict";
@@ -13,12 +14,18 @@
   const lib = /** @type {any} */ (window).PcapLib;
   /** Characters rendered at most; the rest is available via "Save as…". */
   const RENDER_BUDGET = 2_000_000;
+  /** Search matches highlighted at most. */
+  const MAX_MATCHES = 10_000;
 
   const state = {
     /** @type {any} */ result: null,
     label: "",
     /** @type {"both" | 0 | 1} */ dir: "both",
     /** @type {"ascii" | "hex" | "raw"} */ format: "ascii",
+    query: "",
+    /** The highlighted matches, in order, and the current one. @type {HTMLElement[]} */
+    matches: [],
+    current: -1,
   };
 
   const app = /** @type {HTMLElement} */ (document.getElementById("app"));
@@ -86,6 +93,15 @@
     { type: "button", title: "Apply a display filter for this stream in the capture" },
     ["Filter to Stream"],
   );
+  const filterOutBtn = h(
+    "button",
+    {
+      type: "button",
+      class: "secondary",
+      title: "Hide this stream in the capture (within the display filter applied)",
+    },
+    ["Filter Out This Stream"],
+  );
   const saveBtn = h("button", { type: "button", class: "secondary" }, ["Save as…"]);
   toolbar.append(
     h("label", {}, ["Show ", dirSelect]),
@@ -95,8 +111,53 @@
     next,
     h("span", { class: "spacer" }),
     filterBtn,
+    filterOutBtn,
     saveBtn,
   );
+
+  // Search: Enter / Shift+Enter (or the arrows) step through the matches.
+  const findInput = /** @type {HTMLInputElement} */ (
+    h("input", {
+      type: "search",
+      id: "follow-find",
+      placeholder: "Find in stream",
+      "aria-label": "Find in stream",
+    })
+  );
+  const findPrev = h(
+    "button",
+    {
+      type: "button",
+      class: "icon",
+      id: "follow-find-prev",
+      title: "Previous match (Shift+Enter)",
+      "aria-label": "Previous match",
+    },
+    [icon("arrow-up")],
+  );
+  const findNext = h(
+    "button",
+    {
+      type: "button",
+      class: "icon",
+      id: "follow-find-next",
+      title: "Next match (Enter)",
+      "aria-label": "Next match",
+    },
+    [icon("arrow-down")],
+  );
+  const findCount = h("span", {
+    class: "find-count",
+    id: "follow-find-count",
+    "aria-live": "polite",
+  });
+  const findBar = h("div", { class: "toolbar", role: "search" }, [
+    findInput,
+    findPrev,
+    findNext,
+    findCount,
+  ]);
+  toolbar.after(findBar);
 
   dirSelect.addEventListener("change", () => {
     state.dir = dirSelect.value === "both" ? "both" : dirSelect.value === "0" ? 0 : 1;
@@ -115,6 +176,47 @@
   streamInput.addEventListener("change", () => goStream(Number(streamInput.value)));
   prev.addEventListener("click", () => state.result && goStream(state.result.stream - 1));
   next.addEventListener("click", () => state.result && goStream(state.result.stream + 1));
+  filterOutBtn.addEventListener("click", () => {
+    if (state.result) {
+      vscode.postMessage({
+        type: "filterOut",
+        expr: lib.streamFilter(state.result.proto, state.result.stream),
+      });
+    }
+  });
+  let findTimer = 0;
+  findInput.addEventListener("input", () => {
+    window.clearTimeout(findTimer);
+    findTimer = window.setTimeout(() => {
+      state.query = findInput.value;
+      renderBody();
+    }, 150);
+  });
+  findInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      window.clearTimeout(findTimer);
+      if (findInput.value !== state.query) {
+        state.query = findInput.value; // typed faster than the debounce
+        renderBody();
+      } else {
+        step(e.shiftKey ? -1 : 1);
+      }
+    } else if (e.key === "Escape" && findInput.value) {
+      e.preventDefault();
+      findInput.value = state.query = "";
+      renderBody();
+    }
+  });
+  findPrev.addEventListener("click", () => step(-1));
+  findNext.addEventListener("click", () => step(1));
+  window.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+      e.preventDefault();
+      findInput.focus();
+      findInput.select();
+    }
+  });
   filterBtn.addEventListener("click", () => {
     if (state.result) {
       vscode.postMessage({
@@ -234,18 +336,54 @@
     }
     const { parts, clipped } = renderText(RENDER_BUDGET);
     const frag = document.createDocumentFragment();
+    /** @type {HTMLElement[]} */
+    const matches = [];
     for (const p of parts) {
       const pre = h("pre", { class: `segment dir${p.dir}` });
-      pre.textContent = p.text;
+      const ranges = lib.findRanges(p.text, state.query, MAX_MATCHES - matches.length);
+      let at = 0;
+      for (const [start, end] of ranges) {
+        const mark = h("mark", { class: "find-match" });
+        mark.textContent = p.text.slice(start, end);
+        pre.append(p.text.slice(at, start), mark);
+        matches.push(mark);
+        at = end;
+      }
+      pre.append(p.text.slice(at));
       frag.append(pre);
     }
     body.replaceChildren(frag);
+    state.matches = matches;
+    state.current = -1;
+    step(1);
     const r = state.result;
     const segs = r.segments.length;
     status.textContent = segs
       ? `${segs} ${segs === 1 ? "segment" : "segments"}${clipped ? ` · showing the first ${RENDER_BUDGET.toLocaleString()} characters (save to get everything)` : ""}`
       : "No payload in this stream.";
     saveBtn.toggleAttribute("disabled", !segs);
+  }
+
+  /**
+   * Make the next (1) or previous (-1) match the current one, wrapping around.
+   * @param {1 | -1} delta
+   */
+  function step(delta) {
+    const n = state.matches.length;
+    state.matches[state.current]?.classList.remove("current");
+    findPrev.toggleAttribute("disabled", n < 2);
+    findNext.toggleAttribute("disabled", n < 2);
+    if (!n) {
+      state.current = -1;
+      findCount.textContent = state.query ? "No matches" : "";
+      return;
+    }
+    state.current = (state.current + delta + n) % n;
+    const mark = state.matches[state.current];
+    mark.classList.add("current");
+    mark.scrollIntoView({ block: "center" });
+    const total = n >= MAX_MATCHES ? `${MAX_MATCHES.toLocaleString()}+` : n.toLocaleString();
+    findCount.textContent = `${(state.current + 1).toLocaleString()} of ${total}`;
   }
 
   vscode.postMessage({ type: "ready" });

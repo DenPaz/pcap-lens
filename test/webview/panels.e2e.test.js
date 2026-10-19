@@ -414,6 +414,33 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       ),
     );
 
+    // Search: matches highlighted, Enter / Shift+Enter step through them, Esc clears.
+    await page.fill("#follow-find", "html");
+    await page.waitForFunction(() =>
+      /^1 of \d+$/.test(document.querySelector("#follow-find-count").textContent),
+    );
+    const total = Number((await page.textContent("#follow-find-count")).split(" of ")[1]);
+    assert.ok(total >= 2, "index.html and text/html at least");
+    assert.equal(await page.locator("mark.find-match").count(), total);
+    assert.equal(await page.textContent("mark.find-match.current"), "html");
+    await page.press("#follow-find", "Enter");
+    assert.equal(await page.textContent("#follow-find-count"), `2 of ${total}`);
+    await page.press("#follow-find", "Shift+Enter");
+    await page.press("#follow-find", "Shift+Enter");
+    assert.equal(await page.textContent("#follow-find-count"), `${total} of ${total}`, "wraps");
+    assert.ok(
+      (await page.textContent("pre.segment.dir0")).startsWith("GET /index.html HTTP/1.1"),
+      "the text around the matches is intact",
+    );
+    await page.fill("#follow-find", "no such text");
+    await page.waitForFunction(
+      () => document.querySelector("#follow-find-count").textContent === "No matches",
+    );
+    await page.press("#follow-find", "Escape");
+    await page.waitForFunction(() => !document.querySelector("mark.find-match"));
+    assert.equal(await page.textContent("#follow-find-count"), "");
+    await page.fill("#follow-find", "HTTP/1.1"); // (left on for the accessibility check)
+
     await page.selectOption("select[aria-label='Direction']", "1");
     assert.equal(await page.locator("pre.segment.dir0").count(), 0);
     await page.selectOption("select[aria-label='Show data as']", "hex");
@@ -438,6 +465,14 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     assert.deepEqual(
       log.find((m) => m.type === "filter"),
       { type: "filter", expr: "tcp.stream eq 0", apply: true },
+    );
+    await page.click("button:has-text('Filter Out This Stream')");
+    assert.deepEqual(
+      log.find((m) => m.type === "filterOut"),
+      {
+        type: "filterOut",
+        expr: "tcp.stream eq 0",
+      },
     );
 
     // There is only one TCP stream in the capture: the next one is empty.

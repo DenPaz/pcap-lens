@@ -962,6 +962,27 @@
     return `${proto === "udp" ? "udp" : "tcp"}.stream eq ${stream}`;
   }
 
+  /**
+   * Where `query` occurs in `text`, ignoring case: non-overlapping [start,
+   * end) ranges in order, at most `max` (Follow Stream's search).
+   * @param {string} text @param {string} query @param {number} [max]
+   * @returns {[number, number][]}
+   */
+  function findRanges(text, query, max = Infinity) {
+    /** @type {[number, number][]} */
+    const out = [];
+    if (!query) {
+      return out;
+    }
+    const hay = text.toLowerCase();
+    const needle = query.toLowerCase();
+    for (let i = hay.indexOf(needle); i >= 0 && out.length < max;) {
+      out.push([i, i + needle.length]);
+      i = hay.indexOf(needle, i + needle.length);
+    }
+    return out;
+  }
+
   // ---------------------------------------------------------------- statistics tables
 
   /** 1234567 -> "1,234,567"; floats keep up to 6 decimals. @param {unknown} v */
@@ -1919,6 +1940,7 @@
     bytesToAscii,
     hexDump,
     streamFilter,
+    findRanges,
     formatCell,
     filterButtonTitle,
     sortRows,

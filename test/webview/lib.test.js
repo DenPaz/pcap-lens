@@ -628,6 +628,20 @@ suite("webview lib: follow stream and statistics helpers", () => {
     assert.equal(lib.hexDump(new Uint8Array([])), "");
   });
 
+  test("findRanges: case-insensitive, non-overlapping, capped", () => {
+    assert.deepEqual(lib.findRanges("GET / HTTP/1.1\nHost: x\nhttp", "http"), [
+      [6, 10],
+      [23, 27],
+    ]);
+    assert.deepEqual(lib.findRanges("aaaa", "aa"), [
+      [0, 2],
+      [2, 4],
+    ]);
+    assert.deepEqual(lib.findRanges("abcabc", "b", 1), [[1, 2]]);
+    assert.deepEqual(lib.findRanges("abc", ""), []);
+    assert.deepEqual(lib.findRanges("abc", "x"), []);
+  });
+
   test("streamFilter", () => {
     assert.equal(lib.streamFilter("tcp", 3), "tcp.stream eq 3");
     assert.equal(lib.streamFilter("http", 0), "tcp.stream eq 0");

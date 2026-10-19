@@ -157,7 +157,9 @@ filter, and its rows apply or prepare the matching display filter.
   throughput, round-trip time, window).
 - **VoIP calls**: SIP calls with their call flow, RTP streams with loss and
   jitter, per-packet stream analysis, and G.711 audio to play or save as WAV.
-- **Follow TCP / UDP / TLS / HTTP stream** as ASCII, hex dump or raw.
+- **Follow TCP / UDP / TLS / HTTP stream** as ASCII, hex dump or raw, with
+  search (`Ctrl+F`, matches highlighted), previous/next stream, and _Filter
+  to Stream_ / _Filter Out This Stream_ for the packet list.
 
   ![The protocol hierarchy of the sample capture](media/screenshots/statistics.png)
 

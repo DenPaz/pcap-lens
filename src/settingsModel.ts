@@ -501,6 +501,17 @@ export function colorizeConversation(rules: ColoringRule[], filter: string): Col
   ];
 }
 
+/**
+ * Follow Stream's "Filter Out This Stream": every packet but the stream's,
+ * within the display filter already applied (unless that filter is the
+ * stream itself, which would leave nothing).
+ */
+export function filterOutExpr(current: string, streamFilter: string): string {
+  const prev = current.trim();
+  const out = `!(${streamFilter})`;
+  return prev && prev !== streamFilter ? `(${prev}) && ${out}` : out;
+}
+
 /** Put a new rule first (it wins over the existing ones), keeping the raw entries as they are. */
 export function prependColoringRule(rules: unknown, rule: ColoringRule): unknown[] {
   return [rule, ...(Array.isArray(rules) ? rules : [])];

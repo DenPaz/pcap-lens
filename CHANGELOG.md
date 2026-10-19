@@ -7,6 +7,12 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- Follow Stream: search the stream (`Ctrl+F`, Enter / Shift+Enter, matches
+  highlighted) and _Filter Out This Stream_, which hides the stream within
+  the display filter already applied.
+
 ## 0.9.0 — 2026-10-19
 
 ### Added

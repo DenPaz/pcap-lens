@@ -2,6 +2,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { ErrorCodes, RpcError } from "../backendClient";
 import type { PcapEditorSession } from "../pcapEditor";
+import { filterOutExpr } from "../settingsModel";
 import { panelHtml, webviewRoot } from "./panelHtml";
 
 export type FollowProto = "tcp" | "udp" | "tls" | "http";
@@ -28,6 +29,8 @@ type FromPanel =
   | { type: "ready" }
   | { type: "stream"; stream: number }
   | { type: "filter"; expr: string; apply: boolean }
+  /** "Filter Out This Stream": every packet but the stream's (the host knows the display filter). */
+  | { type: "filterOut"; expr: string }
   | { type: "save"; dir: "both" | 0 | 1; format: "raw" | "text"; text?: string };
 
 /**
@@ -102,6 +105,10 @@ export class FollowPanel {
         } else {
           this.session.prepareFilter(msg.expr);
         }
+        this.session.reveal();
+        return;
+      case "filterOut":
+        this.session.applyFilter(filterOutExpr(this.session.currentFilter, msg.expr));
         this.session.reveal();
         return;
       case "save":
