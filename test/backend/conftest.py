@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import os
 import pkgutil
 import shutil
 import ssl
+import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -21,6 +23,42 @@ from pcap_backend.protocol import RequestContext
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 HAVE_TSHARK = shutil.which("tshark") is not None
+
+# tshark reads the personal configuration (preferences, Decode As, colors…) and
+# loads personal plugins from the home folder, so a developer's own Wireshark
+# setup (a Lua dissector on UDP/9999, say) would change what the tests see. The
+# whole session runs with an empty home instead; tests that need a personal
+# file create it there (or in their own tmp_path).
+_ISOLATED_ENV = (
+    "HOME",
+    "APPDATA",
+    "XDG_CONFIG_HOME",
+    "WIRESHARK_CONFIG_DIR",
+    "WIRESHARK_PLUGIN_DIR",
+)
+_saved_env: dict[str, str | None] = {}
+_isolated_home: tempfile.TemporaryDirectory[str] | None = None
+
+
+def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001 - pytest's hook signature
+    global _isolated_home  # noqa: PLW0603 - one home per session
+    _isolated_home = tempfile.TemporaryDirectory(prefix="pcapviewer-home-")
+    home = _isolated_home.name
+    for name in _ISOLATED_ENV:
+        _saved_env[name] = os.environ.pop(name, None)
+    os.environ["HOME"] = home
+    os.environ["APPDATA"] = home  # Windows: %APPDATA%\Wireshark
+    os.environ["XDG_CONFIG_HOME"] = str(Path(home) / ".config")
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:  # noqa: ARG001 - pytest's hook signature
+    for name, value in _saved_env.items():
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
+    if _isolated_home is not None:
+        _isolated_home.cleanup()
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:

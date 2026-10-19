@@ -72,6 +72,18 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
 - Node tests that start the backend use `PCAP_VIEWER_PYTHON` if set, else the
   uv `.venv` interpreter, so they run on 3.14 even when the system `python3` is older.
 - pytest turns `ResourceWarning` into errors: leaked tshark pipes are bugs.
+- **Tests use an empty home**: tshark reads the personal configuration
+  (preferences, Decode As, colors) and loads personal plugins from the home
+  folder, so a developer's own Wireshark setup changed results (a personal
+  UDP/9999 dissector or Decode As rule turned `mixed.pcapng`'s UDP rows into
+  another protocol and failed four coloring tests on one machine). pytest's
+  `pytest_configure` (`test/backend/conftest.py`) sets `HOME`, `APPDATA` and
+  `XDG_CONFIG_HOME` to a temporary folder and drops `WIRESHARK_CONFIG_DIR`/
+  `WIRESHARK_PLUGIN_DIR` for the session; the Node tests that start the
+  backend (`test/webview/harness.js`, `backendClient.test.ts`) swap them in
+  only around `client.start()`, since Playwright finds its browsers under
+  the real home. A test that needs a personal file writes it there (or sets
+  its own `HOME`, as `test_plugins.py` does).
 - **Coverage**: pytest-cov (`[tool.coverage.*]` in pyproject: branch,
   `patch = ["subprocess"]` so the backend started as a child process counts,
   data in `coverage/`) and c8 (`.c8rc.json`: the compiled `out/src` the unit

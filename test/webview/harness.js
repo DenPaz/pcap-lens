@@ -7,6 +7,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
+const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
@@ -128,9 +129,48 @@ async function startBackend(deps) {
     backendDir: path.join(ROOT, "backend"),
     logger: { info() {}, warn() {}, error: (m) => console.error(m) },
   });
-  client.start();
+  startIsolated(client);
   await client.request("initialize", {});
   return client;
+}
+
+/**
+ * Start the backend with an empty home, as test/backend/conftest.py runs
+ * pytest: tshark reads the personal configuration and loads personal plugins
+ * from the home folder, so a developer's own Wireshark setup must not change
+ * what the tests see. The mocha process keeps its own environment (Playwright
+ * finds its browsers under ~/.cache): only the backend's spawn sees the swap.
+ */
+const ISOLATED_ENV = [
+  "HOME",
+  "APPDATA",
+  "XDG_CONFIG_HOME",
+  "WIRESHARK_CONFIG_DIR",
+  "WIRESHARK_PLUGIN_DIR",
+];
+function startIsolated(client) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pcapviewer-home-"));
+  process.on("exit", () => fs.rmSync(home, { recursive: true, force: true }));
+  const saved = ISOLATED_ENV.map((name) => [name, process.env[name]]);
+  for (const name of ISOLATED_ENV) {
+    delete process.env[name];
+  }
+  Object.assign(process.env, {
+    HOME: home,
+    APPDATA: home, // Windows: %APPDATA%\Wireshark
+    XDG_CONFIG_HOME: path.join(home, ".config"),
+  });
+  try {
+    client.start(); // (spawn copies the environment now)
+  } finally {
+    for (const [name, value] of saved) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+  }
 }
 
 /** A page that records script errors and CSP violations. */
