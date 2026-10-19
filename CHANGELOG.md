@@ -7,6 +7,22 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- _Play Call_ plays both directions of a VoIP call together (caller left,
+  callee right) over a waveform you can click to seek; _Save Call Audio…_
+  saves it as a stereo WAV. [452b59a]
+- VoIP audio in G.722, G.726-32 and L16 besides G.711, including dynamic
+  payload types the SDP names. [452b59a]
+- RTCP: what each RTP stream's receiver reported (loss, jitter, round trip).
+  [452b59a]
+- SIP Statistics (messages, response codes, request methods, setup times)
+  and a Registrations table in the VoIP panel. [452b59a]
+- _Ask Copilot…_ about a VoIP call: its SIP flow, timings, stream statistics
+  and problems, never audio, message bodies or DTMF digits. [452b59a]
+
+[452b59a]: https://github.com/DenPaz/vsc_pcap_viewer/commit/452b59a
+
 ## 0.13.0 — 2026-10-19
 
 ### Added
