@@ -80,6 +80,9 @@ export async function applyFilter(raw) {
     if (state.filterRequest !== req.id) {
       return; // a newer filter was applied meanwhile: its reply decides
     }
+    if (res.expr !== state.appliedFilter) {
+      state.previousFilter = state.appliedFilter;
+    }
     state.appliedFilter = res.expr;
     state.filterId = res.filterId;
     state.total = res.matchCount;

@@ -14,6 +14,8 @@ test/**
 # Release/asset scripts, the icon's source and the README's screenshots.
 scripts/**
 media/*.svg
+# (but the activity bar's view icon is used at run time)
+!media/activity.svg
 media/screenshots/**
 *.vsix
 coverage/**

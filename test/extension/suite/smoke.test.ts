@@ -79,6 +79,14 @@ suite("PCAP Lens smoke test", () => {
     const info = await waitFor(() => (indexed(session) ? session.openInfo : undefined), 90_000);
     assert.equal(info.frames, 11);
 
+    // The Recent Captures view lists it, with its packet count; its commands exist.
+    const recent = await waitFor(() => api.recent.list().find((e) => e.path === uri.fsPath));
+    assert.equal(recent.frames, 11);
+    await vscode.commands.executeCommand("pcapViewer.showRecentCaptures");
+    assert.ok(
+      (await vscode.commands.getCommands(true)).includes("pcapViewer.recentCaptures.clear"),
+    );
+
     const backend = session.backend;
     assert.ok(backend?.running);
     const page = await backend.request<{ rows: { number: number }[] }>("list_packets", {

@@ -13,6 +13,7 @@ import { copy } from "./contextmenu.js";
 import { showNotice } from "./filterbar.js";
 import { loadExpertSummary, updateStatus } from "./status.js";
 import { openShortcuts } from "./shortcuts.js";
+import { openFilterBuilder } from "./builder.js";
 /** @import { NodeEntry } from "./detail.js" */
 
 const MAX_HISTORY = 100;
@@ -497,6 +498,9 @@ export function runCommand(command) {
       if (state.selectedFrame !== null) {
         deleteComment(state.selectedFrame);
       }
+      break;
+    case "buildFilter":
+      openFilterBuilder();
       break;
     case "showShortcuts":
       openShortcuts();

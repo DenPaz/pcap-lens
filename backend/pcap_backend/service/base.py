@@ -67,6 +67,10 @@ class ServiceBase:
         # VoIP: calls and streams (by heuristic RTP on/off), stream analyses.
         self._voip: LruCache[bool, dict[str, Any]] = LruCache(2)
         self._rtp_streams: LruCache[tuple[voip.StreamKey, bool], dict[str, Any]] = LruCache(8)
+        # Display filter help: hints for a filter matching nothing (by expression)
+        # and the values a field takes (by field name).
+        self._filter_hints: LruCache[str, dict[str, Any]] = LruCache(16)
+        self._field_values: LruCache[str, dict[str, Any]] = LruCache(16)
         self._quick_seq = itertools.count()
         self._catalog_warming = threading.Event()
         # Background work nobody asked for (the catalogue warm-up): stopped by shutdown.
@@ -164,6 +168,8 @@ class ServiceBase:
             self._substreams,
             self._voip,
             self._rtp_streams,
+            self._filter_hints,
+            self._field_values,
         ):
             cache.clear()
         if self._work_dir is not None:

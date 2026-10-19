@@ -63,6 +63,8 @@ class FieldCatalog:
     fields: list[Entry]
     _pkeys: list[str] = field(init=False, repr=False)
     _fkeys: list[str] = field(init=False, repr=False)
+    # find(): lower-cased "name<TAB>description" per entry, built on first use.
+    _text: list[tuple[str, Entry]] | None = field(init=False, repr=False, default=None)
 
     def __post_init__(self) -> None:
         self._pkeys = [p["name"].lower() for p in self.protocols]
@@ -85,6 +87,40 @@ class FieldCatalog:
         truncated = len(fields) > limit
         fields = fields[:limit]
         return {"protocols": protocols, "fields": fields, "truncated": truncated}
+
+    def find(self, query: str, limit: int) -> list[Entry]:
+        """Fields and protocols whose name or description holds every word of
+        ``query`` (case-insensitive), for the filter builder: exact names
+        first, then names starting with the query, names with it as a dotted
+        part, names holding it, and description matches; each protocol is
+        marked ``type: "protocol"``."""
+        words = query.lower().split()
+        if not words:
+            return []
+        if self._text is None:
+            self._text = [
+                (f"{e['name']}\t{e.get('desc', '')}".lower(), e)
+                for e in (
+                    *({**p, "type": "protocol"} for p in self.protocols),
+                    *self.fields,
+                )
+            ]
+        q = query.strip().lower()
+        ranked: list[tuple[int, str, Entry]] = []
+        for text, entry in self._text:
+            if all(w in text for w in words):
+                name = entry["name"].lower()
+                if name == q:
+                    rank = 0
+                elif name.startswith(q):
+                    rank = 1
+                elif q in name.split("."):
+                    rank = 2  # ip.ttl for "ttl"
+                else:
+                    rank = 3 if q in name else 4
+                ranked.append((rank, name, entry))
+        ranked.sort(key=lambda r: (r[0], len(r[1]), r[1]))
+        return [entry for _, _, entry in ranked[:limit]]
 
     def lookup(self, name: str) -> Entry | None:
         """The field (or protocol) called ``name`` (case-insensitive), if any."""

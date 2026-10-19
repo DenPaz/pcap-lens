@@ -31,6 +31,7 @@ from .service.colors import ColoringMixin
 from .service.dissection import parse_decode_as_choices, script_in_lua_message
 from .service.exported_objects import ObjectsMixin
 from .service.exporting import ExportMixin
+from .service.filterhelp import FilterHelpMixin
 from .service.filtering import MAX_MATCH_FRAMES
 from .service.flow import FlowGraphMixin
 from .service.helpers import sniff_format
@@ -52,6 +53,7 @@ class PcapService(
     ColoringMixin,
     ToolsMixin,
     ObjectsMixin,
+    FilterHelpMixin,
 ):
     """Every request handler; one instance serves one capture (see the module docstring)."""
 
@@ -66,6 +68,8 @@ def rpc_methods(service: PcapService) -> dict[str, Callable[[dict[str, Any], Req
         "capture_stop": service.capture_stop,
         "capture_info": service.capture_info,
         "validate_filter": service.validate_filter,
+        "filter_hints": service.filter_hints,
+        "field_values": service.field_values,
         "count_matches": service.count_matches,
         "set_filter": service.set_filter,
         "stop_filter": service.stop_filter,

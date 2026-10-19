@@ -181,10 +181,15 @@ class DissectionMixin(ServiceBase):
         catalogue has ~250k entries). Lua dissector fields are included because
         the catalogue is built with the file's ``-X lua_script`` options. Call
         with ``limit: 0`` to warm the cache without transferring anything.
+        With ``words`` instead, ``fields`` lists the fields and protocols whose
+        name or description holds every word (the filter builder's search).
         """
         prefix = param(params, "prefix", str, "")
         limit = max(0, min(param(params, "limit", int, 200), 100_000))
         catalog = self._catalog(ctx)
+        words = param(params, "words", str, "")
+        if words:
+            return {"fields": catalog.find(words, limit)}
         return catalog.search(prefix, limit)
 
     def _catalog(self, ctx: RequestContext) -> FieldCatalog:

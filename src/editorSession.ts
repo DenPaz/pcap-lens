@@ -12,6 +12,7 @@ import {
   setEnvironmentContext,
 } from "./commands/setup";
 import { copyName, isOnDisk } from "./remote";
+import { rememberRecentCapture } from "./commands/recent";
 import {
   Settings,
   getSetting,
@@ -379,6 +380,9 @@ export class PcapEditorSession {
       this.indexing = !!info.indexing;
       this.coloringStale = false;
       void vscode.commands.executeCommand("setContext", CAPTURE_OPENED, true);
+      if (!this.document.temporary) {
+        rememberRecentCapture(this.uri, info);
+      }
       this.post({
         type: "init",
         info,
@@ -594,6 +598,9 @@ export class PcapEditorSession {
       setTimeout(() => void this.load("settings changed during the capture"), 0);
     }
     if (this.info) {
+      if (!this.document.temporary) {
+        rememberRecentCapture(this.uri, this.info); // the final packet count
+      }
       this.post({
         type: "indexDone",
         info: this.info,

@@ -7,7 +7,7 @@
     "color": "#0b3a73",
     "theme": "dark"
   },
-  "version": "0.11.0",
+  "version": "0.12.0",
   "publisher": "denpaz",
   "license": "MIT",
   "repository": {
@@ -298,6 +298,11 @@
         "category": "PCAP"
       },
       {
+        "command": "pcapViewer.buildFilter",
+        "title": "Build Display Filter…",
+        "category": "PCAP"
+      },
+      {
         "command": "pcapViewer.savedFilters",
         "title": "Saved Display Filters",
         "category": "PCAP"
@@ -515,7 +520,8 @@
       {
         "command": "pcapViewer.openFile",
         "title": "Open File in PCAP Lens…",
-        "category": "PCAP"
+        "category": "PCAP",
+        "icon": "$(folder-opened)"
       },
       {
         "command": "pcapViewer.openBerRecords",
@@ -633,6 +639,64 @@
         "command": "pcapViewer.openWalkthrough",
         "title": "Get Started",
         "category": "PCAP"
+      },
+      {
+        "command": "pcapViewer.showRecentCaptures",
+        "title": "Show Recent Captures",
+        "category": "PCAP"
+      },
+      {
+        "command": "pcapViewer.recentCaptures.clear",
+        "title": "Clear Recent Captures",
+        "category": "PCAP",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "pcapViewer.recentCaptures.refresh",
+        "title": "Refresh Recent Captures",
+        "category": "PCAP",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "pcapViewer.recentCaptures.remove",
+        "title": "Remove from Recent Captures",
+        "category": "PCAP",
+        "icon": "$(close)"
+      },
+      {
+        "command": "pcapViewer.recentCaptures.reveal",
+        "title": "Reveal File",
+        "category": "PCAP"
+      },
+      {
+        "command": "pcapViewer.recentCaptures.copyPath",
+        "title": "Copy Path",
+        "category": "PCAP"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "pcapLens",
+          "title": "PCAP Lens",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "pcapLens": [
+        {
+          "id": "pcapViewer.recentCaptures",
+          "name": "Recent Captures",
+          "icon": "media/activity.svg",
+          "contextualTitle": "PCAP Lens"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "pcapViewer.recentCaptures",
+        "contents": "Captures you open in PCAP Lens are listed here.\n[Open File…](command:pcapViewer.openFile)\n[Open Sample Capture](command:pcapViewer.openSample)\n[Start Capture…](command:pcapViewer.startCapture)\nNew to PCAP Lens? [Get Started](command:pcapViewer.openWalkthrough) checks that Python and TShark are installed."
       }
     ],
     "menus": {
@@ -645,7 +709,27 @@
       ],
       "commandPalette": [
         {
+          "command": "pcapViewer.recentCaptures.remove",
+          "when": "false"
+        },
+        {
+          "command": "pcapViewer.recentCaptures.reveal",
+          "when": "false"
+        },
+        {
+          "command": "pcapViewer.recentCaptures.copyPath",
+          "when": "false"
+        },
+        {
+          "command": "pcapViewer.recentCaptures.refresh",
+          "when": "false"
+        },
+        {
           "command": "pcapViewer.applyFilter",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
+        },
+        {
+          "command": "pcapViewer.buildFilter",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
         },
         {
@@ -931,6 +1015,55 @@
         {
           "command": "pcapViewer.askAboutAnomaly",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow || activeWebviewPanelId == pcapViewer.tcpGraph"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "pcapViewer.openFile",
+          "when": "view == pcapViewer.recentCaptures",
+          "group": "navigation@1"
+        },
+        {
+          "command": "pcapViewer.startCapture",
+          "when": "view == pcapViewer.recentCaptures",
+          "group": "navigation@2"
+        },
+        {
+          "command": "pcapViewer.recentCaptures.refresh",
+          "when": "view == pcapViewer.recentCaptures",
+          "group": "navigation@3"
+        },
+        {
+          "command": "pcapViewer.recentCaptures.clear",
+          "when": "view == pcapViewer.recentCaptures",
+          "group": "navigation@4"
+        },
+        {
+          "command": "pcapViewer.openSample",
+          "when": "view == pcapViewer.recentCaptures",
+          "group": "more@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "pcapViewer.recentCaptures.remove",
+          "when": "view == pcapViewer.recentCaptures && viewItem =~ /^recentCapture/",
+          "group": "inline"
+        },
+        {
+          "command": "pcapViewer.recentCaptures.reveal",
+          "when": "view == pcapViewer.recentCaptures && viewItem == recentCapture",
+          "group": "1_file@1"
+        },
+        {
+          "command": "pcapViewer.recentCaptures.copyPath",
+          "when": "view == pcapViewer.recentCaptures && viewItem =~ /^recentCapture/",
+          "group": "1_file@2"
+        },
+        {
+          "command": "pcapViewer.recentCaptures.remove",
+          "when": "view == pcapViewer.recentCaptures && viewItem =~ /^recentCapture/",
+          "group": "2_list@1"
         }
       ],
       "editor/title": [

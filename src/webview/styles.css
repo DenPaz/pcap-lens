@@ -537,6 +537,69 @@ body {
   pointer-events: none;
 }
 
+/* The empty list's message: what happened and what to try (viewer/empty.js). */
+#list-empty .empty-box {
+  pointer-events: auto;
+  max-width: 40em;
+  margin: 0 auto;
+  padding: 0 var(--space-6);
+}
+
+#list-empty .empty-title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-lg);
+  color: var(--vscode-foreground);
+}
+
+#list-empty .empty-filter {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: var(--mono-size);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius);
+  background: var(--vscode-textCodeBlock-background, transparent);
+}
+
+#list-empty .empty-detail {
+  margin: var(--space-3) 0 0;
+}
+
+#list-empty .empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
+#list-empty .empty-hints {
+  margin: var(--space-5) 0 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+
+#list-empty .empty-hints li {
+  margin-top: var(--space-3);
+  line-height: 1.6;
+}
+
+#list-empty .empty-hints code {
+  font-family: var(--mono);
+  font-size: var(--mono-size);
+  color: var(--vscode-textPreformat-foreground, var(--vscode-foreground));
+}
+
+#list-empty .empty-hints button {
+  padding: var(--control-pad-y-sm) var(--space-3);
+}
+
+#list-empty .empty-checking {
+  font-style: italic;
+}
+
 /* ------------------------------------------------------------------ detail tree */
 
 /* The view switch, the comment bar and the quick-view note stay on top while the details scroll. */
@@ -875,9 +938,10 @@ button.pd-cell:hover {
   background: var(--field-highlight);
 }
 
-/* ------------------------------------------------------------------ shortcuts overlay */
+/* ------------------------------------------------------------------ dialogs (shortcuts, filter builder) */
 
-#shortcuts {
+#shortcuts,
+#builder {
   position: fixed;
   inset: 0;
   z-index: 60;
@@ -887,11 +951,12 @@ button.pd-cell:hover {
   background: rgba(0, 0, 0, 0.35);
 }
 
-#shortcuts.hidden {
+#shortcuts.hidden,
+#builder.hidden {
   display: none;
 }
 
-.shortcuts-box {
+.dialog-box {
   display: flex;
   flex-direction: column;
   width: min(640px, 92vw);
@@ -903,7 +968,7 @@ button.pd-cell:hover {
   box-shadow: var(--shadow);
 }
 
-.shortcuts-head {
+.dialog-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -911,7 +976,7 @@ button.pd-cell:hover {
   border-bottom: 1px solid var(--border);
 }
 
-.shortcuts-head h2 {
+.dialog-head h2 {
   margin: 0;
   font-size: var(--text-lg);
   font-weight: 600;
@@ -952,6 +1017,91 @@ button.pd-cell:hover {
   border-radius: var(--radius);
   background: var(--vscode-keybindingLabel-background, transparent);
   color: var(--vscode-keybindingLabel-foreground, inherit);
+}
+
+#builder-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow: auto;
+  padding: var(--space-4) var(--space-5);
+}
+
+#builder-body label {
+  margin-top: var(--space-3);
+  font-weight: 600;
+}
+
+.builder-note {
+  margin: 0;
+  color: var(--vscode-descriptionForeground);
+}
+
+#builder-error:empty {
+  display: none;
+}
+
+#builder-error.invalid {
+  color: var(--vscode-errorForeground);
+}
+
+.builder-list {
+  max-height: 11em;
+  overflow: auto;
+  border: 1px solid var(--vscode-input-border, var(--border));
+  border-radius: var(--radius);
+}
+
+.builder-list.hidden {
+  display: none;
+}
+
+.builder-list [role="option"] {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-5);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+}
+
+.builder-list [role="option"] .builder-desc {
+  color: var(--vscode-descriptionForeground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.builder-list [role="option"]:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.builder-list [role="option"][aria-selected="true"] {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+.builder-list [role="option"][aria-selected="true"] .builder-desc {
+  color: inherit;
+}
+
+.builder-preview-row {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+#builder-preview {
+  font-family: var(--mono);
+  font-size: var(--mono-size);
+  overflow-wrap: anywhere;
+}
+
+.dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--border);
 }
 
 /* ------------------------------------------------------------------ status bar */
@@ -1372,5 +1522,24 @@ button.pd-cell:hover {
 }
 
 :is(.vscode-high-contrast, .vscode-high-contrast-light) :is(.context-menu, .suggest, .overlay-box) {
+  border-color: var(--hc-border);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) .builder-list [role="option"]:hover {
+  background: transparent;
+  outline: 1px dashed var(--hc-active);
+  outline-offset: -1px;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light)
+  .builder-list
+  [role="option"][aria-selected="true"] {
+  color: inherit;
+  background: transparent;
+  outline: 1px solid var(--hc-active);
+  outline-offset: -1px;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) .dialog-box {
   border-color: var(--hc-border);
 }

@@ -28,6 +28,11 @@ Then open any capture file. Every command is in the Command Palette (`PCAP: …`
 and in the viewer's **☰** menu at the end of the filter bar, grouped under
 headings that unfold on click (or `→`); typing searches them all.
 
+The **PCAP Lens** view in the activity bar lists your recent captures with
+their packet counts, sizes and when you opened them; click one to open it
+again. While it's empty it offers to open a file, the sample capture or start
+a live capture.
+
 ### Requirements
 
 - **tshark** 4.x, from Wireshark: [wireshark.org](https://www.wireshark.org/download.html),
@@ -120,6 +125,14 @@ registered under its name in lower case).
 - Wireshark syntax, **validated as you type**; invalid filters are never applied.
 - **Autocomplete** from tshark's field list, including your Lua dissectors'
   fields: `Tab` takes the first suggestion.
+- **Filter builder** (the filter bar's builder button, or right-click a field
+  › _Build Filter from Field…_): find a field by name or description ("time to
+  live"), pick a relation that suits its type and a value from those seen in
+  the capture, then apply the filter or add it to the one in the bar.
+- **When nothing matches**, the list says why: a field that no packet has, or
+  a case-sensitive text comparison (with the case-insensitive filter to try).
+  It also offers to go back to the previous filter, edit it or build a new
+  one.
 - **Streaming**: on big captures matches show as they are found; ■ stops and
   keeps them. Finished results are cached with the index.
 - **Saved and recent filters** (★), and **filter buttons** under the filter

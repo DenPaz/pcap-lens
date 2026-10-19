@@ -4,6 +4,7 @@
 import { TIME_LABELS, el, icon, lib, rpc, state, vscode } from "./core.js";
 import { renderProgress } from "./host.js";
 import { applyFilter } from "./filterbar.js";
+import { renderEmpty } from "./empty.js";
 
 /**
  * The filter-button bar: one button per `pcapViewer.filterButtons` entry
@@ -118,6 +119,7 @@ el.statusExpert.addEventListener("click", () =>
 
 export function updateStatus() {
   updateFilterButtons();
+  renderEmpty();
   renderProgress();
   const info = state.info;
   el.statusTime.textContent = TIME_LABELS[state.timeFormat] ?? "";

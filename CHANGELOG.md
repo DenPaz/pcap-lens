@@ -7,6 +7,19 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.12.0 — 2026-10-19
+
+### Added
+
+- A display filter builder: find a field by name or description, pick a
+  relation and a value seen in the capture, then apply it. [4c54893]
+- When no packet matches a filter, the list says why (a field no packet has,
+  a case-sensitive comparison) and offers what to try next. [4c54893]
+- A PCAP Lens view in the activity bar lists recent captures with packet
+  counts, sizes and when they were opened. [4c54893]
+
+[4c54893]: https://github.com/DenPaz/vsc_pcap_viewer/commit/4c54893
+
 ## 0.11.0 — 2026-10-19
 
 ### Added

@@ -937,6 +937,197 @@
   }
 
   /**
+   * What the packet list says when it has no rows (null when it has some):
+   * a filter still looking ("searching") or done with no match ("no-match"),
+   * a live capture with no packet yet ("waiting"), packets still being read
+   * ("reading"), or a capture without packets ("empty").
+   * @param {{ready: boolean, total: number, filter: string, filtering?: boolean, fraction?: number | null, partial?: boolean, indexing?: boolean, capture?: {running: boolean, interfaces: string[], filter: string} | null}} s
+   * @returns {{kind: "searching" | "no-match" | "waiting" | "reading" | "empty", title: string, detail: string} | null}
+   */
+  function emptyState(s) {
+    if (!s.ready || s.total > 0) {
+      return null;
+    }
+    if (s.filter) {
+      if (s.filtering) {
+        const read =
+          typeof s.fraction === "number"
+            ? `${Math.floor(s.fraction * 100)}% of the capture read. `
+            : "";
+        return {
+          kind: "searching",
+          title: "Looking for matching packets…",
+          detail: `${read}Matches appear here as they are found.`,
+        };
+      }
+      let detail = "";
+      if (s.partial) {
+        detail = "The filter was stopped before the end of the capture.";
+      } else if (s.indexing) {
+        detail = "Packets are still being read; later ones may match.";
+      }
+      return { kind: "no-match", title: "No packets match this filter", detail };
+    }
+    if (s.capture?.running) {
+      return {
+        kind: "waiting",
+        title: `Waiting for packets on ${s.capture.interfaces.join(", ") || "the interface"}…`,
+        detail: s.capture.filter ? `Capture filter: ${s.capture.filter}` : "",
+      };
+    }
+    if (s.indexing) {
+      return { kind: "reading", title: "Reading packets…", detail: "" };
+    }
+    return { kind: "empty", title: "This capture has no packets", detail: "" };
+  }
+
+  /**
+   * The hints shown under "No packets match this filter", from the backend's
+   * filter_hints: fields no packet has, case-sensitive comparisons with the
+   * filter to try instead, else (every field occurs) the fields whose values
+   * are worth a look (at most three).
+   * @param {{fields: {name: string, present: boolean}[], caseHints: {field: string, value: string, filter: string}[]}} hints
+   * @returns {({type: "missing", names: string[]} | {type: "case", field: string, value: string, filter: string} | {type: "values", names: string[]})[]}
+   */
+  function filterHintItems(hints) {
+    /** @type {any[]} */
+    const out = [];
+    const missing = hints.fields.filter((f) => !f.present).map((f) => f.name);
+    if (missing.length) {
+      out.push({ type: "missing", names: missing });
+    }
+    for (const h of hints.caseHints) {
+      out.push({ type: "case", field: h.field, value: h.value, filter: h.filter });
+    }
+    if (!out.length) {
+      const names = hints.fields
+        .filter((f) => f.present && f.name.includes("."))
+        .map((f) => f.name);
+      if (names.length) {
+        out.push({ type: "values", names: names.slice(0, 3) });
+      }
+    }
+    return out;
+  }
+
+  const STRING_FTS = new Set([
+    "FT_STRING",
+    "FT_STRINGZ",
+    "FT_UINT_STRING",
+    "FT_STRINGZPAD",
+    "FT_STRINGZTRUNC",
+  ]);
+  const ORDERED_FT =
+    /^FT_(U?INT\d+|FRAMENUM|DOUBLE|FLOAT|RELATIVE_TIME|ABSOLUTE_TIME|CHAR|IEEE_11073_\w+)$/;
+  const BUILDER_OPERATORS = {
+    present: { label: "is present", value: false },
+    absent: { label: "is absent", value: false },
+    "==": { label: "== (equal)", value: true },
+    "!=": { label: "!= (not equal)", value: true },
+    ">": { label: "> (greater than)", value: true },
+    "<": { label: "< (less than)", value: true },
+    ">=": { label: ">= (greater or equal)", value: true },
+    "<=": { label: "<= (less or equal)", value: true },
+    contains: { label: "contains", value: true },
+    matches: { label: "matches (regular expression)", value: true },
+    in: { label: "in (any of, comma-separated)", value: true },
+  };
+
+  /**
+   * The filter builder's relations for a field type (FT_*, or "protocol").
+   * @param {string} type
+   * @returns {{op: string, label: string, value: boolean}[]}
+   */
+  function builderOperators(type) {
+    /** @type {string[]} */
+    let ops;
+    if (type === "protocol" || type === "FT_PROTOCOL") {
+      ops = ["present", "absent", "contains"];
+    } else if (type === "FT_NONE") {
+      ops = ["present", "absent"];
+    } else if (type === "FT_BOOLEAN") {
+      ops = ["present", "absent", "==", "!="];
+    } else if (STRING_FTS.has(type)) {
+      ops = ["present", "absent", "==", "!=", "contains", "matches", "in"];
+    } else if (ORDERED_FT.test(type)) {
+      ops = ["present", "absent", "==", "!=", ">", "<", ">=", "<=", "in"];
+    } else if (type === "FT_BYTES" || type === "FT_ETHER" || type === "FT_UINT_BYTES") {
+      ops = ["present", "absent", "==", "!=", "contains", "in"];
+    } else {
+      ops = ["present", "absent", "==", "!=", "in"];
+    }
+    return ops.map((op) => ({
+      op,
+      ...BUILDER_OPERATORS[/** @type {keyof typeof BUILDER_OPERATORS} */ (op)],
+    }));
+  }
+
+  /**
+   * One value written for a field of `type` in a display filter: strings,
+   * times and characters quoted (unless already), booleans as 1/0 (tshark
+   * prints True/False), the rest as typed.
+   * @param {string} type @param {string} raw
+   * @returns {string}
+   */
+  function filterLiteral(type, raw) {
+    const v = raw.trim();
+    if (/^".*"$/s.test(v)) {
+      return v;
+    }
+    if (type === "FT_BOOLEAN") {
+      if (/^(true|1)$/i.test(v)) {
+        return "1";
+      }
+      if (/^(false|0)$/i.test(v)) {
+        return "0";
+      }
+      return v;
+    }
+    if (STRING_FTS.has(type) || type === "FT_ABSOLUTE_TIME" || type === "FT_CHAR") {
+      return quoteFilterString(v);
+    }
+    return v;
+  }
+
+  /**
+   * The filter the builder makes from a field, a relation and a value (null
+   * when the relation needs a value and there is none). `matches` and a
+   * protocol's `contains` take the value as text; `in` takes a comma-separated
+   * list (tshark 4.2 rejects a space-separated set).
+   * @param {string} field @param {string} type @param {string} op @param {string} value
+   * @returns {string | null}
+   */
+  function builderTerm(field, type, op, value) {
+    if (op === "present") {
+      return field;
+    }
+    if (op === "absent") {
+      return `!${field}`;
+    }
+    const v = value.trim();
+    if (!v) {
+      return null;
+    }
+    if (op === "matches") {
+      return `${field} matches ${/^".*"$/s.test(v) ? v : quoteFilterString(v)}`;
+    }
+    if (op === "contains") {
+      const textual = STRING_FTS.has(type) || type === "protocol" || type === "FT_PROTOCOL";
+      const asBytes = /^[0-9a-f]{2}([:.-][0-9a-f]{2})*$/i.test(v);
+      return `${field} contains ${textual && !asBytes ? filterLiteral("FT_STRING", v) : v}`;
+    }
+    if (op === "in") {
+      const items = v
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean)
+        .map((x) => filterLiteral(type, x));
+      return items.length ? `${field} in {${items.join(", ")}}` : null;
+    }
+    return `${field} ${op} ${filterLiteral(type, v)}`;
+  }
+
+  /**
    * Where the rows on screen sit in the list's overview strip: a box at least
    * 4 px tall (so it stays visible over a million rows), or null for an empty
    * list. @param {number} first @param {number} count @param {number} total @param {number} height
@@ -2226,6 +2417,11 @@
     overviewBox,
     overviewIndexAt,
     fieldStatus,
+    emptyState,
+    filterHintItems,
+    builderOperators,
+    filterLiteral,
+    builderTerm,
     decodeStream,
     cArray,
     bytesToBase64,
