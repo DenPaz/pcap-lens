@@ -819,11 +819,11 @@ PACKET_COMMENTS = {
 def comments_pcapng(
     records: list[tuple[float, bytes]],
     comments: dict[int, list[str]],
-    secrets: bytes = b"",
+    key_log: bytes = b"",
 ) -> bytes:
     """A little-endian pcapng (Ethernet) whose packets carry ``comments``
     (opt_comment options of Enhanced Packet Blocks), written by hand. A TLS
-    key log in ``secrets`` goes into a Decryption Secrets Block before them."""
+    key log in ``key_log`` goes into a Decryption Secrets Block before them."""
 
     def block(kind: int, body: bytes) -> bytes:
         body += b"\0" * (-len(body) % 4)
@@ -835,8 +835,8 @@ def comments_pcapng(
 
     out = block(0x0A0D0D0A, struct.pack("<IHHq", 0x1A2B3C4D, 1, 0, -1))
     out += block(1, struct.pack("<HHI", 1, 0, 65535))
-    if secrets:
-        out += block(10, struct.pack("<II", 0x544C534B, len(secrets)) + secrets)  # "TLSK"
+    if key_log:
+        out += block(10, struct.pack("<II", 0x544C534B, len(key_log)) + key_log)  # "TLSK"
     for n, (ts, data) in enumerate(records, start=1):
         micros = round(ts * 1_000_000)
         body = struct.pack("<IIIII", 0, micros >> 32, micros & 0xFFFFFFFF, len(data), len(data))
@@ -971,7 +971,7 @@ def main() -> None:
         comments_pcapng(_records(http_packets()), PACKET_COMMENTS)
     )
     (HERE / "streams.pcapng").write_bytes(
-        comments_pcapng(_records(streams_packets()), {}, secrets=quic.KEYLOG)
+        comments_pcapng(_records(streams_packets()), {}, key_log=quic.KEYLOG)
     )
     # A truncated file to exercise malformed-capture handling.
     data = (HERE / "http.pcap").read_bytes()

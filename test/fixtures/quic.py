@@ -117,11 +117,11 @@ def _hkdf_extract(salt: bytes, ikm: bytes) -> bytes:
     return hmac.new(salt, ikm, hashlib.sha256).digest()
 
 
-def _expand_label(secret: bytes, label: str, length: int) -> bytes:
+def _expand_label(prk: bytes, label: str, length: int) -> bytes:
     """TLS 1.3's HKDF-Expand-Label with an empty context (one block suffices)."""
     full = b"tls13 " + label.encode()
     info = struct.pack(">HB", length, len(full)) + full + b"\0"
-    return hmac.new(secret, info + b"\1", hashlib.sha256).digest()[:length]
+    return hmac.new(prk, info + b"\1", hashlib.sha256).digest()[:length]
 
 
 def _varint(n: int) -> bytes:
@@ -135,11 +135,11 @@ def _varint(n: int) -> bytes:
 _PN_LEN = 2
 
 
-def _protect(header: bytes, pn_offset: int, payload: bytes, secret: bytes, pn: int) -> bytes:
+def _protect(header: bytes, pn_offset: int, payload: bytes, traffic: bytes, pn: int) -> bytes:
     """Encrypt the payload and apply header protection (RFC 9001 section 5)."""
-    key = _expand_label(secret, "quic key", 16)
-    iv = _expand_label(secret, "quic iv", 12)
-    hp = _expand_label(secret, "quic hp", 16)
+    key = _expand_label(traffic, "quic key", 16)
+    iv = _expand_label(traffic, "quic iv", 12)
+    hp = _expand_label(traffic, "quic hp", 16)
     nonce = (int.from_bytes(iv, "big") ^ pn).to_bytes(12, "big")
     sealed = aes128_gcm_seal(key, nonce, payload, header)
     sample = sealed[4 - _PN_LEN : 4 - _PN_LEN + 16]
@@ -151,7 +151,7 @@ def _protect(header: bytes, pn_offset: int, payload: bytes, secret: bytes, pn: i
     return bytes(out) + sealed
 
 
-def _initial(dcid: bytes, scid: bytes, secret: bytes, pn: int, frames: bytes) -> bytes:
+def _initial(dcid: bytes, scid: bytes, traffic: bytes, pn: int, frames: bytes) -> bytes:
     header = (
         bytes([0xC0 | (_PN_LEN - 1)])
         + struct.pack(">I", 1)
@@ -162,12 +162,12 @@ def _initial(dcid: bytes, scid: bytes, secret: bytes, pn: int, frames: bytes) ->
         + _varint(0)  # no token
         + struct.pack(">H", 0x4000 | (_PN_LEN + len(frames) + 16))
     )
-    return _protect(header + pn.to_bytes(_PN_LEN, "big"), len(header), frames, secret, pn)
+    return _protect(header + pn.to_bytes(_PN_LEN, "big"), len(header), frames, traffic, pn)
 
 
-def _short(dcid: bytes, secret: bytes, pn: int, frames: bytes) -> bytes:
+def _short(dcid: bytes, traffic: bytes, pn: int, frames: bytes) -> bytes:
     header = bytes([0x40 | (_PN_LEN - 1)]) + dcid
-    return _protect(header + pn.to_bytes(_PN_LEN, "big"), len(header), frames, secret, pn)
+    return _protect(header + pn.to_bytes(_PN_LEN, "big"), len(header), frames, traffic, pn)
 
 
 def _crypto(data: bytes) -> bytes:
@@ -228,12 +228,14 @@ def _server_hello() -> bytes:
     return _handshake(2, body)
 
 
-_CLIENT_SECRET = hashlib.sha256(b"PCAP Lens QUIC client").digest()
-_SERVER_SECRET = hashlib.sha256(b"PCAP Lens QUIC server").digest()
+# The 1-RTT traffic keys: public test values (hashes of fixed strings), published in
+# KEYLOG and stored in the fixture so that tshark can decrypt it; they protect nothing.
+_CLIENT_TRAFFIC = hashlib.sha256(b"PCAP Lens QUIC client").digest()
+_SERVER_TRAFFIC = hashlib.sha256(b"PCAP Lens QUIC server").digest()
 
 KEYLOG = (
-    f"CLIENT_TRAFFIC_SECRET_0 {CLIENT_RANDOM.hex()} {_CLIENT_SECRET.hex()}\n"
-    f"SERVER_TRAFFIC_SECRET_0 {CLIENT_RANDOM.hex()} {_SERVER_SECRET.hex()}\n"
+    f"CLIENT_TRAFFIC_SECRET_0 {CLIENT_RANDOM.hex()} {_CLIENT_TRAFFIC.hex()}\n"
+    f"SERVER_TRAFFIC_SECRET_0 {CLIENT_RANDOM.hex()} {_SERVER_TRAFFIC.hex()}\n"
 ).encode()
 
 # Stream 0 is a request and its answer; stream 4 carries data from the client only.
@@ -257,7 +259,7 @@ def datagrams() -> list[tuple[int, bytes]]:
     return [
         (0, _initial(odcid, client_cid, client_in, 0, hello)),
         (1, _initial(client_cid, server_cid, server_in, 0, ack + _crypto(_server_hello()))),
-        (0, _short(server_cid, _CLIENT_SECRET, 1, _stream(0, request, fin=False))),
-        (1, _short(client_cid, _SERVER_SECRET, 1, _stream(0, answer, fin=True))),
-        (0, _short(server_cid, _CLIENT_SECRET, 2, _stream(4, second, fin=True))),
+        (0, _short(server_cid, _CLIENT_TRAFFIC, 1, _stream(0, request, fin=False))),
+        (1, _short(client_cid, _SERVER_TRAFFIC, 1, _stream(0, answer, fin=True))),
+        (0, _short(server_cid, _CLIENT_TRAFFIC, 2, _stream(4, second, fin=True))),
     ]
