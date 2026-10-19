@@ -831,7 +831,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     assert.ok(
       shown.some(
         ([cls, a, b]) =>
-          cls === "cmp-changed" && /example\.com/.test(a) && /wireshark\.org/.test(b),
+          cls === "cmp-changed" && a.includes("example.com") && b.includes("wireshark.org"),
       ),
     );
     assert.ok(!shown.some(([, a]) => /^Type: IPv4/.test(a)), "Ethernet's type is the same in both");
