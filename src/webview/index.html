@@ -79,7 +79,13 @@
         <select id="find-mode" aria-label="Find by">
           <option value="filter">Display filter</option>
           <option value="string">String</option>
+          <option value="regex">Regular expression</option>
           <option value="hex">Hex bytes</option>
+        </select>
+        <select id="find-in" class="hidden" aria-label="Search in">
+          <option value="bytes">Packet bytes</option>
+          <option value="list">Packet list</option>
+          <option value="details">Packet details</option>
         </select>
         <input
           id="find-input"

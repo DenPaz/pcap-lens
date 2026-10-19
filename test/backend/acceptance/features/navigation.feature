@@ -21,6 +21,38 @@ Feature: Navigating a capture
     When I find the next packet matching the string "INDEX.HTML" case-sensitively
     Then no packet is found
 
+  Scenario Outline: Find text in the packet bytes, list or details
+    When I find the next packet matching the string "<value>" in the packet <where>
+    Then <result>
+
+    Examples:
+      | value             | where   | result                 |
+      | No such name      | bytes   | no packet is found     |
+      | No such name      | list    | the found packet is 9  |
+      | No such name      | details | the found packet is 9  |
+      | Recursion desired | list    | no packet is found     |
+      | Recursion desired | details | the found packet is 4  |
+      | Broadcast         | list    | the found packet is 1  |
+      | Echo (ping) reply | list    | the found packet is 3  |
+
+  Scenario: A case-sensitive search in the packet list
+    When I find the next packet matching the string "broadcast" in the packet list case-sensitively
+    Then no packet is found
+
+  Scenario Outline: Find a regular expression
+    When I find the next packet matching the regular expression "<value>" in the packet <where>
+    Then the found packet is <frame>
+
+    Examples:
+      | value                | where   | frame |
+      | query 0x100[12]      | list    | 6     |
+      | ^Request In: 4$      | details | 5     |
+      | get /\w+\.html        | bytes   | 13    |
+
+  Scenario: An invalid regular expression is reported
+    When I find the next packet matching the regular expression "[" in the packet list
+    Then the request fails with "Not a valid regular expression"
+
   Scenario: Find wraps around after the last match
     When I find the next packet matching the display filter "dns" after packet 9
     Then the found packet is 4

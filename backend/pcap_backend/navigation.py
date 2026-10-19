@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 
-FIND_MODES = ("filter", "string", "hex", "marked")
+FIND_MODES = ("filter", "string", "regex", "hex", "marked")
+# Where a string or regex search looks: the packet bytes (a display filter), the
+# packet list's column text or the packet details' text (Wireshark's choices).
+FIND_IN = ("bytes", "list", "details")
 TIME_FORMATS = ("relative", "delta_displayed", "delta_captured", "absolute", "utc", "epoch")
 NS = 1_000_000_000
 
@@ -36,22 +39,32 @@ def dfilter_string(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def _check_text(mode: str, value: str) -> None:
+    if not value.strip():
+        raise ValueError(
+            "Enter a regular expression to find" if mode == "regex" else "Enter text to find"
+        )
+    if "\n" in value or "\r" in value:
+        raise ValueError("The search text must be a single line")
+
+
 def find_expression(mode: str, value: str, case_sensitive: bool) -> str:
-    """The display filter Find Packet runs for a search.
+    """The display filter Find Packet runs for a search in the packet bytes.
 
     ``string``: ``frame contains "..."``, or case-insensitively ``frame matches
-    "(?i)..."`` with the text regex-escaped. ``hex``: ``frame contains aa:bb:cc``.
+    "(?i)..."`` with the text regex-escaped. ``regex``: ``frame matches "..."``
+    (tshark's PCRE2, ``(?i)`` unless case-sensitive). ``hex``: ``frame
+    contains aa:bb:cc``.
     """
     if mode == "filter":
         expr = value.strip()
         if not expr:
             raise ValueError("Enter a display filter to find")
         return expr
-    if mode == "string":
-        if not value.strip():
-            raise ValueError("Enter text to find")
-        if "\n" in value or "\r" in value:
-            raise ValueError("The search text must be a single line")
+    if mode in ("string", "regex"):
+        _check_text(mode, value)
+        if mode == "regex":
+            return f"frame matches {dfilter_string(('' if case_sensitive else '(?i)') + value)}"
         if case_sensitive:
             return f"frame contains {dfilter_string(value)}"
         return f"frame matches {dfilter_string('(?i)' + re.escape(value))}"
@@ -61,6 +74,49 @@ def find_expression(mode: str, value: str, case_sensitive: bool) -> str:
             return f'frame contains "\\x{octets[0]}"'
         return "frame contains " + ":".join(octets)
     raise ValueError(f"unknown find mode {mode!r}")
+
+
+def text_matcher(mode: str, value: str, case_sensitive: bool) -> Callable[[str], bool]:
+    """A test for searching text (the packet list's cells, the packet details'
+    lines, one packet's worth joined by newlines): a substring (``string``,
+    ignoring case unless ``case_sensitive``) or a Python regular expression
+    (``regex``; ``^`` and ``$`` match at each line)."""
+    _check_text(mode, value)
+    if mode == "regex":
+        flags = re.MULTILINE | (0 if case_sensitive else re.IGNORECASE)
+        try:
+            pattern = re.compile(value, flags)
+        except re.error as exc:
+            raise ValueError(f"Not a valid regular expression: {exc}") from None
+        return lambda text: pattern.search(text) is not None
+    if case_sensitive:
+        return lambda text: value in text
+    needle = value.casefold()
+    return lambda text: needle in text.casefold()
+
+
+_FRAME_HEADER = re.compile(r"Frame (\d+): ")
+
+
+def details_blocks(lines: Iterable[str]) -> Iterable[tuple[int, str]]:
+    """Split tshark's ``-V`` output into (frame number, text) per packet: a
+    packet starts with its ``Frame N: …`` line at the left margin; the text
+    has one label per line as the details tree shows it (from PDML): no
+    indentation, no brackets around generated fields, no blank lines."""
+    frame = 0
+    block: list[str] = []
+    for line in lines:
+        header = _FRAME_HEADER.match(line)
+        if header:
+            if frame:
+                yield frame, "\n".join(block)
+            frame, block = int(header[1]), [line]
+        elif frame and (label := line.strip()):
+            if label.startswith("[") and label.endswith("]"):
+                label = label[1:-1]  # a generated field, shown without brackets in the tree
+            block.append(label)
+    if frame:
+        yield frame, "\n".join(block)
 
 
 def frame_ranges(frames: Iterable[int]) -> list[str]:

@@ -954,6 +954,29 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       () => document.querySelector("#find-status").textContent === "Not found",
     );
 
+    // Text can be looked for in the packet list or the packet details instead of the bytes.
+    assert.ok(await page.isVisible("#find-in"));
+    await page.selectOption("#find-in", "list");
+    assert.match(await page.getAttribute("#find-input", "placeholder"), /packet list/);
+    await page.fill("#find-input", "200 ok");
+    await page.press("#find-input", "Enter");
+    await waitSelected(6); // the Info column of the response's first segment
+    await page.selectOption("#find-in", "details");
+    await page.selectOption("#find-mode", "regex");
+    assert.ok(await page.isVisible("#find-in"), "regex searches pick where too");
+    await page.fill("#find-input", "^content-type: text/");
+    await page.press("#find-input", "Enter");
+    await waitSelected(7);
+    // The matching field is selected (and its protocol expanded) once the details show.
+    await page.waitForFunction(() =>
+      /^Content-Type: text\/html/.test(
+        document.querySelector("#detail-tree .node-row.selected")?.textContent ?? "",
+      ),
+    );
+    await page.selectOption("#find-mode", "hex");
+    assert.ok(await page.isHidden("#find-in"), "hex is always the bytes");
+    await page.fill("#find-input", "");
+
     await page.press("#find-input", "Escape");
     assert.ok(await page.$eval("#find-bar", (b) => b.classList.contains("hidden")));
   });

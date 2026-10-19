@@ -1113,6 +1113,48 @@
     return out;
   }
 
+  /**
+   * The first node of a detail tree (depth first, in order) whose label
+   * matches a Find Packet search in the packet details, as the path of nodes
+   * from its protocol down (for `revealPath`), or null. `regex` searches use
+   * the browser's RegExp, which reads the backend's Python patterns the same
+   * way in all but exotic cases; one it can't compile matches nothing.
+   * @param {any[]} tree
+   * @param {{value: string, regex?: boolean, caseSensitive?: boolean}} search
+   * @returns {any[] | null}
+   */
+  function findTreeMatch(tree, search) {
+    /** @type {(label: string) => boolean} */
+    let test;
+    if (search.regex) {
+      let pattern;
+      try {
+        pattern = new RegExp(search.value, search.caseSensitive ? "" : "i");
+      } catch {
+        return null;
+      }
+      test = (label) => pattern.test(label);
+    } else {
+      const needle = search.caseSensitive ? search.value : search.value.toLowerCase();
+      test = (label) => (search.caseSensitive ? label : label.toLowerCase()).includes(needle);
+    }
+    /** @param {any[]} nodes @param {any[]} path @returns {any[] | null} */
+    const walk = (nodes, path) => {
+      for (const node of nodes) {
+        const here = [...path, node];
+        if (test(String(node.label ?? ""))) {
+          return here;
+        }
+        const found = node.children?.length ? walk(node.children, here) : null;
+        if (found) {
+          return found;
+        }
+      }
+      return null;
+    };
+    return search.value ? walk(tree, []) : null;
+  }
+
   // ---------------------------------------------------------------- statistics tables
 
   /** 1234567 -> "1,234,567"; floats keep up to 6 decimals. @param {unknown} v */
@@ -2076,6 +2118,7 @@
     hexDump,
     streamFilter,
     findRanges,
+    findTreeMatch,
     formatCell,
     filterButtonTitle,
     sortRows,
