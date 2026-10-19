@@ -102,7 +102,9 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
   passes on `main.js` once; run it again if `format:check` still complains.
 - **CI** (`.github/workflows/ci.yml`) runs everything on Linux (apt tshark),
   macOS (`brew install --formula wireshark`) and Windows (`choco install
-wireshark`, `C:\Program Files\Wireshark` added to PATH): lint, backend and
+wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
+30 s and 60 s apart, until `tshark.exe` exists, since the Chocolatey feed
+fails now and then, once even with exit code 0 and nothing installed): lint, backend and
   acceptance tests with tshark, unit + Chromium e2e tests, and the VS Code
   smoke test (Linux under xvfb), plus a Linux job on Python 3.12. Ubuntu
   26.04 (`ubuntu-latest` from 2026-10-19) enforces the apparmor package's

@@ -138,9 +138,24 @@ jobs:
       - name: Install Wireshark (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        # The Chocolatey community feed fails now and then (504, 499), sometimes with
+        # exit code 0 and nothing installed: retry until tshark.exe is there.
         run: |
-          choco install wireshark -y --no-progress
+          $tshark = "C:\Program Files\Wireshark\tshark.exe"
+          for ($i = 1; $i -le 3; $i++) {
+            choco install wireshark -y --no-progress
+            if (Test-Path $tshark) { break }
+            if ($i -lt 3) {
+              Write-Host "Wireshark is not installed (attempt $i); retrying in $(30 * $i) s"
+              Start-Sleep -Seconds (30 * $i)
+            }
+          }
+          if (-not (Test-Path $tshark)) {
+            Write-Error "Wireshark could not be installed from Chocolatey"
+            exit 1
+          }
           "C:\Program Files\Wireshark" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          exit 0 # (not a failed attempt's code: the runner ends with exit $LASTEXITCODE)
       - name: tshark version
         run: tshark --version
       - uses: actions/setup-python@v7
