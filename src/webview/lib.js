@@ -918,6 +918,49 @@
     return configured.filter((c) => ok.has(c.field));
   }
 
+  /**
+   * What the status bar says about the selected detail node, as Wireshark's
+   * does: "Time to Live (ip.ttl), 1 byte". `desc` is the field's display name
+   * from the field catalogue (empty while it loads or for unknown fields);
+   * nodes without a field name (text lines) say nothing.
+   * @param {{name?: string, size?: number}} node @param {string} [desc]
+   */
+  function fieldStatus(node, desc) {
+    if (!node.name) {
+      return "";
+    }
+    const named = desc ? `${desc} (${node.name})` : node.name;
+    const size = node.size
+      ? `, ${node.size.toLocaleString()} byte${node.size === 1 ? "" : "s"}`
+      : "";
+    return named + size;
+  }
+
+  /**
+   * Where the rows on screen sit in the list's overview strip: a box at least
+   * 4 px tall (so it stays visible over a million rows), or null for an empty
+   * list. @param {number} first @param {number} count @param {number} total @param {number} height
+   */
+  function overviewBox(first, count, total, height) {
+    if (!total || !height) {
+      return null;
+    }
+    const h = Math.min(height, Math.max(4, (count / total) * height));
+    const y = Math.min(height - h, (first / total) * height);
+    return { y: Math.max(0, y), h };
+  }
+
+  /**
+   * The row an overview strip point stands for (a click scrolls there), or
+   * null for an empty list. @param {number} y @param {number} height @param {number} total
+   */
+  function overviewIndexAt(y, height, total) {
+    if (!total || !height) {
+      return null;
+    }
+    return Math.min(total - 1, Math.max(0, Math.floor((y / height) * total)));
+  }
+
   // ---------------------------------------------------------------- follow stream
 
   /**
@@ -1928,6 +1971,75 @@
       .join(" ");
   }
 
+  /**
+   * Keys the viewer handles itself (VS Code has no binding for them), by
+   * area, for the shortcuts overlay. "Ctrl" reads "⌘" on macOS: the viewer
+   * takes either.
+   */
+  const VIEWER_KEYS = [
+    {
+      area: "Packet list",
+      keys: [
+        ["↑ / ↓", "Previous / next packet"],
+        ["Page Up / Page Down", "A page up / down"],
+        ["Home / End", "First / last packet"],
+        ["Ctrl+Home / Ctrl+End", "First / last packet, from anywhere"],
+        ["Shift+↑ / Shift+↓, Shift+click", "Extend the selection"],
+        ["Ctrl+click", "Add a packet to the selection, or take it out"],
+        ["Ctrl+A", "Select every packet shown"],
+        ["Ctrl+C", "Copy the selected rows"],
+        ["Esc", "Back to one selected packet"],
+        ["Enter / →", "To the packet details"],
+      ],
+    },
+    {
+      area: "Packet details",
+      keys: [
+        ["↑ / ↓", "Previous / next field"],
+        ["→ / ←", "Expand / collapse (or to the first child / the parent)"],
+        ["Home / End", "First / last field"],
+        ["Enter", "Follow a link to another packet, or expand / collapse"],
+        ["Space", "Expand / collapse"],
+        ["← on a protocol", "Back to the packet list"],
+      ],
+    },
+    {
+      area: "Find and filter",
+      keys: [
+        ["Ctrl+F", "Find Packet"],
+        ["F3 / Shift+F3", "Next / previous match"],
+        ["Enter / Shift+Enter", "In the find box: next / previous match"],
+        ["Esc", "Close the find bar"],
+        ["Ctrl+Space", "Filter: field and operator completions"],
+        ["Tab", "Filter: take the first completion"],
+        ["↓ in an empty filter", "Saved and recent filters"],
+        ["Alt+↓", "From the filter to the packet list"],
+      ],
+    },
+    { area: "Help", keys: [["?", "This list of shortcuts"]] },
+  ];
+
+  /**
+   * The shortcuts overlay's sections: the viewer's own keys, then every
+   * command with a key binding (the ☰ menu's list, `{title, keys}`), by title.
+   * @param {{title: string, keys?: {key: string, mac?: string}}[]} commands
+   * @param {boolean} mac
+   * @returns {{area: string, keys: [string, string][]}[]}
+   */
+  function shortcutSections(commands, mac) {
+    /** @param {string} text */
+    const forMac = (text) => (mac ? text.replace(/Ctrl\+/g, "⌘") : text);
+    const own = VIEWER_KEYS.map((s) => ({
+      area: s.area,
+      keys: s.keys.map(([k, action]) => /** @type {[string, string]} */ ([forMac(k), action])),
+    }));
+    const bound = commands
+      .filter((c) => c.keys)
+      .map((c) => /** @type {[string, string]} */ ([formatKeybinding(c.keys, mac), c.title]))
+      .sort((a, b) => a[1].localeCompare(b[1]));
+    return bound.length ? [...own, { area: "Commands", keys: bound }] : own;
+  }
+
   /** Why a requirement isn't met (lib.commandUnavailable). */
   const REQUIREMENT_REASONS = {
     ai: "AI help isn't available (it needs GitHub Copilot, and pcapViewer.ai.enabled)",
@@ -2110,6 +2222,10 @@
     friendlyType,
     acceptedColumns,
     bytesToAscii,
+    shortcutSections,
+    overviewBox,
+    overviewIndexAt,
+    fieldStatus,
     decodeStream,
     cArray,
     bytesToBase64,

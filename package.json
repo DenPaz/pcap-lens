@@ -7,7 +7,7 @@
     "color": "#0b3a73",
     "theme": "dark"
   },
-  "version": "0.10.1",
+  "version": "0.11.0",
   "publisher": "denpaz",
   "license": "MIT",
   "repository": {
@@ -275,6 +275,11 @@
       {
         "command": "pcapViewer.deleteAllPacketComments",
         "title": "Delete All Packet Comments",
+        "category": "PCAP"
+      },
+      {
+        "command": "pcapViewer.showShortcuts",
+        "title": "Keyboard Shortcuts",
         "category": "PCAP"
       },
       {
@@ -873,6 +878,10 @@
         },
         {
           "command": "pcapViewer.deletePacketComment",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
+        },
+        {
+          "command": "pcapViewer.showShortcuts",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
         },
         {

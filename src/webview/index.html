@@ -111,16 +111,24 @@
       <div id="main">
         <section id="list" aria-label="Packet list">
           <div id="list-header" role="row"></div>
-          <div
-            id="list-viewport"
-            tabindex="0"
-            role="grid"
-            aria-label="Packets"
-            aria-multiselectable="true"
-            aria-owns="list-header"
-          >
-            <div id="list-spacer"></div>
-            <div id="list-rows"></div>
+          <div id="list-body">
+            <div
+              id="list-viewport"
+              tabindex="0"
+              role="grid"
+              aria-label="Packets"
+              aria-multiselectable="true"
+              aria-owns="list-header"
+            >
+              <div id="list-spacer"></div>
+              <div id="list-rows"></div>
+            </div>
+            <canvas
+              id="list-overview"
+              class="hidden"
+              aria-hidden="true"
+              title="Overview of the packet list: coloring rules, marked, commented and found packets (click to scroll)"
+            ></canvas>
           </div>
           <div id="list-empty" class="hidden">No packets match the current filter.</div>
         </section>
@@ -226,6 +234,7 @@
           </button></span
         >
         <span id="status-left"></span>
+        <span id="status-field" class="hidden"></span>
         <span id="status-right"
           ><button id="status-expert" type="button" class="status-link hidden"></button
           ><button
@@ -264,6 +273,30 @@
       </div>
 
       <div id="context-menu" class="context-menu hidden" role="menu"></div>
+
+      <div
+        id="shortcuts"
+        class="hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="shortcuts-title"
+      >
+        <div class="shortcuts-box">
+          <div class="shortcuts-head">
+            <h2 id="shortcuts-title">Keyboard Shortcuts</h2>
+            <button
+              id="shortcuts-close"
+              type="button"
+              class="icon"
+              title="Close (Esc)"
+              aria-label="Close"
+            >
+              <span class="codicon codicon-close" aria-hidden="true"></span>
+            </button>
+          </div>
+          <div id="shortcuts-body" tabindex="0" aria-label="Shortcuts"></div>
+        </div>
+      </div>
     </div>
 
     <script nonce="{{nonce}}" src="{{libUri}}"></script>

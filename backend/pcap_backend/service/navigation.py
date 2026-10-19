@@ -18,6 +18,10 @@ from .state import BASE_COLUMNS, _Open
 NEIGHBOR_CHUNK = 2000
 # Packet list search reads the row store in chunks of this many rows.
 LIST_FIND_CHUNK = 20_000
+# view_overview: at most this many slices (about a tall screen's pixels), and the
+# flag bits of a slice holding a marked, commented or found packet.
+MAX_OVERVIEW_BUCKETS = 4096
+OVERVIEW_MARKED, OVERVIEW_COMMENT, OVERVIEW_FOUND = 1, 2, 4
 
 
 class NavigationMixin(FilteringMixin):
@@ -45,7 +49,8 @@ class NavigationMixin(FilteringMixin):
         if where not in navigation.FIND_IN:
             raise InvalidParamsError(f"in must be one of {', '.join(navigation.FIND_IN)}")
         f, view = self._require_view()
-        hits, expr = self._find_hits(f, mode, where, params, ctx)
+        hits, expr = self._find_matches(f, mode, where, params, ctx)
+        self._find_hits = hits
         ordered = self._apply_sort(f, view, params, ctx) if "sort" in params else view.ordered
         seq = ordered.frames()
         total = len(ordered)
@@ -68,7 +73,7 @@ class NavigationMixin(FilteringMixin):
                 ctx.token.raise_if_cancelled()
         return result
 
-    def _find_hits(
+    def _find_matches(
         self, f: _Open, mode: str, where: str, params: dict[str, Any], ctx: RequestContext
     ) -> tuple[bytearray, str]:
         """A byte per frame, 1 where the search matches, and the display filter
@@ -101,6 +106,55 @@ class NavigationMixin(FilteringMixin):
         for n in matched.frames():
             hits[n] = 1
         return hits, expr
+
+    def view_overview(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """The current view (filter and sort order) squeezed into ``buckets``
+        slices for the list's scrollbar overview: per slice, the coloring rule
+        most of its rows have (``colors``: rule index + 1 of ``coloringId``, 0 =
+        none) and ``flags`` (OVERVIEW_MARKED, OVERVIEW_COMMENT, and with
+        ``find: true`` OVERVIEW_FOUND for the latest Find Packet's matches).
+        Ignored packets carry no color, as in the list. Runs over the published
+        rows while a capture is still indexing."""
+        f, view = self._require_view()
+        ordered = self._apply_sort(f, view, params, ctx) if "sort" in params else view.ordered
+        total = len(ordered)
+        n_buckets = max(0, min(param(params, "buckets", int, 512), MAX_OVERVIEW_BUCKETS, total))
+        with self._lock:
+            colors, coloring_id = self._colors, self._coloring_id
+            marks, ignored = self._marks, self._ignored
+            edits = dict(self._comment_edits)
+        found = self._find_hits if params.get("find") else None
+        commented = {n for n, texts in f.comments.items() if texts and n not in edits}
+        commented |= {n for n, text in edits.items() if text}
+        seq = ordered.frames()
+        out_colors: list[int] = []
+        out_flags: list[int] = []
+        if colors is None and not marks and not commented and found is None:
+            n_buckets = 0  # nothing to draw: skip the pass over the rows
+        for b in range(n_buckets):
+            if b % 256 == 255:
+                ctx.token.raise_if_cancelled()
+            counts: dict[int, int] = {}
+            flags = 0
+            for i in range(b * total // n_buckets, (b + 1) * total // n_buckets):
+                n = seq[i]
+                if colors is not None and n < len(colors) and colors[n] and n not in ignored:
+                    counts[colors[n]] = counts.get(colors[n], 0) + 1
+                if n in marks:
+                    flags |= OVERVIEW_MARKED
+                if n in commented:
+                    flags |= OVERVIEW_COMMENT
+                if found is not None and n < len(found) and found[n]:
+                    flags |= OVERVIEW_FOUND
+            out_colors.append(max(counts, key=lambda c: counts[c]) if counts else 0)
+            out_flags.append(flags)
+        return {
+            "rows": total,
+            "colors": out_colors,
+            "flags": out_flags,
+            "coloringId": coloring_id if colors is not None else 0,
+            "filterId": view.filter_id,
+        }
 
     def _text_matches(
         self, f: _Open, where: str, mode: str, params: dict[str, Any], ctx: RequestContext

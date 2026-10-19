@@ -645,6 +645,41 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   warnings and notes ("No problems" else) with a Codicon in the editor's
   error/warning/info color, every count in the tooltip, and posts
   `runCommand` for _Expert Information_; `expertSeq` drops a stale answer.
+- **Field info** (`lib.fieldStatus`, `detail.js` `showFieldStatus`):
+  `#status-field` (after `#status-left`, hidden when no named field is
+  selected) shows Wireshark's "Time to Live (ip.ttl), 1 byte": the
+  description comes from the `field_types` lookup the frame links already
+  make (`state.fieldTypes`), so `loadFieldTypes` refreshes it when it lands
+  (until then only the name and size).
+- **Overview strip** (`view_overview {buckets, find, sort…}`,
+  `viewer/overview.js`, `lib.overviewBox`/`overviewIndexAt`): a 12 px
+  `<canvas id="list-overview">` beside `#list-viewport` (both in
+  `#list-body`), like Wireshark's intelligent scrollbar. The backend cuts
+  the current view (filter and sort) into at most `MAX_OVERVIEW_BUCKETS`
+  (4096) buckets, one per canvas pixel row: `colors` = each bucket's most
+  common rule color (ignored packets don't count), `flags` = marked (1),
+  commented (2: the file's comments with the unsaved edits applied), found
+  (4: the last `find_packet` hit bitmap, `_find_hits`, only while the find
+  bar is open). No colors, marks, comments or hits = `rows` with no buckets
+  (hidden strip). 0.4 s for 1M colored rows. The webview fetches when its
+  key (filterId, sort, time format, total, coloring id, mark/ignore counts,
+  `rowsVersion`, `findVersion`, height) changes, debounced 200 ms (3 s while
+  indexing or filtering), and drops answers for an old filterId. Lanes: the
+  rule's stripe color (`lib.ruleStyle(…, "stripe")`), then three 3 px lanes
+  (comment, mark, found: `--overview-*` CSS colors) and a box for the rows
+  on screen. Click or drag (pointer capture) centres that row
+  (`scrollTopForIndex {center: true}`). `aria-hidden`: the list itself is
+  the accessible view.
+- **Keyboard shortcuts** (`viewer/shortcuts.js`, `lib.shortcutSections`,
+  `pcapViewer.showShortcuts`, a viewer command): `?` (not while typing, no
+  modifiers) or the command opens `#shortcuts`, a modal `dialog`: the
+  webview's own keys (`lib.VIEWER_KEYS`, kept by hand: they are handled in
+  the webview, not package.json) and then every command with a keybinding
+  from the ☰ list (`state.commands`, so it follows package.json), `⌘` for
+  `Ctrl+` on macOS. Focus goes to the close button and comes back on close
+  (Esc, the button, a click on the backdrop); Tab cycles button ↔ list.
+  Adding it surfaced a real ARIA bug: `aria-expanded` sat on the tree's
+  `.node-row` (no role) instead of its `treeitem`.
 - **Service statistics** (`stats {kind: http | dns | plen | srt}`): HTTP
   (`type` packets/requests/load = `-z http,tree` / `http_req,tree` /
   `http_srv,tree`), DNS and packet lengths are tshark's stats_tree reports,
@@ -1594,3 +1629,5 @@ Then Follow Stream search, Filter Out This Stream, HTTP/2, QUIC and WebSocket
 streams, and more "show as" views: 0.10.0.
 Then Find Packet in the packet list and details, and by regular expression:
 0.10.1.
+Then field info in the status bar, the packet list's overview strip and the
+keyboard shortcuts list: 0.11.0.

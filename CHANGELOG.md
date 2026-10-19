@@ -7,6 +7,24 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.11.0 — 2026-10-19
+
+### Added
+
+- The status bar shows the selected field's name, filter field and size, as
+  in Wireshark ("Time to Live (ip.ttl), 1 byte"). [7266035]
+- An overview strip beside the packet list shows the whole view's colors,
+  marks, comments and Find matches; click or drag it to scroll. [7266035]
+- `?` (or _PCAP: Keyboard Shortcuts_) lists the viewer's keyboard shortcuts.
+  [7266035]
+
+### Fixed
+
+- The packet details tree reports expanded nodes to screen readers on the
+  tree item, where ARIA expects it. [7266035]
+
+[7266035]: https://github.com/DenPaz/vsc_pcap_viewer/commit/7266035
+
 ## 0.10.1 — 2026-10-19
 
 ### Added

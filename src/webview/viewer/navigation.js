@@ -8,10 +8,11 @@ import { CANCELLED, cancelRpc, el, lib, rpc, state, vscode } from "./core.js";
 import { orderParams, refreshRows, scheduleRender } from "./list.js";
 import { selectAll, selectIndex, selectedFrames } from "./selection.js";
 import { deleteComment, editComment, gotoFrame } from "./comments.js";
-import { nodeIndex, revealFindMatch } from "./detail.js";
+import { nodeIndex, revealFindMatch, showFieldStatus } from "./detail.js";
 import { copy } from "./contextmenu.js";
 import { showNotice } from "./filterbar.js";
 import { loadExpertSummary, updateStatus } from "./status.js";
+import { openShortcuts } from "./shortcuts.js";
 /** @import { NodeEntry } from "./detail.js" */
 
 const MAX_HISTORY = 100;
@@ -107,6 +108,7 @@ export async function loadFieldTypes(detail) {
     for (const entry of nodeIndex.values()) {
       decorateFrameLink(entry);
     }
+    showFieldStatus(); // (the selected field's display name has arrived)
     // The packets it refers to get a mark in the list.
     state.related = lib.relatedFrames(
       detail.tree,
@@ -160,6 +162,7 @@ function openFind() {
 
 function closeFind() {
   el.findBar.classList.add("hidden");
+  scheduleRender(); // (the overview stops showing the matches)
   state.findMatch = null;
   setFindStatus("");
   el.viewport.focus();
@@ -217,6 +220,7 @@ async function find(direction) {
     regex: el.findMode.value === "regex",
     caseSensitive: el.findCase.checked,
   };
+  state.findVersion++; // (the backend replaces its matches with this search's)
   const req = rpc("find_packet", {
     mode: el.findMode.value,
     value: search.value,
@@ -493,6 +497,9 @@ export function runCommand(command) {
       if (state.selectedFrame !== null) {
         deleteComment(state.selectedFrame);
       }
+      break;
+    case "showShortcuts":
+      openShortcuts();
       break;
   }
 }

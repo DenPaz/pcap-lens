@@ -14,6 +14,7 @@ import pytest
 from pcap_backend import navigation, pcap_service
 from pcap_backend.pcap_service import PcapService
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext
+from pcap_backend.service import navigation as navigation_service
 from pcap_backend.tshark import find_tool
 
 # ---------------------------------------------------------------------- pure helpers
@@ -220,6 +221,50 @@ def test_find_in_list_and_details(mixed: PcapService, ctx: RequestContext) -> No
     assert find("list", "4999", columns=["tcp.seq_raw"]) == 11
     with pytest.raises(InvalidParamsError, match="in must be"):
         find("everywhere", "x")
+
+
+@pytest.mark.tshark
+def test_view_overview(mixed: PcapService, ctx: RequestContext) -> None:
+    # No colors, marks, comments or search: nothing to draw.
+    assert mixed.view_overview({"buckets": 13}, ctx) == {
+        "rows": 26, "colors": [], "flags": [], "coloringId": 0, "filterId": 1,
+    }  # fmt: skip
+    rules = [
+        {"name": "dns", "filter": "dns", "foreground": "#000000", "background": "#aaaaff"},
+        {"name": "tcp", "filter": "tcp", "foreground": "#000000", "background": "#aaffaa"},
+    ]
+    mixed.set_coloring({"rules": rules}, ctx)
+    mixed.mark_packets({"frames": [3, 20]}, ctx)
+    mixed.find_packet({"mode": "filter", "value": "udp.port == 9999"}, ctx)
+    res = mixed.view_overview({"buckets": 13, "find": True}, ctx)
+    # Two rows a slice: DNS (4-9) is rule 1, TCP (10-20) rule 2.
+    assert res["colors"] == [0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 0, 0, 0]
+    marked, found = navigation_service.OVERVIEW_MARKED, navigation_service.OVERVIEW_FOUND
+    assert res["flags"] == [0, marked, 0, 0, 0, 0, 0, 0, 0, marked, found, found, found]
+    assert mixed.view_overview({"buckets": 13}, ctx)["flags"][10] == 0, "find: false"
+    # More slices than rows: one a row; ignored packets lose their color.
+    mixed.ignore_packets({"frames": [4]}, ctx)
+    res = mixed.view_overview({"buckets": 100}, ctx)
+    assert len(res["colors"]) == 26 and res["colors"][3] == 0 and res["colors"][4] == 1
+    # In the view's order: the DNS filter, sorted by length (longest first).
+    mixed.set_filter({"expr": "dns"}, ctx)
+    sort = {"field": "frame.len", "desc": True}
+    res = mixed.view_overview({"buckets": 6, "sort": sort}, ctx)
+    # (Frame 4, the shortest, sorts last; it is ignored, so its slice has no color.)
+    assert (res["rows"], res["colors"]) == (6, [1, 1, 1, 1, 1, 0])
+    assert res["filterId"] == mixed._view.filter_id  # type: ignore[union-attr]
+
+
+@pytest.mark.tshark
+def test_view_overview_comments(service: PcapService, fixtures: Path, ctx: RequestContext) -> None:
+    service.open({"path": str(fixtures / "comments.pcapng")}, ctx)
+    service._file.comments_ready.wait(30)  # type: ignore[union-attr]
+    commented = navigation_service.OVERVIEW_COMMENT
+    flags = service.view_overview({"buckets": 100}, ctx)["flags"]
+    assert [i + 1 for i, f in enumerate(flags) if f & commented] == [2, 4, 5]
+    service.set_comments({"edits": {"2": "", "7": "new"}}, ctx)  # unsaved edits count
+    flags = service.view_overview({"buckets": 100}, ctx)["flags"]
+    assert [i + 1 for i, f in enumerate(flags) if f & commented] == [4, 5, 7]
 
 
 @pytest.mark.tshark

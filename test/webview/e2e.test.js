@@ -338,6 +338,11 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       bs.map((b) => b.textContent).join(" "),
     );
     assert.equal(marked, "5d b8 d8 22"); // 93.184.216.34
+    // The status bar names the selected field, its filter field and its size.
+    await page.waitForFunction(
+      () =>
+        document.querySelector("#status-field").textContent === "Source Address (ip.src), 4 bytes",
+    );
     // Children are indented by level and draw one indent guide per level.
     assert.deepEqual(
       await page.$eval("#detail-tree .node-row:has-text('Source Address')", (r) => {
@@ -890,6 +895,9 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
 
   async function cleanView() {
     await post({ type: "aiAvailable", available: false });
+    if (await page.isVisible("#shortcuts")) {
+      await page.keyboard.press("Escape"); // a failed shortcuts test must not block the rest
+    }
     await page.click("#filter-clear");
     await page.waitForFunction(
       () => !/Displayed/.test(document.querySelector("#status-left").textContent),
@@ -981,6 +989,56 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     assert.ok(await page.$eval("#find-bar", (b) => b.classList.contains("hidden")));
   });
 
+  test("keyboard shortcuts: ? and the command open the list, Esc closes it", async () => {
+    await cleanView();
+    await rowEl(1).click();
+    await waitSelected(1);
+    await page.keyboard.press("?");
+    await page.waitForSelector("#shortcuts:not(.hidden)");
+    assert.equal(await page.evaluate(() => document.activeElement.id), "shortcuts-close");
+    const captions = await page.$$eval("#shortcuts-body caption", (cs) =>
+      cs.map((c) => c.textContent),
+    );
+    assert.deepEqual(captions, [
+      "Packet list",
+      "Packet details",
+      "Find and filter",
+      "Help",
+      "Commands",
+    ]);
+    // The commands' key bindings come from package.json, as the platform shows them.
+    const rows = await page.$$eval("#shortcuts-body tr", (trs) =>
+      trs.map((tr) => [...tr.children].map((td) => td.textContent)),
+    );
+    assert.ok(
+      rows.some(([k, action]) => k === "F3 / Shift+F3" && /Next \/ previous match/.test(action)),
+    );
+    assert.ok(
+      rows.some(([k, action]) => /^(Ctrl\+M|⌘M)$/.test(k) && /Mark/.test(action)),
+      JSON.stringify(rows.slice(-12)),
+    );
+    // Tab stays inside the dialog; Esc closes it and the focus goes back.
+    await page.keyboard.press("Tab");
+    assert.equal(await page.evaluate(() => document.activeElement.id), "shortcuts-body");
+    await page.keyboard.press("Tab");
+    assert.equal(await page.evaluate(() => document.activeElement.id), "shortcuts-close");
+    // Not the bytes pane: the harness has no theme (see the packet diagram test).
+    assert.deepEqual(await axeViolations(page, { exclude: [["#bytes"]] }), []);
+    await page.keyboard.press("Escape");
+    await page.waitForSelector("#shortcuts.hidden", { state: "attached" });
+    assert.equal(await page.evaluate(() => document.activeElement.id), "list-viewport");
+    // ? in the filter box is just a character.
+    await page.click("#filter-input");
+    await page.keyboard.press("?");
+    assert.ok(await page.$eval("#shortcuts", (d) => d.classList.contains("hidden")));
+    await page.fill("#filter-input", "");
+    // "PCAP: Keyboard Shortcuts" (the command palette, ☰) opens it too; a click outside closes it.
+    await command("showShortcuts");
+    await page.waitForSelector("#shortcuts:not(.hidden)");
+    await page.mouse.click(5, 5);
+    await page.waitForSelector("#shortcuts.hidden", { state: "attached" });
+  });
+
   test("frame links jump to the referenced packet; Alt+Left / Alt+Right walk the history", async () => {
     await cleanView();
     await rowEl(7).click(); // HTTP response: "[Request in frame: 4]"
@@ -988,7 +1046,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     const http = page
       .locator("#detail-tree .node-row:has-text('Hypertext Transfer Protocol')")
       .first();
-    if ((await http.getAttribute("aria-expanded")) !== "true") {
+    if ((await http.evaluate((r) => r.parentElement?.getAttribute("aria-expanded"))) !== "true") {
       await http.locator(".twisty").click();
     }
     const link = page.locator("#detail-tree .node-row.frame-link:has-text('Request in frame')");
@@ -1070,7 +1128,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     const http = page
       .locator("#detail-tree .node-row:has-text('Hypertext Transfer Protocol')")
       .first();
-    if ((await http.getAttribute("aria-expanded")) !== "true") {
+    if ((await http.evaluate((r) => r.parentElement?.getAttribute("aria-expanded"))) !== "true") {
       await http.locator(".twisty").click();
     }
     const link = page.locator("#detail-tree .node-row.frame-link:has-text('Response in frame')");
@@ -1149,6 +1207,33 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       /Marked: 2/.test(document.querySelector("#status-left").textContent),
     );
     await expectHostLast({ type: "marks", count: 2 }, { ofType: true });
+    // The overview strip beside the scrollbar: the rule's color down the left,
+    // a lane marking the marked packets' slices.
+    assert.ok(await page.isVisible("#list-overview"));
+    await page.waitForFunction(() => {
+      const c = /** @type {HTMLCanvasElement} */ (document.querySelector("#list-overview"));
+      const ctx = c.getContext("2d");
+      const r = window.devicePixelRatio || 1;
+      const rows = document.querySelectorAll("#list-rows .list-row").length;
+      /** The pixel of view row `row` (1-based) at `x` px from the strip's left. */
+      const px = (row, x) =>
+        ctx
+          .getImageData(
+            Math.floor(x * r),
+            Math.floor(((row - 0.5) / rows) * c.clientHeight * r),
+            1,
+            1,
+          )
+          .data.join(",");
+      const colorsLane = 1;
+      const markLane = c.clientWidth - 5; // (lanes of 3 px: comment, mark, found)
+      const emptyLane = c.clientWidth - 2; // found: nothing searched yet
+      return (
+        px(1, colorsLane) !== px(1, emptyLane) &&
+        px(2, markLane) !== px(3, markLane) &&
+        px(9, markLane) !== px(10, markLane)
+      );
+    });
     await rowEl(1).click(); // select another row so row 2 isn't drawn as selected
     const marked = await rowEl(2).evaluate((r) => ({
       marked: r.classList.contains("marked"),
@@ -2414,6 +2499,14 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       );
       await page.click("#list-header > div[data-id='length']");
       await page.click("#list-header > div[data-id='length']"); // back to capture order
+
+      // A click on the overview strip scrolls there: near its bottom, near the list's end.
+      const box = await page.locator("#list-overview").boundingBox();
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.9);
+      await page.waitForFunction(() => {
+        const v = /** @type {HTMLElement} */ (document.getElementById("list-viewport"));
+        return v.scrollTop > (v.scrollHeight - v.clientHeight) * 0.8;
+      });
     } finally {
       stop();
       // Windows can't delete a file that is open: close the capture first (closing

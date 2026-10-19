@@ -16,6 +16,7 @@ import { dropColumns, visibleColumns } from "./columns.js";
 import { selectFrame, setSelection } from "./selection.js";
 import { relocateSelection } from "./comments.js";
 import { showFilterError } from "./filterbar.js";
+import { scheduleOverview } from "./overview.js";
 
 function computeViewKey() {
   return [
@@ -40,6 +41,7 @@ export function refreshRows() {
   }
   state.inflightPages.clear();
   state.pages.clear();
+  state.rowsVersion++;
   state.viewKey = computeViewKey();
   render();
 }
@@ -106,6 +108,7 @@ function render() {
     rowHeight: state.rowHeight,
   });
   el.rows.style.transform = `translateY(${win.top}px)`;
+  scheduleOverview();
   el.viewport.setAttribute("aria-rowcount", String(state.total + 1));
   const cols = visibleColumns();
   // Reuse row elements (pooling keeps scrolling cheap).
