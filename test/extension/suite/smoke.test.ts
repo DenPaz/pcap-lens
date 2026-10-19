@@ -10,7 +10,7 @@ import * as vscode from "vscode";
 import type { PcapViewerApi } from "../../../src/extension";
 // Same module instances as the extension's (both load out/src/panels/*.js).
 import { FlowGraphPanel } from "../../../src/panels/flowGraphPanel";
-import { FollowPanel } from "../../../src/panels/followPanel";
+import { FOLLOW_COMMANDS, FollowPanel } from "../../../src/panels/followPanel";
 import { ObjectsPanel } from "../../../src/panels/objectsPanel";
 import { StatsPanel } from "../../../src/panels/statsPanel";
 import { TcpGraphPanel } from "../../../src/panels/tcpGraphPanel";
@@ -138,6 +138,7 @@ suite("PCAP Lens smoke test", () => {
       "pcapViewer.colorizeWithFilter",
       "pcapViewer.toggleColoring",
       "pcapViewer.resetColorization",
+      ...Object.values(FOLLOW_COMMANDS),
       "pcapViewer.manageColoringRules",
       "pcapViewer.suggestFilter",
       "pcapViewer.find",

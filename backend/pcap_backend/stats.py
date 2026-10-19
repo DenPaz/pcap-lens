@@ -794,7 +794,7 @@ def parse_capinfos_properties(text: str) -> Table:
 
 # ---------------------------------------------------------------------- follow
 
-FOLLOW_PROTOCOLS = ("tcp", "udp", "tls", "http")
+FOLLOW_PROTOCOLS = ("tcp", "udp", "tls", "http", "http2", "quic", "websocket")
 _NODE = re.compile(r"^Node (?P<n>[01]): (?P<addr>.*)$")
 
 

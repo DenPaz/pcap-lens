@@ -1,10 +1,11 @@
 // @ts-check
 /**
  * Follow-stream panel: the reassembled payload of one conversation, colored
- * by direction, with a direction filter, ASCII / hex dump / raw views,
- * search, stream stepping, "filter to / out this stream" and save. Payload is
- * untrusted and only ever inserted with textContent (search matches are
- * <mark> elements holding text nodes).
+ * by direction, with a direction filter, text (ASCII, UTF-8, UTF-16, ISO
+ * 8859-1, EBCDIC), hex dump, C arrays, raw and YAML views, search, stream
+ * stepping and HTTP/2 or QUIC sub-streams, "filter to / out this stream" and
+ * save. Payload is untrusted and only ever inserted with textContent (search
+ * matches are <mark> elements holding text nodes).
  */
 (function () {
   "use strict";
@@ -16,12 +17,27 @@
   const RENDER_BUDGET = 2_000_000;
   /** Search matches highlighted at most. */
   const MAX_MATCHES = 10_000;
+  /** "Show data as" choices (Wireshark's): value, label, file extension when saved as text. */
+  const FORMATS = [
+    ["ascii", "ASCII", "txt"],
+    ["utf-8", "UTF-8", "txt"],
+    ["utf-16", "UTF-16", "txt"],
+    ["latin1", "ISO 8859-1", "txt"],
+    ["ebcdic", "EBCDIC", "txt"],
+    ["hex", "Hex dump", "txt"],
+    ["carray", "C arrays", "c"],
+    ["raw", "Raw (hex)", "txt"],
+    ["yaml", "YAML", "yaml"],
+  ];
+  /** Text views: decoded per segment and joined without separators. */
+  const TEXT_FORMATS = new Set(["ascii", "utf-8", "utf-16", "latin1", "ebcdic"]);
 
   const state = {
     /** @type {any} */ result: null,
     label: "",
     /** @type {"both" | 0 | 1} */ dir: "both",
-    /** @type {"ascii" | "hex" | "raw"} */ format: "ascii",
+    /** One of FORMATS' values. */
+    format: "ascii",
     query: "",
     /** The highlighted matches, in order, and the current one. @type {HTMLElement[]} */
     matches: [],
@@ -63,13 +79,14 @@
   const formatSelect = /** @type {HTMLSelectElement} */ (
     h("select", { "aria-label": "Show data as" })
   );
-  for (const [value, label] of [
-    ["ascii", "ASCII"],
-    ["hex", "Hex dump"],
-    ["raw", "Raw (hex)"],
-  ]) {
+  for (const [value, label] of FORMATS) {
     formatSelect.append(h("option", { value }, [label]));
   }
+  // HTTP/2 and QUIC connections carry several streams: pick one.
+  const substreamSelect = /** @type {HTMLSelectElement} */ (
+    h("select", { id: "follow-substream", "aria-label": "Sub-stream" })
+  );
+  const substreamLabel = h("label", { class: "hidden" }, ["Sub-stream ", substreamSelect]);
   const streamInput = /** @type {HTMLInputElement} */ (
     h("input", { type: "number", min: "0", "aria-label": "Stream number" })
   );
@@ -109,6 +126,7 @@
     h("label", {}, ["Stream ", streamInput]),
     prev,
     next,
+    substreamLabel,
     h("span", { class: "spacer" }),
     filterBtn,
     filterOutBtn,
@@ -174,13 +192,22 @@
     }
   };
   streamInput.addEventListener("change", () => goStream(Number(streamInput.value)));
+  substreamSelect.addEventListener("change", () => {
+    if (state.result) {
+      vscode.postMessage({
+        type: "stream",
+        stream: state.result.stream,
+        substream: Number(substreamSelect.value),
+      });
+    }
+  });
   prev.addEventListener("click", () => state.result && goStream(state.result.stream - 1));
   next.addEventListener("click", () => state.result && goStream(state.result.stream + 1));
   filterOutBtn.addEventListener("click", () => {
     if (state.result) {
       vscode.postMessage({
         type: "filterOut",
-        expr: lib.streamFilter(state.result.proto, state.result.stream),
+        expr: currentFilter(),
       });
     }
   });
@@ -221,7 +248,7 @@
     if (state.result) {
       vscode.postMessage({
         type: "filter",
-        expr: lib.streamFilter(state.result.proto, state.result.stream),
+        expr: currentFilter(),
         apply: true,
       });
     }
@@ -235,9 +262,20 @@
       type: "save",
       dir: state.dir,
       format: raw ? "raw" : "text",
-      text: raw ? undefined : renderText(Infinity).text,
+      ...(raw
+        ? {}
+        : {
+            text: renderText(Infinity).text,
+            ext: FORMATS.find(([value]) => value === state.format)?.[2] ?? "txt",
+          }),
     });
   });
+
+  /** The display filter of the stream shown (and its sub-stream). */
+  function currentFilter() {
+    const r = state.result;
+    return lib.streamFilter(r.proto, r.stream, r.substream);
+  }
 
   window.addEventListener("message", (event) => {
     // VS Code posts to this frame with its own origin as the target; ignore other senders.
@@ -263,8 +301,20 @@
   function render() {
     const r = state.result;
     const [a, b] = r.nodes;
-    title.textContent = `${state.label} stream ${r.stream}`;
+    const sub = typeof r.substream === "number" ? `, sub-stream ${r.substream}` : "";
+    title.textContent = `${state.label} stream ${r.stream}${sub}`;
     streamInput.value = String(r.stream);
+    const ids = Array.isArray(r.substreams) ? r.substreams : null;
+    substreamLabel.classList.toggle("hidden", !ids);
+    substreamSelect.replaceChildren(
+      ...(ids ?? []).map((id) =>
+        h("option", { value: String(id) }, [
+          r.proto === "http2" && id === 0 ? "0 (connection)" : String(id),
+        ]),
+      ),
+    );
+    substreamSelect.value = String(r.substream);
+    substreamSelect.toggleAttribute("disabled", !ids?.length);
     prev.toggleAttribute("disabled", r.stream <= 0);
     const total = r.bytes[0] + r.bytes[1];
     dirSelect.replaceChildren(
@@ -297,22 +347,31 @@
    */
   function renderText(budget) {
     const r = state.result;
-    const parts = [];
+    const format = state.format;
+    /** @type {{dir: 0 | 1 | null, text: string}[]} */
+    const parts = format === "yaml" ? [{ dir: null, text: lib.yamlPeers(r.nodes) }] : [];
     const offsets = [0, 0];
-    let used = 0;
+    const counts = [0, 0];
+    let index = 0;
+    let used = parts.reduce((n, p) => n + p.text.length, 0);
     let clipped = false;
     for (const seg of r.segments) {
       if (state.dir !== "both" && seg.dir !== state.dir) {
         continue;
       }
       const bytes = lib.hexToBytes(seg.hex);
-      let text =
-        state.format === "ascii"
-          ? lib.bytesToAscii(bytes)
-          : state.format === "hex"
-            ? lib.hexDump(bytes, offsets[seg.dir])
-            : seg.hex.replace(/(.{64})/g, "$1\n").trimEnd();
+      let text = TEXT_FORMATS.has(format)
+        ? lib.decodeStream(bytes, format)
+        : format === "hex"
+          ? lib.hexDump(bytes, offsets[seg.dir])
+          : format === "carray"
+            ? lib.cArray(bytes, seg.dir, counts[seg.dir])
+            : format === "yaml"
+              ? lib.yamlSegment(bytes, seg.dir, index)
+              : seg.hex.replace(/(.{64})/g, "$1\n").trimEnd();
       offsets[seg.dir] += bytes.length;
+      counts[seg.dir] += 1;
+      index += 1;
       if (used + text.length > budget) {
         text = text.slice(0, Math.max(0, budget - used));
         clipped = true;
@@ -326,7 +385,7 @@
     return {
       parts,
       clipped,
-      text: parts.map((p) => p.text).join(state.format === "ascii" ? "" : "\n"),
+      text: parts.map((p) => p.text).join(TEXT_FORMATS.has(format) ? "" : "\n"),
     };
   }
 
@@ -339,7 +398,7 @@
     /** @type {HTMLElement[]} */
     const matches = [];
     for (const p of parts) {
-      const pre = h("pre", { class: `segment dir${p.dir}` });
+      const pre = h("pre", { class: p.dir === null ? "segment" : `segment dir${p.dir}` });
       const ranges = lib.findRanges(p.text, state.query, MAX_MATCHES - matches.length);
       let at = 0;
       for (const [start, end] of ranges) {

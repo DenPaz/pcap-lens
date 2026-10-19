@@ -957,9 +957,139 @@
     return lines.join("\n");
   }
 
-  /** Display filter for a followed stream. @param {string} proto @param {number} stream */
-  function streamFilter(proto, stream) {
-    return `${proto === "udp" ? "udp" : "tcp"}.stream eq ${stream}`;
+  /**
+   * Text with Follow Stream's cleaning: CR before LF dropped, and control
+   * characters other than tab and newline (C0, DEL and C1) shown as ".".
+   * @param {string} text
+   */
+  function cleanStreamText(text) {
+    let out = "";
+    for (let i = 0; i < text.length; i++) {
+      const c = text.charCodeAt(i);
+      if (c === 0x0d && text.charCodeAt(i + 1) === 0x0a) {
+        continue;
+      }
+      out += c === 0x09 || c === 0x0a || (c >= 0x20 && c < 0x7f) || c > 0x9f ? text[i] : ".";
+    }
+    return out;
+  }
+
+  /** EBCDIC code page 037 as text (controls as ".", tab and newline kept). */
+  const EBCDIC_037 =
+    ".....\t.........................." +
+    ".....\n.........................." +
+    " .âäàáãåçñ¢.<(+|&éêëèíîïìß!$*);¬" +
+    "-/ÂÄÀÁÃÅÇÑ¦,%_>?øÉÊËÈÍÎÏÌ`:#@'=\"" +
+    "Øabcdefghi«»ðýþ±°jklmnopqrªºæ¸Æ¤" +
+    "µ~stuvwxyz¡¿ÐÝÞ®^£¥·©§¶¼½¾[]¯¨´×" +
+    "{ABCDEFGHI.ôöòóõ}JKLMNOPQR¹ûüùúÿ" +
+    "\\÷STUVWXYZ²ÔÖÒÓÕ0123456789³ÛÜÙÚ.";
+
+  /**
+   * Payload decoded for Follow Stream's text views, cleaned like the ASCII
+   * view (`cleanStreamText`): "ascii" (anything outside printable ASCII is
+   * "."), "utf-8" and "utf-16" (little-endian; undecodable bytes become
+   * U+FFFD), "latin1" (ISO 8859-1, not the web's windows-1252) or "ebcdic"
+   * (code page 037). Each segment is decoded on its own, as in Wireshark.
+   * @param {Uint8Array} bytes @param {string} encoding
+   */
+  function decodeStream(bytes, encoding) {
+    switch (encoding) {
+      case "utf-8":
+        return cleanStreamText(new TextDecoder("utf-8").decode(bytes));
+      case "utf-16":
+        return cleanStreamText(new TextDecoder("utf-16le").decode(bytes));
+      case "latin1": {
+        let text = "";
+        for (let i = 0; i < bytes.length; i++) {
+          text += String.fromCharCode(bytes[i]);
+        }
+        return cleanStreamText(text);
+      }
+      case "ebcdic":
+        return Array.from(bytes, (b) => EBCDIC_037[b]).join("");
+      default:
+        return bytesToAscii(bytes);
+    }
+  }
+
+  /**
+   * One segment as a C array, like Wireshark's "C Arrays" view (eight bytes
+   * a line; `peer` 0 sent first, `index` counts that peer's segments).
+   * @param {Uint8Array} bytes @param {number} peer @param {number} index
+   */
+  function cArray(bytes, peer, index) {
+    const lines = [];
+    for (let i = 0; i < bytes.length; i += 8) {
+      const hex = Array.from(
+        bytes.subarray(i, i + 8),
+        (b) => `0x${b.toString(16).padStart(2, "0")}`,
+      );
+      lines.push(hex.join(", "));
+    }
+    return `char peer${peer}_${index}[] = {\n${lines.join(",\n")} };`;
+  }
+
+  /** Base64 of bytes (in chunks: String.fromCharCode takes a bounded argument list). @param {Uint8Array} bytes */
+  function bytesToBase64(bytes) {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(binary);
+  }
+
+  /**
+   * The start of Follow Stream's YAML view (Wireshark's layout): the two
+   * peers' hosts and ports (from tshark's "address:port" nodes), then the
+   * `packets:` key that `yamlSegment` entries follow.
+   * @param {string[]} nodes
+   */
+  function yamlPeers(nodes) {
+    const lines = ["peers:"];
+    nodes.forEach((node, peer) => {
+      const cut = node.lastIndexOf(":");
+      const port = cut >= 0 ? node.slice(cut + 1) : "";
+      lines.push(
+        `  - peer: ${peer}`,
+        `    host: '${(cut >= 0 ? node.slice(0, cut) : node).replace(/'/g, "''")}'`,
+      );
+      if (/^\d+$/.test(port)) {
+        lines.push(`    port: ${port}`);
+      }
+    });
+    lines.push("packets:");
+    return lines.join("\n");
+  }
+
+  /**
+   * One segment of the YAML view: its peer, its index in the stream and its
+   * bytes as base64 in lines of 64.
+   * @param {Uint8Array} bytes @param {number} peer @param {number} index
+   */
+  function yamlSegment(bytes, peer, index) {
+    const data = bytesToBase64(bytes).match(/.{1,64}/g) ?? [];
+    return [
+      `  - peer: ${peer}`,
+      `    index: ${index}`,
+      "    data: !!binary |",
+      ...data.map((line) => `      ${line}`),
+    ].join("\n");
+  }
+
+  /** The field numbering each Follow Stream protocol's sub-streams. */
+  const SUBSTREAM_FIELDS = { http2: "http2.streamid", quic: "quic.stream.stream_id" };
+
+  /**
+   * Display filter for a followed stream (and its HTTP/2 or QUIC sub-stream).
+   * @param {string} proto @param {number} stream @param {number | null} [substream]
+   */
+  function streamFilter(proto, stream, substream) {
+    const field =
+      proto === "udp" ? "udp.stream" : proto === "quic" ? "quic.connection.number" : "tcp.stream";
+    const sub = /** @type {Record<string, string>} */ (SUBSTREAM_FIELDS)[proto];
+    const tail = sub && typeof substream === "number" ? ` and ${sub} eq ${substream}` : "";
+    return `${field} eq ${stream}${tail}`;
   }
 
   /**
@@ -1938,6 +2068,11 @@
     friendlyType,
     acceptedColumns,
     bytesToAscii,
+    decodeStream,
+    cArray,
+    bytesToBase64,
+    yamlPeers,
+    yamlSegment,
     hexDump,
     streamFilter,
     findRanges,

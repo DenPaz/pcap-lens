@@ -583,7 +583,38 @@ frame.number==N` (no `-c`, both the PDML and the `-x` run), so references
   hex dump and raw views plus raw save are all rendered client-side. The
   stream number for a packet comes from `tcp.stream`/`udp.stream`, extracted
   once through the row-store column machinery (first follow costs one pass).
-  TLS/HTTP follow the TCP stream number. Payload is capped (`maxBytes`, 16 MB).
+  TLS/HTTP/WebSocket follow the TCP stream number. Payload is capped
+  (`maxBytes`, 16 MB). **HTTP/2 and QUIC** multiplex streams in one
+  connection: `follow,http2,raw,<tcp.stream>,<http2.streamid>` and
+  `follow,quic,raw,<quic.connection.number>,<quic.stream.stream_id>`
+  (`STREAM_FIELDS`/`SUBSTREAM_FIELDS` in `service/streams.py`). One `-Y`
+  fields pass per connection (`_substreams_of`, LRU 8 in `_substreams`) lists
+  each packet's sub-stream ids; the result carries `substreams` and the
+  `substream` followed: the asked one, else the frame's first, else the
+  lowest (HTTP/2 skips 0, the connection's own frames, when it can; QUIC's
+  stream 0 is data). No sub-streams (TLS without keys, not HTTP/2) answers
+  at once with a `hint` (key log, Decode As) instead of running follow.
+  tshark 4.2's SIP follow refuses every argument form from the command
+  line, and DCCP is rare, so neither is offered. The panel's _Sub-stream_
+  select (`#follow-substream`, "0 (connection)" for HTTP/2) posts `stream
+{stream, substream}`; filters come from `lib.streamFilter(proto, stream,
+substream)` (`… and http2.streamid eq N`). Views: the text ones
+  (`lib.decodeStream`: ascii, utf-8, utf-16 LE, latin1 by hand since the
+  web's "iso-8859-1" is windows-1252, ebcdic = code page 037), all cleaned
+  like ASCII (CR before LF dropped, C0/DEL/C1 as "."), each segment decoded
+  on its own; `lib.cArray` (`char peer0_0[] = {`, 8 bytes a line); YAML
+  (`lib.yamlPeers` as a part without a direction, then `lib.yamlSegment`
+  with base64 data; no packet numbers or times, which raw follow output
+  lacks). Saving text names the extension (`ext`: txt, c, yaml). The
+  fixture `streams.pcapng` (generate.py `streams_packets`) holds a
+  prior-knowledge HTTP/2 connection (streams 1 and 3; tcp.stream 0), a
+  WebSocket conversation (tcp.stream 1) and a QUIC connection (streams 0
+  and 4) encrypted by `test/fixtures/quic.py` (pure-Python AES-128-GCM and
+  header protection, checked against the NIST and RFC 9001 vectors in
+  `test_follow.py`): client and server Initials with ClientHello/
+  ServerHello, then 1-RTT packets keyed by made-up traffic secrets stored
+  in the pcapng's Decryption Secrets Block, so tshark decrypts it without a
+  key log setting.
   The panel's search (`#follow-find`, `lib.findRanges`: case-insensitive,
   non-overlapping, at most 10,000 matches) works on the rendered text of the
   current direction and format, per segment (a match can't span two), and
@@ -1540,3 +1571,5 @@ and axe-core checks with the ARIA fixes they found, and protocol preferences.
 related-packet marks, Conversation Filter and Colorize Conversation, and
 ignored packets: 0.8.0. Then two-pass details for small captures and
 Compare Packets: 0.9.0.
+Then Follow Stream search, Filter Out This Stream, HTTP/2, QUIC and WebSocket
+streams, and more "show as" views.
