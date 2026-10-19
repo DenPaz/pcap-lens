@@ -7,6 +7,12 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- Two-pass details for small captures (up to 10,000 packets,
+  `pcapViewer.twoPassDetail`): references to later packets appear too, so a
+  request names and marks its response, as in Wireshark.
+
 ## 0.8.0 — 2026-10-18
 
 ### Added

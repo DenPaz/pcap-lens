@@ -49,6 +49,12 @@ class DetailMixin(DissectionMixin):
         conversations) is missing. A quick request answers with the exact
         detail when that is cached or the window starts at frame 1, and with
         ``{"unavailable": reason}`` without editcap.
+
+        ``twoPass: true`` (exact mode, for small captures) dissects the whole
+        capture twice (``-2``), as Wireshark does: references to later packets
+        (``http.response_in``…) appear too. Ignored while the capture is still
+        indexed or captured, since the file isn't complete; such a detail
+        carries ``twoPass: true``.
         """
         number = param(params, "number", int)
         mode = param(params, "mode", str, "exact")
@@ -57,7 +63,12 @@ class DetailMixin(DissectionMixin):
         f = self._require_file()
         if not 1 <= number <= f.frame_count():
             raise InvalidParamsError(f"frame {number} out of range 1..{f.frame_count()}")
-        cached = self._details.get(number)
+        with self._lock:
+            complete = self._indexing is None
+        two_pass = bool(params.get("twoPass")) and mode == "exact" and complete
+        cached = self._details.get((number, two_pass)) or (
+            self._details.get((number, False)) if mode == "quick" else None
+        )
         if cached is not None:
             return cached
         if mode == "quick":
@@ -68,15 +79,24 @@ class DetailMixin(DissectionMixin):
                 )
             if number > window:
                 return self._quick_detail(f, number, window, ctx)
-        detail = {"number": number, **self._dissect(f.tshark, f.path, number, ctx)}
-        self._details.put(number, detail)
+        detail = {"number": number, **self._dissect(f.tshark, f.path, number, ctx, two_pass)}
+        if two_pass:
+            detail["twoPass"] = True
+        self._details.put((number, two_pass), detail)
         return detail
 
     def _dissect(
-        self, tshark: Tshark, capture: Path, number: int, ctx: RequestContext
+        self,
+        tshark: Tshark,
+        capture: Path,
+        number: int,
+        ctx: RequestContext,
+        two_pass: bool = False,
     ) -> dict[str, Any]:
-        """PDML tree and ``-x`` byte sources of frame ``number`` of ``capture``."""
-        select = ["-c", str(number), "-Y", f"frame.number=={number}"]
+        """PDML tree and ``-x`` byte sources of frame ``number`` of ``capture``:
+        dissecting up to it (``-c N``), or the whole capture twice (``-2``)."""
+        select = ["-2"] if two_pass else ["-c", str(number)]
+        select += ["-Y", f"frame.number=={number}"]
         pdml_argv = tshark.argv(*select, "-T", "pdml", capture=str(capture))
         hex_argv = tshark.argv(*select, "-x", capture=str(capture))
         hex_future = self._pool.submit(run, hex_argv, ctx.token)

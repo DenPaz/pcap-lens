@@ -99,7 +99,10 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
           s.setTimeFormat(readSettings(s.uri).timeFormat);
         }
       }
-      if (e.affectsConfiguration(`${SECTION}.quickDetail`)) {
+      if (
+        e.affectsConfiguration(`${SECTION}.quickDetail`) ||
+        e.affectsConfiguration(`${SECTION}.twoPassDetail`)
+      ) {
         for (const s of p.allSessions) {
           s.setQuickDetail(readQuickDetail(s.uri));
         }

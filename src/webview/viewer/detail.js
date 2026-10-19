@@ -28,12 +28,14 @@ export async function loadDetail(frame) {
     return;
   }
   showDetailNote("", false); // the note belonged to the previous packet
-  const req = rpc("packet_detail", { number: frame });
+  const q = state.quickDetail;
+  // Small, complete captures: two passes, so references to later packets show too.
+  const twoPass = !!q.twoPass && !state.indexing && !!state.info && state.info.frames <= q.twoPass;
+  const req = rpc("packet_detail", { number: frame, ...(twoPass ? { twoPass } : {}) });
   state.detailRequest = req.id;
   let exactShown = false;
   el.treePlaceholder.textContent = `Loading packet ${frame}…`;
   el.treePlaceholder.classList.remove("hidden");
-  const q = state.quickDetail;
   if (q.after > 0 && frame > q.after && frame > q.window) {
     const quick = rpc("packet_detail", { number: frame, mode: "quick", window: q.window });
     state.quickRequest = quick.id;

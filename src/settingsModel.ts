@@ -577,6 +577,8 @@ export function pushHistory(history: readonly string[], expr: string, max = 50):
 export interface QuickDetail {
   after: number;
   window: number;
+  /** Captures of at most this many packets get two-pass details (pcapViewer.twoPassDetail; 0 = never). */
+  twoPass?: number;
 }
 
 /** Name resolution switches (pcapViewer.nameResolution.*), sent to the backend as `names`. */

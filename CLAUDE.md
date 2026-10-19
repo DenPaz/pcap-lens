@@ -430,7 +430,16 @@ matchCount, fraction}`; the end sends `done`, `stopped` (`stop_filter
   parallel. `-c N` stops reading after frame N (it counts packets _read_), so
   cost is proportional to N, and earlier packets are still dissected (TCP
   reassembly etc. stay correct). Detail of frame ~1M therefore costs about one
-  pass over the file (20 s on the benchmark capture).
+  pass over the file (20 s on the benchmark capture). **Two-pass details**
+  (`packet_detail {twoPass: true}`): the webview asks for them when the
+  capture is complete (not indexing or capturing) and has at most
+  `pcapViewer.twoPassDetail` packets (default 10,000; carried in the
+  `quickDetail` message as `twoPass`); the backend then runs `-2 -Y
+frame.number==N` (no `-c`, both the PDML and the `-x` run), so references
+  to later packets (`http.response_in`, …) appear, at the cost of two passes
+  over the file per packet. It ignores the flag while `_indexing` is set.
+  `_details` is keyed by (frame, two-pass); a quick request may answer with
+  either kind's cached exact detail; a two-pass result carries `twoPass`.
 - **Quick detail** (`packet_detail {mode: "quick", window}`): for frames past
   `pcapViewer.quickDetail.after` (default 20k) the webview asks for the exact
   and the quick detail together and shows whichever comes first; the exact one
@@ -1316,9 +1325,10 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
     `relatedKind`; a specific kind beats "related"): `list.js` draws a
     Codicon `span.related-mark` (absolutely positioned, after the cells, so
     `children[i]` stay cells) at the No. cell's left and an
-    `aria-description` on those rows; `clearDetail` empties it. The detail
-    dissects up to the packet only (`-c N`), so forward references
-    (`http.response_in`) never appear: only earlier packets get marks.
+    `aria-description` on those rows; `clearDetail` empties it. A one-pass
+    detail dissects up to the packet only (`-c N`), so forward references
+    (`http.response_in`) only appear with two-pass details (small captures,
+    see _Detail_); otherwise only earlier packets get marks.
   - _Keys_: the webview handles keys VS Code leaves to a focused webview
     (Ctrl+F, F3, Ctrl+Home/End, Esc). Keys VS Code binds globally even then
     (Ctrl+M, Ctrl+T, Ctrl+,, Ctrl+Shift+N/B, and Alt+Left, which is Back on
