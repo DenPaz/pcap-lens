@@ -7,6 +7,14 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- Find Packet looks for text in the packet list's columns or the packet
+  details as well as the packet bytes (a match in the details selects its
+  field), and finds by regular expression. [4389b78]
+
+[4389b78]: https://github.com/DenPaz/vsc_pcap_viewer/commit/4389b78
+
 ## 0.10.0 — 2026-10-19
 
 ### Added
