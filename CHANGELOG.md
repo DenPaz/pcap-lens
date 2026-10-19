@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.10.1 — 2026-10-19
+
 ### Added
 
 - Find Packet looks for text in the packet list's columns or the packet
