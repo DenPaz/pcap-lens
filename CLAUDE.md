@@ -1572,4 +1572,4 @@ related-packet marks, Conversation Filter and Colorize Conversation, and
 ignored packets: 0.8.0. Then two-pass details for small captures and
 Compare Packets: 0.9.0.
 Then Follow Stream search, Filter Out This Stream, HTTP/2, QUIC and WebSocket
-streams, and more "show as" views.
+streams, and more "show as" views: 0.10.0.

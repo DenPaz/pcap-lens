@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.10.0 — 2026-10-19
+
 ### Added
 
 - Follow Stream: search the stream (`Ctrl+F`, Enter / Shift+Enter, matches
