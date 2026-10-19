@@ -1701,4 +1701,4 @@ Then Find Packet in the packet list and details, and by regular expression:
 Then field info in the status bar, the packet list's overview strip and the
 keyboard shortcuts list: 0.11.0.
 Then friendlier empty lists with hints, the display filter builder and the
-Recent Captures view.
+Recent Captures view: 0.12.0.

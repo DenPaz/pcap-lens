@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.12.0 — 2026-10-19
+
 ### Added
 
 - A display filter builder: find a field by name or description, pick a
