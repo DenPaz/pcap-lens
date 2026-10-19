@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+from array import array
+from collections.abc import Callable
 from typing import Any
 
 from pcap_backend import navigation
+from pcap_backend.cache import FrameIndex
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, param, str_list
+from pcap_backend.tshark import StreamResult, stream_lines
 
 from .filtering import FilteringMixin
 from .helpers import _frame_list
-from .state import _Open
+from .state import BASE_COLUMNS, _Open
 
 NEIGHBOR_CHUNK = 2000
+# Packet list search reads the row store in chunks of this many rows.
+LIST_FIND_CHUNK = 20_000
 
 
 class NavigationMixin(FilteringMixin):
@@ -20,42 +26,26 @@ class NavigationMixin(FilteringMixin):
     def find_packet(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """Next (or previous) frame of the current view that matches a search.
 
-        ``mode``: ``filter`` (a display filter), ``string`` (text in the packet
-        bytes; ``caseSensitive``), ``hex`` (bytes, e.g. ``47:45:54``) or
-        ``marked``. The search starts after ``from`` (a frame number; omitted:
-        from the top or bottom) in view order (current filter and sort) and
-        wraps around. The search filter runs once and is cached like any filter.
+        ``mode``: ``filter`` (a display filter), ``string`` or ``regex`` (text;
+        ``caseSensitive``), ``hex`` (bytes, e.g. ``47:45:54``) or ``marked``.
+        A string or regex is looked for ``in`` the packet bytes (default; a
+        display filter), the packet list (the Source, Destination, Protocol,
+        Length and Info cells plus the custom ``columns``, as shown) or the
+        packet details (the labels of tshark's ``-V`` tree). The search starts
+        after ``from`` (a frame number; omitted: from the top or bottom) in
+        view order (current filter and sort) and wraps around. Each search
+        runs once over the capture and is cached like a filter.
         """
         self._require_complete()
         mode = param(params, "mode", str)
         direction = param(params, "direction", str, "next")
+        where = param(params, "in", str, "bytes")
         if mode not in navigation.FIND_MODES or direction not in ("next", "previous"):
             raise InvalidParamsError("invalid find mode or direction")
+        if where not in navigation.FIND_IN:
+            raise InvalidParamsError(f"in must be one of {', '.join(navigation.FIND_IN)}")
         f, view = self._require_view()
-        n_frames = f.info.frames
-        hits = bytearray(n_frames + 1)
-        expr = ""
-        if mode == "marked":
-            with self._lock:
-                for n in self._marks:
-                    if 0 < n <= n_frames:
-                        hits[n] = 1
-        else:
-            try:
-                expr = navigation.find_expression(
-                    mode, param(params, "value", str, ""), bool(params.get("caseSensitive"))
-                )
-            except ValueError as exc:
-                raise InvalidParamsError(str(exc)) from exc
-            matched = self._filters.get(expr)
-            if matched is None:
-                error = f.tshark.validate_filter(expr, ctx.token)
-                if error:
-                    raise FilterError(error, {"expr": expr})
-                matched = self._run_filter(f, expr, ctx)
-                self._filters.put(expr, matched)
-            for n in matched.frames():
-                hits[n] = 1
+        hits, expr = self._find_hits(f, mode, where, params, ctx)
         ordered = self._apply_sort(f, view, params, ctx) if "sort" in params else view.ordered
         seq = ordered.frames()
         total = len(ordered)
@@ -77,6 +67,113 @@ class NavigationMixin(FilteringMixin):
             if k % 65536 == 65535:
                 ctx.token.raise_if_cancelled()
         return result
+
+    def _find_hits(
+        self, f: _Open, mode: str, where: str, params: dict[str, Any], ctx: RequestContext
+    ) -> tuple[bytearray, str]:
+        """A byte per frame, 1 where the search matches, and the display filter
+        it ran ("" when it ran none)."""
+        n_frames = f.info.frames
+        hits = bytearray(n_frames + 1)
+        if mode == "marked":
+            with self._lock:
+                for n in self._marks:
+                    if 0 < n <= n_frames:
+                        hits[n] = 1
+            return hits, ""
+        if mode in ("string", "regex") and where != "bytes":
+            for n in self._text_matches(f, where, mode, params, ctx).frames():
+                hits[n] = 1
+            return hits, ""
+        try:
+            expr = navigation.find_expression(
+                mode, param(params, "value", str, ""), bool(params.get("caseSensitive"))
+            )
+        except ValueError as exc:
+            raise InvalidParamsError(str(exc)) from exc
+        matched = self._filters.get(expr)
+        if matched is None:
+            error = f.tshark.validate_filter(expr, ctx.token)
+            if error:
+                raise FilterError(error, {"expr": expr})
+            matched = self._run_filter(f, expr, ctx)
+            self._filters.put(expr, matched)
+        for n in matched.frames():
+            hits[n] = 1
+        return hits, expr
+
+    def _text_matches(
+        self, f: _Open, where: str, mode: str, params: dict[str, Any], ctx: RequestContext
+    ) -> FrameIndex:
+        """Frames whose packet-list cells or packet-details text match a string
+        or regex search; cached in the filter LRU under a key no display filter
+        can have."""
+        value = param(params, "value", str, "")
+        case = bool(params.get("caseSensitive"))
+        try:
+            test = navigation.text_matcher(mode, value, case)
+        except ValueError as exc:
+            raise InvalidParamsError(str(exc)) from exc
+        columns: list[str] = []
+        if where == "list":
+            base = {c.field for c in BASE_COLUMNS}
+            asked = str_list(params, "columns") if "columns" in params else list(f.columns)
+            columns = [c for c in self._check_fields(asked) if c not in base]
+        key = "\0".join(("\0find", where, mode, str(int(case)), value, *columns))
+        matched = self._filters.get(key)
+        if matched is None:
+            if where == "list":
+                matched = self._list_matches(f, test, columns, ctx)
+            else:
+                matched = self._details_matches(f, test, ctx)
+            self._filters.put(key, matched)
+        return matched
+
+    def _list_matches(
+        self, f: _Open, test: Callable[[str], bool], columns: list[str], ctx: RequestContext
+    ) -> FrameIndex:
+        """Packet list search: the row store's text, no tshark (beyond extracting
+        custom columns not indexed yet)."""
+        self._ensure_columns(f, columns, ctx)
+        total = f.frame_count()
+        out = array("I")
+        for start in range(1, total + 1, LIST_FIND_CHUNK):
+            ctx.token.raise_if_cancelled()
+            ctx.progress({"phase": "find", "fraction": (start - 1) / max(total, 1)})
+            frames = range(start, min(total, start + LIST_FIND_CHUNK - 1) + 1)
+            rows = f.base.rows.get_many(frames)
+            extra = [self._column_cells(f, fld, frames) for fld in columns]
+            for i, n in enumerate(frames):
+                # Source … Info (not No. or Time), then the custom columns.
+                cells = rows[i][2 : len(BASE_COLUMNS)] + [col[i] for col in extra]
+                if test("\n".join(cells)):
+                    out.append(n)
+        return FrameIndex(out, total)
+
+    def _details_matches(
+        self, f: _Open, test: Callable[[str], bool], ctx: RequestContext
+    ) -> FrameIndex:
+        """Packet details search: one ``tshark -V`` pass (the same dissection
+        options as the details pane), each packet's tree text tested once."""
+        total = f.frame_count()
+        argv = f.tshark.argv("-V", capture=str(f.path))
+        result = StreamResult()
+        out = array("I")
+        seen = 0
+        ctx.progress({"phase": "find", "fraction": 0.0})
+        lines = (raw.decode("utf-8", "replace") for raw in stream_lines(argv, result, ctx.token))
+        for frame, text in navigation.details_blocks(lines):
+            seen = frame
+            if test(text):
+                out.append(frame)
+            if frame % 1000 == 0:
+                ctx.progress({"phase": "find", "fraction": min(frame / max(total, 1), 1.0)})
+        ctx.token.raise_if_cancelled()
+        if not seen and result.returncode not in (0, None):
+            raise f.tshark.error(
+                result.stderr, result.returncode, "searching the packet details failed"
+            )
+        return FrameIndex(out, total)
 
     def neighbor_frame(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """Next/previous frame of the current view in the same conversation.

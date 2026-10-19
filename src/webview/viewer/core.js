@@ -120,6 +120,7 @@ export const el = {
   captureStop: $("capture-stop"),
   findBar: $("find-bar"),
   findMode: /** @type {HTMLSelectElement} */ ($("find-mode")),
+  findIn: /** @type {HTMLSelectElement} */ ($("find-in")),
   findInput: /** @type {HTMLInputElement} */ ($("find-input")),
   findCase: /** @type {HTMLInputElement} */ ($("find-case")),
   findCaseLabel: $("find-case-label"),
@@ -164,6 +165,12 @@ export const state = {
   selectionFilterId: 0,
   rangeSeq: 0,
   /** @type {any} */ detail: null,
+  /**
+   * The last Find Packet hit of a search in the packet details: its field is
+   * selected once that packet's details are shown.
+   * @type {{frame: number, value: string, regex: boolean, caseSensitive: boolean} | null}
+   */
+  findMatch: null,
   /** @type {number | null} */ detailRequest: null,
   /** @type {number | null} */ selectedNodeId: null,
   /** @type {Set<string>} */ expanded: new Set(saved.expanded || []),

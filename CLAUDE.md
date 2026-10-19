@@ -1319,7 +1319,26 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
     `frame contains aa:bb:cc`, a single byte as `"\xaa"`). The filter is
     validated, run once and cached in the filter LRU. Matches go into a
     one-byte-per-frame bitmap, then view order is walked from the selection,
-    wrapping around. The `marked` mode walks the marks instead.
+    wrapping around. The `marked` mode walks the marks instead. **Where
+    text is looked for** (`in`, Wireshark's choice; `string` and `regex`
+    modes only): `bytes` (default) is the display filter above (`regex` =
+    `frame matches "…"`, tshark's PCRE2, `(?i)` unless case-sensitive);
+    `list` tests the row store's Source…Info cells plus the custom `columns`
+    the webview sends (as shown: resolved names; not No. or Time), joined by
+    newlines, in chunks (`LIST_FIND_CHUNK`), no tshark; `details` runs one
+    `tshark -V` pass with the usual dissection options and tests each
+    packet's text (`navigation.details_blocks`: a packet starts at its
+    `Frame N:` line; labels unindented, generated fields' brackets removed,
+    since the PDML tree shows none). Both use `navigation.text_matcher`
+    (substring with casefold, or a Python regex with `re.MULTILINE`) and
+    cache a FrameIndex in the filter LRU under a key starting with NUL
+    (`\0find\0in\0mode\0case\0value\0columns…`, never a filter
+    expression; not saved with the index). Progress `phase: "find"`. The
+    webview's `#find-in` select appears for string/regex; after a details
+    hit `state.findMatch` makes `revealFindMatch` (from `showDetail`, or at
+    once when that packet is already shown) select the first tree node
+    whose label matches (`lib.findTreeMatch`, the browser's RegExp; a
+    Python-only pattern simply selects nothing).
   - _Conversation stepping_ is backend `neighbor_frame`: `tcp.stream`/
     `udp.stream` columns, extracted once into the row store, else the unordered
     Source/Destination pair. It reads cells in chunks along the view and
@@ -1573,3 +1592,4 @@ ignored packets: 0.8.0. Then two-pass details for small captures and
 Compare Packets: 0.9.0.
 Then Follow Stream search, Filter Out This Stream, HTTP/2, QUIC and WebSocket
 streams, and more "show as" views: 0.10.0.
+Then Find Packet in the packet list and details, and by regular expression.

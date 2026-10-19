@@ -1245,18 +1245,30 @@ def none_colored(world: World) -> None:
 
 # ---------------------------------------------------------------------- navigation
 
-FIND_MODES = {"display filter": "filter", "string": "string", "hex bytes": "hex"}
+FIND_MODES = {
+    "display filter": "filter",
+    "string": "string",
+    "regular expression": "regex",
+    "hex bytes": "hex",
+}
 
 
 @when(
     parsers.re(
         r"I find the (?P<direction>next|previous) packet matching the "
-        r'(?P<mode>display filter|string|hex bytes) "(?P<value>[^"]*)"'
+        r'(?P<mode>display filter|string|regular expression|hex bytes) "(?P<value>[^"]*)"'
+        r"(?: in the packet (?P<where>bytes|list|details))?"
         r"(?P<case> case-sensitively)?(?: after packet (?P<start>\d+))?$"
     )
 )
 def find_packet(
-    world: World, direction: str, mode: str, value: str, case: str | None, start: str | None
+    world: World,
+    direction: str,
+    mode: str,
+    value: str,
+    where: str | None,
+    case: str | None,
+    start: str | None,
 ) -> None:
     params: dict[str, Any] = {
         "mode": FIND_MODES[mode],
@@ -1264,6 +1276,8 @@ def find_packet(
         "caseSensitive": bool(case),
         "direction": direction,
     }
+    if where:
+        params["in"] = where
     if start:
         params["from"] = int(start)
     world.found = world.call(world.service.find_packet, params)

@@ -642,6 +642,36 @@ suite("webview lib: follow stream and statistics helpers", () => {
     assert.deepEqual(lib.findRanges("abc", "x"), []);
   });
 
+  test("findTreeMatch: the first matching node, as a path", () => {
+    const tree = [
+      { label: "Frame 7: 345 bytes", children: [{ label: "Frame Number: 7" }] },
+      {
+        label: "Hypertext Transfer Protocol",
+        children: [
+          { label: "HTTP/1.1 200 OK", children: [{ label: "Status Code: 200" }] },
+          { label: "Content-Type: text/html" },
+        ],
+      },
+    ];
+    const labels = (path) => path?.map((n) => n.label) ?? null;
+    assert.deepEqual(labels(lib.findTreeMatch(tree, { value: "content-type" })), [
+      "Hypertext Transfer Protocol",
+      "Content-Type: text/html",
+    ]);
+    assert.deepEqual(labels(lib.findTreeMatch(tree, { value: "status code" })), [
+      "Hypertext Transfer Protocol",
+      "HTTP/1.1 200 OK",
+      "Status Code: 200",
+    ]);
+    assert.equal(lib.findTreeMatch(tree, { value: "content-type", caseSensitive: true }), null);
+    assert.deepEqual(
+      labels(lib.findTreeMatch(tree, { value: "^frame number: \\d+$", regex: true })),
+      ["Frame 7: 345 bytes", "Frame Number: 7"],
+    );
+    assert.equal(lib.findTreeMatch(tree, { value: "(?P<x>a)", regex: true }), null, "not JS");
+    assert.equal(lib.findTreeMatch(tree, { value: "" }), null);
+  });
+
   test("streamFilter", () => {
     assert.equal(lib.streamFilter("tcp", 3), "tcp.stream eq 3");
     assert.equal(lib.streamFilter("http", 0), "tcp.stream eq 0");

@@ -127,7 +127,9 @@ registered under its name in lower case).
 
 ### Navigation
 
-- **Find Packet** (`Ctrl+F`) by display filter, string or hex bytes.
+- **Find Packet** (`Ctrl+F`) by display filter, string, regular expression or
+  hex bytes. Text is looked for in the packet bytes, the packet list's columns
+  or the packet details; a match in the details selects its field.
 - **Frame links** in the tree (_Request in frame_, _ACK of frame_…) with
   back/forward history (`Alt+Left`/`Alt+Right`). The packets they refer to
   are marked in the list while the packet is selected: an arrow on the request

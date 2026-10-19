@@ -8,7 +8,7 @@ import { CANCELLED, cancelRpc, el, lib, rpc, state, vscode } from "./core.js";
 import { orderParams, refreshRows, scheduleRender } from "./list.js";
 import { selectAll, selectIndex, selectedFrames } from "./selection.js";
 import { deleteComment, editComment, gotoFrame } from "./comments.js";
-import { nodeIndex } from "./detail.js";
+import { nodeIndex, revealFindMatch } from "./detail.js";
 import { copy } from "./contextmenu.js";
 import { showNotice } from "./filterbar.js";
 import { loadExpertSummary, updateStatus } from "./status.js";
@@ -137,9 +137,17 @@ export function applyColumn(node) {
 /** @type {Record<string, string>} */
 const FIND_PLACEHOLDERS = {
   filter: "Display filter, e.g. dns.flags.rcode != 0 (Enter: next, Shift+Enter: previous)",
-  string: "Text in the packet bytes, e.g. index.html",
+  "string bytes": "Text in the packet bytes, e.g. index.html",
+  "string list": "Text in the packet list's columns, e.g. Retransmission",
+  "string details": "Text in the packet details, e.g. Server: nginx",
+  "regex bytes": "Regular expression on the packet bytes, e.g. GET /\\w+\\.php",
+  "regex list": "Regular expression on the packet list's columns, e.g. ^GET .*\\.php",
+  "regex details": "Regular expression on the packet details, e.g. ^Time to Live: 1$",
   hex: "Hex bytes, e.g. 47 45 54 or 47:45:54",
 };
+
+/** Whether the find mode searches text, which can be in the bytes, list or details. */
+const textMode = () => el.findMode.value === "string" || el.findMode.value === "regex";
 /** @type {number | null} */
 let findRequest = null;
 
@@ -152,13 +160,17 @@ function openFind() {
 
 function closeFind() {
   el.findBar.classList.add("hidden");
+  state.findMatch = null;
   setFindStatus("");
   el.viewport.focus();
 }
 
 function updateFindMode() {
-  el.findInput.placeholder = FIND_PLACEHOLDERS[el.findMode.value] ?? "";
-  el.findCaseLabel.classList.toggle("hidden", el.findMode.value !== "string");
+  const text = textMode();
+  el.findInput.placeholder =
+    FIND_PLACEHOLDERS[text ? `${el.findMode.value} ${el.findIn.value}` : el.findMode.value] ?? "";
+  el.findIn.classList.toggle("hidden", !text);
+  el.findCaseLabel.classList.toggle("hidden", !text);
   checkFindInput();
 }
 
@@ -199,10 +211,19 @@ async function find(direction) {
   if (findRequest !== null) {
     cancelRpc(findRequest);
   }
+  const where = textMode() ? el.findIn.value : "bytes";
+  const search = {
+    value: el.findInput.value,
+    regex: el.findMode.value === "regex",
+    caseSensitive: el.findCase.checked,
+  };
   const req = rpc("find_packet", {
     mode: el.findMode.value,
-    value: el.findInput.value,
-    caseSensitive: el.findCase.checked,
+    value: search.value,
+    caseSensitive: search.caseSensitive,
+    in: where,
+    // (The packet list search covers the custom columns shown.)
+    columns: state.customColumns.map((c) => c.field),
     from: state.selectedFrame,
     direction,
     ...orderParams(),
@@ -219,7 +240,9 @@ async function find(direction) {
       return;
     }
     setFindStatus(res.wrapped ? `Packet ${res.frame} (wrapped around)` : `Packet ${res.frame}`);
+    state.findMatch = where === "details" ? { frame: res.frame, ...search } : null;
     jumpToIndex(res.index, res.frame, false);
+    revealFindMatch(); // (when that packet's details are already shown; else once they are)
   } catch (err) {
     const e = /** @type {any} */ (err);
     if (e?.code !== CANCELLED) {
@@ -233,6 +256,10 @@ async function find(direction) {
 }
 
 el.findMode.addEventListener("change", () => {
+  updateFindMode();
+  el.findInput.focus();
+});
+el.findIn.addEventListener("change", () => {
   updateFindMode();
   el.findInput.focus();
 });

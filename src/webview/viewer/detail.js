@@ -179,10 +179,31 @@ function showDetail(detail) {
       }
     }
   }
-  applyDetailView(); // (draws the diagram when it is the view shown)
-  if (sameFrame) {
-    el.detailPane.scrollTop = scrollTop;
+  if (!revealFindMatch()) {
+    applyDetailView(); // (draws the diagram when it is the view shown)
+    if (sameFrame) {
+      el.detailPane.scrollTop = scrollTop;
+    }
   }
+}
+
+/**
+ * Select the field a Find Packet search in the packet details matched, when
+ * the details shown are the found packet's. Returns whether it did.
+ */
+export function revealFindMatch() {
+  const match = state.findMatch;
+  const detail = state.detail;
+  if (!match || !detail || detail.number !== match.frame) {
+    return false;
+  }
+  const path = lib.findTreeMatch(detail.tree, match);
+  if (!path) {
+    return false;
+  }
+  revealPath(path);
+  applyDetailView();
+  return true;
 }
 
 /**

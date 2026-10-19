@@ -46,16 +46,60 @@ def test_find_expression() -> None:
     assert fe("filter", "  dns  ", False) == "dns"
     assert fe("string", 'say "hi"', True) == 'frame contains "say \\"hi\\""'
     assert fe("string", "a.b", False) == 'frame matches "(?i)a\\\\.b"'
+    assert fe("regex", r"GET /\w+", True) == 'frame matches "GET /\\\\w+"'
+    assert fe("regex", "a|b", False) == 'frame matches "(?i)a|b"'
     assert fe("hex", "47 45 54", False) == "frame contains 47:45:54"
     assert fe("hex", "ff", False) == 'frame contains "\\xff"'
     for mode, value, error in (
         ("filter", " ", "Enter a display filter"),
         ("string", "", "Enter text"),
         ("string", "a\nb", "single line"),
+        ("regex", " ", "Enter a regular expression"),
         ("bogus", "x", "unknown find mode"),
     ):
         with pytest.raises(ValueError, match=error):
             fe(mode, value, False)
+
+
+def test_text_matcher() -> None:
+    tm = navigation.text_matcher
+    assert tm("string", "OK", False)("200 ok")
+    assert not tm("string", "OK", True)("200 ok")
+    assert tm("string", "STRASSE", False)("straße"), "case-folded"
+    assert tm("regex", r"^Request In: \d+$", False)("Frame 5: …\nrequest in: 4")
+    assert not tm("regex", r"^Request In: \d+$", True)("Frame 5: …\nrequest in: 4")
+    assert not tm("regex", "a$", False)("ab\nb"), "$ at each line's end, not inside"
+    for mode, value, error in (
+        ("string", "  ", "Enter text"),
+        ("regex", "[", "Not a valid regular expression"),
+        ("regex", "a\rb", "single line"),
+    ):
+        with pytest.raises(ValueError, match=error):
+            tm(mode, value, False)
+
+
+def test_details_blocks() -> None:
+    out = list(
+        navigation.details_blocks(
+            [
+                "Frame 1: 54 bytes on wire",
+                "    [Protocols in frame: eth:ip]",
+                "Internet Protocol Version 4, Src: 10.0.0.1",
+                "",
+                "    Time to Live: 64",
+                "Frame 2: 60 bytes on wire",
+                "    Frame Number: 2",
+            ]
+        )
+    )
+    first = [
+        "Frame 1: 54 bytes on wire",
+        "Protocols in frame: eth:ip",
+        "Internet Protocol Version 4, Src: 10.0.0.1",
+        "Time to Live: 64",
+    ]
+    assert out == [(1, "\n".join(first)), (2, "Frame 2: 60 bytes on wire\nFrame Number: 2")]
+    assert list(navigation.details_blocks(["junk before any frame"])) == []
 
 
 def test_frame_ranges_and_chunked_filters() -> None:
@@ -152,6 +196,30 @@ def test_find_invalid(mixed: PcapService, ctx: RequestContext) -> None:
     ):
         with pytest.raises(InvalidParamsError):
             mixed.find_packet(params, ctx)
+
+
+@pytest.mark.tshark
+def test_find_in_list_and_details(mixed: PcapService, ctx: RequestContext) -> None:
+    def find(where: str, value: str, **params: Any) -> Any:
+        return _find(mixed, ctx, mode="string", value=value, **{"in": where}, **params)
+
+    # The Info column's text, not in the packet bytes.
+    assert find("bytes", "No such name") is None
+    assert find("list", "No such name") == 9
+    # The dissection's text, not in the list.
+    assert find("list", "Recursion desired") is None
+    assert find("details", "Recursion desired") == 4
+    assert find("details", "Recursion desired", **{"from": 4}) == 5  # (the response's copy)
+    # Generated fields read as the tree shows them (tshark's -V adds brackets).
+    assert _find(mixed, ctx, mode="regex", value=r"^Request In: 4$", **{"in": "details"}) == 5
+    # Each search runs once and is cached; a different case is another search.
+    assert len([k for k in mixed._filters._items if k.startswith("\0find")]) >= 3
+    assert find("list", "BROADCAST", caseSensitive=True) is None
+    # Custom columns are searched too, as given (the SYN-ACK's raw sequence number).
+    assert find("list", "4999") is None
+    assert find("list", "4999", columns=["tcp.seq_raw"]) == 11
+    with pytest.raises(InvalidParamsError, match="in must be"):
+        find("everywhere", "x")
 
 
 @pytest.mark.tshark
