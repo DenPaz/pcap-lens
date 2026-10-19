@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.9.0 — 2026-10-19
+
 ### Added
 
 - Two-pass details for small captures (up to 10,000 packets,

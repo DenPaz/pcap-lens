@@ -1529,4 +1529,5 @@ and axe-core checks with the ARIA fixes they found, and protocol preferences.
 0.6.0 released. Then BER record files as packets, and the packet diagram:
 0.7.0 released. Then Wireshark's expert indicator in the status bar,
 related-packet marks, Conversation Filter and Colorize Conversation, and
-ignored packets: 0.8.0.
+ignored packets: 0.8.0. Then two-pass details for small captures and
+Compare Packets: 0.9.0.
