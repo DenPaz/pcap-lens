@@ -17,6 +17,7 @@ import { clearDetail } from "./detail.js";
 import { applyFilter, setHistory, validateSoon } from "./filterbar.js";
 import { showSavedMenu, suggest } from "./autocomplete.js";
 import { runCommand } from "./navigation.js";
+import { resetEmptyHints } from "./empty.js";
 import { leaveAskMode, onAiSuggestions, setAiAvailable } from "./ai.js";
 import { loadExpertSummary, renderFilterButtons, resetExpert, updateStatus } from "./status.js";
 
@@ -149,6 +150,7 @@ window.addEventListener("message", (event) => {
 /** @param {any} msg */
 function onInit(msg) {
   leaveAskMode(true);
+  resetEmptyHints();
   state.info = msg.info;
   // The backend lists the seven base columns first, then any custom ones.
   state.baseColumns = msg.info.columns.slice(0, 7);

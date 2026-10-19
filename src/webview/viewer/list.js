@@ -17,6 +17,7 @@ import { selectFrame, setSelection } from "./selection.js";
 import { relocateSelection } from "./comments.js";
 import { showFilterError } from "./filterbar.js";
 import { scheduleOverview } from "./overview.js";
+import { renderEmpty } from "./empty.js";
 
 function computeViewKey() {
   return [
@@ -76,7 +77,7 @@ export function updateSpacer() {
     rowHeight: state.rowHeight,
   });
   el.spacer.style.height = `${win.virtualHeight}px`;
-  el.empty.classList.toggle("hidden", !state.ready || state.total > 0);
+  renderEmpty();
 }
 
 /** @param {number} index @returns {Row | undefined} */

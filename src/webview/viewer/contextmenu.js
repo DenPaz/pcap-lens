@@ -8,6 +8,7 @@ import { copyRows, focusIndex, selectAll, selectIndex, selectedFrames } from "./
 import { deleteComment, editComment, gotoFrame } from "./comments.js";
 import { nodeIndex, selectNode, setExpanded } from "./detail.js";
 import { applyFilter, validateSoon } from "./filterbar.js";
+import { openFilterBuilder } from "./builder.js";
 import {
   applyColumn,
   canBeColumn,
@@ -239,6 +240,12 @@ export function showTreeMenu(entry, x, y) {
       filter ? () => applyFromTree(lib.combineFilter(current, filter, "replace"), true) : null,
     ],
     ["Prepare as Filter", filter ? () => applyFromTree(filter, false) : null],
+    [
+      "Build Filter from Field…",
+      filter && !node.proto
+        ? () => openFilterBuilder({ field: node.name, value: node.show ?? "", returnTo: el.tree })
+        : null,
+    ],
     [
       "…and Selected",
       filter && current

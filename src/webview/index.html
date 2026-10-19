@@ -56,6 +56,16 @@
           />
           <div id="suggest" class="suggest hidden" role="listbox"></div>
         </div>
+        <button
+          id="filter-build"
+          type="button"
+          class="icon"
+          title="Build a display filter from a field, a relation and a value"
+          aria-label="Build a display filter"
+          aria-haspopup="dialog"
+        >
+          <span class="codicon codicon-list-filter" aria-hidden="true"></span>
+        </button>
         <button id="filter-apply" type="button" title="Apply display filter (Enter)">Apply</button>
         <button id="filter-clear" type="button" title="Clear display filter">Clear</button>
         <button
@@ -130,7 +140,7 @@
               title="Overview of the packet list: coloring rules, marked, commented and found packets (click to scroll)"
             ></canvas>
           </div>
-          <div id="list-empty" class="hidden">No packets match the current filter.</div>
+          <div id="list-empty" class="hidden" aria-live="polite"></div>
         </section>
 
         <div
@@ -281,8 +291,8 @@
         aria-modal="true"
         aria-labelledby="shortcuts-title"
       >
-        <div class="shortcuts-box">
-          <div class="shortcuts-head">
+        <div class="dialog-box">
+          <div class="dialog-head">
             <h2 id="shortcuts-title">Keyboard Shortcuts</h2>
             <button
               id="shortcuts-close"
@@ -295,6 +305,82 @@
             </button>
           </div>
           <div id="shortcuts-body" tabindex="0" aria-label="Shortcuts"></div>
+        </div>
+      </div>
+      <div
+        id="builder"
+        class="hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="builder-title"
+      >
+        <div class="dialog-box">
+          <div class="dialog-head">
+            <h2 id="builder-title">Build a Display Filter</h2>
+            <button
+              id="builder-close"
+              type="button"
+              class="icon"
+              title="Close (Esc)"
+              aria-label="Close"
+            >
+              <span class="codicon codicon-close" aria-hidden="true"></span>
+            </button>
+          </div>
+          <div id="builder-body">
+            <label for="builder-search">Field</label>
+            <input
+              id="builder-search"
+              type="text"
+              spellcheck="false"
+              autocomplete="off"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded="false"
+              aria-controls="builder-fields"
+              placeholder="Search by name or description, e.g. ttl or time to live"
+            />
+            <div
+              id="builder-fields"
+              class="builder-list hidden"
+              role="listbox"
+              aria-label="Fields"
+            ></div>
+            <p id="builder-field" class="builder-note">Pick a field to filter on.</p>
+            <label for="builder-op">Relation</label>
+            <select id="builder-op" disabled></select>
+            <label for="builder-value">Value</label>
+            <input id="builder-value" type="text" spellcheck="false" autocomplete="off" disabled />
+            <div id="builder-values-head" class="builder-note hidden">
+              <span id="builder-values-status"></span>
+              <button id="builder-values-stop" type="button" class="link hidden">Stop</button>
+            </div>
+            <div
+              id="builder-values"
+              class="builder-list hidden"
+              role="listbox"
+              aria-label="Values seen in this capture"
+            ></div>
+            <label for="builder-combine">With the filter in the bar</label>
+            <select id="builder-combine">
+              <option value="replace">Replace it</option>
+              <option value="and">Both (and)</option>
+              <option value="or">Either (or)</option>
+              <option value="not">And not this</option>
+            </select>
+            <div class="builder-preview-row">
+              <span>Filter:</span>
+              <code id="builder-preview"></code>
+            </div>
+            <p id="builder-error" class="builder-note" role="status"></p>
+          </div>
+          <div class="dialog-buttons">
+            <button id="builder-apply" type="button" disabled>Apply</button>
+            <button id="builder-insert" type="button" class="secondary" disabled>
+              Put in Filter Bar
+            </button>
+            <button id="builder-cancel" type="button" class="secondary">Cancel</button>
+          </div>
         </div>
       </div>
     </div>

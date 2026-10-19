@@ -32,6 +32,7 @@ import { registerCaptureCommands } from "./commands/capture";
 import { registerEditCaptureCommands } from "./commands/editCapture";
 import { registerImportHexDumpCommand } from "./commands/importHexDump";
 import { registerSetupCommands } from "./commands/setup";
+import { RecentCapturesProvider, registerRecentCaptures } from "./commands/recent";
 import { pruneTemporaryCaptures } from "./tempCaptures";
 import { PcapEditorProvider } from "./pcapEditor";
 import { sameNameResolution } from "./settingsModel";
@@ -43,6 +44,7 @@ let prefsTimer: ReturnType<typeof setTimeout> | undefined;
 export interface PcapViewerApi {
   /** Exposed for integration tests. */
   readonly provider: PcapEditorProvider;
+  readonly recent: RecentCapturesProvider;
 }
 
 export function activate(context: vscode.ExtensionContext): PcapViewerApi {
@@ -77,6 +79,7 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
   registerPluginCommands(context, p, log);
   registerPrefsCommands(context, p, log);
   registerSetupCommands(context, log);
+  const recent = registerRecentCaptures(context);
   // Unsaved captures left behind (a crash, or a restored editor long closed).
   void pruneTemporaryCaptures(context, new Set(p.allSessions.map((s) => s.uri.fsPath)));
   context.subscriptions.push(
@@ -174,7 +177,7 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
       }
     }),
   );
-  return { provider: p };
+  return { provider: p, recent };
 }
 
 export async function deactivate(): Promise<void> {

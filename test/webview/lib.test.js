@@ -1345,3 +1345,139 @@ suite("webview lib: navigation and customisation", () => {
     );
   });
 });
+
+suite("webview lib: empty list and filter builder", () => {
+  const base = { ready: true, total: 0, filter: "" };
+
+  test("what the empty list says", () => {
+    assert.equal(lib.emptyState({ ...base, ready: false }), null);
+    assert.equal(lib.emptyState({ ...base, total: 3, filter: "x" }), null);
+    assert.deepEqual(lib.emptyState({ ...base, filter: "dns", filtering: true, fraction: 0.425 }), {
+      kind: "searching",
+      title: "Looking for matching packets…",
+      detail: "42% of the capture read. Matches appear here as they are found.",
+    });
+    assert.equal(
+      lib.emptyState({ ...base, filter: "dns", filtering: true }).detail,
+      "Matches appear here as they are found.",
+    );
+    assert.deepEqual(lib.emptyState({ ...base, filter: "dns" }), {
+      kind: "no-match",
+      title: "No packets match this filter",
+      detail: "",
+    });
+    assert.match(lib.emptyState({ ...base, filter: "dns", partial: true }).detail, /stopped/);
+    assert.match(lib.emptyState({ ...base, filter: "dns", indexing: true }).detail, /later ones/);
+    const capture = { running: true, interfaces: ["eth0", "lo"], filter: "port 53" };
+    assert.deepEqual(lib.emptyState({ ...base, indexing: true, capture }), {
+      kind: "waiting",
+      title: "Waiting for packets on eth0, lo…",
+      detail: "Capture filter: port 53",
+    });
+    assert.equal(lib.emptyState({ ...base, indexing: true }).kind, "reading");
+    assert.equal(lib.emptyState(base).kind, "empty");
+  });
+
+  test("hints for a filter matching nothing", () => {
+    const fields = (present) => present.map(([name, p]) => ({ name, present: p }));
+    assert.deepEqual(
+      lib.filterHintItems({
+        fields: fields([
+          ["sip", false],
+          ["sip.Method", false],
+          ["ip.addr", true],
+        ]),
+        caseHints: [],
+      }),
+      [{ type: "missing", names: ["sip", "sip.Method"] }],
+    );
+    const caseHint = { field: "http.host", value: "Ex", filter: 'lower(http.host) == "ex"' };
+    assert.deepEqual(
+      lib.filterHintItems({ fields: fields([["http.host", true]]), caseHints: [caseHint] }),
+      [{ type: "case", ...caseHint }],
+    );
+    // Every field occurs: their values are worth a look (fields, not bare protocols).
+    assert.deepEqual(
+      lib.filterHintItems({
+        fields: fields([
+          ["tcp", true],
+          ["tcp.port", true],
+          ["ip.ttl", true],
+          ["ip.src", true],
+          ["ip.dst", true],
+        ]),
+        caseHints: [],
+      }),
+      [{ type: "values", names: ["tcp.port", "ip.ttl", "ip.src"] }],
+    );
+    assert.deepEqual(lib.filterHintItems({ fields: fields([["tcp", true]]), caseHints: [] }), []);
+  });
+
+  test("relations by field type", () => {
+    const ops = (t) => lib.builderOperators(t).map((o) => o.op);
+    assert.deepEqual(ops("FT_NONE"), ["present", "absent"]);
+    assert.deepEqual(ops("protocol"), ["present", "absent", "contains"]);
+    assert.deepEqual(ops("FT_BOOLEAN"), ["present", "absent", "==", "!="]);
+    assert.deepEqual(ops("FT_STRING"), [
+      "present",
+      "absent",
+      "==",
+      "!=",
+      "contains",
+      "matches",
+      "in",
+    ]);
+    assert.deepEqual(ops("FT_UINT16"), [
+      "present",
+      "absent",
+      "==",
+      "!=",
+      ">",
+      "<",
+      ">=",
+      "<=",
+      "in",
+    ]);
+    assert.deepEqual(ops("FT_ABSOLUTE_TIME"), ops("FT_UINT16"));
+    assert.deepEqual(ops("FT_ETHER"), ["present", "absent", "==", "!=", "contains", "in"]);
+    assert.deepEqual(ops("FT_IPv4"), ["present", "absent", "==", "!=", "in"]);
+    assert.equal(lib.builderOperators("FT_UINT8")[0].value, false);
+    assert.equal(lib.builderOperators("FT_UINT8")[2].label, "== (equal)");
+  });
+
+  test("values and terms the builder writes", () => {
+    assert.equal(lib.filterLiteral("FT_BOOLEAN", "True"), "1");
+    assert.equal(lib.filterLiteral("FT_BOOLEAN", "false"), "0");
+    assert.equal(lib.filterLiteral("FT_STRING", 'say "hi" \\o/'), '"say \\"hi\\" \\\\o/"');
+    assert.equal(lib.filterLiteral("FT_STRING", '"already"'), '"already"');
+    assert.equal(lib.filterLiteral("FT_IPv4", " 10.0.0.1 "), "10.0.0.1");
+
+    assert.equal(lib.builderTerm("tcp", "protocol", "present", ""), "tcp");
+    assert.equal(lib.builderTerm("tcp", "protocol", "absent", ""), "!tcp");
+    assert.equal(lib.builderTerm("ip.ttl", "FT_UINT8", "==", " "), null);
+    assert.equal(lib.builderTerm("ip.ttl", "FT_UINT8", ">=", "64"), "ip.ttl >= 64");
+    assert.equal(
+      lib.builderTerm("tcp.flags.syn", "FT_BOOLEAN", "==", "True"),
+      "tcp.flags.syn == 1",
+    );
+    assert.equal(
+      lib.builderTerm("http.host", "FT_STRING", "matches", "^example\\.com$"),
+      'http.host matches "^example\\\\.com$"',
+    );
+    assert.equal(lib.builderTerm("frame", "protocol", "contains", "GET"), 'frame contains "GET"');
+    assert.equal(
+      lib.builderTerm("frame", "protocol", "contains", "47:45:54"),
+      "frame contains 47:45:54",
+    );
+    assert.equal(
+      lib.builderTerm("eth.src", "FT_ETHER", "contains", "02:00"),
+      "eth.src contains 02:00",
+    );
+    assert.equal(
+      lib.builderTerm("http.request.method", "FT_STRING", "in", "GET, POST,"),
+      'http.request.method in {"GET", "POST"}',
+    );
+    assert.equal(lib.builderTerm("tcp.port", "FT_UINT16", "in", "80,443"), "tcp.port in {80, 443}");
+    assert.equal(lib.builderTerm("tcp.port", "FT_UINT16", "in", " , "), null);
+  });
+});

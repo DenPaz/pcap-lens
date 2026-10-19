@@ -45,11 +45,16 @@ export interface MenuCommand {
 export const EXCLUDED_COMMANDS: Readonly<Record<string, string>> = {
   "pcapViewer.savedFilters":
     "the ★ button at the other end of the same filter bar opens the saved and recent filters in place",
+  "pcapViewer.recentCaptures.remove": "acts on an entry of the Recent Captures view",
+  "pcapViewer.recentCaptures.reveal": "acts on an entry of the Recent Captures view",
+  "pcapViewer.recentCaptures.copyPath": "acts on an entry of the Recent Captures view",
+  "pcapViewer.recentCaptures.refresh": "the Recent Captures view's own button",
 };
 
 /** Which heading each command goes under (see COMMAND_GROUPS). */
 const GROUP_OF: Readonly<Record<string, CommandGroup>> = {
   "pcapViewer.applyFilter": "Filters",
+  "pcapViewer.buildFilter": "Filters",
   "pcapViewer.clearFilter": "Filters",
   "pcapViewer.saveFilter": "Filters",
   "pcapViewer.addFilterButton": "Filters",
@@ -76,6 +81,8 @@ const GROUP_OF: Readonly<Record<string, CommandGroup>> = {
   "pcapViewer.editPacketComment": "Packets",
   "pcapViewer.deletePacketComment": "Packets",
   "pcapViewer.showShortcuts": "Other",
+  "pcapViewer.showRecentCaptures": "Other",
+  "pcapViewer.recentCaptures.clear": "Other",
   "pcapViewer.deleteAllPacketComments": "Packets",
   "pcapViewer.followStream": "Statistics",
   "pcapViewer.followTcpStream": "Statistics",

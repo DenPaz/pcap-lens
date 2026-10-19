@@ -287,6 +287,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       [
         ["filter-saved", "codicon codicon-star-full", "Saved and recent filters"],
         ["filter-ai", "codicon codicon-sparkle", "Ask AI for a display filter"],
+        ["filter-build", "codicon codicon-list-filter", "Build a display filter"],
         ["filter-menu", "codicon codicon-menu", "All PCAP commands"],
       ],
     );
@@ -895,8 +896,10 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
 
   async function cleanView() {
     await post({ type: "aiAvailable", available: false });
-    if (await page.isVisible("#shortcuts")) {
-      await page.keyboard.press("Escape"); // a failed shortcuts test must not block the rest
+    for (const dialog of ["#shortcuts", "#builder"]) {
+      if (await page.isVisible(dialog)) {
+        await page.keyboard.press("Escape"); // a failed dialog test must not block the rest
+      }
     }
     await page.click("#filter-clear");
     await page.waitForFunction(
@@ -987,6 +990,149 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
 
     await page.press("#find-input", "Escape");
     assert.ok(await page.$eval("#find-bar", (b) => b.classList.contains("hidden")));
+  });
+
+  test("empty list: a filter matching nothing says why and what to try", async () => {
+    await cleanView();
+    const applyTyped = async (expr) => {
+      await page.fill("#filter-input", expr);
+      await page.press("#filter-input", "Enter");
+    };
+    const hints = () => page.textContent("#list-empty .empty-hints");
+
+    // A field no packet has.
+    await applyTyped('dns.qry.name == "example.com"');
+    await page.waitForSelector("#list-empty:not(.hidden) .empty-title");
+    assert.equal(
+      await page.textContent("#list-empty .empty-title"),
+      "No packets match this filter",
+    );
+    assert.equal(
+      await page.textContent("#list-empty .empty-filter"),
+      'dns.qry.name == "example.com"',
+    );
+    await page.waitForFunction(() =>
+      /No packet in this capture has dns\.qry\.name/.test(
+        document.querySelector("#list-empty .empty-hints").textContent,
+      ),
+    );
+
+    // A case-sensitive comparison: the hint's filter applies with one click.
+    await applyTyped('http.host == "Example.com"');
+    await page.waitForFunction(() =>
+      /case-sensitive/.test(document.querySelector("#list-empty .empty-hints").textContent),
+    );
+    assert.match(await hints(), /lower\(http\.host\) == "example\.com"/);
+    await page.click("#list-empty .empty-hints button:has-text('Apply')");
+    await page.waitForFunction(
+      () => document.querySelectorAll("#list-rows .list-row:not(.loading)").length === 1,
+    );
+    assert.deepEqual(await rowNumbers(), [4]);
+    assert.ok(await page.isHidden("#list-empty"));
+    assert.equal(await page.inputValue("#filter-input"), 'lower(http.host) == "example.com"');
+
+    // Every field occurs: the values are worth a look; Previous Filter goes back.
+    await applyTyped("frame.len > 99999");
+    await page.waitForFunction(() =>
+      /Every field occurs/.test(document.querySelector("#list-empty .empty-hints").textContent),
+    );
+    assert.deepEqual(await axeViolations(page, { exclude: [["#bytes"]] }), []);
+    const prev = page.locator("#list-empty button:has-text('Previous Filter')");
+    assert.match(await prev.getAttribute("title"), /lower\(http\.host\)/);
+    await page.click("#list-empty button:has-text('Values of frame.len')");
+    await page.waitForSelector("#builder:not(.hidden)");
+    assert.equal(await page.inputValue("#builder-search"), "frame.len");
+    await page.waitForSelector("#builder-values [role=option]");
+    await page.keyboard.press("Escape");
+    await page.waitForSelector("#builder.hidden", { state: "attached" });
+    await prev.click();
+    await page.waitForFunction(
+      () => document.querySelectorAll("#list-rows .list-row:not(.loading)").length === 1,
+    );
+
+    // Edit Filter focuses the box; Clear Filter shows every packet again.
+    await applyTyped("frame.len > 99999");
+    await page.waitForSelector("#list-empty:not(.hidden) .empty-actions");
+    await page.click("#list-empty button:has-text('Edit Filter')");
+    assert.equal(await page.evaluate(() => document.activeElement.id), "filter-input");
+    await page.click("#list-empty button:has-text('Clear Filter')");
+    await page.waitForFunction(
+      () => document.querySelectorAll("#list-rows .list-row:not(.loading)").length === 11,
+    );
+    assert.ok(await page.isHidden("#list-empty"));
+  });
+
+  test("filter builder: search a field, pick a relation and a seen value, apply or insert", async () => {
+    await cleanView();
+    await page.click("#filter-build");
+    await page.waitForSelector("#builder:not(.hidden)");
+    assert.equal(await page.evaluate(() => document.activeElement.id), "builder-search");
+    // Search by description; the first match is active, Enter takes it.
+    await page.fill("#builder-search", "time to live");
+    await page.waitForSelector(
+      "#builder-fields [role=option][aria-selected=true]:has-text('ip.ttl')",
+    );
+    await page.press("#builder-search", "Enter");
+    assert.match(await page.textContent("#builder-field"), /Time to Live \(ip\.ttl\)/);
+    assert.equal(await page.inputValue("#builder-op"), "==");
+    assert.equal(await page.evaluate(() => document.activeElement.id), "builder-value");
+    // The values seen in the capture, with their packet counts.
+    await page.waitForSelector("#builder-values [role=option]");
+    assert.match(await page.textContent("#builder-values-status"), /1 value in 11 packets/);
+    await page.click("#builder-values [role=option]:has-text('64')");
+    assert.equal(await page.inputValue("#builder-value"), "64");
+    assert.equal(await page.textContent("#builder-preview"), "ip.ttl == 64");
+    await page.waitForSelector("#builder-apply:not([disabled])");
+    assert.deepEqual(await axeViolations(page, { exclude: [["#bytes"]] }), []);
+    await page.click("#builder-apply");
+    await page.waitForSelector("#builder.hidden", { state: "attached" });
+    await page.waitForFunction(() =>
+      /Displayed: 11/.test(document.querySelector("#status-left").textContent),
+    );
+    assert.equal(await page.inputValue("#filter-input"), "ip.ttl == 64");
+
+    // With a filter in the bar the term is added with "and"; `in` takes a list.
+    await command("buildFilter");
+    await page.waitForSelector("#builder:not(.hidden)");
+    assert.equal(await page.inputValue("#builder-combine"), "and");
+    await page.fill("#builder-search", "http.request.method");
+    await page.waitForSelector(
+      "#builder-fields [role=option][aria-selected=true]:has-text('http.request.method')",
+    );
+    await page.press("#builder-search", "Enter");
+    await page.selectOption("#builder-op", "in");
+    await page.fill("#builder-value", "GET, POST");
+    assert.equal(
+      await page.textContent("#builder-preview"),
+      '(ip.ttl == 64) && (http.request.method in {"GET", "POST"})',
+    );
+    await page.waitForSelector("#builder-insert:not([disabled])");
+    await page.click("#builder-insert");
+    await page.waitForSelector("#builder.hidden", { state: "attached" });
+    assert.equal(
+      await page.inputValue("#filter-input"),
+      '(ip.ttl == 64) && (http.request.method in {"GET", "POST"})',
+    );
+    assert.equal(await page.evaluate(() => document.activeElement.id), "filter-input");
+
+    // From a field of the details: field and value filled in; Esc closes, focus goes back.
+    await cleanView();
+    await rowEl(1).click();
+    await waitSelected(1);
+    const ipv4 = page.locator("#detail-tree .node-row:has-text('Internet Protocol Version 4')");
+    if ((await ipv4.evaluate((r) => r.parentElement?.getAttribute("aria-expanded"))) !== "true") {
+      await ipv4.locator(".twisty").click();
+    }
+    await page.click("#detail-tree .node-row:has-text('Source Address')", { button: "right" });
+    await page.click("#context-menu [role=menuitem]:has-text('Build Filter from Field')");
+    await page.waitForSelector("#builder:not(.hidden)");
+    await page.waitForFunction(
+      () => document.querySelector("#builder-preview").textContent !== "—",
+    );
+    assert.equal(await page.textContent("#builder-preview"), "ip.src == 192.168.1.10");
+    await page.keyboard.press("Escape");
+    await page.waitForSelector("#builder.hidden", { state: "attached" });
+    assert.equal(await page.evaluate(() => document.activeElement.id), "detail-tree");
   });
 
   test("keyboard shortcuts: ? and the command open the list, Esc closes it", async () => {

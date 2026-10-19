@@ -152,6 +152,8 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH): lint, backend and
   helpers (pure); `src/commands/reveal.ts` shows saved files.
   `src/commandMenu.ts` the viewer's ☰ command list from package.json (pure).
   `src/plugins.ts` the TShark plugins picker's rows (pure).
+  `src/recentCaptures.ts` the Recent Captures list (pure);
+  `src/commands/recent.ts` its tree view and commands.
 - `src/webview/` plain JS/CSS/HTML (no build step). `lib.js` = pure helpers
   shared with Node tests (a classic script, `window.PcapLib`, like the panels'
   scripts); `main.js` = the editor's entry, an ES module (`<script
@@ -182,7 +184,8 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   sorting, times) → `filtering` → `navigation`; `detail`, `streams`
   (follow, TCP graphs), `statistics` → `telephony` (VoIP), `colors`,
   `exporting`, `tools` (merge, hex import, probe, plugins, editing),
-  `flow`, `exported_objects`; plus `state.py` (constants and the per-capture
+  `flow`, `exported_objects`, `filterhelp` (empty-filter hints, field
+  values); plus `state.py` (constants and the per-capture
   dataclasses `_Open`, `_View`…), `indexing.py` (the index pass's
   module-level helpers) and `helpers.py`), `tshark.py` (discovery/argv/process helpers), `cache.py`
   (row store, frame index, LRU), `pdml.py` (PDML + hexdump parsing),
@@ -194,7 +197,8 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   comments, editcap options, packet counts), `capture.py` (live capture:
   dumpcap interfaces, filters, the pcapng tee), `editing.py` (editcap options
   of capture editing), `hexdump.py` (text2pcap options of Import from Hex
-  Dump), `ber.py` (counting back-to-back BER records), `plugins.py` (`tshark -G
+  Dump), `ber.py` (counting back-to-back BER records), `filterhelp.py` (a filter's
+  field names, case hints, value counts), `plugins.py` (`tshark -G
 plugins` and the plugin folders), `voip.py` (RTP
   stream report, SIP calls, RTP stream
   analysis, G.711 decoding and WAV), `protocol.py` (error codes,
@@ -680,6 +684,71 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   (Esc, the button, a click on the backdrop); Tab cycles button ↔ list.
   Adding it surfaced a real ARIA bug: `aria-expanded` sat on the tree's
   `.node-row` (no role) instead of its `treeitem`.
+- **Empty list** (`viewer/empty.js`, `lib.emptyState`/`filterHintItems`,
+  backend `filter_hints {expr}`): `#list-empty` (drawn by `renderEmpty()`
+  from `updateSpacer` and `updateStatus`, redrawn only when its state key
+  changes) says why there are no rows: a streaming filter still looking
+  ("searching", with the fraction read), a filter that matched nothing
+  ("no-match": stopped early, or packets still being read), a live capture
+  waiting for packets, packets being read, an empty capture. For "no-match"
+  it offers Clear Filter, Previous Filter (`state.previousFilter`, set by
+  `applyFilter` when the expression changes), Edit Filter and Build Filter…,
+  and asks `filter_hints` once the capture is indexed (cached per expression
+  in the webview and the backend, `_filter_hints`; not cached while
+  indexing). The backend names the filter's fields (`filterhelp.filter_fields`:
+  names outside strings that the field catalogue knows, not functions or
+  keywords, at most `MAX_HINT_FIELDS`), finds which occur in no packet with
+  one `-Y "(a) || (b)" -T fields -E occurrence=f -e a -e b` pass that stops
+  once each was seen (`frame`, `_ws`, `geninfo` count as present; a bare
+  protocol field prints its label, so presence = a non-empty cell; this
+  handles mDNS's `dns.*` fields, which a protocol hierarchy check would
+  get wrong), and gives `caseHints` for `field == "Text"` on string fields
+  that occur: `lower(field) == "text"` (a `matches "(?i)…"` hint would need
+  `\.` escapes, which tshark refuses in strings). The webview shows missing
+  fields (with Protocol Hierarchy), case hints with Apply, else "Every field
+  occurs…" with _Values of <field>…_ buttons that open the builder.
+- **Filter builder** (`viewer/builder.js`, `lib.builderOperators`,
+  `filterLiteral`, `builderTerm`, backend `field_values {field, limit}` and
+  `field_index {words}`; the `#filter-build` button, viewer command
+  `buildFilter`, the details menu's _Build Filter from Field…_ with field and
+  value, the empty list): a modal `#builder` dialog (shares `.dialog-box` and
+  `.dialog-head` with the shortcuts list; Tab stays inside, Esc and the
+  backdrop close it, focus goes back to `returnTo` or the element focused
+  before, if still visible: a context-menu item is hidden by then). The field
+  box is a combobox over `FieldCatalog.find` (every word in the name or
+  description; exact name, name prefix, a dotted part equal to the query
+  (`ip.ttl` for "ttl"), name substring, then descriptions; protocols as
+  `type: "protocol"`; the lower-cased texts are built on first use).
+  Relations follow the type (present/absent always; ordered types get < >;
+  strings contains/matches; `in` takes a comma-separated list, since tshark
+  4.2 rejects `{80 443}`). Values: booleans as 1/0 (tshark prints
+  True/False), strings, absolute times and chars quoted. `field_values` is one
+  `-Y field -T fields -E occurrence=a -e frame.number -e field` pass with
+  progress (`phase: "values"`), a packet counting once per value, at most
+  `filterhelp.MAX_DISTINCT` (10,000) distinct values counted (`more` for the
+  rest), the `MAX_VALUES` (200) most frequent returned, cached per field once
+  indexed (`_field_values`). The value list is a listbox (arrows, Home/End);
+  the preview combines the term with the bar's filter (`lib.combineFilter`:
+  replace, and, or, and not; "and" by default when the bar has a filter) and
+  is validated (debounced); Apply applies it, Put in Filter Bar only fills the
+  box.
+- **Recent Captures** (`src/recentCaptures.ts`, `src/commands/recent.ts`):
+  a view container `pcapLens` in the activity bar (`media/activity.svg`,
+  monochrome; `.vscodeignore` drops `media/*.svg` but keeps it) with the tree
+  view `pcapViewer.recentCaptures`. Every load of a capture on disk (not unsaved ones) remembers it in `globalState`
+  (`pcapViewer.recentCaptures`, `MAX_RECENT` 20, most recent first, one per
+  path; `parseRecent` checks the stored data), again on "done" for the final
+  count. Items: file name, "1,234 packets · 2.1 MB · 3 h ago", a tooltip with
+  path, format, time span; a click runs `vscode.openWith(uri,
+"pcapViewer.editor")` (any file name); a missing file shows a warning icon
+  and no command. Inline ✕ and the context menu remove an entry; Reveal File
+  (`revealFile`) and Copy Path; the title bar has Open File, Start Capture,
+  Refresh, Clear and (overflow) Open Sample Capture. Ages refresh when the
+  view becomes visible. `viewsWelcome` (shown while the list is empty) links
+  Open File, Open Sample Capture, Start Capture and Get Started. The item
+  commands are hidden from the palette and in `EXCLUDED_COMMANDS`; _Show
+  Recent Captures_ (`<view>.focus`) and _Clear Recent Captures_ are in ☰
+  Other. The extension's API exposes `recent` for the smoke test.
 - **Service statistics** (`stats {kind: http | dns | plen | srt}`): HTTP
   (`type` packets/requests/load = `-z http,tree` / `http_req,tree` /
   `http_srv,tree`), DNS and packet lengths are tshark's stats_tree reports,
@@ -1631,3 +1700,5 @@ Then Find Packet in the packet list and details, and by regular expression:
 0.10.1.
 Then field info in the status bar, the packet list's overview strip and the
 keyboard shortcuts list: 0.11.0.
+Then friendlier empty lists with hints, the display filter builder and the
+Recent Captures view.
