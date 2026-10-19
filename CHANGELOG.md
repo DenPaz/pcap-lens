@@ -12,8 +12,13 @@ commit) that made it. The format follows
 - Follow Stream: search the stream (`Ctrl+F`, Enter / Shift+Enter, matches
   highlighted) and _Filter Out This Stream_, which hides the stream within
   the display filter already applied. [03478e0]
+- Follow HTTP/2, QUIC and WebSocket streams, with a sub-stream picker for
+  the streams of an HTTP/2 or QUIC connection. [8aae6f8]
+- Follow Stream shows the data as UTF-8, UTF-16, ISO 8859-1, EBCDIC, C
+  arrays or YAML as well as ASCII, hex dump and raw. [8aae6f8]
 
 [03478e0]: https://github.com/DenPaz/vsc_pcap_viewer/commit/03478e0
+[8aae6f8]: https://github.com/DenPaz/vsc_pcap_viewer/commit/8aae6f8
 
 ## 0.9.0 — 2026-10-19
 
