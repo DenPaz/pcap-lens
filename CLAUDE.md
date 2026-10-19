@@ -1312,7 +1312,8 @@ filesize` needs a file) block by block: one chunk can hold many blocks, so
   Challenged (401/407 last) / Failed / No response, with challenges and the
   2xx's Expires. _SIP Statistics_ (`stats {kind: "sip"}`,
   `pcapViewer.statistics.sip`, a tree kind in stats.js) parses `-z sip,stat`
-  (`parse_sip_stat`: messages and `sip.resend`, responses by code, requests
+  (`parse_sip_stat`: messages and `sip.resend == 1` (tshark puts the field, False, on
+  every SIP message), responses by code, requests
   by method, each a filter row; setup average/min/max in a "Time (ms)"
   column). _Ask Copilot…_ in the panel (shown when `ai` is in its init)
   posts `askCopilot {call}` (an index): the host takes the call from its own

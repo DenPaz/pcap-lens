@@ -813,7 +813,7 @@ def parse_sip_stat(text: str) -> Table:
         return table
     row(0, "SIP messages", total, None, "sip")
     if resent is not None:
-        row(1, "Resent", resent, None, "sip.resend")
+        row(1, "Resent", resent, None, "sip.resend == 1")  # (every SIP message has the field)
     row(0, "Responses", sum(n for _c, _p, n in codes), None, "sip.Status-Code")
     for code, phrase, n in sorted(codes):
         row(1, f"{code} {phrase}", n, None, f"sip.Status-Code == {code}")

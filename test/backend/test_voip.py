@@ -431,7 +431,7 @@ def test_sip_stat_report() -> None:
     rows = [(r["depth"], *r["cells"], r.get("filter")) for r in table["rows"]]
     assert rows == [
         (0, "SIP messages", 12, None, "sip"),
-        (1, "Resent", 1, None, "sip.resend"),
+        (1, "Resent", 1, None, "sip.resend == 1"),
         (0, "Responses", 5, None, "sip.Status-Code"),
         (1, "200 OK", 3, None, "sip.Status-Code == 200"),
         (1, "401 Unauthorized", 1, None, "sip.Status-Code == 401"),
@@ -561,5 +561,10 @@ def test_registrations_and_sip_statistics(service: PcapService, ctx: RequestCont
     counts = {r["cells"][0]: r["cells"][1] for r in table["rows"]}
     assert counts["SIP messages"] == 39 and counts["REGISTER"] == 4 and counts["INVITE"] == 5
     assert counts["401 Unauthorized"] == 1
+    # Every row's filter matches as many messages as the row counts.
+    for row in table["rows"]:
+        if row.get("filter"):
+            shown = service.set_filter({"expr": row["filter"]}, ctx)
+            assert shown["matchCount"] == row["cells"][1], row
     setup = {r["cells"][0]: r["cells"][2] for r in table["rows"] if r["cells"][2] is not None}
     assert setup["Min"] <= setup["Setup time (average)"] <= setup["Max"]

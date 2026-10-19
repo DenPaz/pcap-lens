@@ -153,12 +153,16 @@ export class VoipPanel {
         }
         return;
       case "playCall":
-        return this.playCall(msg.id, msg.call, msg.streams);
+        return Number.isInteger(msg.call) && Array.isArray(msg.streams)
+          ? this.playCall(msg.id, msg.call, msg.streams)
+          : undefined;
       case "saveCallAudio":
-        return this.saveCallAudio(msg.call, msg.streams);
+        return Number.isInteger(msg.call) && Array.isArray(msg.streams)
+          ? this.saveCallAudio(msg.call, msg.streams)
+          : undefined;
       case "askCopilot": {
         // From the list this host received, not from the webview's copy.
-        const call = this.calls?.calls[msg.call];
+        const call = Number.isInteger(msg.call) ? this.calls?.calls[msg.call] : undefined;
         if (call && this.calls) {
           await vscode.commands.executeCommand("pcapViewer.askAboutAnomaly", {
             kind: "call",
