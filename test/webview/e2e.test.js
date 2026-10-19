@@ -605,7 +605,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await rowEl(4).click({ button: "right" });
     await page.click("#context-menu .item:has-text('Compare with Packet…')");
     await expectHostLast({ type: "compare", frames: [4] }, { ofType: true });
-    await rowEl(7).click({ modifiers: ["Control"] });
+    await rowEl(7).click({ modifiers: ["ControlOrMeta"] });
     await rowEl(7).click({ button: "right" });
     await page.click("#context-menu .item:has-text('Compare 2 Selected Packets')");
     await expectHostLast({ type: "compare", frames: [4, 7] }, { ofType: true });
