@@ -2,11 +2,12 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { VoipCallData, callSummary } from "../aiAnomaly";
 import { exportFilterAs } from "../commands/export";
 import { revealFile, revealLabel } from "../commands/reveal";
 import { ErrorCodes, RpcError } from "../backendClient";
 import type { PcapEditorSession } from "../pcapEditor";
-import { audioFileName } from "../settingsModel";
+import { audioFileName, exportFileName } from "../settingsModel";
 import { panelHtml, webviewRoot } from "./panelHtml";
 
 /** An RTP stream as the backend's voip_calls lists it. */
@@ -21,26 +22,18 @@ export interface RtpStream {
   lost: number;
   filter: string;
   heuristic?: boolean;
+  /** The call's SDP rtpmap ({"96": "G726-32/8000"}): how to decode dynamic types. */
+  rtpmap?: Record<string, string>;
 }
 
+/** A call's stream as call_audio takes it: 0 = the caller's (left), 1 = the callee's. */
+type CallStream = RtpStream & { channel: 0 | 1; start: number };
+
 /** A SIP call as the backend's voip_calls lists it (see voip.parse_sip_calls). */
-export interface VoipCall {
+export interface VoipCall extends VoipCallData {
   id: number;
   callId: string;
-  from: string;
-  to: string;
-  state: string;
-  streams: number[];
-  /** Ringing and answer delays from the INVITE, and the talk time (s). */
-  ringing: number | null;
-  setup: number | null;
-  duration: number | null;
-  endedBy: "caller" | "callee" | null;
-  final: string;
-  reasons: string[];
   quality: { mos: number; r: number; rating: string; stream: number } | null;
-  dtmf: { digit: string; frame: number; method: string }[];
-  problems: { kind: string; text: string; frame: number | null }[];
   filter: string;
 }
 
@@ -52,6 +45,9 @@ type FromPanel =
   | { type: "save"; stream: RtpStream; format: "wav" | "raw" }
   | { type: "filter"; expr: string }
   | { type: "saveCall"; call: { id: number; filter: string } }
+  | { type: "playCall"; id: number; call: number; streams: CallStream[] }
+  | { type: "saveCallAudio"; call: number; streams: CallStream[] }
+  | { type: "askCopilot"; call: number }
   | { type: "goto"; frame: number };
 
 /**
@@ -83,7 +79,7 @@ export class VoipPanel {
 
   readonly panel: vscode.WebviewPanel;
   /** The last list received (for tests). */
-  calls: { calls: VoipCall[]; streams: RtpStream[] } | undefined;
+  calls: { calls: VoipCall[]; streams: RtpStream[]; registrations?: unknown[] } | undefined;
   private listing: number | undefined;
   /** Where played audio is written (removed with the panel). */
   private readonly audioDir: string;
@@ -133,6 +129,7 @@ export class VoipPanel {
         this.post({
           type: "init",
           title: `VoIP Calls · ${path.basename(this.session.uri.fsPath)}`,
+          ai: await this.session.aiAvailable(),
         });
         return this.list(false);
       case "list":
@@ -155,6 +152,22 @@ export class VoipPanel {
           await exportFilterAs(this.session, msg.call.filter, `call-${n}`, `call ${n}`);
         }
         return;
+      case "playCall":
+        return this.playCall(msg.id, msg.call, msg.streams);
+      case "saveCallAudio":
+        return this.saveCallAudio(msg.call, msg.streams);
+      case "askCopilot": {
+        // From the list this host received, not from the webview's copy.
+        const call = this.calls?.calls[msg.call];
+        if (call && this.calls) {
+          await vscode.commands.executeCommand("pcapViewer.askAboutAnomaly", {
+            kind: "call",
+            call: callSummary(call, this.calls.streams),
+            sessionId: this.session.id,
+          });
+        }
+        return;
+      }
       case "goto":
         this.session.goTo(msg.frame);
         this.session.reveal();
@@ -232,6 +245,69 @@ export class VoipPanel {
       this.post({ type: "audio", id, uri, ...result });
     } catch (err) {
       this.postError(err, id);
+    }
+  }
+
+  /** Both directions of call ``call`` (its index) as one stereo WAV, played in the panel. */
+  private async playCall(id: number, call: number, streams: CallStream[]): Promise<void> {
+    const client = this.backend();
+    if (!client) {
+      return;
+    }
+    try {
+      await fs.mkdir(this.audioDir, { recursive: true });
+      const file = path.join(this.audioDir, `call-${++this.audioSeq}.wav`);
+      const result = await client.request<Record<string, unknown>>(
+        "call_audio",
+        { streams, dest: file },
+        { timeoutMs: 0 },
+      );
+      const uri = this.panel.webview.asWebviewUri(vscode.Uri.file(file)).toString();
+      this.post({ type: "callAudio", id, call, uri, ...result });
+    } catch (err) {
+      this.postError(err, id);
+    }
+  }
+
+  private async saveCallAudio(call: number, streams: CallStream[]): Promise<void> {
+    const client = this.backend();
+    if (!client || !streams.length) {
+      return;
+    }
+    const dest = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.file(
+        exportFileName(this.session.uri.fsPath, `call-${call + 1}`, "wav"),
+      ),
+      filters: { "WAV audio": ["wav"] },
+      title: "Save Call Audio",
+    });
+    if (!dest) {
+      return;
+    }
+    try {
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "Saving the call's audio",
+          cancellable: true,
+        },
+        (_progress, token) =>
+          client.request(
+            "call_audio",
+            { streams, dest: dest.fsPath },
+            { timeoutMs: 0, cancellation: token },
+          ),
+      );
+      const reveal = revealLabel();
+      if ((await vscode.window.showInformationMessage(`Saved ${dest.fsPath}`, reveal)) === reveal) {
+        await revealFile(dest.fsPath);
+      }
+    } catch (err) {
+      if (!(err instanceof RpcError && err.cancelled)) {
+        void vscode.window.showErrorMessage(
+          `Saving the call's audio failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
   }
 

@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { ExplainOutcome, ExplainSink, aiEnabled } from "../ai";
 import {
   AnomalyTarget,
+  CallSummary,
   ExpertRow,
   anomalyQuery,
   defaultExpertQuestion,
@@ -264,19 +265,27 @@ const expertSelections = new Map<number, ExpertRow[]>();
 let nextSelection = 1;
 const MAX_SELECTIONS = 20;
 
-function keepSelection(rows: ExpertRow[]): number {
+/** Calls sent by the VoIP Calls panel, by reference (`@pcap /anomaly call #N`). */
+const callSelections = new Map<number, CallSummary>();
+
+/** Keep `value` under a new reference in `map`, dropping the oldest beyond MAX_SELECTIONS. */
+function keep<T>(map: Map<number, T>, value: T): number {
   const ref = nextSelection++;
-  expertSelections.set(ref, rows);
-  for (const old of expertSelections.keys()) {
-    if (expertSelections.size <= MAX_SELECTIONS) {
+  map.set(ref, value);
+  for (const old of map.keys()) {
+    if (map.size <= MAX_SELECTIONS) {
       break;
     }
-    expertSelections.delete(old);
+    map.delete(old);
   }
   return ref;
 }
 
-/** `@pcap /anomaly stream N | expert [#ref] [question]`: explain expert information or a TCP stream. */
+function keepSelection(rows: ExpertRow[]): number {
+  return keep(expertSelections, rows);
+}
+
+/** `@pcap /anomaly stream N | call #ref | expert [#ref] [question]`: explain expert information, a TCP stream or a VoIP call. */
 async function anomalyInChat(
   provider: PcapEditorProvider,
   prompt: string,
@@ -292,6 +301,7 @@ async function anomalyInChat(
   }
   const { target, question } = parseAnomalyArgs(prompt);
   let rows: ExpertRow[] | undefined;
+  const call = target.kind === "call" ? callSelections.get(target.ref) : undefined;
   if (target.kind === "expert" && target.ref !== undefined) {
     rows = expertSelections.get(target.ref);
     if (!rows) {
@@ -301,12 +311,12 @@ async function anomalyInChat(
     }
   }
   if (!(await statisticsConsent())) {
-    statisticsRefused(stream, "Explaining expert information or a TCP stream");
+    statisticsRefused(stream, "Explaining expert information, a TCP stream or a call");
     return;
   }
   finishInChat(
     stream,
-    await session.explainAnomaly({ target, rows, question }, chatSink(stream), token),
+    await session.explainAnomaly({ target, rows, call, question }, chatSink(stream), token),
   );
 }
 
@@ -434,10 +444,11 @@ export async function summarizeCapture(
   }
 }
 
-/** What the Expert Information and TCP Stream Graph panels ask about (their "Ask Copilot…" buttons). */
+/** What the Expert Information, TCP Stream Graph and VoIP Calls panels ask about (their "Ask Copilot…" buttons). */
 export type AnomalyAsk =
   | { kind: "expert"; rows: ExpertRow[]; question?: string; sessionId?: number }
-  | { kind: "stream"; stream: number; question?: string; sessionId?: number };
+  | { kind: "stream"; stream: number; question?: string; sessionId?: number }
+  | { kind: "call"; call: CallSummary; question?: string; sessionId?: number };
 
 /** "Ask Copilot…" from a panel: @pcap /anomaly in the chat view, else a direct request. */
 export async function askAboutAnomaly(
@@ -457,8 +468,13 @@ export async function askAboutAnomaly(
   session.activate(); // @pcap answers about the active capture
   let target: AnomalyTarget;
   let rows: ExpertRow[] | undefined;
+  let call: CallSummary | undefined;
   let question = ask.question ?? "";
-  if (ask.kind === "stream") {
+  if (ask.kind === "call") {
+    call = ask.call;
+    target = { kind: "call", ref: keep(callSelections, call) };
+    question ||= "Explain this call: did it work, and how was its audio?";
+  } else if (ask.kind === "stream") {
     target = { kind: "stream", stream: ask.stream };
     question ||= "Explain this stream: is anything wrong, and why?";
   } else {
@@ -470,9 +486,14 @@ export async function askAboutAnomaly(
     return;
   }
   if (await statisticsConsent()) {
-    const heading = ask.kind === "stream" ? `TCP stream ${ask.stream}` : "Expert information";
+    const heading =
+      ask.kind === "stream"
+        ? `TCP stream ${ask.stream}`
+        : ask.kind === "call"
+          ? `Call from ${ask.call.from} to ${ask.call.to}`
+          : "Expert information";
     await answerInEditor(heading, "Asking the language model…", (sink, token) =>
-      session.explainAnomaly({ target, rows, question }, sink, token),
+      session.explainAnomaly({ target, rows, call, question }, sink, token),
     );
   }
 }

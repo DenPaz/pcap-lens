@@ -170,19 +170,26 @@ filter, and its rows apply or prepare the matching display filter.
 - Conversations, Endpoints, Protocol Hierarchy, I/O Graph, Expert Information,
   Capture File Properties. The status bar shows the capture's most severe
   expert findings ("3 warnings"); click it for Expert Information.
-- HTTP (status codes, requests by host, load by server), DNS, packet lengths
-  and service response times (ICMP, SMB, LDAP, SNMP, Diameter, GTP…).
+- HTTP (status codes, requests by host, load by server), DNS, packet lengths,
+  service response times (ICMP, SMB, LDAP, SNMP, Diameter, GTP…) and SIP
+  (messages, resends, response codes, request methods, setup times).
 - **Flow graph** of the displayed packets, and **TCP stream graphs** (Stevens,
   throughput, round-trip time, window).
 - **VoIP calls**: SIP calls with their call flow, RTP streams with loss and
-  jitter, per-packet stream analysis, and G.711 audio to play or save as WAV.
+  jitter, per-packet stream analysis, and audio to play or save as WAV (G.711,
+  G.722, G.726-32 and L16; other codecs as their raw payload). _Play Call_
+  plays both directions together (caller left, callee right) over a waveform
+  you can click to seek; _Save Call Audio…_ writes that stereo file. Each
+  stream shows what the receiver's RTCP reports said (loss, jitter, round
+  trip), and a Registrations table lists REGISTER results (challenges,
+  refusals, unregistrations).
   For each call: how long it rang and took to answer, who hung up and why
   (final response, `Reason` header such as "Q.850 cause 16"), an estimated
   MOS (ITU-T E-model, from loss, jitter and codec), the DTMF digits sent
   (RFC 4733 events and SIP INFO), and media problems: no RTP or one-way audio
   after the answer, a codec the SDP didn't agree on, an SSRC change, long
   silences. _Filter Call_ shows the call's packets; _Save Call…_ writes them
-  to a new capture.
+  to a new capture; _Ask Copilot…_ explains the call.
 - **Follow TCP / UDP / TLS / HTTP / HTTP/2 / QUIC / WebSocket stream**, with
   each HTTP/2 or QUIC stream of a connection picked from a list (QUIC and
   HTTP/2 over TLS need the TLS key log). Show the data as ASCII, UTF-8, UTF-16,
@@ -241,7 +248,7 @@ capture data asks first; see [Security](#security) for exactly what is sent.
 - **Explain packets**: right-click _Ask Copilot About This Packet…_ or
   `@pcap /explain 12 15-17`.
 - **Summaries and anomalies**: `@pcap /summary`, and _Ask Copilot_ in the Expert
-  Information and TCP Stream Graph panels (`@pcap /anomaly`).
+  Information, TCP Stream Graph and VoIP Calls panels (`@pcap /anomaly`).
 - **Questions with tools**: `@pcap how many DNS queries got no answer?` counts
   and looks things up read-only in the open capture.
 
@@ -390,6 +397,7 @@ _PCAP: Show Log_ shows backend and tshark messages.
 | _Summarize Capture_, `/summary`              | Capture properties, protocol hierarchy (40 rows), top 15 conversations and endpoints, expert counts, traffic in 12 buckets                | `allowCaptureStatistics` |
 | Expert _Ask Copilot…_, `/anomaly`            | Up to 10 expert entries (5 packet numbers each) and up to 5 conversation rows                                                             | `allowCaptureStatistics` |
 | TCP Stream Graph _Ask Copilot_, `/anomaly`   | Endpoints, derived facts (bytes, retransmissions, RTT, zero windows), up to 200 packets as numbers and flags                              | `allowCaptureStatistics` |
+| VoIP Calls _Ask Copilot…_, `/anomaly`        | The call's SIP message names (60) with times and addresses, SIP URIs, timings, stream statistics and problems; no bodies or DTMF digits   | `allowCaptureStatistics` |
 | `@pcap` tools: count, stats, capture info    | Filters and their counts, statistics tables (25 rows), capture properties                                                                 | `allowCaptureStatistics` |
 | `@pcap` tool: field search                   | Field names and descriptions (nothing from the capture)                                                                                   | `ai.enabled`             |
 | `@pcap` tool: list packets                   | Up to 20 packet-list rows for a filter                                                                                                    | `allowPacketData`        |

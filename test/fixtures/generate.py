@@ -561,6 +561,35 @@ def _calls_without_media(c: _CallScript) -> None:
     c.ack(base + 0.81, IVAN, "ivan", cid)
 
 
+REGISTRAR = "10.0.1.100"
+
+
+def _registrations(c: _CallScript) -> None:
+    """After the calls (so their frame numbers stay): dave registers after
+    a 401 challenge, frank is refused (403), grace unregisters (Expires: 0)."""
+
+    def register(time: float, who: str, addr: str, cseq: int, expires: int, auth: bool = False,
+                 status: str = "") -> None:  # fmt: skip
+        cid = f"reg-{who}@{addr}"
+        headers = f"Expires: {expires}\n"
+        if auth:
+            headers += f'Authorization: Digest username="{who}", realm="example"\n'
+        uri = f"{who}@example.test"
+        c.sip(time, addr, REGISTRAR, "REGISTER sip:example.test SIP/2.0", cid,
+              f"{cseq} REGISTER", uri, uri, headers=headers)  # fmt: skip
+        if status:
+            extra = f"Expires: {expires}\n" if status.startswith("200") else ""
+            if status.startswith("401"):
+                extra = 'WWW-Authenticate: Digest realm="example", nonce="abc"\n'
+            c.sip(time + 0.01, REGISTRAR, addr, f"SIP/2.0 {status}", cid, f"{cseq} REGISTER",
+                  uri, uri, headers=extra)  # fmt: skip
+
+    register(16.0, "dave", DAVE, 1, 3600, status="401 Unauthorized")
+    register(16.1, "dave", DAVE, 2, 3600, auth=True, status="200 OK")
+    register(16.5, "frank", FRANK, 1, 3600, status="403 Forbidden")
+    register(17.0, "grace", GRACE, 1, 0, status="200 OK")
+
+
 def voip_calls_packets() -> list[Packet]:
     """Calls for call quality, timings, media problems and DTMF (all to erin):
 
@@ -574,12 +603,87 @@ def voip_calls_packets() -> list[Packet]:
     4. heidi → erin: cancelled while ringing (Reason: SIP cause 200).
     5. ivan → erin: 480 Temporarily Unavailable (Reason: Q.850 cause 18, no
        text).
+
+    Then three registrations (_registrations).
     """
     script = _CallScript()
     _dtmf_call(script)
     _one_way_call(script)
     _calls_without_media(script)
+    _registrations(script)
     return script.packets()
+
+
+# voip-media.pcap: G.722, G.726-32 and L16 audio with RTCP (both to erin).
+JUDY, KEN = "10.0.1.7", "10.0.1.8"
+CODEC_VECTORS = HERE / "codecs"  # ffmpeg-encoded test vectors (see test_codecs.py)
+RTCP_RTT_MS = 40  # the round trip judy's report gives (LSR/DLSR of erin's SR)
+
+
+def _rtcp_report(ssrc: int, fraction: int, lost: int, highest: int, jitter: int, lsr: int,
+                 dlsr: int) -> bytes:  # fmt: skip
+    return struct.pack(">IIIIII", ssrc, (fraction << 24) | lost, highest, jitter, lsr, dlsr)
+
+
+def _rtcp_sr(src: str, dst: str, sport: int, dport: int, ssrc: int, ntp: int, rtp_ts: int,
+             packets: int, octets: int, block: bytes) -> Packet:  # fmt: skip
+    """An RTCP sender report with one report block (RFC 3550 6.4.1)."""
+    body = struct.pack(">IQIII", ssrc, ntp, rtp_ts, packets, octets) + block
+    header = struct.pack(">BBH", 0x81, 200, (4 + len(body)) // 4 - 1)
+    return Ether() / IP(src=src, dst=dst) / UDP(sport=sport, dport=dport) / Raw(header + body)
+
+
+def _media_stream(c: _CallScript, src: str, dst: str, sport: int, dport: int, pt: int,
+                  ssrc: int, start: float, payloads: list[bytes]) -> None:  # fmt: skip
+    for i, payload in enumerate(payloads):
+        c.at(start + 0.02 * i, _rtp(src, dst, sport, dport, pt, 100 + i, 160 * i, ssrc, payload,
+                                    int(i == 0)))  # fmt: skip
+
+
+def voip_media_packets() -> list[Packet]:
+    """judy → erin: judy sends G.722 (payload type 9), erin G.726-32
+    (dynamic type 96 in the SDP), both from the ffmpeg-encoded vectors in
+    codecs/ (0.5 s of 440 Hz + 3 kHz); each side sends an RTCP sender
+    report about the other's stream, judy's giving a round trip of
+    RTCP_RTT_MS. Then ken → erin: L16 at 8 kHz (dynamic type 97), a 1 kHz
+    tone one way."""
+    c = _CallScript()
+    g722 = (CODEC_VECTORS / "tone.g722").read_bytes()
+    g726 = (CODEC_VECTORS / "tone.g726").read_bytes()
+    cid = "codecs@10.0.1.7"
+    maps = "9 G722/8000, 96 G726-32/8000"
+    c.invite(0.0, JUDY, "judy", cid, _sdp(JUDY, 46000, "9 96", maps))
+    c.reply(0.1, JUDY, "judy", cid, "180 Ringing")
+    c.reply(0.5, JUDY, "judy", cid, "200 OK", body=_sdp(ERIN, 48000, "9 96", maps))
+    c.ack(0.51, JUDY, "judy", cid)
+    start = 0.52
+    _media_stream(c, JUDY, ERIN, 46000, 48000, 9, 0x77777777, start,
+                  [g722[i : i + 160] for i in range(0, len(g722), 160)])  # fmt: skip
+    _media_stream(c, ERIN, JUDY, 48000, 46000, 96, 0x88888888, start + 0.001,
+                  [g726[i : i + 80] for i in range(0, len(g726), 80)])  # fmt: skip
+    # erin's SR at +0.30 s; judy's SR at +0.40 s answers it (LSR = the middle 32
+    # bits of erin's NTP time, DLSR 60 ms), so the round trip is 40 ms.
+    ntp = (3_900_000_000 << 32) | 0x8000_0000
+    dlsr = (100 - RTCP_RTT_MS) * 65536 // 1000
+    c.at(start + 0.30, _rtcp_sr(ERIN, JUDY, 48001, 46001, 0x88888888, ntp, 2400, 15, 1200,
+                                _rtcp_report(0x77777777, 0, 0, 115, 16, 0, 0)))  # fmt: skip
+    c.at(start + 0.40, _rtcp_sr(JUDY, ERIN, 46001, 48001, 0x77777777, ntp + (1 << 32) // 10,
+                                3200, 20, 3200,
+                                _rtcp_report(0x88888888, 26, 2, 119, 40, (ntp >> 16) & 0xFFFFFFFF,
+                                             dlsr)))  # fmt: skip
+    c.bye(1.2, JUDY, "judy", cid)
+
+    cid = "l16@10.0.1.8"
+    c.invite(2.0, KEN, "ken", cid, _sdp(KEN, 50000, "97", "97 L16/8000"))
+    c.reply(2.4, KEN, "ken", cid, "200 OK", body=_sdp(ERIN, 52000, "97", "97 L16/8000"))
+    c.ack(2.41, KEN, "ken", cid)
+    import math  # noqa: PLC0415 - only this fixture needs it
+
+    tone = [int(8000 * math.sin(2 * math.pi * 1000 * n / 8000)) for n in range(4000)]
+    frames = [struct.pack(">160h", *tone[i : i + 160]) for i in range(0, 4000, 160)]
+    _media_stream(c, KEN, ERIN, 50000, 52000, 97, 0x99999999, 2.42, frames)
+    c.bye(3.2, KEN, "ken", cid)
+    return c.packets()
 
 
 def _h2_frame(kind: int, flags: int, stream: int, payload: bytes) -> bytes:
@@ -1134,6 +1238,7 @@ def main() -> None:
     wrpcap(str(HERE / "objects.pcap"), objects_packets())
     wrpcap(str(HERE / "voip.pcap"), voip_packets())
     wrpcap(str(HERE / "voip-calls.pcap"), voip_calls_packets())
+    wrpcap(str(HERE / "voip-media.pcap"), voip_media_packets())
     wrpcap(str(HERE / "services.pcap"), services_packets())
     hexdump_fixtures()
     (HERE / "comments.pcapng").write_bytes(

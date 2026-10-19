@@ -4,7 +4,9 @@ import {
   ExpertRow,
   TcpPoint,
   anomalyQuery,
+  buildCallPrompt,
   buildExpertPrompt,
+  callSummary,
   buildTcpPrompt,
   defaultExpertQuestion,
   downsamplePoints,
@@ -231,5 +233,83 @@ suite("AI anomaly explanations", () => {
       buildExpertPrompt({ question: "", currentFilter: "", rows: ROWS, overview: true }),
       /its errors and warnings/,
     );
+  });
+
+  test("a VoIP call: by reference, summarized within the limits, no bodies or DTMF digits", () => {
+    assert.deepEqual(parseAnomalyArgs("call #4 why one-way?"), {
+      target: { kind: "call", ref: 4 },
+      question: "why one-way?",
+    });
+    assert.equal(anomalyQuery({ kind: "call", ref: 4 }, "why?"), "@pcap /anomaly call #4 why?");
+    const messages = Array.from(
+      { length: ANOMALY_LIMITS.maxCallMessages + 5 },
+      (_, i): [number, number, string, string, string] => [
+        i + 1,
+        i / 10,
+        "10.0.1.3",
+        "10.0.1.2",
+        i ? "INFO" : "INVITE (SDP)",
+      ],
+    );
+    const call = callSummary(
+      {
+        from: "frank@10.0.1.3",
+        to: "erin@10.0.1.2",
+        caller: "10.0.1.3",
+        callee: "10.0.1.2",
+        state: "Completed",
+        final: "200 OK",
+        reasons: ["Q.850 cause 16: Normal call clearing"],
+        endedBy: "caller",
+        ringing: 0.2,
+        setup: 0.5,
+        duration: 2.7,
+        messages,
+        streams: [1, 7],
+        sides: ["caller", "callee"],
+        dtmf: [{ digit: "1" }, { digit: "2" }],
+        problems: [
+          { kind: "one-way", text: "One-way audio: only the caller sends RTP", frame: 212 },
+        ],
+      },
+      [
+        { src: "x", srcPort: 1, dst: "y", dstPort: 2, payload: "g711U", packets: 1, lost: 0 },
+        {
+          src: "10.0.1.3",
+          srcPort: 34000,
+          dst: "10.0.1.2",
+          dstPort: 36000,
+          payload: "g711A",
+          packets: 25,
+          lost: 1,
+          lostPercent: 3.8,
+          maxJitter: 1.5,
+          meanJitter: 0.5,
+          maxDelta: 1520,
+          quality: { mos: 4.1, r: 82.1, rating: "High" },
+          rtcp: { fractionLost: 10.2, cumulativeLost: 2, maxJitter: 5, rtt: 41 },
+        },
+      ],
+    );
+    assert.equal(call.messages.length, ANOMALY_LIMITS.maxCallMessages);
+    assert.equal(call.moreMessages, 5);
+    assert.equal(call.streams.length, 1, "a stream index that isn't listed is left out");
+    assert.equal(call.dtmfCount, 2);
+    const prompt = buildCallPrompt({ question: "Why is there no audio?", call });
+    assert.match(prompt, /Question: Why is there no audio\?/);
+    assert.match(prompt, /From frank@10\.0\.1\.3 \(caller, 10\.0\.1\.3\) to erin@10\.0\.1\.2/);
+    assert.match(prompt, /ended by: caller/);
+    assert.match(prompt, /Reason headers: Q\.850 cause 16: Normal call clearing/);
+    assert.match(prompt, /DTMF: 2 digit\(s\) sent \(the digits are not included\)/);
+    assert.match(prompt, /^1 \| 0 \| 10\.0\.1\.3 \| 10\.0\.1\.2 \| INVITE \(SDP\)$/m);
+    assert.match(prompt, /\[5 more messages not included\]/);
+    assert.match(
+      prompt,
+      /^caller \| 10\.0\.1\.3:34000 \| 10\.0\.1\.2:36000 \| g711A \| 25 \| 1 \(3\.8%\) \| 1\.5 ms \| 0\.5 ms \| 1,520 ms \| 4\.10 High \| 10\.2% lost, 2 in all, jitter 5 ms, round trip 41 ms$/m,
+    );
+    assert.match(prompt, /^212 \| one-way \| One-way audio/m);
+    assert.match(prompt, /untrusted/);
+    assert.doesNotMatch(prompt, /digit": |"1"|\b1, 2\b/);
+    assert.ok(prompt.length <= ANOMALY_LIMITS.maxPromptChars);
   });
 });

@@ -14,6 +14,11 @@ from .helpers import _fields_args
 from .state import _Open
 from .statistics import StatisticsMixin
 
+# call_audio: at most this many streams (an SSRC change adds one) and
+# waveform buckets per channel.
+MAX_CALL_STREAMS = 16
+MAX_PEAKS = 2000
+
 
 def _heuristic_args(heuristic: bool) -> list[str]:
     """tshark options that make it find RTP no signalling set up."""
@@ -45,9 +50,16 @@ class TelephonyMixin(StatisticsMixin):
         media = media_future.result()
         for stream in streams:
             stream["heuristic"] = heuristic
-            voip.stream_media(stream, media.get(voip.StreamKey.from_json(stream)))
-        calls = voip.parse_sip_calls(sip_future.result(), streams)
-        result = {"calls": calls, "streams": streams, "heuristic": heuristic}
+            key = voip.StreamKey.from_json(stream)
+            voip.stream_media(stream, media.streams.get(key), media.rtcp.get(key.ssrc))
+        sip_lines = sip_future.result()
+        calls = voip.parse_sip_calls(sip_lines, streams)
+        result = {
+            "calls": calls,
+            "streams": streams,
+            "registrations": voip.parse_registrations(sip_lines),
+            "heuristic": heuristic,
+        }
         if self._indexing is None:  # (a capture still growing would change)
             self._voip.put(heuristic, result)
         return result
@@ -75,14 +87,13 @@ class TelephonyMixin(StatisticsMixin):
             )
         return lines
 
-    def _media_pass(
-        self, f: _Open, heuristic: bool, ctx: RequestContext
-    ) -> dict[voip.StreamKey, Any]:
-        """voip.parse_media over every RTP packet (streamed: it can be most of
-        the capture). A failure only leaves the streams without its findings."""
+    def _media_pass(self, f: _Open, heuristic: bool, ctx: RequestContext) -> voip.MediaPass:
+        """voip.parse_media over every RTP and RTCP packet (streamed: it can be
+        most of the capture). A failure only leaves the streams without its
+        findings."""
         argv = f.tshark.argv(
-            *_heuristic_args(heuristic), "-n", "-Y", "rtp", *_fields_args(voip.MEDIA_FIELDS),
-            capture=str(f.path),
+            *_heuristic_args(heuristic), *voip.MEDIA_OPTIONS, "-n", "-Y", "rtp || rtcp",
+            *_fields_args(voip.MEDIA_FIELDS), capture=str(f.path),
         )  # fmt: skip
         result = StreamResult()
         lines = (raw.decode("utf-8", "replace") for raw in stream_lines(argv, result, ctx.token))
@@ -109,10 +120,11 @@ class TelephonyMixin(StatisticsMixin):
 
     def rtp_audio(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """Save one RTP stream's audio to ``dest`` (an absolute path): a WAV
-        file (``format`` "wav", the default: G.711 µ-law/A-law decoded, silence
-        for lost packets) or the payload bytes as they are (``format`` "raw",
-        in sequence order, for other codecs). Returns ``codec``, ``seconds``,
-        ``packets``, ``silence`` (s) and ``skipped`` (packets of another type)."""
+        file (``format`` "wav", the default: the voip.PLAYABLE codecs decoded,
+        silence for lost packets; the stream's ``rtpmap`` names dynamic payload
+        types) or the payload bytes as they are (``format`` "raw", in sequence
+        order, for other codecs). Returns ``codec``, ``seconds``, ``packets``,
+        ``silence`` (s) and ``skipped`` (packets of another type)."""
         f = self._require_file()
         key, heuristic = self._stream_param(params)
         fmt = param(params, "format", str, "wav")
@@ -131,7 +143,7 @@ class TelephonyMixin(StatisticsMixin):
                 tmp.write_bytes(ordered)
             return {"format": "raw", "bytes": len(ordered), "packets": len(packets)}
         try:
-            audio = voip.decode_audio(packets)
+            audio = voip.decode_audio(packets, voip.rtpmap_param(params["stream"].get("rtpmap")))
         except ValueError as exc:
             raise InvalidParamsError(str(exc), {"unsupported": True}) from exc
         with atomic_output(dest) as tmp:
@@ -143,6 +155,54 @@ class TelephonyMixin(StatisticsMixin):
             "packets": audio.packets,
             "silence": round(audio.silence / audio.rate, 3),
             "skipped": audio.skipped,
+        }
+
+    def call_audio(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """A whole call's audio as one stereo WAV at ``dest``: ``streams`` (the
+        call's, as voip_calls lists them, each with ``channel`` 0 = left, the
+        caller's, or 1, and the ``start`` voip_calls gave) decoded and placed
+        in step by their first packet. Streams no codec decodes are left out
+        (``skipped``: their indexes). Returns ``seconds``, ``rate``, ``codec``,
+        ``silence`` (s) and ``peaks`` (voip.peaks, ``buckets`` per channel,
+        default and cap MAX_PEAKS) for the waveform."""
+        f = self._require_file()
+        raw = params.get("streams")
+        if not isinstance(raw, list) or not 0 < len(raw) <= MAX_CALL_STREAMS:
+            raise InvalidParamsError(f"streams must list 1 to {MAX_CALL_STREAMS} streams")
+        dest = check_destination(param(params, "dest", str), f.path)
+        buckets = max(1, min(param(params, "buckets", int, MAX_PEAKS), MAX_PEAKS))
+        parts: list[tuple[int, float, voip.Audio]] = []
+        skipped: list[int] = []
+        for i, item in enumerate(raw):
+            key, heuristic = self._stream_param({"stream": item})
+            channel, start = item.get("channel"), item.get("start")
+            if channel not in (0, 1) or not isinstance(start, int | float):
+                raise InvalidParamsError("each stream needs a channel (0 or 1) and a start")
+            ctx.progress({"phase": "rtp", "fraction": i / len(raw)})
+            lines = self._rtp_pass(f, key, heuristic, voip.AUDIO_FIELDS, ctx)
+            try:
+                audio = voip.decode_audio(
+                    voip.audio_packets(lines), voip.rtpmap_param(item.get("rtpmap"))
+                )
+            except ValueError:
+                skipped.append(i)
+                continue
+            parts.append((channel, float(start), audio))
+        if not parts:
+            raise InvalidParamsError(
+                f"none of the call's streams can be played: only {voip.PLAYABLE} can",
+                {"unsupported": True},
+            )
+        mixed = voip.mix_call(parts)
+        with atomic_output(dest) as tmp:
+            voip.write_wav(mixed, tmp)
+        return {
+            "seconds": round(len(mixed.samples) / 2 / mixed.rate, 3),
+            "rate": mixed.rate,
+            "codec": mixed.codec,
+            "silence": round(mixed.silence / mixed.rate, 3),
+            "skipped": skipped,
+            "peaks": voip.peaks(mixed, buckets),
         }
 
     @staticmethod

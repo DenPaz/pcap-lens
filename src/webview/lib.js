@@ -2446,6 +2446,53 @@
     return `${d.digit} · ${d.method} from ${d.src}${ms}`;
   }
 
+  /**
+   * The SVG path of one channel's waveform: the peaks (0-1000, voip.peaks) as
+   * a filled envelope around the middle of a row ``height`` high at ``top``,
+   * ``width`` wide.
+   * @param {number[]} peaks @param {number} width @param {number} height @param {number} [top]
+   */
+  function waveformPath(peaks, width, height, top = 0) {
+    const mid = top + height / 2;
+    const n = peaks.length;
+    if (!n) {
+      return `M0,${mid}H${width}`;
+    }
+    const half = height / 2 - 1;
+    const x = (/** @type {number} */ i) => ((i + 0.5) * width) / n;
+    const y = (/** @type {number} */ v) => Math.max(0.5, (Math.min(v, 1000) / 1000) * half);
+    const fmt = (/** @type {number} */ v) => Number(v.toFixed(2));
+    let d = `M0,${mid}`;
+    for (let i = 0; i < n; i++) {
+      d += `L${fmt(x(i))},${fmt(mid - y(peaks[i]))}`;
+    }
+    d += `L${width},${mid}`;
+    for (let i = n - 1; i >= 0; i--) {
+      d += `L${fmt(x(i))},${fmt(mid + y(peaks[i]))}`;
+    }
+    return `${d}Z`;
+  }
+
+  /**
+   * What the receiver's RTCP reports said about a stream: "RTCP from
+   * 10.0.1.7 (1 report): 10.2% lost (at most 10.2%), 2 lost in all, jitter up
+   * to 5 ms, round trip 41 ms".
+   * @param {{reports: number, from: string, fractionLost: number, maxFractionLost: number,
+   *   cumulativeLost: number, maxJitter: number, rtt: number | null} | null | undefined} r
+   */
+  function rtcpLabel(r) {
+    if (!r) {
+      return "No RTCP reports about this stream.";
+    }
+    const reports = `${r.reports} report${r.reports === 1 ? "" : "s"}`;
+    const rtt = r.rtt === null || r.rtt === undefined ? "" : `, round trip ${r.rtt} ms`;
+    return (
+      `RTCP from ${r.from} (${reports}): ${r.fractionLost}% lost (at most ` +
+      `${r.maxFractionLost}%), ${r.cumulativeLost} lost in all, jitter up to ` +
+      `${Number(r.maxJitter.toFixed(3))} ms${rtt}`
+    );
+  }
+
   const api = {
     COMMAND_GROUP_ORDER,
     groupCommands,
@@ -2460,6 +2507,8 @@
     callFacts,
     callQualityText,
     dtmfLabel,
+    waveformPath,
+    rtcpLabel,
     RP,
     indexingLabel,
     progressView,

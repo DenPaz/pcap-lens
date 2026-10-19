@@ -211,7 +211,8 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   comments, editcap options, packet counts), `capture.py` (live capture:
   dumpcap interfaces, filters, the pcapng tee), `editing.py` (editcap options
   of capture editing), `hexdump.py` (text2pcap options of Import from Hex
-  Dump), `ber.py` (counting back-to-back BER records), `filterhelp.py` (a filter's
+  Dump), `ber.py` (counting back-to-back BER records), `codecs.py` (G.722,
+  G.726-32 and L16 decoders), `filterhelp.py` (a filter's
   field names, case hints, value counts), `plugins.py` (`tshark -G
 plugins` and the plugin folders), `voip.py` (RTP
   stream report, SIP calls, RTP stream
@@ -1272,7 +1273,58 @@ filesize` needs a file) block by block: one chunk can hold many blocks, so
   (`generate.voip_calls_packets`, `_CallScript`) has five calls to erin:
   DTMF both ways with a Q.850 BYE, one-way audio with a codec mismatch, a
   1.5 s pause and an SSRC change, an answered call without RTP, a cancelled
-  one and a 480 with a bare Q.850 cause.
+  one and a 480 with a bare Q.850 cause, then (after them, so their frame
+  numbers stay) three REGISTER transactions to 10.0.1.100.
+  **Codecs, whole calls, RTCP, registrations** (after 0.13.0): `codecs.py`
+  decodes G.722 (64 kbit/s, the ITU reference's integer arithmetic: equal
+  to ffmpeg's output sample for sample), G.726-32 (the Sun/ITU reference
+  `g72x` code; RFC 3551 packing, low nibble first; ffmpeg's own G.726 differs
+  by a 14-bit LSB now and then, so tests compare by SNR > 35 dB) and L16
+  (big-endian, channels averaged); `test/fixtures/codecs/` holds the
+  ffmpeg-made vectors (commands in `test_codecs.py`; ffmpeg isn't needed to
+  run the tests). `voip.codec_for(pt, rtpmap)` picks a `Codec` (name, decoded
+  `rate`, RTP `clock`: G.722 is 16 kHz audio on an 8 kHz clock) from the
+  static types or the SDP's rtpmap: `voip_calls` puts each call's rtpmap on
+  its linked streams (`rtpmap` {"96": "G726-32/8000"}) and `rtp_audio` /
+  `call_audio` read it back through `rtpmap_param` (only well-formed entries:
+  it only picks a decoder). `decode_audio` always decodes every packet in
+  order (ADPCM state) and places it by timestamp × rate / clock.
+  `call_audio {streams: [{…stream, channel, start}], dest, buckets}`
+  (`MAX_CALL_STREAMS` 16) decodes each stream (undecodable ones are
+  `skipped`), `mix_call` resamples to the highest rate (linear interpolation),
+  places each by its report `start`, adds streams sharing a channel, and
+  interleaves stereo (caller left: `sides` on each call, from `_from_caller`);
+  `peaks` gives `buckets` (≤ `MAX_PEAKS` 2000) per channel, 0–1000. The panel's
+  _Play Call_ writes `call-N.wav` in its audio folder and draws the waveform
+  as SVG (`lib.waveformPath`, filled envelope, `preserveAspectRatio="none"`),
+  with a playhead moved on timeupdate and requestAnimationFrame while
+  playing, and a click to seek (the harness's server now answers HTTP
+  ranges, as VS Code's does: Chromium can't seek without them); _Save Call
+  Audio…_ asks where. The media pass reads `-Y "rtp || rtcp"` with
+  `MEDIA_OPTIONS` (`rtcp.show_roundtrip_calculation:TRUE`) and the RTCP
+  fields: report blocks are keyed by the SSRC they report on (`_Rtcp`), so a
+  stream's `rtcp` is what its receiver said: fraction lost (last/max, %),
+  cumulative lost, max jitter (ms by the stream's clock), the last round
+  trip tshark computed (SR time → a later block's LSR/DLSR), `from`, `frame`;
+  the panel shows it under the streams table (`lib.rtcpLabel`) and an RTT
+  column. `parse_registrations` (same SIP lines; `sip.Expires` added) keys
+  REGISTER transactions by Call-ID: Registered / Unregistered (Expires 0) /
+  Challenged (401/407 last) / Failed / No response, with challenges and the
+  2xx's Expires. _SIP Statistics_ (`stats {kind: "sip"}`,
+  `pcapViewer.statistics.sip`, a tree kind in stats.js) parses `-z sip,stat`
+  (`parse_sip_stat`: messages and `sip.resend`, responses by code, requests
+  by method, each a filter row; setup average/min/max in a "Time (ms)"
+  column). _Ask Copilot…_ in the panel (shown when `ai` is in its init)
+  posts `askCopilot {call}` (an index): the host takes the call from its own
+  last list, `aiAnomaly.callSummary` (≤ `maxCallMessages` 60 SIP message
+  names, ≤ `maxCallStreams` 8 streams, DTMF only as a count) and runs
+  `pcapViewer.askAboutAnomaly {kind: "call"}`; the summary is kept host-side
+  (`callSelections`) and referenced as `@pcap /anomaly call #N`;
+  `buildCallPrompt` needs no backend request. `voip-media.pcap`
+  (`generate.voip_media_packets`) has judy → erin with G.722 one way and
+  G.726-32 (type 96) back, from the vectors, plus an RTCP SR each way
+  (judy's reports 26/256 lost and a ~40 ms round trip), and ken → erin with
+  L16/8000 (type 97), a 1 kHz tone one way.
 - **Capture editing** (`editing.py`, `edit_capture {operation, …, dest | dir}`;
   `commands/editCapture.ts`): one editcap run over the whole file (not the
   view; comment edits not included) into `dest` via `atomic_output`, `-F
@@ -1748,3 +1800,6 @@ Then friendlier empty lists with hints, the display filter builder and the
 Recent Captures view: 0.12.0.
 Then VoIP call details: timings and how a call ended, an E-model MOS, DTMF
 digits, media problems and Save Call: 0.13.0.
+Then whole-call stereo playback with a waveform, G.722/G.726-32/L16 audio,
+RTCP reports per stream, SIP statistics and registrations, and Ask Copilot
+about a call.

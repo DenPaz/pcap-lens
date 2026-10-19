@@ -768,6 +768,66 @@ def parse_icmp_srt(text: str, protocol: str) -> Table:
     return table
 
 
+# ---------------------------------------------------------------------- SIP
+
+_SIP_TOTAL = re.compile(r"^Number of SIP messages:\s*(\d+)")
+_SIP_RESENT = re.compile(r"^Number of resent SIP messages:\s*(\d+)")
+_SIP_CODE = re.compile(r"^SIP (?P<code>\d{3}) (?P<phrase>.*?)\s*:\s*(?P<n>\d+) Packets")
+_SIP_METHOD = re.compile(r"^(?P<method>[A-Z][A-Z-]*)\s*:\s*(?P<n>\d+) Packets")
+_SIP_SETUP = re.compile(r"^(?:\* )?(?P<what>Average setup time|Min|Max) (?P<ms>\d+) ms")
+
+
+def parse_sip_stat(text: str) -> Table:
+    """``tshark -z sip,stat``: SIP messages and resends, responses by status
+    code, requests by method (each with its filter), and the setup time
+    (INVITE to its final response) when there were calls: one tree."""
+    table = Table(
+        "sip",
+        "SIP Statistics",
+        [_col("topic", "Topic"), _col("count", "Count", True), _col("ms", "Time (ms)", True)],
+    )
+    total = resent = None
+    codes: list[tuple[int, str, int]] = []
+    methods: list[tuple[str, int]] = []
+    setup: dict[str, int] = {}
+    for line in _lines(text):
+        stripped = line.strip()
+        if m := _SIP_TOTAL.match(stripped):
+            total = int(m[1])
+        elif m := _SIP_RESENT.match(stripped):
+            resent = int(m[1])
+        elif m := _SIP_CODE.match(stripped):
+            codes.append((int(m["code"]), m["phrase"], int(m["n"])))
+        elif m := _SIP_METHOD.match(stripped):
+            methods.append((m["method"], int(m["n"])))
+        elif m := _SIP_SETUP.match(stripped):
+            setup[m["what"]] = int(m["ms"])
+
+    def row(depth: int, topic: str, count: int | None, ms: int | None, flt: str | None) -> None:
+        r: dict[str, Any] = {"cells": [topic, count, ms], "depth": depth}
+        if flt:
+            r["filter"] = flt
+        table.rows.append(r)
+
+    if total is None:
+        return table
+    row(0, "SIP messages", total, None, "sip")
+    if resent is not None:
+        row(1, "Resent", resent, None, "sip.resend")
+    row(0, "Responses", sum(n for _c, _p, n in codes), None, "sip.Status-Code")
+    for code, phrase, n in sorted(codes):
+        row(1, f"{code} {phrase}", n, None, f"sip.Status-Code == {code}")
+    row(0, "Requests", sum(n for _m, n in methods), None, "sip.Method")
+    for method, n in sorted(methods, key=lambda mn: -mn[1]):
+        row(1, method, n, None, f'sip.Method == "{method}"')
+    if "Average setup time" in setup:
+        row(0, "Setup time (average)", None, setup["Average setup time"], None)
+        for what in ("Min", "Max"):
+            if what in setup:
+                row(1, what, None, setup[what], None)
+    return table
+
+
 # ---------------------------------------------------------------------- capinfos
 
 

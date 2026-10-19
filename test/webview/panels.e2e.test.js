@@ -1034,6 +1034,17 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
           await reply("rtp_audio", { stream: msg.stream, dest: path.join(media, name) }, (r) =>
             post({ type: "audio", id: msg.id, uri: `${origin}/media/${name}`, ...r }),
           );
+        } else if (msg.type === "playCall") {
+          const name = `call-${++played}.wav`;
+          await reply("call_audio", { streams: msg.streams, dest: path.join(media, name) }, (r) =>
+            post({
+              type: "callAudio",
+              id: msg.id,
+              call: msg.call,
+              uri: `${origin}/media/${name}`,
+              ...r,
+            }),
+          );
         }
       });
       await page.setContent(renderPanelHtml(origin, "voip.js", { media: true }), {
@@ -1074,6 +1085,48 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       );
       assert.match(await page.textContent("#voip-call-details"), /No media problems found\./);
       assert.equal(await page.$("#voip-dtmf"), null, "no DTMF in this call");
+      // The whole call: caller left, callee right, a waveform with a playhead; a click seeks.
+      assert.ok(await page.$eval("#voip-ask", (b) => b.classList.contains("hidden")), "no AI");
+      await page.click("#voip-play-call");
+      await page.waitForFunction(() => {
+        const a = /** @type {HTMLAudioElement} */ (document.querySelector("#voip-call-audio"));
+        return a.readyState >= 1 && a.duration > 0;
+      });
+      assert.ok(Math.abs((await page.$eval("#voip-call-audio", (a) => a.duration)) - 1) < 0.01);
+      assert.equal(
+        await page.textContent("#voip-call-audio-note"),
+        "G.711 µ-law, 1.0 s, caller left, callee right",
+      );
+      assert.equal((await page.$$("#voip-waveform path.wave")).length, 2);
+      assert.match(
+        await page.getAttribute("#voip-waveform svg", "aria-label"),
+        /^Waveform: Caller alice@10\.0\.0\.1, Callee bob@10\.0\.0\.2\./,
+      );
+      const playCallMsg = await waitLog("playCall");
+      assert.deepEqual(playCallMsg.streams.map((st) => [st.srcPort, st.channel]).sort(), [
+        [40000, 0],
+        [50000, 1],
+      ]);
+      await page.evaluate(() =>
+        /** @type {HTMLAudioElement} */ (document.querySelector("#voip-call-audio")).pause(),
+      );
+      const box = await page.$eval("#voip-waveform", (w) => {
+        const r = w.getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };
+      });
+      await page.mouse.click(box.x + box.width * 0.75, box.y + box.height / 2);
+      const seeked = await page.$eval("#voip-call-audio", (a) => a.currentTime);
+      assert.ok(Math.abs(seeked - 0.75) < 0.05, `seeked to ${seeked}`);
+      await page.waitForFunction(
+        () =>
+          Math.abs(
+            parseFloat(
+              document.querySelector("#voip-waveform .playhead")?.getAttribute("x1") ?? "0",
+            ) - 75,
+          ) < 5,
+      );
+      await page.click("#voip-save-call-audio");
+      assert.equal((await waitLog("saveCallAudio")).streams.length, 2);
       await page.click("#voip-save-call");
       assert.deepEqual((await waitLog("saveCall")).call.id, 0);
       assert.match(
@@ -1101,10 +1154,11 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       const streams = await cells("#voip-streams");
       const alice = streams.findIndex((r) => r[0] === "10.0.0.1:40000");
       assert.deepEqual(streams[alice].slice(3, 6), ["g711U", "49", "1 (2.0%)"]);
-      assert.deepEqual(streams[alice].slice(9), ["4.23 (High)", "", "⚠"]);
+      assert.deepEqual(streams[alice].slice(9), ["", "4.23 (High)", "", "⚠"]);
       assert.ok(await page.$eval("#voip-analyse", (b) => b.disabled), "no stream selected yet");
       await page.click("#voip-flow .flow-row.voip-rtp:has-text('1 lost')");
       await page.waitForSelector(`#voip-streams tbody tr:nth-child(${alice + 1}).selected`);
+      assert.equal(await page.textContent("#voip-rtcp"), "No RTCP reports about this stream.");
 
       await page.click("#voip-analyse");
       await page.waitForSelector("#voip-summary");
@@ -1180,7 +1234,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         const msg = JSON.parse(raw);
         log.push(msg);
         if (msg.type === "ready") {
-          await post({ type: "init", title: "VoIP Calls · voip-calls.pcap" });
+          await post({ type: "init", title: "VoIP Calls · voip-calls.pcap", ai: true });
         } else if (msg.type === "list") {
           const r = await voip.request("voip_calls", { heuristic: false }, { timeoutMs: 0 });
           await post({ type: "calls", ...r, heuristic: false });
@@ -1218,7 +1272,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       await page.click("#voip-dtmf button >> nth=1");
       assert.deepEqual(log.at(-1), { type: "goto", frame: 85 });
       const streamDtmf = await page.$$eval("#voip-streams tbody tr", (trs) =>
-        trs.map((tr) => tr.children[10].textContent),
+        trs.map((tr) => tr.children[11].textContent),
       );
       assert.ok(streamDtmf.includes("4 #"), "the caller's stream lists its RFC 4733 digits");
 
@@ -1245,6 +1299,32 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         document.querySelector("#voip-call-problems")?.textContent?.includes("No RTP after"),
       );
       assert.equal(await page.textContent("#voip-call-quality"), "No RTP to rate.");
+
+      // Ask Copilot (AI help available) sends the selected call, by index.
+      await page.click("#voip-ask");
+      assert.deepEqual(log.at(-1), { type: "askCopilot", call: 2 });
+
+      // Registrations: one row per REGISTER transaction; a row goes to its last packet.
+      const regs = await page.$$eval("#voip-registrations tbody tr", (trs) =>
+        trs.map((tr) => [...tr.children].map((td) => td.textContent)),
+      );
+      assert.deepEqual(
+        regs.map((r) => r.slice(1)),
+        [
+          [
+            "dave@example.test",
+            "10.0.1.1",
+            "10.0.1.100",
+            "Registered (1 challenge)",
+            "200 OK",
+            "3600",
+          ],
+          ["frank@example.test", "10.0.1.3", "10.0.1.100", "Failed", "403 Forbidden", "3600"],
+          ["grace@example.test", "10.0.1.4", "10.0.1.100", "Unregistered", "200 OK", "0"],
+        ],
+      );
+      await page.click("#voip-registrations tbody tr >> nth=1");
+      assert.deepEqual(log.at(-1), { type: "goto", frame: 287 });
     } finally {
       await voip.dispose();
     }

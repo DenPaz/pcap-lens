@@ -12,7 +12,7 @@ import { TOOL_LIMITS } from "./aiTools";
 
 /** Exactly what the statistics-based AI features send: shown in the consent prompt (and README). */
 export const STATISTICS_CONSENT =
-  "Summarizing a capture, explaining expert information or a TCP stream, and answering @pcap questions with tools " +
+  "Summarizing a capture, explaining expert information, a TCP stream or a VoIP call, and answering @pcap questions with tools " +
   "send statistics computed from the capture by tshark to the language model (GitHub Copilot), never packet contents " +
   "or bytes: the capture's properties (packets, duration, size, link type); its protocol hierarchy; its top " +
   `${SUMMARY_LIMITS.maxRows} conversations and endpoints by bytes (IP addresses, ports, host names when name ` +
@@ -20,7 +20,9 @@ export const STATISTICS_CONSENT =
   `time in ${SUMMARY_LIMITS.ioBuckets} buckets; for an explanation, the selected expert entries (with up to ` +
   `${ANOMALY_LIMITS.maxFramesPerRow} packet numbers each) and their conversation, or up to ` +
   `${ANOMALY_LIMITS.maxPoints} packets of a TCP stream as sequence numbers, lengths, windows, round-trip times and ` +
-  "retransmission flags; and the results of @pcap's tools (packet counts for display filters, the same statistics " +
+  `retransmission flags, or a VoIP call's SIP message flow (up to ${ANOMALY_LIMITS.maxCallMessages} message names ` +
+  "with times and addresses, the parties' SIP URIs, no message bodies or DTMF digits) with its RTP streams' " +
+  "statistics; and the results of @pcap's tools (packet counts for display filters, the same statistics " +
   `with up to ${TOOL_LIMITS.maxStatsRows} rows). Listing packets (their summary lines) also needs ` +
   "pcapViewer.ai.allowPacketData. Addresses and host names can be private. Your choice is saved in the " +
   "pcapViewer.ai.allowCaptureStatistics setting (user settings only).";

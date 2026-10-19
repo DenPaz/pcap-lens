@@ -194,7 +194,7 @@ def test_emodel() -> None:
 def test_media_pass() -> None:
     def rtp(frame: int, time: float, pt: int, ts: int, event: str = "", dur: str = "") -> str:
         cells = [str(frame), str(time), "10.0.0.1", "", "4000", "10.0.0.2", "", "5000",
-                 "0x00000010", str(pt), str(ts), event, dur]  # fmt: skip
+                 "0x00000010", str(pt), str(ts), event, dur, "", "", "", "", "", ""]  # fmt: skip
         return "\t".join(cells)
 
     media = voip.parse_media([
@@ -203,9 +203,9 @@ def test_media_pass() -> None:
         rtp(5, 0.08, 101, 320, "11", "480"), rtp(6, 1.50, 0, 480), rtp(7, 1.52, 13, 640),
         "garbage",
     ])  # fmt: skip
-    (key,) = media
+    (key,) = media.streams
     assert key == voip.StreamKey("10.0.0.1", 4000, "10.0.0.2", 5000, 16)
-    m = media[key]
+    m = media.streams[key]
     assert (m.first_frame, m.audio_types, m.gaps) == (1, {0: 3, 13: 1}, [[6, 0.08, 1.42]])
     stream = {"src": "10.0.0.1", "srcPort": 4000, "payload": "g711U", "lostPercent": 0.0,
               "meanJitter": 0.0}  # fmt: skip
@@ -398,3 +398,168 @@ def test_call_details(service: PcapService, ctx: RequestContext) -> None:
     # The call's filter adds its streams' RTCP (none in this capture).
     assert "(rtcp && ip.src == 10.0.1.3 && udp.srcport == 34001)" in oneway["filter"]
     assert oneway["filter"].count("rtcp") == 1, "one per sending endpoint"
+
+
+SIP_STAT_REPORT = """
+===================================================================
+SIP Statistics
+
+Number of SIP messages: 12
+Number of resent SIP messages: 1
+
+* SIP Status Codes in reply packets
+  SIP 486 Busy Here       :     1 Packets
+  SIP 200 OK              :     3 Packets
+  SIP 401 Unauthorized    :     1 Packets
+
+* List of SIP Request methods
+  INVITE          :     2 Packets
+  ACK             :     2 Packets
+  REGISTER        :     3 Packets
+
+* Average setup time 500 ms
+ Min 100 ms
+ Max 900 ms
+===================================================================
+"""
+
+
+def test_sip_stat_report() -> None:
+    from pcap_backend import stats  # noqa: PLC0415 - this test only
+
+    table = stats.parse_sip_stat(SIP_STAT_REPORT).to_json()
+    rows = [(r["depth"], *r["cells"], r.get("filter")) for r in table["rows"]]
+    assert rows == [
+        (0, "SIP messages", 12, None, "sip"),
+        (1, "Resent", 1, None, "sip.resend"),
+        (0, "Responses", 5, None, "sip.Status-Code"),
+        (1, "200 OK", 3, None, "sip.Status-Code == 200"),
+        (1, "401 Unauthorized", 1, None, "sip.Status-Code == 401"),
+        (1, "486 Busy Here", 1, None, "sip.Status-Code == 486"),
+        (0, "Requests", 7, None, "sip.Method"),
+        (1, "REGISTER", 3, None, 'sip.Method == "REGISTER"'),
+        (1, "INVITE", 2, None, 'sip.Method == "INVITE"'),
+        (1, "ACK", 2, None, 'sip.Method == "ACK"'),
+        (0, "Setup time (average)", None, 500, None),
+        (1, "Min", None, 100, None),
+        (1, "Max", None, 900, None),
+    ]
+    assert stats.parse_sip_stat("nothing").rows == []
+
+
+def test_mixing_a_call_and_its_waveform() -> None:
+    caller = voip.Audio(array("h", [1000] * 8), 8000, "G.711 µ-law", 1, 0, 0)
+    callee = voip.Audio(array("h", [-2000] * 8), 16000, "G.722", 1, 0, 0)
+    # The callee's audio starts 1 ms later (16 samples at 16 kHz) and is at 16 kHz.
+    mixed = voip.mix_call([(1, 0.101, callee), (0, 0.1, caller)])
+    assert (mixed.rate, mixed.channels, mixed.codec) == (16000, 2, "G.711 µ-law + G.722")
+    left, right = list(mixed.samples[0::2]), list(mixed.samples[1::2])
+    assert left[:16] == [1000] * 16 and left[16:] == [0] * 8
+    assert right[:16] == [0] * 16 and right[16:] == [-2000] * 8
+    # Two streams on one side (an SSRC change) are added where they overlap.
+    both = voip.mix_call([(0, 0.0, caller), (0, 0.0005, caller)])
+    assert list(both.samples[0::2]) == [1000] * 4 + [2000] * 4 + [1000] * 4
+    peaks = voip.peaks(mixed, 3)
+    assert peaks == [[30, 30, 0], [0, 0, 61]]
+
+
+@pytest.fixture
+def media_open(service: PcapService, ctx: RequestContext) -> PcapService:
+    service.open({"path": str(FIXTURES / "voip-media.pcap")}, ctx)
+    return service
+
+
+@pytest.mark.tshark
+def test_g722_g726_and_l16_streams_decode(
+    media_open: PcapService, ctx: RequestContext, tmp_path: Path
+) -> None:
+    import test_codecs  # noqa: PLC0415 - its reference vectors
+
+    result = media_open.voip_calls({}, ctx)
+    streams = {s["srcPort"]: s for s in result["streams"]}
+    assert streams[48000]["rtpmap"] == {"9": "G722/8000", "96": "G726-32/8000"}
+    decoded: dict[int, array[int]] = {}
+    for port, codec in ((46000, "G.722"), (48000, "G.726-32"), (50000, "L16")):
+        dest = tmp_path / f"{port}.wav"
+        res = media_open.rtp_audio({"stream": streams[port], "dest": str(dest)}, ctx)
+        assert (res["codec"], res["seconds"]) == (codec, pytest.approx(0.5))
+        with wave.open(str(dest), "rb") as wav:
+            decoded[port] = array("h", wav.readframes(wav.getnframes()))
+        if sys.byteorder == "big":
+            decoded[port].byteswap()
+    assert decoded[46000] == test_codecs._pcm("ref-g722.pcm")
+    assert test_codecs._snr_db(decoded[48000], test_codecs._pcm("ref-g726.pcm")) > 35
+    assert _zero_crossing_hz(decoded[50000], 8000) == pytest.approx(1000, rel=0.02)
+    # Without the SDP's rtpmap, the dynamic types can't be decoded.
+    bare = {k: v for k, v in streams[48000].items() if k != "rtpmap"}
+    with pytest.raises(InvalidParamsError, match="payload type 96") as err:
+        media_open.rtp_audio({"stream": bare, "dest": str(tmp_path / "x.wav")}, ctx)
+    assert err.value.data == {"unsupported": True}
+
+
+@pytest.mark.tshark
+def test_rtcp_reports_per_stream(media_open: PcapService, ctx: RequestContext) -> None:
+    streams = {s["srcPort"]: s for s in media_open.voip_calls({}, ctx)["streams"]}
+    # judy (10.0.1.7) reported on erin's stream: 26/256 lost, 2 in all, jitter
+    # 40 units of the 8 kHz clock, and the round trip from erin's SR.
+    erin = streams[48000]["rtcp"]
+    assert erin["from"] == generate.JUDY and erin["reports"] == 1
+    assert (erin["fractionLost"], erin["cumulativeLost"], erin["maxJitter"]) == (10.2, 2, 5.0)
+    assert erin["rtt"] == pytest.approx(generate.RTCP_RTT_MS, abs=1)
+    judy = streams[46000]["rtcp"]
+    assert (judy["from"], judy["fractionLost"], judy["rtt"]) == (generate.ERIN, 0.0, None)
+    assert streams[50000]["rtcp"] is None
+
+
+@pytest.mark.tshark
+def test_a_whole_call_as_stereo(
+    voip_open: PcapService, ctx: RequestContext, tmp_path: Path
+) -> None:
+    result = voip_open.voip_calls({}, ctx)
+    call = result["calls"][0]
+    assert sorted(call["sides"]) == ["callee", "caller"]
+    streams = [
+        {**result["streams"][i], "channel": 0 if side == "caller" else 1}
+        for i, side in zip(call["streams"], call["sides"], strict=True)
+    ]
+    dest = tmp_path / "call.wav"
+    res = voip_open.call_audio({"streams": streams, "dest": str(dest), "buckets": 100}, ctx)
+    assert (res["rate"], res["seconds"], res["skipped"]) == (8000, pytest.approx(1.0), [])
+    assert [len(p) for p in res["peaks"]] == [100, 100]
+    with wave.open(str(dest), "rb") as wav:
+        assert (wav.getnchannels(), wav.getframerate()) == (2, 8000)
+        samples = array("h", wav.readframes(wav.getnframes()))
+    if sys.byteorder == "big":
+        samples.byteswap()
+    # Caller (alice, 440 Hz) left, callee (bob, 880 Hz) right, each from its
+    # first packet's time (alice's comes a fraction of a ms later).
+    left, right = samples[0::2], samples[1::2]
+    start = {s["channel"]: s["start"] for s in streams}
+    lead = round((start[0] - start[1]) * 8000)
+    assert lead > 0 and not any(left[:lead]) and any(right[:lead])
+    assert _zero_crossing_hz(left[: 160 * generate.RTP_LOST], 8000) == pytest.approx(440, rel=0.03)
+    assert _zero_crossing_hz(right[:4000], 8000) == pytest.approx(880, rel=0.03)
+    with pytest.raises(InvalidParamsError, match="channel"):
+        voip_open.call_audio({"streams": [{**streams[0], "channel": 2}], "dest": str(dest)}, ctx)
+    with pytest.raises(InvalidParamsError, match="streams"):
+        voip_open.call_audio({"streams": [], "dest": str(dest)}, ctx)
+
+
+@pytest.mark.tshark
+def test_registrations_and_sip_statistics(service: PcapService, ctx: RequestContext) -> None:
+    service.open({"path": str(FIXTURES / "voip-calls.pcap")}, ctx)
+    regs = service.voip_calls({}, ctx)["registrations"]
+    assert [(r["aor"], r["state"], r["final"], r["expires"], r["challenges"]) for r in regs] == [
+        ("dave@example.test", "Registered", "200 OK", 3600, 1),
+        ("frank@example.test", "Failed", "403 Forbidden", 3600, 0),
+        ("grace@example.test", "Unregistered", "200 OK", 0, 0),
+    ]
+    assert regs[0]["client"] == generate.DAVE and regs[0]["registrar"] == generate.REGISTRAR
+    shown = service.set_filter({"expr": regs[0]["filter"]}, ctx)
+    assert shown["matchCount"] == 4  # REGISTER, 401, REGISTER, 200
+    table = service.stats({"kind": "sip"}, ctx)
+    counts = {r["cells"][0]: r["cells"][1] for r in table["rows"]}
+    assert counts["SIP messages"] == 39 and counts["REGISTER"] == 4 and counts["INVITE"] == 5
+    assert counts["401 Unauthorized"] == 1
+    setup = {r["cells"][0]: r["cells"][2] for r in table["rows"] if r["cells"][2] is not None}
+    assert setup["Min"] <= setup["Setup time (average)"] <= setup["Max"]

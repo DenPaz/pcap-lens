@@ -26,6 +26,11 @@ Feature: VoIP calls
     When I save the audio of the RTP stream from "10.0.0.2:50000"
     Then the file is 1 second of 8000 Hz WAV audio with a 880 Hz tone
 
+  Scenario: A whole call as stereo audio
+    When I list the VoIP calls
+    And I save the audio of call 1
+    Then the file is stereo 8000 Hz audio with a 440 Hz tone on the left and a 880 Hz tone on the right
+
   Scenario: A stream's filter shows its packets
     When I list the VoIP calls
     And I apply the filter of the RTP stream from "10.0.0.2:50000"

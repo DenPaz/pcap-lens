@@ -204,6 +204,11 @@ suite("AI capture summary", () => {
       STATISTICS_CONSENT,
       new RegExp(`up to ${ANOMALY_LIMITS.maxPoints} packets of a TCP stream`),
     );
+    assert.match(
+      STATISTICS_CONSENT,
+      new RegExp(`up to ${ANOMALY_LIMITS.maxCallMessages} message names`),
+    );
+    assert.match(STATISTICS_CONSENT, /no message bodies or DTMF digits/);
     assert.match(STATISTICS_CONSENT, new RegExp(`up to ${TOOL_LIMITS.maxStatsRows} rows`));
     assert.match(STATISTICS_CONSENT, /IP addresses, ports, host names/);
     assert.match(

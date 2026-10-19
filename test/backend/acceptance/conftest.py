@@ -74,6 +74,7 @@ class World:
     objects: list[dict[str, Any]] | None = None
     save_dir: Path | None = None
     voip: dict[str, Any] | None = None  # voip_calls' result
+    saved_result: dict[str, Any] | None = None  # rtp_audio's result
     saved: Path | None = None  # a file saved by a step
     imported: dict[str, Any] | None = None  # import_hexdump's result
     import_dest: Path | None = None
@@ -1897,7 +1898,7 @@ def analysis_gap(world: World, frame: str, gap: str) -> None:
 @when(parsers.re(r'I save the audio of the RTP stream from "(?P<source>[^"]+)"$'))
 def save_rtp_audio(world: World, source: str, tmp_path: Path) -> None:
     world.saved = tmp_path / "audio.wav"
-    world.service.rtp_audio(
+    world.saved_result = world.service.rtp_audio(
         {"stream": _rtp_stream(world, source), "dest": str(world.saved)}, world.ctx
     )
 
@@ -2000,6 +2001,90 @@ def apply_call_filter(world: World, n: str) -> None:
 @when(parsers.re(r"I export the packets of call (?P<n>\d+) as (?P<fmt>pcapng|pcap)$"))
 def export_call(world: World, tmp_path: Path, n: str, fmt: str) -> None:
     _export(world, tmp_path, fmt, f"call.{fmt}", filter=_call(world, n)["filter"])
+
+
+@when(parsers.re(r"I save the audio of call (?P<n>\d+)$"))
+def save_call_audio(world: World, n: str, tmp_path: Path) -> None:
+    result, call = _voip(world), _call(world, n)
+    streams = [
+        {**result["streams"][i], "channel": 0 if side == "caller" else 1}
+        for i, side in zip(call["streams"], call["sides"], strict=True)
+    ]
+    world.saved = tmp_path / "call.wav"
+    world.service.call_audio({"streams": streams, "dest": str(world.saved)}, world.ctx)
+
+
+def _tone_hz(samples: array[int], rate: int) -> float:
+    crossings = sum(1 for a, b in itertools.pairwise(samples) if (a < 0) != (b < 0))
+    return crossings / 2 / (len(samples) / rate)
+
+
+@then(
+    parsers.re(
+        r"the file is stereo (?P<rate>\d+) Hz audio with a (?P<left>\d+) Hz tone on the left "
+        r"and a (?P<right>\d+) Hz tone on the right$"
+    )
+)
+def stereo_tones(world: World, rate: str, left: str, right: str) -> None:
+    assert world.saved is not None
+    with wave.open(str(world.saved), "rb") as wav:
+        assert (wav.getnchannels(), wav.getframerate()) == (2, int(rate))
+        samples = array("h", wav.readframes(wav.getnframes()))
+    if sys.byteorder == "big":
+        samples.byteswap()
+    # The first 0.4 s (before the caller's lost packet), each channel.
+    span = int(rate) * 4 // 10
+    assert _tone_hz(samples[0::2][:span], int(rate)) == pytest.approx(int(left), rel=0.03)
+    assert _tone_hz(samples[1::2][:span], int(rate)) == pytest.approx(int(right), rel=0.03)
+
+
+@then(parsers.re(r"the file is decoded as (?P<codec>[\w.\-]+) at (?P<rate>\d+) Hz$"))
+def decoded_as(world: World, codec: str, rate: str) -> None:
+    assert world.saved is not None
+    with wave.open(str(world.saved), "rb") as wav:
+        assert wav.getframerate() == int(rate)
+        assert wav.getnframes() == int(rate) // 2  # 0.5 s
+    assert world.saved_result is not None and world.saved_result["codec"] == codec
+
+
+@then(
+    parsers.re(
+        r'RTCP from (?P<reporter>\S+) says the RTP stream from "(?P<source>[^"]+)" lost '
+        r"(?P<pct>[\d.]+)% with a round trip of about (?P<rtt>\d+) ms$"
+    )
+)
+def rtcp_says(world: World, reporter: str, source: str, pct: str, rtt: str) -> None:
+    rtcp = _rtp_stream(world, source)["rtcp"]
+    assert (rtcp["from"], rtcp["fractionLost"]) == (reporter, float(pct))
+    assert rtcp["rtt"] == pytest.approx(int(rtt), abs=1)
+
+
+@then(parsers.re(r'the RTP stream from "(?P<source>[^"]+)" has no RTCP reports$'))
+def no_rtcp(world: World, source: str) -> None:
+    assert _rtp_stream(world, source)["rtcp"] is None
+
+
+@then(parsers.re(r"the registrations are (?P<regs>.+)$"))
+def registrations(world: World, regs: str) -> None:
+    got = [f"{r['aor']} {r['state']}" for r in _voip(world)["registrations"]]
+    assert got == items(regs)
+
+
+@when("I ask for the SIP statistics")
+def sip_statistics(world: World) -> None:
+    world.table = world.service.stats({"kind": "sip"}, world.ctx)
+
+
+@then(
+    parsers.re(
+        r"the SIP statistics count (?P<invites>\d+) INVITE and (?P<registers>\d+) REGISTER "
+        r"requests$"
+    )
+)
+def sip_statistics_count(world: World, invites: str, registers: str) -> None:
+    assert world.table is not None
+    counts = {r["cells"][0]: r["cells"][1] for r in world.table["rows"] if r["depth"] == 1}
+    assert (counts["INVITE"], counts["REGISTER"]) == (int(invites), int(registers))
 
 
 @when(parsers.re(r'I apply the filter of the RTP stream from "(?P<source>[^"]+)"$'))

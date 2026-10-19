@@ -14,8 +14,10 @@
   (ITU-T G.107) turns loss, jitter and codec into an R-factor and MOS.
 * The stream analysis follows one stream packet by packet (RFC 3550 jitter,
   sequence errors, skew), like Wireshark's RTP Stream Analysis.
-* Audio: G.711 µ-law and A-law payloads are decoded to 16-bit PCM and
-  written as a WAV file (stdlib ``wave``), with silence for lost packets.
+* Audio: G.711 µ-law and A-law, G.722, G.726-32 and L16 payloads are decoded
+  to 16-bit PCM (codecs.py; dynamic payload types by the SDP's rtpmap) and
+  written as a WAV file (stdlib ``wave``), with silence for lost packets; a
+  call's two directions can be written as one stereo file, in step.
 
 Everything here is pure (text in, data out); the service runs tshark.
 """
@@ -27,11 +29,12 @@ import re
 import sys
 import wave
 from array import array
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, BinaryIO
 
+from . import codecs
 from .protocol import InvalidParamsError
 from .stats import _lines
 
@@ -80,6 +83,7 @@ SIP_EXTRA_FIELDS = [
     "sip.msg_body",
     "sdp.media",
     "sdp.media_attr",
+    "sip.Expires",
 ]
 SIP_FIELDS += SIP_EXTRA_FIELDS
 # The media pass: every RTP packet (the stream key, payload type, events).
@@ -97,7 +101,17 @@ MEDIA_FIELDS = [
     "rtp.timestamp",
     "rtpevent.event_id",
     "rtpevent.duration",
+    # RTCP rows (``-Y "rtp || rtcp"``): report blocks, one value per block.
+    "rtcp.pt",
+    "rtcp.ssrc.identifier",
+    "rtcp.ssrc.fraction",
+    "rtcp.ssrc.cum_nr",
+    "rtcp.ssrc.jitter",
+    "rtcp.roundtrip-delay",
 ]
+# Makes tshark compute rtcp.roundtrip-delay (from an SR's time and a later
+# report block's LSR and DLSR).
+MEDIA_OPTIONS = ["-o", "rtcp.show_roundtrip_calculation:TRUE"]
 RTP_FIELDS = [
     "frame.number",
     "frame.time_epoch",
@@ -277,20 +291,47 @@ class _Media:
     last_time: float | None = None
 
 
+@dataclass(slots=True)
+class _Rtcp:
+    """The RTCP report blocks about one SSRC (sent by the stream's receiver)."""
+
+    reporter: str
+    reports: int = 0
+    fraction: int = 0  # the last report's fraction lost (/256)
+    max_fraction: int = 0
+    cumulative: int = 0
+    max_jitter: int = 0  # timestamp units
+    rtt: int | None = None  # ms, the last round trip tshark computed
+    max_rtt: int | None = None
+    frame: int = 0  # the last report
+
+
+@dataclass(slots=True)
+class MediaPass:
+    """parse_media's result: RTP streams by key, RTCP reports by reported SSRC."""
+
+    streams: dict[StreamKey, _Media] = field(default_factory=dict)
+    rtcp: dict[int, _Rtcp] = field(default_factory=dict)
+
+
 def _last(cell: str) -> str:
     """The innermost of a field's occurrences (tunnels repeat ip.src)."""
     return cell.rsplit(",", 1)[-1]
 
 
-def parse_media(lines: str | Iterable[str]) -> dict[StreamKey, _Media]:
+def parse_media(lines: str | Iterable[str]) -> MediaPass:
     """Per stream, from a ``-T fields`` pass with MEDIA_FIELDS over the RTP
-    packets (its text or lines, in capture order): the audio payload types
-    and their packet counts, the RFC 4733 telephone-events (one per event
-    and timestamp: the end packet is sent three times) and the gaps of at
-    least SILENCE_GAP_S between two packets."""
-    media: dict[StreamKey, _Media] = {}
+    and RTCP packets (its text or lines, in capture order): the audio payload
+    types and their packet counts, the RFC 4733 telephone-events (one per
+    event and timestamp: the end packet is sent three times), the gaps of at
+    least SILENCE_GAP_S between two packets, and the RTCP report blocks
+    about each SSRC."""
+    media = MediaPass()
     for cells in _rows(lines, len(MEDIA_FIELDS)):
-        frame_cell, rel, src4, src6, sport, dst4, dst6, dport, ssrc, pt, ts, event, dur = cells
+        frame_cell, rel, src4, src6, sport, dst4, dst6, dport, ssrc, pt, ts, event, dur = cells[:13]
+        if cells[13]:
+            _rtcp_row(media, cells, _last(src4 or src6))
+            continue
         try:
             frame, time = int(frame_cell), float(rel)
             key = StreamKey(
@@ -300,9 +341,9 @@ def parse_media(lines: str | Iterable[str]) -> dict[StreamKey, _Media]:
             payload_type = int(_last(pt))
         except ValueError:
             continue
-        m = media.get(key)
+        m = media.streams.get(key)
         if m is None:
-            m = media[key] = _Media(frame)
+            m = media.streams[key] = _Media(frame)
         gap = time - m.last_time if m.last_time is not None else 0.0
         if gap >= SILENCE_GAP_S and len(m.gaps) < MAX_GAPS:
             m.gaps.append([frame, round(time - gap, 6), round(gap, 3)])
@@ -316,15 +357,40 @@ def parse_media(lines: str | Iterable[str]) -> dict[StreamKey, _Media]:
     return media
 
 
+def _rtcp_row(media: MediaPass, cells: list[str], reporter: str) -> None:
+    """Count an RTCP packet's report blocks (aligned lists: SSRC, fraction,
+    cumulative lost, jitter) under the SSRCs they report on."""
+    blocks = zip(*(c.split(",") for c in cells[14:18]), strict=False)
+    rtt = cells[18].split(",")[0]
+    for ssrc, fraction, cumulative, jitter in blocks:
+        try:
+            key = int(ssrc, 0)
+            values = int(fraction), int(cumulative), int(jitter)
+        except ValueError:
+            continue
+        r = media.rtcp.setdefault(key, _Rtcp(reporter))
+        r.reports += 1
+        r.fraction, r.cumulative = values[0], values[1]
+        r.max_fraction = max(r.max_fraction, values[0])
+        r.max_jitter = max(r.max_jitter, values[2])
+        r.frame = int(cells[0]) if cells[0].isdigit() else r.frame
+        if rtt.isdigit():
+            r.rtt = int(rtt)
+            r.max_rtt = max(r.max_rtt or 0, r.rtt)
+
+
 def _digit(event: int) -> str:
     return DTMF_DIGITS[event] if event < len(DTMF_DIGITS) else f"event {event}"
 
 
-def stream_media(stream: dict[str, Any], m: _Media | None) -> None:
+def stream_media(stream: dict[str, Any], m: _Media | None, rtcp: _Rtcp | None = None) -> None:
     """Add the media pass's findings to an rtp,streams row: ``payloadTypes``
     (audio, most packets first), ``dtmf`` [{digit, frame, time, duration
     (ms), method, src}], ``gaps`` [[frame, time, seconds]], ``firstFrame``,
-    and the E-model ``quality``."""
+    the E-model ``quality``, and ``rtcp``: what the receiver's report blocks
+    said (``reports``, ``fractionLost``/``maxFractionLost`` in %,
+    ``cumulativeLost``, ``maxJitter`` ms, ``rtt``/``maxRtt`` ms, ``from``,
+    ``frame``) or None."""
     types = sorted(m.audio_types, key=lambda t: -m.audio_types[t]) if m else []
     stream["payloadTypes"] = types
     stream["firstFrame"] = m.first_frame if m else None
@@ -342,6 +408,21 @@ def stream_media(stream: dict[str, Any], m: _Media | None) -> None:
         }
         for (_ts, event), (frame, time, units) in (m.events.items() if m else ())
     ]
+    stream["rtcp"] = (
+        {
+            "reports": rtcp.reports,
+            "fractionLost": round(rtcp.fraction * 100 / 256, 1),
+            "maxFractionLost": round(rtcp.max_fraction * 100 / 256, 1),
+            "cumulativeLost": rtcp.cumulative,
+            "maxJitter": round(rtcp.max_jitter * 1000 / clock, 3),
+            "rtt": rtcp.rtt,
+            "maxRtt": rtcp.max_rtt,
+            "from": rtcp.reporter,
+            "frame": rtcp.frame,
+        }
+        if rtcp
+        else None
+    )
     jitter = stream.get("meanJitter", stream.get("maxJitter", 0.0))
     stream["quality"] = emodel(max(stream["lostPercent"], 0.0), jitter, audio)
 
@@ -404,6 +485,7 @@ class _Call:
     offer: list[int] | None = None  # payload types of the first SDP offer and answer
     answer: list[int] | None = None
     names: dict[int, str] = field(default_factory=dict)  # rtpmap: payload type → name
+    rtpmap: dict[int, str] = field(default_factory=dict)  # payload type → "G726-32/8000"
     dtmf: list[dict[str, Any]] = field(default_factory=list)  # SIP INFO digits
 
 
@@ -535,11 +617,89 @@ def parse_sip_calls(
             elif not method and cseq_method == "INVITE" and formats is not None:
                 call.answer = formats
             for attr in sdp_attr.split(AGGREGATOR):
-                m = re.match(r"rtpmap:(\d+)\s+([^/\s]+)", attr)
+                m = re.match(r"rtpmap:(\d+)\s+(([^/\s]+)\S*)", attr)
                 if m:
-                    call.names[int(m[1])] = m[2]
+                    call.names[int(m[1])] = m[3]
+                    call.rtpmap[int(m[1])] = m[2]
         call.messages.append([int(frame), time, src, dst, label])
     return [_call_json(i, call, streams) for i, call in enumerate(calls.values())]
+
+
+@dataclass(slots=True)
+class _Registration:
+    aor: str
+    client: str
+    registrar: str
+    start: float
+    first_frame: int
+    expires: int | None = None
+    requests: int = 0
+    challenges: int = 0
+    final: str = ""
+    code: int = 0
+    last_frame: int = 0
+
+
+def parse_registrations(text: str | Iterable[str]) -> list[dict[str, Any]]:
+    """REGISTER transactions by Call-ID from the SIP pass's lines, in order:
+    ``aor`` (the To URI), ``client`` and ``registrar`` (addresses),
+    ``state`` (Registered, Unregistered (Expires: 0), Challenged (401/407
+    with no later answer), Failed, No response), ``final`` (the last final
+    response), ``expires`` (s: the 2xx's, else the request's), ``requests``,
+    ``challenges``, ``start``, ``frames`` [first, last] and a ``filter``."""
+    regs: dict[str, _Registration] = {}
+    for line in _lines(text) if isinstance(text, str) else text:
+        cells = line.split("\t")
+        if len(cells) < len(SIP_FIELDS):
+            continue
+        frame, rel, src4, src6, dst4, dst6, call_id, method, code = cells[:9]
+        status_line, cseq_method, _fu, _fh, to_user, to_host = cells[9:15]
+        expires = cells[SIP_FIELDS.index("sip.Expires")].split(AGGREGATOR)[0]
+        if cseq_method != "REGISTER" or not call_id or not frame.isdigit():
+            continue
+        call_id = call_id.split(AGGREGATOR)[0]
+        try:
+            time = float(rel)
+        except ValueError:
+            continue
+        reg = regs.get(call_id)
+        if method == "REGISTER":
+            if reg is None:
+                reg = regs[call_id] = _Registration(
+                    _uri(to_user, to_host), src4 or src6, dst4 or dst6, time, int(frame)
+                )
+            reg.requests += 1
+            if expires.isdigit():
+                reg.expires = int(expires)
+        elif reg is not None and code.isdigit():
+            status = int(code)
+            if status in (401, 407):
+                reg.challenges += 1
+            if status >= 200:
+                reg.code, reg.final = status, status_line.removeprefix("SIP/2.0 ").strip() or code
+                if 200 <= status < 300 and expires.isdigit():
+                    reg.expires = int(expires)
+        if reg is not None:
+            reg.last_frame = int(frame)
+    out: list[dict[str, Any]] = []
+    for call_id, reg in regs.items():
+        if 200 <= reg.code < 300:
+            state = "Unregistered" if reg.expires == 0 else "Registered"
+        elif reg.code in (401, 407):
+            state = "Challenged"
+        elif reg.code:
+            state = "Failed"
+        else:
+            state = "No response"
+        quoted = call_id.replace("\\", "\\\\").replace('"', '\\"')
+        out.append({
+            "aor": reg.aor, "client": reg.client, "registrar": reg.registrar, "state": state,
+            "final": reg.final, "expires": reg.expires, "requests": reg.requests,
+            "challenges": reg.challenges, "start": reg.start,
+            "frames": [reg.first_frame, reg.last_frame],
+            "filter": f'sip.Call-ID == "{quoted}"',
+        })  # fmt: skip
+    return out
 
 
 def _request(call: _Call, method: str, side: str, time: float) -> None:
@@ -587,6 +747,15 @@ def _types_text(types: Iterable[int], names: dict[int, str]) -> str:
     return ", ".join(f"{names.get(t) or PAYLOAD_NAMES.get(t, 'type')} ({t})" for t in types)
 
 
+def _from_caller(call: _Call, s: dict[str, Any]) -> bool:
+    """Whether a linked stream goes from the caller's side to the callee's
+    (by which side's SDP named its source or destination)."""
+    return (
+        call.media.get((s["src"], s["srcPort"])) == "caller"
+        or call.media.get((s["dst"], s["dstPort"])) == "callee"
+    )
+
+
 def _problems(
     call: _Call, streams: list[dict[str, Any]], linked: list[int]
 ) -> list[dict[str, Any]]:
@@ -604,14 +773,7 @@ def _problems(
         if not linked:
             add("no-rtp", "No RTP after the call was answered", call.answer_frame, None)
         else:
-
-            def from_caller(s: dict[str, Any]) -> bool:
-                return (
-                    call.media.get((s["src"], s["srcPort"])) == "caller"
-                    or call.media.get((s["dst"], s["dstPort"])) == "callee"
-                )
-
-            sides = {from_caller(streams[i]) for i in linked}
+            sides = {_from_caller(call, streams[i]) for i in linked}
             if len(sides) == 1:
                 sender, silent = ("caller", "callee") if sides == {True} else ("callee", "caller")
                 add(
@@ -676,6 +838,8 @@ def _call_json(index: int, call: _Call, streams: list[dict[str, Any]]) -> dict[s
     parts += dict.fromkeys(
         f"({_rtcp_filter(streams[i]['src'], streams[i]['srcPort'])})" for i in linked
     )
+    for i in linked:  # (how to decode the streams' dynamic payload types)
+        streams[i].setdefault("rtpmap", {}).update({str(pt): e for pt, e in call.rtpmap.items()})
     rated = [(streams[i]["quality"], i) for i in linked if streams[i].get("quality")]
     worst = min(rated, key=lambda qi: qi[0]["mos"], default=None)
     dtmf = sorted(
@@ -704,6 +868,8 @@ def _call_json(index: int, call: _Call, streams: list[dict[str, Any]]) -> dict[s
         "duration": round(end - call.answered, 6) if call.answered is not None else None,
         "messages": call.messages,
         "streams": linked,
+        # (parallel to streams: who sends each; whole-call audio puts the caller left)
+        "sides": ["caller" if _from_caller(call, streams[i]) else "callee" for i in linked],
         "quality": {**worst[0], "stream": worst[1]} if worst else None,
         "dtmf": dtmf,
         "problems": _problems(call, streams, linked),
@@ -868,7 +1034,66 @@ def _alaw(byte: int) -> int:
 # 256-entry decoding tables (ITU-T G.711), 16-bit linear samples.
 ULAW = array("h", (_ulaw(b) for b in range(256)))
 ALAW = array("h", (_alaw(b) for b in range(256)))
-CODECS = {PCMU: ("G.711 µ-law", ULAW), PCMA: ("G.711 A-law", ALAW)}
+
+
+def _g711(table: array[int]) -> Callable[[], codecs.Decoder]:
+    return lambda: lambda payload: array("h", (table[b] for b in payload))
+
+
+@dataclass(frozen=True, slots=True)
+class Codec:
+    """A codec the audio can be decoded with: its decoded sample ``rate``
+    and RTP timestamp ``clock`` (G.722: 16 kHz audio on an 8 kHz clock)."""
+
+    name: str
+    rate: int
+    clock: int
+    decoder: Callable[[], codecs.Decoder]
+
+
+STATIC_CODECS = {
+    PCMU: Codec("G.711 µ-law", 8000, 8000, _g711(ULAW)),
+    PCMA: Codec("G.711 A-law", 8000, 8000, _g711(ALAW)),
+    9: Codec("G.722", 16000, 8000, codecs.g722_decoder),
+    10: Codec("L16 stereo", 44100, 44100, lambda: codecs.l16_decoder(2)),
+    11: Codec("L16", 44100, 44100, codecs.l16_decoder),
+}
+_ENCODING_RE = re.compile(r"([\w.\-]+)/(\d{3,6})(?:/([1-8]))?")
+PLAYABLE = "G.711 µ-law and A-law, G.722, G.726-32 and L16"
+
+
+def codec_for(payload_type: int, rtpmap: dict[int, str] | None = None) -> Codec | None:
+    """How to decode ``payload_type``: by the SDP's rtpmap encoding ("G726-32/8000",
+    "L16/16000/2") when it names one we decode, else the static types."""
+    encoding = (rtpmap or {}).get(payload_type)
+    m = _ENCODING_RE.fullmatch(encoding or "")
+    if m:
+        name, clock, channels = m[1].upper(), int(m[2]), int(m[3] or 1)
+        if name == "PCMU":
+            return STATIC_CODECS[PCMU]
+        if name == "PCMA":
+            return STATIC_CODECS[PCMA]
+        if name == "G722":
+            return STATIC_CODECS[9]
+        if name == "G726-32":
+            return Codec("G.726-32", clock, clock, codecs.g726_32_decoder)
+        if name == "L16":
+            label = "L16" if channels == 1 else f"L16 ({channels} channels)"
+            return Codec(label, clock, clock, lambda: codecs.l16_decoder(channels))
+    return STATIC_CODECS.get(payload_type) if payload_type < 96 else None
+
+
+def rtpmap_param(raw: Any) -> dict[int, str]:
+    """A stream's ``rtpmap`` as the client sends it back ({"96": "G726-32/8000"}):
+    only well-formed entries are kept (it only picks a decoder)."""
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        int(k): v
+        for k, v in raw.items()
+        if isinstance(k, str) and k.isdigit() and int(k) < 128
+        and isinstance(v, str) and _ENCODING_RE.fullmatch(v)
+    }  # fmt: skip
 
 
 def _payload(cell: str) -> bytes:
@@ -900,70 +1125,140 @@ def raw_payload(packets: Iterable[tuple[int, int, int, bytes]]) -> bytes:
 
 @dataclass(slots=True)
 class Audio:
-    """Decoded audio of a stream: 16-bit mono PCM at ``rate``."""
+    """Decoded audio: 16-bit PCM at ``rate``, ``channels`` interleaved."""
 
     samples: array[int]
     rate: int
     codec: str
     packets: int
-    silence: int  # samples inserted for missing packets
+    silence: int  # samples inserted for missing packets (per channel)
     skipped: int  # packets of another payload type (e.g. DTMF events)
+    channels: int = 1
 
 
-def decode_audio(packets: Iterable[tuple[int, int, int, bytes]]) -> Audio:
-    """Decode a G.711 stream in sequence order, placing each packet at its
+def decode_audio(
+    packets: Iterable[tuple[int, int, int, bytes]], rtpmap: dict[int, str] | None = None
+) -> Audio:
+    """Decode a stream in sequence order, placing each packet at its
     timestamp: missing packets become silence (up to MAX_GAP_S), duplicates
-    are dropped. The stream's first G.711 payload type decides the codec;
-    packets of other types are skipped. Raises ValueError when no packet is
-    G.711 (other codecs can only be saved as raw payload)."""
+    are dropped. The first payload type we can decode (codec_for) decides the
+    codec; packets of other types are skipped. Raises ValueError when no
+    packet can be decoded (other codecs can only be saved as raw payload)."""
     seq_ext, ts_ext = _Extended(16), _Extended(32)
-    ordered: dict[int, tuple[int, int, bytes]] = {}
+    ordered: dict[int, tuple[int, bytes]] = {}
     codec_pt: int | None = None
+    codec: Codec | None = None
     other_types: set[int] = set()
     skipped = 0
     for seq, ts, pt, payload in packets:
         eseq, ets = seq_ext(seq), ts_ext(ts)
-        if codec_pt is None and pt in CODECS:
-            codec_pt = pt
+        if codec is None and (found := codec_for(pt, rtpmap)) is not None:
+            codec_pt, codec = pt, found
         if pt != codec_pt:
             skipped += 1
             other_types.add(pt)
             continue
-        ordered.setdefault(eseq, (ets, pt, payload))
-    if codec_pt is None:
+        ordered.setdefault(eseq, (ets, payload))
+    if codec is None:
         types = ", ".join(str(t) for t in sorted(other_types)) or "none"
-        raise ValueError(
-            f"only G.711 µ-law and A-law (payload types 0 and 8) can be played; "
-            f"this stream has payload type {types}"
-        )
-    name, table = CODECS[codec_pt]
-    rate = CLOCK_RATES[codec_pt]
+        raise ValueError(f"only {PLAYABLE} can be played; this stream has payload type {types}")
+    decode = codec.decoder()
     samples = array("h")
     silence = 0
     start: int | None = None
     for eseq in sorted(ordered):
-        ets, _pt, payload = ordered[eseq]
+        ets, payload = ordered[eseq]
         if start is None:
             start = ets
-        offset = ets - start
-        missing = offset - len(samples)
-        if 0 < missing <= MAX_GAP_S * rate:
+        pcm = decode(payload)  # (always: ADPCM decoders keep state)
+        missing = (ets - start) * codec.rate // codec.clock - len(samples)
+        if 0 < missing <= MAX_GAP_S * codec.rate:
             samples.extend(array("h", bytes(2 * missing)))
             silence += missing
-        elif missing < 0 and -missing >= len(payload):
+        elif missing < 0 and -missing >= len(pcm):
             continue  # (all of it already played: a duplicate)
-        samples.extend(table[b] for b in payload)
-    return Audio(samples, rate, name, len(ordered), silence, skipped)
+        samples.extend(pcm)
+    return Audio(samples, codec.rate, codec.name, len(ordered), silence, skipped)
+
+
+def resample(samples: array[int], rate: int, to: int) -> array[int]:
+    """Linear interpolation from ``rate`` to ``to`` (a call mixing codecs:
+    G.722's 16 kHz with G.711's 8 kHz)."""
+    if rate == to or not samples:
+        return samples
+    count = len(samples) * to // rate
+    last = len(samples) - 1
+    out = array("h", bytes(2 * count))
+    for i in range(count):
+        pos = i * rate / to
+        j = int(pos)
+        frac = pos - j
+        nxt = samples[j + 1] if j < last else samples[j]
+        out[i] = int(samples[j] + (nxt - samples[j]) * frac)
+    return out
+
+
+def mix_call(parts: Iterable[tuple[int, float, Audio]]) -> Audio:
+    """One stereo Audio from a call's decoded streams: ``(channel, start,
+    audio)`` with channel 0 (left: the caller's) or 1 and ``start`` the
+    stream's first packet (s), so both directions play in step. Streams on
+    one channel (an SSRC change) are added; everything is resampled to the
+    highest rate."""
+    parts = list(parts)
+    rate = max(a.rate for _c, _s, a in parts)
+    first = min(start for _c, start, _a in parts)
+    channels: list[array[int]] = [array("h"), array("h")]
+    for channel, start, audio in parts:
+        pcm = resample(audio.samples, audio.rate, rate)
+        target = channels[channel]
+        offset = round((start - first) * rate)
+        if len(target) < offset + len(pcm):
+            target.extend(array("h", bytes(2 * (offset + len(pcm) - len(target)))))
+        if not any(target[offset : offset + len(pcm)]):
+            target[offset : offset + len(pcm)] = pcm
+        else:  # (overlapping audio on one side: add, saturated)
+            for i, v in enumerate(pcm):
+                target[offset + i] = max(-32768, min(32767, target[offset + i] + v))
+    length = max(len(c) for c in channels)
+    stereo = array("h", bytes(4 * length))
+    for i, c in enumerate(channels):
+        c.extend(array("h", bytes(2 * (length - len(c)))))
+        stereo[i::2] = c
+    return Audio(
+        stereo,
+        rate,
+        " + ".join(dict.fromkeys(a.codec for _c, _s, a in sorted(parts, key=lambda p: p[0]))),
+        sum(a.packets for _c, _s, a in parts),
+        sum(a.silence * rate // a.rate for _c, _s, a in parts),
+        sum(a.skipped for _c, _s, a in parts),
+        channels=2,
+    )
+
+
+def peaks(audio: Audio, buckets: int) -> list[list[int]]:
+    """Per channel, the loudest sample of each of ``buckets`` equal slices (or
+    of each sample, when there are fewer), 0-1000 of full scale: what the panel
+    draws as the waveform."""
+    out: list[list[int]] = []
+    for c in range(audio.channels):
+        samples = audio.samples[c :: audio.channels]
+        n = len(samples)
+        count = min(buckets, n)
+        out.append([
+            max(map(abs, samples[i * n // count : (i + 1) * n // count])) * 1000 // 32768
+            for i in range(count)
+        ])  # fmt: skip
+    return out
 
 
 def write_wav(audio: Audio, out: BinaryIO | Path) -> None:
-    """Write ``audio`` as a 16-bit mono WAV file (little-endian samples)."""
+    """Write ``audio`` as a 16-bit WAV file (little-endian samples)."""
     data = array("h", audio.samples)
     if sys.byteorder == "big":
         data.byteswap()
     target = str(out) if isinstance(out, Path) else out
     with wave.open(target, "wb") as wav:
-        wav.setnchannels(1)
+        wav.setnchannels(audio.channels)
         wav.setsampwidth(2)
         wav.setframerate(audio.rate)
         wav.writeframes(data.tobytes())
