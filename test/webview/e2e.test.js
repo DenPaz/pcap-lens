@@ -2573,9 +2573,16 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
           document.querySelector("#status-left")?.textContent ?? "",
         ),
       );
-      await page.waitForFunction(
-        () => document.querySelectorAll("#list-rows .list-row:not(.loading)").length > 0,
-      );
+      // (The unfiltered rows stay drawn until the filtered page arrives: wait for it.)
+      await page.waitForFunction(() => {
+        const at = [...document.querySelectorAll("#list-header > div")].findIndex(
+          (h) => /** @type {HTMLElement} */ (h).dataset.id === "protocol",
+        );
+        const cells = [...document.querySelectorAll("#list-rows .list-row:not(.loading)")].map(
+          (r) => r.children[at]?.textContent,
+        );
+        return cells.length > 0 && cells.every((c) => c === "DNS");
+      });
       assert.deepEqual([...new Set(await column("protocol"))], ["DNS"]);
       await page.click("#list-header > div[data-id='length']");
       await page.waitForFunction(() =>
