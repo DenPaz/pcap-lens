@@ -7,6 +7,12 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- Going to a packet or applying a filter from a panel (VoIP, statistics,
+  follow stream…) no longer opens the capture a second time beside it and
+  leaves the first tab empty.
+
 ## 0.14.0 — 2026-10-19
 
 ### Added

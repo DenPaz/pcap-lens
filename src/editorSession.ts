@@ -760,7 +760,7 @@ export class PcapEditorSession {
           void vscode.commands.executeCommand("pcapViewer.openBerRecords", { uri: this.uri });
         } else if (choice) {
           // The command reopens the active editor: make it this one first.
-          this.panel.reveal(undefined, false);
+          this.reveal();
           void vscode.commands.executeCommand("workbench.action.reopenWithEditor");
         }
       });
@@ -1351,7 +1351,10 @@ export class PcapEditorSession {
 
   /** Bring the capture editor to the front (e.g. after a panel applied a filter). */
   reveal(): void {
-    this.panel.reveal(undefined, false);
+    // In its own column: without one VS Code reveals it in the active group,
+    // usually the panel's beside it, opening the capture there too and moving
+    // the webview, which left the first tab empty.
+    this.panel.reveal(this.panel.viewColumn, false);
   }
 
   focusFilter(): void {
