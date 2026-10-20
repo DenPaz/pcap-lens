@@ -181,6 +181,15 @@ filter, and its rows apply or prepare the matching display filter.
   graphs are kept for the next I/O graph.
 - **Credentials**: the usernames logins carried in the clear (HTTP Basic, FTP,
   POP, IMAP…), each linked to its packet.
+- **IPv4 and IPv6 statistics**: all addresses, source and destination
+  addresses, protocol types, destinations and ports. **UDP multicast
+  streams** with packets per second, bandwidth and 100 ms bursts (more than 50
+  raise an alarm). **Resolved addresses** (the names the capture's DNS answers
+  gave) and **SCTP associations** (chunks per direction).
+- **GeoIP**: with MaxMind databases (GeoLite2 City, Country, ASN) in
+  `pcapViewer.geoip.databaseFolders` or tshark's usual folders, IP endpoints
+  get country, city and AS columns and a world map of where they are, and the
+  `ip.geoip.*` fields work in the details and in filters.
 - HTTP (status codes, requests by host, load by server), DNS, packet lengths,
   service response times (ICMP, SMB, LDAP, SNMP, Diameter, GTP…) and SIP
   (messages, resends, response codes, request methods, setup times).
@@ -216,7 +225,8 @@ filter, and its rows apply or prepare the matching display filter.
   capture filter; the list fills as packets arrive. Needs
   [permission to capture](#live-capture).
 - **Capture editing** (_PCAP: Edit Capture…_): time shift, remove duplicates,
-  keep a range, truncate, split, embed TLS keys. The result is a new capture.
+  keep a range, truncate, split, embed a TLS, SSH or WireGuard key log. The
+  result is a new capture.
 - **Export** packets (displayed, all, selected or marked) to pcapng/pcap, the
   packet list to CSV/JSON, packet bytes, full dissections as text, PDML or
   JSON, and the TLS session keys tshark could decrypt as a key log.
@@ -235,6 +245,15 @@ and never overwrite the open capture.
 
 - **TLS decryption** with an `SSLKEYLOGFILE` key log (_PCAP: Set TLS Key Log
   File…_); the viewer offers a reload when the file gets new keys.
+- **Decryption keys** (_PCAP: Decryption Keys…_): Wi-Fi WEP keys, WPA/WPA2
+  passphrases and pre-shared keys, TLS RSA private keys, SSH and WireGuard key
+  logs, IPsec ESP security associations and Kerberos keytabs. They are kept in
+  VS Code's secret storage (not in settings files) and apply to every capture,
+  like Wireshark's own key tables, which tshark still reads too.
+- **Enabled protocols** (_PCAP: Enabled Protocols…_): switch protocols and
+  heuristic dissectors on or off for a workspace folder (say, RTP on any UDP
+  port), starting from what you set in Wireshark; _Disable Protocol_ in the
+  packet details' menu switches one off at once.
 - **Lua dissectors**: _PCAP: New Lua Dissector…_ scaffolds one, _PCAP: Reload
   Dissectors_ checks it and links errors to their line (see
   `backend/dissectors/example.lua`). _PCAP: Lua Dissectors…_ (or the status
@@ -309,6 +328,8 @@ be set in user settings.
 | `decodeAs`†, `prefs`†                                                       | Decode As rules (`"tcp.port==8080,http"`) and preference overrides          |
 | `tlsKeyLogFile`†                                                            | TLS key log for decryption                                                  |
 | `wiresharkProfile`†                                                         | Wireshark configuration profile tshark uses (empty: Default)                |
+| `enabledProtocols`†, `heuristicDissectors`†                                 | Protocols and heuristic dissectors switched on or off                       |
+| `geoip.databaseFolders`                                                     | Folders of MaxMind databases for GeoIP                                      |
 | `columns`†, `columnLayout`                                                  | Custom columns; column order and hidden columns                             |
 | `timeFormat`                                                                | `relative`, `delta_displayed`, `delta_captured`, `absolute`, `utc`, `epoch` |
 | `savedFilters`, `filterButtons`                                             | Named filters and filter buttons (user or workspace)                        |
@@ -406,6 +427,10 @@ _PCAP: Show Log_ shows backend and tshark messages.
   a strict Content-Security-Policy with a per-load nonce, and can only call an
   allow-list of backend methods.
 - CSV exports prefix cells that look like formulas with `'`.
+- **Decryption keys** stay in VS Code's secret storage. tshark gets them as
+  command-line options, so other users of the same computer could see them in
+  the process list while a capture is being read; use a key file (RSA, SSH,
+  WireGuard, Kerberos) where that matters.
 - **AI requests** go through VS Code's Language Model API, so VS Code asks for
   consent and your Copilot policies apply. `"pcapViewer.ai.enabled": false`
   turns it all off. The `allow*` settings are user-only, so a workspace can't

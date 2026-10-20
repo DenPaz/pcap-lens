@@ -23,7 +23,7 @@ CONTRIBUTING.md for building, testing and releasing (not packaged).
 | Package                   | `pnpm run package` (vsce, `--no-dependencies`)                                                                                                           |
 | Prepare a release         | `pnpm run release:prepare 0.2.0` on `dev` (then PR `dev` → `main`, tag the merge, push the tag)                                                          |
 | Icon / screenshots        | `node scripts/render-icon.js` / `node scripts/screenshots.js` (after `pnpm run compile`; `CHROMIUM_PATH` for another Chromium)                           |
-| Update dev deps           | `make update` (`ncu -u` within `.ncurc.cjs`, `pnpm install`, `pnpm run codicons`, `uv lock --upgrade`, `uv sync`)                                        |
+| Update dev deps           | `make update` (`ncu -u` within `.ncurc.cjs`, `pnpm install`, `pnpm run codicons`, `pnpm run worldmap`, `uv lock --upgrade`, `uv sync`)                   |
 
 The `Makefile` wraps all of these (`make` lists the targets; `make check` = lint + tests).
 
@@ -170,11 +170,16 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   pickers' rows, what an import writes (pure); `src/commands/profiles.ts`.
   `src/firewall.ts` firewall ACL rules for a packet (pure);
   `src/commands/firewall.ts`.
+  `src/protocolsModel.ts` Enabled Protocols' states and overrides (pure);
+  `src/commands/protocols.ts`. `src/decryptionKeys.ts` decryption keys'
+  shapes, labels and checks (pure); `src/commands/decryption.ts` the key
+  store (secret storage) and its command.
   `src/recentCaptures.ts` the Recent Captures list (pure);
   `src/commands/recent.ts` its tree view and commands.
 - `src/webview/` plain JS/CSS/HTML (no build step). `lib.js` = pure helpers
   shared with Node tests (a classic script, `window.PcapLib`, like the panels'
-  scripts); `main.js` = the editor's entry, an ES module (`<script
+  scripts and `worldmap.js`, the Endpoints map's land outline that
+  `scripts/world-map.mjs` generates from world-atlas); `main.js` = the editor's entry, an ES module (`<script
 type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   server allows the CORS fetch) that imports `viewer/*.js`, one module per
   part of the UI (`core` = shared state, constants, element lookups and
@@ -219,7 +224,10 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   Dump), `ber.py` (counting back-to-back BER records), `codecs.py` (G.722,
   G.726-32 and L16 decoders), `filterhelp.py` (a filter's
   field names, case hints, value counts), `plugins.py` (`tshark -G
-plugins` and the plugin folders), `wsprofile.py` (Wireshark profiles: where
+plugins` and the plugin folders), `decryption.py` (decryption keys and
+  GeoIP folders as `-o` options), `protocols.py` (Enabled Protocols'
+  listings and Wireshark's switch files), `geoip.py` (a stdlib MaxMind
+  `.mmdb` reader), `wsprofile.py` (Wireshark profiles: where
   they are, their colorfilters/dfilter_buttons/dfilters/dfilter_macros/
   gui.column.format), `voip.py` (RTP
   stream report, SIP calls, RTP stream
@@ -238,7 +246,8 @@ plugins` and the plugin folders), `wsprofile.py` (Wireshark profiles: where
   steps in its `conftest.py`, feature tag `@tshark` → skip without tshark,
   `@lua` → skip as root), `test/extension/unit` mocha (Node), `test/extension/suite`
   VS Code smoke test, `test/webview` mocha (lib + Chromium e2e), `test/fixtures`
-  scapy-generated captures and `fake_dumpcap.py` (a stand-in dumpcap for
+  scapy-generated captures, `mmdb.py` (writes the GeoIP test databases in
+  `geoip/`) and `fake_dumpcap.py` (a stand-in dumpcap for
   capture tests: `PCAP_VIEWER_DUMPCAP` = JSON argv), `test/perf/bench.py`.
 
 ## Rules (from the brief — do not break)
@@ -989,6 +998,91 @@ fields -e frame.number` (with `-q` alone tshark decrypts nothing and
   and kind (MAC source, IP source, IP destination, destination port,
   source + port), deny/allow and inbound/outbound toggled with the
   QuickPick's title buttons; picking one copies it, nothing runs.
+- **Enabled Protocols** (`protocols.py`, `enabled_protocols`,
+  `protocolsModel.ts`, `commands/protocols.ts`): `open {protocols,
+heuristics}` (`pcapViewer.enabledProtocols` / `heuristicDissectors`,
+  resource-scoped `{name: bool}`) → `DissectionOptions.protocols/heuristics`
+  → `--enable-protocol`/`--disable-protocol`/`--enable-heuristic`/
+  `--disable-heuristic` in every dissecting pass, and in the saved-index key
+  (`switches`). tshark refuses to start for an unknown name ("No such
+  protocol", exit 1), so `open` checks the names against the listings
+  (`_known_switches`, only when there are switches) and drops unknown ones
+  with a warning. Listings: `-G protocols` (name, short, filter, enabled,
+  enabled by default, can toggle) and `-G heuristic-decodes` (underlying,
+  protocol, enabled, enabled by default, short name, description) through
+  `Tshark.glossary` (Lua scripts' included), cached per tshark and scripts
+  (`_protocol_lists`). `-G` shows built-in defaults only (it runs before the
+  personal configuration is read), so Wireshark's own switches come from the
+  profile folder's `disabled_protos`, `enabled_protos` and `heuristic_protos`
+  (`short,0|1`), read every time (`wireshark_switches`). The QuickPick
+  (multi-select, every toggleable protocol then the heuristics) checks the
+  effective state (`effectiveSwitch`: here → Wireshark → default) and stores
+  only what differs from Wireshark (`switchOverrides`; overrides of names not
+  listed now, e.g. a Lua protocol, stay). extension.ts reloads the sessions
+  whose switches differ (debounced: two keys). The tree menu's _Disable
+  Protocol: <proto>_ posts `disableProtocol` → `pcapViewer.disableProtocol`
+  (hidden; checks the protocol can be switched, offers Undo).
+- **Decryption keys** (`decryption.py`, `decryptionKeys.ts`,
+  `commands/decryption.ts`): `open {keys, geoip}` →
+  `DissectionOptions.secrets` (`-o` items after the prefs, `repr=False`),
+  `files` (fingerprinted in the index key: a key log that grows means a new
+  index) and `geoip`. Types: `wep`/`wpa-pwd`/`wpa-psk` →
+  `uat:80211_keys:"type","key"` (WPA passphrase and SSID percent-encoded,
+  `pass:ssid`; plus `wlan.enable_decryption:TRUE`), `rsa` →
+  `uat:rsa_keys:"file","password"`, `ssh`/`wireguard`/`kerberos` →
+  `ssh.keylog_file`/`wg.keylog_file`/`kerberos.file` (+ `kerberos.decrypt`;
+  one each: a preference holds one file), `esp` → `uat:esp_sa` with tshark
+  4.2's 8 fields (protocol, src, dst, SPI, encryption name, key, auth name,
+  key; the names are tshark's value strings, `ESP_ENCRYPTION`/
+  `ESP_AUTHENTICATION`; plus `esp.enable_encryption_decode:TRUE`). Each
+  `-o uat:` adds one record on top of the user's table files (two ESP SAs
+  decrypt both directions). UAT fields escape `"`, `\` and control
+  characters as `\xHH` (`uat_escape`). Every value is validated in the
+  backend (ValueError → ConfigError naming the key). The host keeps the list
+  in `context.secrets` (`pcapViewer.decryptionKeys`, one JSON list for every
+  capture, like Wireshark's tables), loaded at activation (`keyStore.ready`,
+  awaited by `load()`); a store failure (no keyring) keeps them in memory
+  with a warning; a change here or in another window reloads the sessions
+  whose `keysDigest` differs. Labels never show a secret (`keyLabel`).
+  Fixtures: `wep.pcap` (802.11 + RC4/CRC-32 by hand) and `esp.pcap`
+  (transport-mode ESP, AES-CTR with quic.py's AES, one SA per direction).
+  _Embed Key Log in Capture_ (`edit_capture injectSecrets {kind:
+tls|ssh|wg}`) offers the TLS setting and the SSH/WireGuard keys. README:
+  tshark gets keys on its command line (visible in the process list).
+- **GeoIP** (`geoip.py`, `pcapViewer.geoip.databaseFolders`,
+  machine-overridable): the folders go to tshark as `uat:maxmind_db_paths`
+  (so `ip.geoip.*` work; tshark looks them up through its `mmdbresolve`
+  helper) and to `GeoDatabases` (folders plus `DEFAULT_FOLDERS`, at most 16
+  `.mmdb`, memory-mapped, merged per address: country/city/location from
+  City or Country, AS from ASN), which adds Country, City, AS Number and AS
+  Organization columns to IPv4/IPv6 endpoints and `geo: {lat, lon}` to rows
+  (`_add_geoip`; no database = unchanged table). `_geo_databases` keeps the
+  readers open per folder set. The Endpoints panel draws a world map
+  (`renderMap`, `lib.geoPoints`: one point per place to 0.1°, radius by
+  √bytes, tooltip, click selects the row) on worldmap.js's land outline:
+  `scripts/world-map.mjs` turns world-atlas's land-110m (Natural Earth,
+  public domain; an ISC dev dependency) into one SVG path (x = lon + 180,
+  y = 90 − lat, tenths of a degree, relative steps; rings crossing the
+  antimeridian are unwrapped and drawn shifted by 360° too), checked like
+  the Codicons (`test/scripts/worldmap.test.mjs`); `panelHtml(…, {scripts})`
+  loads it for Endpoints only. libmaxminddb checks the metadata's types
+  (uint16/uint32/uint64): `test/fixtures/mmdb.py` writes them typed
+  (`Uint`), and tshark reads the fixtures (`geoip/PCAP-Lens-Test-City.mmdb`,
+  `-ASN`) too.
+- **Network statistics** (`stats {kind: ipv4 | ipv6 | multicast | hosts |
+sctp}`): IPv4/IPv6 (`type` addresses, srcdst, ptype, dests) are the
+  stats_tree reports `ip_hosts`/`ip_srcdst`/`ptype`/`dests` (and `ipv6_*`)
+  through `parse_stats_tree`, with `_ip_filter` per row (the ptype tree
+  counts port types: TCP, UDP, SCTP, DCCP, NONE = none of them); the tests
+  check every row's filter matches its count. `multicast,stat` is a GUI tap
+  tshark lacks: one `-Y MULTICAST_FILTER -T fields` pass and
+  `multicast_streams` (per source/port/group/port: packets/s, average and
+  max bandwidth, the largest burst in a sliding 100 ms window, bursts over
+  50 = alarms, Wireshark's defaults). `hosts` is `-z hosts` with `-N d`
+  (with `-n` it prints nothing); `sctp,stat` ignores a filter: both answer
+  `unfiltered: true` when asked to limit, and the panel says so.
+  `network.pcap` (generate.py `network_packets`) has two multicast streams
+  (one bursting), an SCTP association, IPv6 TCP/UDP and a DNS answer.
 - **Protocol preferences** (`protocol_prefs {protocol?}`, `prefs.py`,
   `prefsModel.ts` (pure), `commands/prefs.ts`, `pcapViewer.protocolPreferences`):
   `tshark -G defaultprefs` (cached per tshark and Lua scripts) and

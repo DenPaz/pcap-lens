@@ -7,6 +7,25 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- _Enabled Protocols…_: switch protocols and heuristic dissectors on or off
+  per workspace folder, from what Wireshark has; _Disable Protocol_ in the
+  packet details' menu. [4bdc8ef]
+- _Decryption Keys…_: Wi-Fi (WEP, WPA passphrases and PSKs), TLS RSA private
+  keys, SSH and WireGuard key logs, IPsec ESP and Kerberos keytabs, kept in
+  secret storage; capture editing embeds SSH and WireGuard key logs too.
+  [710d578]
+- GeoIP: MaxMind databases give IP endpoints country, city and AS columns and
+  a world map, and the `ip.geoip.*` fields work. [1d9e2b0]
+- IPv4 and IPv6 statistics, UDP multicast streams, resolved addresses and SCTP
+  associations. [d22494f]
+
+[4bdc8ef]: https://github.com/DenPaz/vsc_pcap_viewer/commit/4bdc8ef
+[710d578]: https://github.com/DenPaz/vsc_pcap_viewer/commit/710d578
+[1d9e2b0]: https://github.com/DenPaz/vsc_pcap_viewer/commit/1d9e2b0
+[d22494f]: https://github.com/DenPaz/vsc_pcap_viewer/commit/d22494f
+
 ## 0.15.0 — 2026-10-20
 
 ### Added
