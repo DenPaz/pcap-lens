@@ -1803,4 +1803,5 @@ Then VoIP call details: timings and how a call ended, an E-model MOS, DTMF
 digits, media problems and Save Call: 0.13.0.
 Then whole-call stereo playback with a waveform, G.722/G.726-32/L16 audio,
 RTCP reports per stream, SIP statistics and registrations, and Ask Copilot
-about a call: 0.14.0.
+about a call: 0.14.0. Then panels reveal the capture in its own column
+(no second, empty tab): 0.14.1.

@@ -7,11 +7,15 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.14.1 — 2026-10-20
+
 ### Fixed
 
 - Going to a packet or applying a filter from a panel (VoIP, statistics,
   follow stream…) no longer opens the capture a second time beside it and
-  leaves the first tab empty.
+  leaves the first tab empty. [7aed74b]
+
+[7aed74b]: https://github.com/DenPaz/vsc_pcap_viewer/commit/7aed74b
 
 ## 0.14.0 — 2026-10-19
 
