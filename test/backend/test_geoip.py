@@ -70,10 +70,9 @@ def test_damaged_files_are_skipped(tmp_path: Path) -> None:
         MmdbReader(tmp_path / "junk.mmdb")
     geo = GeoDatabases([str(tmp_path), str(tmp_path / "missing")])
     assert not geo and len(geo.errors) == 2
-    assert (
-        geoip.geo_folders(["/a", geoip.DEFAULT_FOLDERS[0]] if geoip.DEFAULT_FOLDERS else ["/a"])[0]
-        == "/a"
-    )
+    # The settings' folders come first, then tshark's usual ones, each once.
+    folders = geoip.geo_folders(["/a", *geoip.DEFAULT_FOLDERS[:1]])
+    assert folders == ["/a", *geoip.DEFAULT_FOLDERS]
 
 
 @pytest.mark.tshark

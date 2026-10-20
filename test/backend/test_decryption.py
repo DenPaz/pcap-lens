@@ -36,30 +36,34 @@ ESP = [
 
 
 def test_keys_become_uat_records_and_preferences(tmp_path: Path) -> None:
-    keylog = str(tmp_path / "ssh.keys")
+    keylog, pem, keytab, geo = (
+        str(tmp_path / n) for n in ("ssh.keys", "server.pem", "krb5.keytab", "geo")
+    )
     items, files = decryption.options(
         [
             WEP,
             {"type": "wpa-pwd", "password": "pass:word%1", "ssid": "Café Wi-Fi"},
             {"type": "wpa-psk", "key": "ab" * 32},
-            {"type": "rsa", "file": "/keys/server.pem", "password": 'a"b\\c'},
+            {"type": "rsa", "file": pem, "password": 'a"b\\c'},
             {"type": "ssh", "file": keylog},
-            {"type": "kerberos", "file": "/keys/krb5.keytab"},
+            {"type": "kerberos", "file": keytab},
             ESP[1],
         ],
-        ["/geo"],
+        [geo],
     )
+    # (A UAT field escapes quotes and backslashes, Windows paths' included.)
+    esc = decryption.uat_escape
     assert items == (
         ("wlan.enable_decryption", "TRUE"),
         ("ssh.keylog_file", keylog),
         ("kerberos.decrypt", "TRUE"),
-        ("kerberos.file", "/keys/krb5.keytab"),
+        ("kerberos.file", keytab),
         ("esp.enable_encryption_decode", "TRUE"),
         ("uat:80211_keys", '"wep","0a1b2c3d4e"'),
         # Wireshark percent-decodes the passphrase and SSID (a colon separates them).
         ("uat:80211_keys", '"wpa-pwd","pass%3Aword%251:Caf%C3%A9%20Wi-Fi"'),
         ("uat:80211_keys", f'"wpa-psk","{"ab" * 32}"'),
-        ("uat:rsa_keys", '"/keys/server.pem","a\\x22b\\x5cc"'),
+        ("uat:rsa_keys", f'"{esc(pem)}","a\\x22b\\x5cc"'),
         (
             "uat:esp_sa",
             (
@@ -67,9 +71,10 @@ def test_keys_become_uat_records_and_preferences(tmp_path: Path) -> None:
                 '"0xffeeddccbbaa99887766554433221100a1a2a3a4","NULL",""'
             ),
         ),
-        ("uat:maxmind_db_paths", '"/geo"'),
+        ("uat:maxmind_db_paths", f'"{esc(geo)}"'),
     )
-    assert files == ("/keys/server.pem", keylog, "/keys/krb5.keytab", "/geo")
+    assert files == (pem, keylog, keytab, geo)
+    assert esc('C:\\keys\\"x".pem') == "C:\\x5ckeys\\x5c\\x22x\\x22.pem"
     # The secrets stay out of the options' repr (it may be logged).
     options = DissectionOptions.from_params(keys=[WEP])
     assert "0a1b2c3d4e" not in repr(options)
@@ -96,11 +101,10 @@ def test_bad_keys_are_refused(key: dict[str, str], message: str) -> None:
         DissectionOptions.from_params(keys=[key])
 
 
-def test_one_file_per_preference() -> None:
+def test_one_file_per_preference(tmp_path: Path) -> None:
+    a, b = str(tmp_path / "a.keys"), str(tmp_path / "b.keys")
     with pytest.raises(ConfigError, match="one ssh file"):
-        DissectionOptions.from_params(
-            keys=[{"type": "ssh", "file": "/a.keys"}, {"type": "ssh", "file": "/b.keys"}]
-        )
+        DissectionOptions.from_params(keys=[{"type": "ssh", "file": a}, {"type": "ssh", "file": b}])
     with pytest.raises(ConfigError, match="absolute path"):
         DissectionOptions.from_params(geoip=["geo"])
 
