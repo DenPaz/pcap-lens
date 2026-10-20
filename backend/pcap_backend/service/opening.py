@@ -110,12 +110,17 @@ class OpeningMixin(CommentsMixin):
             param(params, "prefs", dict, {}),
             _names_param(params),
             param(params, "profile", str, ""),
+            param(params, "protocols", dict, {}),
+            param(params, "heuristics", dict, {}),
+            param(params, "keys", list, []),
+            str_list(params, "geoip"),
         )
         base_fields = {c.field for c in BASE_COLUMNS}
         columns = [
             c for c in self._check_fields(str_list(params, "columns")) if c not in base_fields
         ]
         requested_columns = list(columns)  # _index_pass removes fields tshark rejects
+        options, switch_warnings = self._known_switches(options, ctx)
         tshark = self._require_tshark().with_options(options)
         tshark.profile_config(ctx.token)  # (a profile that doesn't exist: ConfigError)
         stream = bool(params.get("stream")) or live is not None
@@ -129,7 +134,7 @@ class OpeningMixin(CommentsMixin):
             work_dir = self._work_dir
 
         info = CaptureInfo(path=str(path), size=path.stat().st_size if live is None else 0)
-        info.warnings += options.check_scripts()
+        info.warnings += options.check_scripts() + switch_warnings
         key = self._index_key(tshark, path, options, requested_columns, ctx) if cache else None
         resume: _Resume | None = None
         if cache is not None and key is not None:
@@ -522,6 +527,16 @@ class OpeningMixin(CommentsMixin):
         result["fromCache"] = True
         return result
 
+    def _known_switches(
+        self, options: DissectionOptions, ctx: RequestContext
+    ) -> tuple[DissectionOptions, list[str]]:
+        """``options`` without the protocols and heuristic dissectors this
+        tshark doesn't know (it won't start for one), and warnings for them."""
+        if not options.protocols and not options.heuristics:
+            return options, []
+        known = self._protocol_list(self._require_tshark().with_options(options), ctx.token)
+        return options.without_unknown(known.protocols, known.heuristics)
+
     def _index_key(
         self,
         tshark: Tshark,
@@ -552,6 +567,9 @@ class OpeningMixin(CommentsMixin):
                 config=folder_fingerprint(folders),
                 names=options.names,
                 profile=options.profile,
+                switches=[list(options.protocols), list(options.heuristics)],
+                secrets=list(options.secrets),
+                files=list(options.files),
             )
         except (OSError, ToolError, ConfigError) as exc:
             print(f"pcap-viewer: index cache off for this capture: {exc}", file=sys.stderr)  # noqa: T201

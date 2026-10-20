@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import * as vscode from "vscode";
 import {
   ColoringRule,
@@ -25,6 +26,7 @@ import {
 } from "./settingsModel";
 import { luaChoiceFor } from "./luaChoice";
 import { normalizeProfileName } from "./wiresharkProfile";
+import { Switches, normalizeSwitches } from "./protocolsModel";
 
 export const SECTION = "pcapViewer";
 
@@ -58,6 +60,12 @@ export interface Settings {
   nameResolution: NameResolution;
   /** `pcapViewer.wiresharkProfile`: the Wireshark profile tshark uses (`-C`; "" = Default). */
   wiresharkProfile: string;
+  /** `pcapViewer.enabledProtocols`: protocols switched on or off here (filter name → on). */
+  protocols: Switches;
+  /** `pcapViewer.heuristicDissectors`: heuristic dissectors switched here (short name → on). */
+  heuristics: Switches;
+  /** `pcapViewer.geoip.databaseFolders`, resolved: folders of MaxMind databases (.mmdb). */
+  geoipFolders: string[];
 }
 
 export function readColoringStyle(scope?: vscode.Uri): ColoringStyle {
@@ -120,6 +128,17 @@ export function readSettings(scope?: vscode.Uri): Settings {
       : 0,
     nameResolution: normalizeNameResolution((key) => cfg.get<unknown>(`nameResolution.${key}`)),
     wiresharkProfile: normalizeProfileName(cfg.get<unknown>("wiresharkProfile", "")),
+    protocols: normalizeSwitches(cfg.get<unknown>("enabledProtocols", {})),
+    heuristics: normalizeSwitches(cfg.get<unknown>("heuristicDissectors", {})),
+    geoipFolders: [
+      ...new Set(
+        [cfg.get<unknown>("geoip.databaseFolders", [])]
+          .flat()
+          .filter((f): f is string => typeof f === "string")
+          .map((f) => resolveSettingPath(f, baseDir))
+          .filter((f): f is string => !!f && path.isAbsolute(f)),
+      ),
+    ],
   };
 }
 

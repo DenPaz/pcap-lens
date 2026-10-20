@@ -633,6 +633,83 @@ suite("PCAP Lens smoke test", () => {
     await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
   });
 
+  test("Enabled Protocols: switching HTTP off reloads the capture without it", async () => {
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    const api = (await ext!.activate()) as PcapViewerApi;
+    const uri = vscode.Uri.file(path.join(FIXTURES, "http.pcap"));
+    await vscode.commands.executeCommand("vscode.openWith", uri, "pcapViewer.editor");
+    const session = await waitFor(() =>
+      api.provider.allSessions.find((s) => s.uri.fsPath === uri.fsPath && indexed(s)),
+    );
+    const listing = await vscode.commands.executeCommand<
+      | { protocols: { name: string; default: boolean }[]; heuristics: { name: string }[] }
+      | undefined
+    >("pcapViewer.enabledProtocols", { quiet: true });
+    assert.ok(listing, "tshark answered");
+    assert.ok(listing.protocols.some((p) => p.name === "http" && p.default));
+    assert.ok(listing.heuristics.some((h) => h.name === "rtp_udp"));
+    const http = async (): Promise<number | undefined> => {
+      try {
+        const res = await session.backend?.request<{ count: number }>("count_matches", {
+          filter: "http",
+        });
+        return res?.count;
+      } catch {
+        return undefined;
+      }
+    };
+    assert.equal(await waitForAsync(http), 2);
+    const cfg = vscode.workspace.getConfiguration("pcapViewer");
+    try {
+      await vscode.commands.executeCommand("pcapViewer.enabledProtocols", {
+        protocols: { http: false },
+      });
+      await waitForAsync(async () => ((await http()) === 0 ? true : undefined));
+      assert.deepEqual(session.protocols, { http: false });
+    } finally {
+      await cfg.update("enabledProtocols", undefined, vscode.ConfigurationTarget.Global);
+    }
+    await waitForAsync(async () => ((await http()) === 2 ? true : undefined));
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
+  });
+
+  test("Decryption Keys: a WEP key decrypts the capture, removing it reloads without", async () => {
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    const api = (await ext!.activate()) as PcapViewerApi;
+    const uri = vscode.Uri.file(path.join(FIXTURES, "wep.pcap"));
+    await vscode.commands.executeCommand("vscode.openWith", uri, "pcapViewer.editor");
+    const session = await waitFor(() =>
+      api.provider.allSessions.find((s) => s.uri.fsPath === uri.fsPath && indexed(s)),
+    );
+    const icmp = async (): Promise<number | undefined> => {
+      try {
+        const res = await session.backend?.request<{ count: number }>("count_matches", {
+          filter: "icmp",
+        });
+        return res?.count;
+      } catch {
+        return undefined;
+      }
+    };
+    assert.equal(await waitForAsync(icmp), 0);
+    try {
+      await vscode.commands.executeCommand("pcapViewer.decryptionKeys", {
+        keys: [{ type: "wep", key: "0a1b2c3d4e" }],
+      });
+      await waitForAsync(async () => ((await icmp()) === 4 ? true : undefined));
+      const labels = await vscode.commands.executeCommand<string[]>("pcapViewer.decryptionKeys", {
+        quiet: true,
+      });
+      assert.deepEqual(labels, ["WEP key 0a1b… (5 bytes)"]);
+    } finally {
+      await vscode.commands.executeCommand("pcapViewer.decryptionKeys", { keys: [] });
+    }
+    await waitForAsync(async () => ((await icmp()) === 0 ? true : undefined));
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
+  });
+
   test("Lua dissectors: a capture's own choice, remembered across reloads", async () => {
     const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
     const api = (await ext!.activate()) as PcapViewerApi;

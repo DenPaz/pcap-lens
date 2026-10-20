@@ -22,14 +22,30 @@ import shutil
 import ssl
 import struct
 import sys
+import zlib
 from pathlib import Path
 
+import mmdb  # test/fixtures/mmdb.py: MaxMind databases for the GeoIP tests
 import quic  # test/fixtures/quic.py: the hand-encrypted QUIC connection
 from scapy.asn1.asn1 import ASN1_OID
 from scapy.layers.dns import DNS, DNSQR, DNSRR
+from scapy.layers.dot11 import Dot11
 from scapy.layers.inet import ICMP, IP, TCP, UDP
-from scapy.layers.l2 import ARP, Ether
+from scapy.layers.inet6 import IPv6
+from scapy.layers.l2 import ARP, LLC, SNAP, Ether
 from scapy.layers.rtp import RTP
+from scapy.layers.sctp import (
+    SCTP,
+    SCTPChunkCookieAck,
+    SCTPChunkCookieEcho,
+    SCTPChunkData,
+    SCTPChunkHeartbeatAck,
+    SCTPChunkHeartbeatReq,
+    SCTPChunkInit,
+    SCTPChunkInitAck,
+    SCTPChunkParamStateCookie,
+    SCTPChunkSACK,
+)
 from scapy.layers.snmp import SNMP, SNMPget, SNMPnext, SNMPresponse, SNMPvarbind
 from scapy.packet import Packet, Raw
 from scapy.utils import wrpcap, wrpcapng
@@ -1251,6 +1267,200 @@ def tls_keylog_capture(dest: Path, keylog: Path) -> None:
     wrpcap(str(dest), _stamp(session.packets))
 
 
+# Decryption keys (PCAP: Decryption Keys…): a WEP network and an IPsec ESP
+# pair of security associations, encrypted here so tshark can only read the
+# inner packets with the keys below (test_decryption.py).
+WEP_KEY = bytes.fromhex("0a1b2c3d4e")  # 40-bit
+WEP_BSSID = "02:00:00:00:0a:01"
+ESP_SAS = (
+    # (source, destination, SPI, AES-128 key + 4-byte nonce for AES-CTR [RFC3686])
+    ("10.8.0.1", "10.8.0.2", 0x00001001, bytes.fromhex("00112233445566778899aabbccddeeff01020304")),
+    ("10.8.0.2", "10.8.0.1", 0x00002002, bytes.fromhex("ffeeddccbbaa99887766554433221100a1a2a3a4")),
+)
+
+
+def _rc4(key: bytes, data: bytes) -> bytes:
+    s = list(range(256))
+    j = 0
+    for i in range(256):
+        j = (j + s[i] + key[i % len(key)]) % 256
+        s[i], s[j] = s[j], s[i]
+    out = bytearray()
+    i = j = 0
+    for byte in data:
+        i = (i + 1) % 256
+        j = (j + s[i]) % 256
+        s[i], s[j] = s[j], s[i]
+        out.append(byte ^ s[(s[i] + s[j]) % 256])
+    return bytes(out)
+
+
+def wep_packets() -> list[Packet]:
+    """802.11 data frames of an ICMP echo, WEP-encrypted with WEP_KEY (RC4 of
+    IV + key over the LLC/SNAP payload and its CRC-32)."""
+    station = "02:00:00:00:0a:02"
+    out: list[Packet] = []
+    for i in range(4):
+        request = i % 2 == 0
+        inner = bytes(
+            LLC(dsap=0xAA, ssap=0xAA, ctrl=3)
+            / SNAP(OUI=0, code=0x0800)
+            / IP(src="192.168.10.2" if request else "192.168.10.1",
+                 dst="192.168.10.1" if request else "192.168.10.2")
+            / ICMP(type=8 if request else 0, id=7, seq=i // 2 + 1)
+            / Raw(b"wep secret payload")
+        )  # fmt: skip
+        iv = bytes([0x10 + i, 0x20, 0x30])
+        icv = struct.pack("<I", zlib.crc32(inner) & 0xFFFFFFFF)
+        body = iv + b"\x00" + _rc4(iv + WEP_KEY, inner + icv)
+        header = (
+            Dot11(type=2, subtype=0, FCfield=0x41, addr1=WEP_BSSID, addr2=station,
+                  addr3="02:00:00:00:0a:03", SC=i << 4)
+            if request
+            else Dot11(type=2, subtype=0, FCfield=0x42, addr1=station,
+                       addr2=WEP_BSSID, addr3="02:00:00:00:0a:03", SC=i << 4)
+        )  # fmt: skip
+        out.append(header / Raw(body))
+    return _stamp(out)
+
+
+def _aes_ctr(key: bytes, iv: bytes, data: bytes) -> bytes:
+    """AES-128-CTR as ESP uses it (RFC 3686): the key's last 4 bytes are the
+    nonce, the counter block is nonce + IV + a 32-bit counter from 1."""
+    aes = quic.Aes128(key[:16])
+    stream = b"".join(
+        aes.encrypt(key[16:] + iv + struct.pack(">I", n + 1)) for n in range(len(data) // 16 + 1)
+    )
+    return bytes(a ^ b for a, b in zip(data, stream, strict=False))
+
+
+def esp_packets() -> list[Packet]:
+    """ICMP echoes in transport-mode ESP, one SA per direction (ESP_SAS), with
+    AES-CTR encryption and no authentication."""
+    out: list[Packet] = []
+    for i in range(4):
+        src, dst, spi, key = ESP_SAS[i % 2]
+        icmp = bytes(ICMP(type=8 if i % 2 == 0 else 0, id=9, seq=i // 2 + 1) / Raw(b"esp secret"))
+        pad = (-(len(icmp) + 2)) % 4
+        plain = icmp + bytes(range(1, pad + 1)) + bytes([pad, 1])  # next header 1: ICMP
+        iv = struct.pack(">Q", 0x1000 + i)
+        payload = struct.pack(">II", spi, i // 2 + 1) + iv + _aes_ctr(key, iv, plain)
+        out.append(
+            Ether(src=CLIENT_MAC if i % 2 == 0 else SERVER_MAC,
+                  dst=SERVER_MAC if i % 2 == 0 else CLIENT_MAC)
+            / IP(src=src, dst=dst, proto=50, id=i + 1)
+            / Raw(payload)
+        )  # fmt: skip
+    return _stamp(out)
+
+
+# GeoIP (pcapViewer.geoip.databaseFolders): test databases in MaxMind's format
+# for the public addresses of mixed.pcapng and http.pcap (made-up records).
+GEOIP_CITY = {
+    "93.184.216.0/24": {
+        "city": {"names": {"en": "Norwell"}},
+        "country": {"iso_code": "US", "names": {"en": "United States"}},
+        "location": {"latitude": 42.1508, "longitude": -70.8228},
+    },
+    "8.8.8.0/24": {
+        "city": {"names": {"en": "Mountain View"}},
+        "country": {"iso_code": "US", "names": {"en": "United States"}},
+        "location": {"latitude": 37.386, "longitude": -122.0838},
+    },
+    "2001:db8:10::/48": {
+        "city": {"names": {"en": "Berlin"}},
+        "country": {"iso_code": "DE", "names": {"en": "Germany"}},
+        "location": {"latitude": 52.52, "longitude": 13.405},
+    },
+}
+GEOIP_ASN = {
+    "93.184.216.0/24": {
+        "autonomous_system_number": 15133,
+        "autonomous_system_organization": "Edgecast",
+    },
+    "8.8.8.0/24": {
+        "autonomous_system_number": 15169,
+        "autonomous_system_organization": "Google LLC",
+    },
+}
+
+
+def geoip_fixtures() -> None:
+    folder = HERE / "geoip"
+    folder.mkdir(exist_ok=True)
+    (folder / "PCAP-Lens-Test-City.mmdb").write_bytes(mmdb.write_mmdb(GEOIP_CITY, "GeoLite2-City"))
+    (folder / "PCAP-Lens-Test-ASN.mmdb").write_bytes(mmdb.write_mmdb(GEOIP_ASN, "GeoLite2-ASN"))
+
+
+def _sctp(src: str, dst: str, tag: int, chunk: Packet) -> Packet:
+    return (
+        Ether(src=CLIENT_MAC, dst=SERVER_MAC)
+        / IP(src=src, dst=dst)
+        / SCTP(sport=2905, dport=2905, tag=tag)
+        / chunk
+    )
+
+
+def network_packets() -> list[Packet]:
+    """Statistics → IPv4/IPv6, UDP Multicast Streams, Resolved Addresses and SCTP:
+    two multicast streams (the first bursting: 60 packets in 60 ms, over the
+    50-packet alarm), an SCTP association (handshake, three DATA/SACK pairs,
+    a heartbeat), IPv6 TCP and UDP, and a DNS answer naming an address."""
+    out: list[tuple[float, Packet]] = []
+    t0 = BASE_TS
+    for i in range(80):  # 60 in the first 60 ms, then one every 50 ms
+        t = t0 + (i * 0.001 if i < 60 else 0.06 + (i - 59) * 0.05)
+        out.append((t, Ether(src=CLIENT_MAC, dst="01:00:5e:01:01:01")
+                    / IP(src="10.1.1.5", dst="239.1.1.1", ttl=8)
+                    / UDP(sport=4000, dport=5000) / Raw(bytes(200))))  # fmt: skip
+    second = (
+        Ether(src=SERVER_MAC, dst="01:00:5e:02:02:02")
+        / IP(src="10.1.1.6", dst="239.2.2.2", ttl=8)
+        / UDP(sport=4001, dport=5001)
+        / Raw(bytes(50))
+    )
+    out += [(t0 + 0.5 + i * 0.1, second.copy()) for i in range(10)]
+    c, s = "10.2.0.1", "10.2.0.2"
+    sctp = [
+        _sctp(c, s, 0, SCTPChunkInit(init_tag=0x1111, a_rwnd=65535, n_out_streams=2,
+                                      n_in_streams=2, init_tsn=1)),
+        _sctp(s, c, 0x1111, SCTPChunkInitAck(init_tag=0x2222, a_rwnd=65535, n_out_streams=2,
+              n_in_streams=2, init_tsn=100, params=[SCTPChunkParamStateCookie(cookie=b"cookie")])),
+        _sctp(c, s, 0x2222, SCTPChunkCookieEcho(cookie=b"cookie")),
+        _sctp(s, c, 0x1111, SCTPChunkCookieAck()),
+    ]  # fmt: skip
+    for i in range(3):
+        data = SCTPChunkData(tsn=1 + i, stream_id=0, stream_seq=i, proto_id=3, data=b"M3UA payload")
+        sctp.append(_sctp(c, s, 0x2222, data))
+        sctp.append(_sctp(s, c, 0x1111, SCTPChunkSACK(cumul_tsn_ack=1 + i, a_rwnd=65535)))
+    sctp += [
+        _sctp(c, s, 0x2222, SCTPChunkHeartbeatReq()),
+        _sctp(s, c, 0x1111, SCTPChunkHeartbeatAck()),
+    ]
+    out += [(t0 + 1.0 + i * 0.01, pkt) for i, pkt in enumerate(sctp)]
+    v6c, v6s = "2001:db8:1::10", "2001:db8:10::1"
+    to_server = Ether(src=CLIENT_MAC, dst=SERVER_MAC) / IPv6(src=v6c, dst=v6s)
+    out += [
+        (t0 + 1.5 + i * 0.01, to_server / TCP(sport=51000, dport=443, flags="S", seq=i))
+        for i in range(3)
+    ]
+    out.append((t0 + 1.6, to_server / UDP(sport=51001, dport=123) / Raw(bytes(48))))
+    answer = DNSRR(rrname="ntp.example.org", type="A", rdata="10.1.1.5", ttl=60)
+    out.append(
+        (
+            t0 + 1.7,
+            Ether(src=SERVER_MAC, dst=CLIENT_MAC)
+            / IP(src="192.168.1.1", dst="192.168.1.10")
+            / UDP(sport=53, dport=40100)
+            / DNS(id=7, qr=1, aa=1, qd=DNSQR(qname="ntp.example.org", qtype="A"), an=answer),
+        )
+    )
+    out.sort(key=lambda item: item[0])
+    for t, pkt in out:
+        pkt.time = t
+    return [pkt for _, pkt in out]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--large", nargs=2, metavar=("COUNT", "DEST"))
@@ -1275,6 +1485,10 @@ def main() -> None:
     wrpcap(str(HERE / "voip-media.pcap"), voip_media_packets())
     wrpcap(str(HERE / "services.pcap"), services_packets())
     wrpcap(str(HERE / "credentials.pcap"), credentials_packets())
+    wrpcap(str(HERE / "wep.pcap"), wep_packets())
+    wrpcap(str(HERE / "esp.pcap"), esp_packets())
+    wrpcap(str(HERE / "network.pcap"), network_packets())
+    geoip_fixtures()
     hexdump_fixtures()
     (HERE / "comments.pcapng").write_bytes(
         comments_pcapng(_records(http_packets()), PACKET_COMMENTS)

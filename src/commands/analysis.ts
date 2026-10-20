@@ -22,6 +22,11 @@ const STATS_COMMANDS: Record<string, StatsKind> = {
   "pcapViewer.statistics.serviceResponseTime": "srt",
   "pcapViewer.statistics.sip": "sip",
   "pcapViewer.statistics.credentials": "credentials",
+  "pcapViewer.statistics.ipv4": "ipv4",
+  "pcapViewer.statistics.ipv6": "ipv6",
+  "pcapViewer.statistics.multicast": "multicast",
+  "pcapViewer.statistics.resolvedAddresses": "hosts",
+  "pcapViewer.statistics.sctp": "sctp",
 };
 
 /** Follow-stream and statistics commands (brief 4.5 and 4.6). */

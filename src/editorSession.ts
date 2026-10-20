@@ -67,6 +67,9 @@ import {
 } from "./settingsModel";
 import type { PcapDocument } from "./pcapDocument";
 import type { PrefOverrides } from "./prefsModel";
+import type { Switches } from "./protocolsModel";
+import { keyStore } from "./commands/decryption";
+import { keysDigest } from "./decryptionKeys";
 
 const HISTORY_KEY = "pcapViewer.filterHistory";
 /**
@@ -132,6 +135,13 @@ export class PcapEditorSession {
   prefs: PrefOverrides = {};
   /** The Lua scripts of the latest load (settings, or this capture's choice). */
   lua: string[] = [];
+  /** The Enabled Protocols overrides of the latest load. */
+  protocols: Switches = {};
+  heuristics: Switches = {};
+  /** The decryption keys of the latest load (`keysDigest`). */
+  keys = keysDigest([]);
+  /** The GeoIP database folders of the latest load. */
+  geoipFolders: string[] = [];
   private keyLogWatcher?: vscode.Disposable;
   /** Merging this rotated capture's pieces was offered (once per editor). */
   private mergeOffered = false;
@@ -270,6 +280,11 @@ export class PcapEditorSession {
     this.wiresharkProfile = settings.wiresharkProfile;
     this.prefs = settings.prefs;
     this.lua = settings.luaScripts;
+    this.protocols = settings.protocols;
+    this.heuristics = settings.heuristics;
+    await keyStore.ready;
+    this.keys = keysDigest(keyStore.all);
+    this.geoipFolders = settings.geoipFolders;
     await this.stopBackend();
     if (this.disposed || seq !== this.loadSeq) {
       return;
@@ -635,6 +650,10 @@ export class PcapEditorSession {
           prefs: settings.prefs,
           names: settings.nameResolution,
           profile: settings.wiresharkProfile || undefined,
+          protocols: settings.protocols,
+          heuristics: settings.heuristics,
+          keys: keyStore.all.length ? keyStore.all : undefined,
+          geoip: settings.geoipFolders.length ? settings.geoipFolders : undefined,
           columns: settings.columns.map((c) => c.field),
           // Show the first rows while the rest is indexed.
           stream: true,
@@ -861,6 +880,11 @@ export class PcapEditorSession {
         return;
       case "protocolPrefs":
         await vscode.commands.executeCommand("pcapViewer.protocolPreferences", {
+          protocol: msg.protocol,
+        });
+        return;
+      case "disableProtocol":
+        await vscode.commands.executeCommand("pcapViewer.disableProtocol", {
           protocol: msg.protocol,
         });
         return;

@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from dataclasses import replace
 from typing import Any
 
+from pcap_backend import wsprofile
 from pcap_backend.fields import FieldCatalog
 from pcap_backend.prefs import Preference, parse_prefs, protocols_with_prefs
 from pcap_backend.protocol import InvalidParamsError, RequestContext, param, str_list
-from pcap_backend.tshark import EMPTY_CAPTURE, DissectionOptions, run
+from pcap_backend.protocols import wireshark_switches
+from pcap_backend.tshark import EMPTY_CAPTURE, run
 
 from .base import ServiceBase
 from .helpers import _stderr_warnings
@@ -75,12 +78,8 @@ class DissectionMixin(ServiceBase):
         """
         base = self._file.tshark if self._file else self._require_tshark()
         if "lua" in params:
-            options = DissectionOptions.from_params(
-                str_list(params, "lua"),
-                base.options.decode_as,
-                dict(base.options.prefs),
-                profile=base.options.profile,
-            )
+            lua = str_list(params, "lua")
+            options = replace(base.options, lua_scripts=tuple(lua))
         else:
             options = base.options
         tshark = base.with_options(options)
@@ -176,6 +175,30 @@ class DissectionMixin(ServiceBase):
             names = [{"name": n, "protocol": found[n]} for n in sorted(found, key=str.lower)]
             self._dissector_names.put(key, names)
         return {"dissectors": names}
+
+    def enabled_protocols(self, _params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """Wireshark's Enabled Protocols: ``protocols`` tshark can switch
+        (``{name, short, title, default}``, by short name) and ``heuristics``
+        (``{name, protocol, on, title, default}``), Lua scripts' included, plus
+        ``wireshark``: what the user switched in Wireshark (the profile's
+        ``disabled_protos``, ``enabled_protos`` and ``heuristic_protos``), which
+        tshark applies unless ``open {protocols, heuristics}`` overrides it.
+        The listings are cached per tshark and Lua scripts; Wireshark's files
+        are read every time. Needs no open capture."""
+        tshark = self._file.tshark if self._file else self._require_tshark()
+        listing = self._protocol_list(tshark, ctx.token)
+        profile = tshark.profile_config(ctx.token)
+        folder = profile[1] if profile else wsprofile.config_folders(tshark.folders(ctx.token))[0]
+        return {
+            "protocols": sorted(
+                (dict(p) for p in listing.protocols.values() if p["toggle"]),
+                key=lambda p: (p["short"].lower(), p["name"]),
+            ),
+            "heuristics": sorted(
+                listing.heuristics.values(), key=lambda h: (h["title"].lower(), h["name"])
+            ),
+            "wireshark": wireshark_switches(folder),
+        }
 
     def field_index(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """Field/protocol names from ``tshark -G fields`` for autocomplete.

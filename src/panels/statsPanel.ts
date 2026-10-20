@@ -17,7 +17,12 @@ export type StatsKind =
   | "plen"
   | "srt"
   | "sip"
-  | "credentials";
+  | "credentials"
+  | "ipv4"
+  | "ipv6"
+  | "multicast"
+  | "hosts"
+  | "sctp";
 
 export const STATS_TITLES: Record<StatsKind, string> = {
   conversations: "Conversations",
@@ -32,6 +37,11 @@ export const STATS_TITLES: Record<StatsKind, string> = {
   srt: "Service Response Time",
   sip: "SIP Statistics",
   credentials: "Credentials",
+  ipv4: "IPv4 Statistics",
+  ipv6: "IPv6 Statistics",
+  multicast: "UDP Multicast Streams",
+  hosts: "Resolved Addresses",
+  sctp: "SCTP Associations",
 };
 
 /** Expert rows as the panel sent them, checked (the webview is ours, but its data came from the capture). */
@@ -158,7 +168,10 @@ export class StatsPanel {
         retainContextWhenHidden: true,
       },
     );
-    this.panel.webview.html = panelHtml(this.panel.webview, root, "stats.js", title);
+    this.panel.webview.html = panelHtml(this.panel.webview, root, "stats.js", title, {
+      // (Endpoints draw GeoIP locations on a map.)
+      scripts: kind === "endpoints" ? ["worldmap.js"] : [],
+    });
     this.disposables.push(
       this.panel.webview.onDidReceiveMessage((msg: FromPanel) => void this.onMessage(msg)),
       this.panel.onDidDispose(() => this.dispose()),

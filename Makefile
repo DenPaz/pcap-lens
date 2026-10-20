@@ -29,6 +29,7 @@ update: ## Upgrade all dev dependencies (ncu -u within .ncurc.cjs limits, uv loc
 	$(NCU) -u
 	$(PNPM) install
 	$(PNPM) run codicons
+	$(PNPM) run worldmap
 	$(UV) lock --upgrade
 	$(UV) sync
 	@echo "Dependencies updated: review the diff and run 'make check'."

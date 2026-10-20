@@ -18,11 +18,11 @@ import sys
 import tempfile
 import threading
 import weakref
-from collections.abc import Generator, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Container, Generator, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from . import procs, wsprofile
+from . import decryption, procs, wsprofile
 from .cancellation import CancelledError, CancelToken
 from .sandbox import permission_hint
 
@@ -107,6 +107,9 @@ def find_tool(exe: str, configured: str | None = None, sibling_of: Path | None =
 
 _DECODE_AS_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.\-]*(==|:)[^,\s]+,[A-Za-z0-9_.\-]+$")
 _PREF_KEY_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.\-]*$")
+# A protocol's filter name (``_ws.expert``, ``ieee802.11``…) or a heuristic
+# dissector's short name (``sip_sctp``).
+_PROTOCOL_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.\-]*$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +128,18 @@ class DissectionOptions:
     names: str | None = None
     # A Wireshark configuration profile (``-C``; "" = the Default profile).
     profile: str = ""
+    # Protocols (filter names) and heuristic dissectors (short names) switched
+    # on (True) or off (False), whatever Wireshark's own settings say.
+    protocols: tuple[tuple[str, bool], ...] = ()
+    heuristics: tuple[tuple[str, bool], ...] = ()
+    # Decryption keys and GeoIP databases as further ``-o`` options
+    # (decryption.py; not in the repr: they hold secrets), and the files they
+    # name (the saved-index key fingerprints them).
+    secrets: tuple[tuple[str, str], ...] = field(default=(), repr=False)
+    files: tuple[str, ...] = ()
+    # The GeoIP database folders (also in ``secrets`` as maxmind_db_paths):
+    # the Endpoints statistics read them too.
+    geoip: tuple[str, ...] = ()
 
     @classmethod
     def from_params(
@@ -134,6 +149,10 @@ class DissectionOptions:
         prefs: Mapping[str, object] | None = None,
         names: Mapping[str, object] | None = None,
         profile: str = "",
+        protocols: Mapping[str, object] | None = None,
+        heuristics: Mapping[str, object] | None = None,
+        keys: Sequence[object] = (),
+        geoip: Sequence[str] = (),
     ) -> DissectionOptions:
         if profile and not wsprofile.valid_name(profile):
             raise ConfigError(f"invalid Wireshark profile name {profile!r}")
@@ -151,7 +170,22 @@ class DissectionOptions:
                 raise ConfigError(f"preference {key!r} must be a single line")
             pref_items.append((key, text))
         flags = name_flags(names) if names is not None else None
-        return cls(tuple(lua), tuple(decode_as), tuple(sorted(pref_items)), flags, profile)
+        try:
+            secrets, files = decryption.options(keys, geoip)
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from exc
+        return cls(
+            tuple(lua),
+            tuple(decode_as),
+            tuple(sorted(pref_items)),
+            flags,
+            profile,
+            _switches("protocol", protocols),
+            _switches("heuristic dissector", heuristics),
+            secrets,
+            files,
+            tuple(geoip),
+        )
 
     @property
     def resolves_addresses(self) -> bool:
@@ -170,7 +204,35 @@ class DissectionOptions:
             out += ["-d", rule]
         for key, value in self.prefs:
             out += ["-o", f"{key}:{value}"]
+        for name, on in self.protocols:
+            out += ["--enable-protocol" if on else "--disable-protocol", name]
+        for name, on in self.heuristics:
+            out += ["--enable-heuristic" if on else "--disable-heuristic", name]
+        for key, value in self.secrets:
+            out += ["-o", f"{key}:{value}"]
         return out
+
+    def without_unknown(
+        self, protocols: Container[str], heuristics: Container[str]
+    ) -> tuple[DissectionOptions, list[str]]:
+        """These options without the protocols and heuristic dissectors tshark
+        doesn't know (it refuses to start for one), and a warning for each."""
+        warnings = [
+            f"Unknown protocol {name!r} in pcapViewer.enabledProtocols: ignored"
+            for name, _ in self.protocols
+            if name not in protocols
+        ] + [
+            f"Unknown heuristic dissector {name!r} in pcapViewer.heuristicDissectors: ignored"
+            for name, _ in self.heuristics
+            if name not in heuristics
+        ]
+        if not warnings:
+            return self, []
+        return replace(
+            self,
+            protocols=tuple(p for p in self.protocols if p[0] in protocols),
+            heuristics=tuple(h for h in self.heuristics if h[0] in heuristics),
+        ), warnings
 
     def check_scripts(self) -> list[str]:
         """Return warnings for Lua scripts and key log files tshark would silently ignore."""
@@ -178,6 +240,7 @@ class DissectionOptions:
         for key, value in self.prefs:
             if key.endswith(".keylog_file") and value and not Path(value).is_file():
                 warnings.append(f"Key log file not found ({key}): {value}")
+        warnings += [f"File not found: {f}" for f in self.files if not Path(f).exists()]
         if self.lua_scripts and hasattr(os, "geteuid") and os.geteuid() == 0:
             warnings.append(
                 "tshark disables Lua dissectors when running as root; Lua scripts were not loaded"
@@ -202,6 +265,16 @@ def name_flags(names: Mapping[str, object]) -> str:
     if "network" not in on:
         on -= {"capturedDns", "external"}
     return "".join(letter for key, letter in _NAME_FLAGS if key in on)
+
+
+def _switches(what: str, raw: Mapping[str, object] | None) -> tuple[tuple[str, bool], ...]:
+    """``{name: true|false}`` settings as sorted (name, on) pairs, checked."""
+    out: list[tuple[str, bool]] = []
+    for name, on in (raw or {}).items():
+        if not _PROTOCOL_NAME_RE.match(name) or not isinstance(on, bool):
+            raise ConfigError(f"invalid {what} setting {name!r}: expected a name and true/false")
+        out.append((name, on))
+    return tuple(sorted(out))
 
 
 def _pref_value(value: object) -> str:

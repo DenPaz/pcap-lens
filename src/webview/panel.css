@@ -176,6 +176,40 @@ table.stats td.wrap {
   font-variant-numeric: tabular-nums;
 }
 
+/* ------------------------------------------------------------------ GeoIP map */
+
+/* Endpoints with a GeoIP location (stats.js renderMap; worldmap.js's outline). */
+.geo-map {
+  margin: var(--space-2) 0 var(--space-4);
+  max-width: 900px;
+}
+
+.geo-map svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.geo-map .land {
+  fill: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
+  stroke: color-mix(in srgb, var(--vscode-foreground) 30%, transparent);
+  stroke-width: 0.15;
+}
+
+.geo-map .geo-point {
+  fill: color-mix(in srgb, var(--vscode-charts-red, #f14c4c) 70%, transparent);
+  stroke: var(--vscode-charts-red, #f14c4c);
+  stroke-width: 0.3;
+  cursor: pointer;
+}
+
+.geo-map .geo-point:hover,
+.geo-map .geo-point.selected {
+  fill: var(--vscode-charts-red, #f14c4c);
+  stroke: var(--vscode-foreground);
+  stroke-width: 0.5;
+}
+
 /* The IO graph's series colors, in order (the theme's chart colors). */
 .s0 {
   --series: var(--vscode-charts-blue, #3794ff);
@@ -833,4 +867,14 @@ th > .codicon {
 :is(.vscode-high-contrast, .vscode-high-contrast-light) .flow-row.selected .flow-bg {
   stroke: var(--hc-active);
   stroke-dasharray: none;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) .geo-map .land {
+  fill: none;
+  stroke: var(--hc-border);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) .geo-map .geo-point.selected {
+  stroke: var(--hc-active);
+  stroke-width: 0.8;
 }

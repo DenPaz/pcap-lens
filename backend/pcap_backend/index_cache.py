@@ -126,6 +126,9 @@ def index_key(
     config: Sequence[Any],
     names: str | None = None,
     profile: str = "",
+    switches: Sequence[Any] = (),
+    secrets: Sequence[Any] = (),
+    files: Sequence[str] = (),
 ) -> str:
     """The cache key of a capture's index (a hex digest), or raises OSError if
     the capture can't be read."""
@@ -147,6 +150,15 @@ def index_key(
         "names": [
             names,
             *(_file_fingerprint(system_hosts_file()) if names and "n" in names else []),
+        ],
+        # Enabled Protocols, and the decryption keys and GeoIP databases (only
+        # the digest below holds them) with the files they name: a key log or
+        # database that changes means a new index.
+        "switches": list(switches),
+        "secrets": list(secrets),
+        "files": [
+            folder_fingerprint([Path(f)]) if Path(f).is_dir() else _file_fingerprint(Path(f))
+            for f in files
         ],
     }
     blob = json.dumps(parts, sort_keys=True, separators=(",", ":")).encode()

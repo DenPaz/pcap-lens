@@ -148,6 +148,7 @@ export type WebviewToHost =
   /** Compare Packets: these two, or this one and one the host asks for. */
   | { type: "compare"; frames: number[] }
   | { type: "protocolPrefs"; protocol: string }
+  | { type: "disableProtocol"; protocol: string }
   | { type: "follow"; proto: FollowProto; frame: number }
   | { type: "manageSavedFilters" }
   | { type: "colorize"; filter: string }

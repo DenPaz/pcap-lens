@@ -11,3 +11,4 @@ test/fixtures/codecs/** binary
 *.ttf binary
 # Vendored as published (CRLF licenses): the sync test compares bytes.
 src/webview/codicons/** -text
+*.mmdb binary

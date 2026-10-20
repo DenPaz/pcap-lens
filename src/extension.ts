@@ -7,7 +7,11 @@ import { registerPluginCommands } from "./commands/plugins";
 import { registerProfileCommands } from "./commands/profiles";
 import { registerFirewallCommands } from "./commands/firewall";
 import { consumePrefsChange, registerPrefsCommands } from "./commands/prefs";
+import { registerProtocolCommands } from "./commands/protocols";
+import { keyStore, registerDecryptionCommands } from "./commands/decryption";
+import { keysDigest } from "./decryptionKeys";
 import { samePrefs } from "./prefsModel";
+import { sameSwitches } from "./protocolsModel";
 import { registerColoringCommands } from "./commands/coloring";
 import { registerColumnCommands } from "./commands/columns";
 import { registerDissectorCommands } from "./commands/dissectors";
@@ -42,6 +46,7 @@ import { sameNameResolution } from "./settingsModel";
 let provider: PcapEditorProvider | undefined;
 let namesTimer: ReturnType<typeof setTimeout> | undefined;
 let prefsTimer: ReturnType<typeof setTimeout> | undefined;
+let switchesTimer: ReturnType<typeof setTimeout> | undefined;
 
 export interface PcapViewerApi {
   /** Exposed for integration tests. */
@@ -58,6 +63,8 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
   context.subscriptions.push(assistant);
   provider = PcapEditorProvider.register(context, log, assistant);
   const p = provider;
+  // (Starts loading the keys; a capture's load waits for them.)
+  registerDecryptionCommands(context, p);
 
   registerFilterCommands(context, p);
   registerColumnCommands(context, p);
@@ -82,8 +89,19 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
   registerProfileCommands(context, p, log);
   registerFirewallCommands(context, p);
   registerPrefsCommands(context, p, log);
+  registerProtocolCommands(context, p, log);
   registerSetupCommands(context, log);
   const recent = registerRecentCaptures(context);
+  context.subscriptions.push(
+    keyStore.onDidChange(() => {
+      // PCAP: Decryption Keys… (here or in another window): reload the captures
+      // loaded with other keys.
+      const keys = keysDigest(keyStore.all);
+      for (const s of p.allSessions.filter((s) => s.keys !== keys)) {
+        void s.load("decryption keys changed");
+      }
+    }),
+  );
   // Unsaved captures left behind (a crash, or a restored editor long closed).
   void pruneTemporaryCaptures(context, new Set(p.allSessions.map((s) => s.uri.fsPath)));
   context.subscriptions.push(
@@ -155,6 +173,34 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
           p.allSessions
             .filter((s) => readSettings(s.uri).wiresharkProfile !== s.wiresharkProfile)
             .map((s) => s.load("Wireshark profile changed")),
+        );
+      }
+      if (
+        e.affectsConfiguration(`${SECTION}.enabledProtocols`) ||
+        e.affectsConfiguration(`${SECTION}.heuristicDissectors`)
+      ) {
+        // PCAP: Enabled Protocols… (both keys, one after the other) or Disable
+        // Protocol: reload the captures whose switches changed.
+        clearTimeout(switchesTimer);
+        switchesTimer = setTimeout(() => {
+          for (const s of p.allSessions) {
+            const settings = readSettings(s.uri);
+            if (
+              !sameSwitches(settings.protocols, s.protocols) ||
+              !sameSwitches(settings.heuristics, s.heuristics)
+            ) {
+              void s.load("enabled protocols changed");
+            }
+          }
+        }, 300);
+      }
+      if (e.affectsConfiguration(`${SECTION}.geoip.databaseFolders`)) {
+        await Promise.all(
+          p.allSessions
+            .filter(
+              (s) => readSettings(s.uri).geoipFolders.join("\n") !== s.geoipFolders.join("\n"),
+            )
+            .map((s) => s.load("GeoIP databases changed")),
         );
       }
       if (e.affectsConfiguration(`${SECTION}.tlsKeyLogFile`)) {
