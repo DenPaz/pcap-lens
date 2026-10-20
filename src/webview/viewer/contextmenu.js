@@ -31,13 +31,13 @@ el.rows.addEventListener("contextmenu", (e) => {
   e.preventDefault();
   const index = Number(rowEl.dataset.index);
   const row = rowAt(index);
-  if (row && state.selection.has(row.number)) {
+  if (!row) {
+    return; // (a row still loading: no menu, and the selection stays)
+  }
+  if (state.selection.has(row.number)) {
     focusIndex(index); // right-click inside a multi-selection keeps it
   } else {
     selectIndex(index);
-  }
-  if (!row) {
-    return;
   }
   const multi = state.selection.size;
   const protocol = (row.cells[4] || "").toUpperCase();
