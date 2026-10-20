@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.15.0 — 2026-10-20
+
 ### Added
 
 - I/O graphs with up to eight graphs: a display filter each, packets, bytes,
