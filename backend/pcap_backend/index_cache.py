@@ -125,6 +125,7 @@ def index_key(
     columns: Sequence[str],
     config: Sequence[Any],
     names: str | None = None,
+    profile: str = "",
 ) -> str:
     """The cache key of a capture's index (a hex digest), or raises OSError if
     the capture can't be read."""
@@ -141,6 +142,8 @@ def index_key(
         "config": list(config),
         # Name resolution; network names also come from the system's hosts file
         # (the personal one is in ``config``).
+        # A Wireshark profile (-C): its folder is in ``config``.
+        "profile": profile,
         "names": [
             names,
             *(_file_fingerprint(system_hosts_file()) if names and "n" in names else []),

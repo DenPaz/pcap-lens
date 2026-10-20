@@ -85,17 +85,35 @@ def personal_config_dir(folders_output: str) -> Path | None:
     return None
 
 
-def prepare_config_dir(target: Path, rules: list[ColorRule | str], personal: Path | None) -> None:
-    """Fill ``target`` with the user's personal config files and our colorfilters."""
-    if personal is not None:
-        for item in personal.iterdir():
-            try:
-                if (
-                    item.is_file()
-                    and item.name != "colorfilters"
-                    and item.stat().st_size <= _MAX_CONFIG_FILE
-                ):
-                    shutil.copyfile(item, target / item.name)
-            except OSError:
-                continue  # unreadable config files are skipped, like tshark would
-    (target / "colorfilters").write_text(colorfilters_text(rules), encoding="utf-8")
+def _copy_config(source: Path, target: Path) -> None:
+    for item in source.iterdir():
+        try:
+            if (
+                item.is_file()
+                and item.name != "colorfilters"
+                and item.stat().st_size <= _MAX_CONFIG_FILE
+            ):
+                shutil.copyfile(item, target / item.name)
+        except OSError:
+            continue  # unreadable config files are skipped, like tshark would
+
+
+def prepare_config_dir(
+    target: Path,
+    rules: list[ColorRule | str],
+    personal: Path | None,
+    profile: tuple[str, Path] | None = None,
+) -> None:
+    """Fill ``target`` with the user's personal config files and our colorfilters.
+    With a Wireshark ``profile`` (its name and folder; tshark runs with ``-C``),
+    its files go into ``profiles/<name>`` with the colorfilters, since that is
+    where tshark looks for them then."""
+    if personal is not None and personal.is_dir():
+        _copy_config(personal, target)
+    folder = target
+    if profile is not None:
+        folder = target / "profiles" / profile[0]
+        folder.mkdir(parents=True, exist_ok=True)
+        if profile[1].is_dir():
+            _copy_config(profile[1], folder)
+    (folder / "colorfilters").write_text(colorfilters_text(rules), encoding="utf-8")

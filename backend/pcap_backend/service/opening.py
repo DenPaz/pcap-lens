@@ -24,7 +24,7 @@ from pcap_backend.index_cache import (
     rules_key,
 )
 from pcap_backend.protocol import InvalidParamsError, RequestContext, param, str_list
-from pcap_backend.tshark import DissectionOptions, ToolError, Tshark, run
+from pcap_backend.tshark import ConfigError, DissectionOptions, ToolError, Tshark, run
 
 from .helpers import _fields_args, _readable_capture, _rejected_fields, sniff_format
 from .indexing import (
@@ -109,6 +109,7 @@ class OpeningMixin(CommentsMixin):
             str_list(params, "decodeAs"),
             param(params, "prefs", dict, {}),
             _names_param(params),
+            param(params, "profile", str, ""),
         )
         base_fields = {c.field for c in BASE_COLUMNS}
         columns = [
@@ -116,6 +117,7 @@ class OpeningMixin(CommentsMixin):
         ]
         requested_columns = list(columns)  # _index_pass removes fields tshark rejects
         tshark = self._require_tshark().with_options(options)
+        tshark.profile_config(ctx.token)  # (a profile that doesn't exist: ConfigError)
         stream = bool(params.get("stream")) or live is not None
         cache = _cache_from(params.get("cache")) if live is None else None
         inline = _inline_coloring(params.get("coloring"))
@@ -536,6 +538,9 @@ class OpeningMixin(CommentsMixin):
                 version = tshark.version()
                 self._tshark_versions[tshark.path] = version
             folders = _personal_folders(tshark.folders(ctx.token))
+            profile = tshark.profile_config(ctx.token)
+            if profile is not None:
+                folders.append(profile[1])  # (a global profile is outside the personal folder)
             return index_key(
                 capture=path,
                 tshark=tshark.path,
@@ -546,8 +551,9 @@ class OpeningMixin(CommentsMixin):
                 columns=columns,
                 config=folder_fingerprint(folders),
                 names=options.names,
+                profile=options.profile,
             )
-        except (OSError, ToolError) as exc:
+        except (OSError, ToolError, ConfigError) as exc:
             print(f"pcap-viewer: index cache off for this capture: {exc}", file=sys.stderr)  # noqa: T201
             return None
 
@@ -670,7 +676,9 @@ class OpeningMixin(CommentsMixin):
         color_dir = work_dir / "colorfilters"
         color_dir.mkdir(exist_ok=True)
         personal = coloring.personal_config_dir(tshark.folders(ctx.token))
-        coloring.prepare_config_dir(color_dir, inline.rules, personal)
+        coloring.prepare_config_dir(
+            color_dir, inline.rules, personal, tshark.profile_config(ctx.token)
+        )
         return {**os.environ, "WIRESHARK_CONFIG_DIR": str(color_dir)}
 
     def _capinfos(self, tshark: Tshark, path: Path, token: CancelToken) -> dict[str, Any]:

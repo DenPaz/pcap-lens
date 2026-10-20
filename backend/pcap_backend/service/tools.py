@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from pcap_backend import ber, comments, editing, hexdump, objects, plugins
+from pcap_backend import ber, comments, editing, hexdump, objects, plugins, wsprofile
 from pcap_backend.cancellation import CancelledError
 from pcap_backend.export import CAPTURE_FORMATS, atomic_output, check_destination
 from pcap_backend.protocol import InvalidParamsError, RequestContext, param, str_list
@@ -183,6 +183,31 @@ class ToolsMixin(ServiceBase):
             res.stdout.decode("utf-8", "replace"), tshark.folders(ctx.token), as_root
         )
         return {**out, "version": tshark.version()}
+
+    def wireshark_profiles(self, _params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """Wireshark's configuration profiles (wsprofile.list_profiles):
+        ``{profiles: [{name, path, default, global, files}]}``, the Default
+        profile first. Needs no open capture."""
+        tshark = self._require_tshark()
+        personal, global_ = wsprofile.config_folders(tshark.folders(ctx.token))
+        return {"profiles": wsprofile.list_profiles(personal, global_)}
+
+    def read_wireshark_profile(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """What profile ``name`` holds (wsprofile.read_profile: coloring rules,
+        filter buttons, saved filters, columns; macros, preferences and Decode
+        As counted), for importing; "" or "Default" is the Default profile."""
+        name = param(params, "name", str, "")
+        tshark = self._require_tshark()
+        personal, global_ = wsprofile.config_folders(tshark.folders(ctx.token))
+        if name in ("", "Default"):
+            folder = personal
+        elif wsprofile.valid_name(name):
+            folder = wsprofile.profile_dir(personal, global_, name)
+        else:
+            raise InvalidParamsError(f"invalid Wireshark profile name {name!r}")
+        if folder is None or not folder.is_dir():
+            raise InvalidParamsError(f'Wireshark profile "{name}" does not exist')
+        return {"name": name or "Default", "path": str(folder), **wsprofile.read_profile(folder)}
 
     def edit_capture(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """Write an edited copy of the open capture with editcap (editing.py):

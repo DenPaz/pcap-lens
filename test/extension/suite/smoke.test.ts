@@ -570,6 +570,57 @@ suite("PCAP Lens smoke test", () => {
     await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
   });
 
+  test("Wireshark profiles: tshark uses the chosen one; importing copies its coloring rules", async () => {
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    const api = (await ext!.activate()) as PcapViewerApi;
+    const uri = vscode.Uri.file(path.join(FIXTURES, "http.pcap"));
+    await vscode.commands.executeCommand("vscode.openWith", uri, "pcapViewer.editor");
+    const session = await waitFor(() =>
+      api.provider.allSessions.find((s) => s.uri.fsPath === uri.fsPath && indexed(s)),
+    );
+    // A profile Wireshark ships (Bluetooth, Classic…): the tests never touch the user's own.
+    const { profiles } = await session.backend!.request<{
+      profiles: { name: string; global: boolean; files: string[] }[];
+    }>("wireshark_profiles", {});
+    assert.equal(profiles[0].name, "Default");
+    const shipped = profiles.find((p) => p.global && p.files.includes("colorfilters"));
+    if (!shipped) {
+      console.warn("no Wireshark profile with coloring rules is installed: skipping");
+      return;
+    }
+    const cfg = vscode.workspace.getConfiguration("pcapViewer");
+    const rulesBefore = cfg.inspect("coloringRules");
+    try {
+      const used = await vscode.commands.executeCommand<string | undefined>(
+        "pcapViewer.wiresharkProfile",
+        { profile: shipped.name },
+      );
+      assert.equal(used, shipped.name);
+      await waitFor(() =>
+        session.wiresharkProfile === shipped.name && indexed(session) ? true : undefined,
+      );
+      assert.equal(session.openInfo?.frames, 11, "tshark read the capture with -C");
+      const imported = await vscode.commands.executeCommand<Record<string, number> | undefined>(
+        "pcapViewer.importWiresharkProfile",
+        { profile: shipped.name, kinds: ["coloringRules"] },
+      );
+      assert.ok(imported?.coloringRules, "its coloring rules were imported");
+      const rules = vscode.workspace.getConfiguration("pcapViewer").get<unknown[]>("coloringRules");
+      assert.equal(rules?.length, imported.coloringRules);
+    } finally {
+      // (Nothing defines them more specifically, so the commands wrote user settings.)
+      await cfg.update("wiresharkProfile", undefined, vscode.ConfigurationTarget.Global);
+      await cfg.update(
+        "coloringRules",
+        rulesBefore?.globalValue,
+        vscode.ConfigurationTarget.Global,
+      );
+    }
+    await waitFor(() => (session.wiresharkProfile === "" ? true : undefined));
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
+  });
+
   test("Lua dissectors: a capture's own choice, remembered across reloads", async () => {
     const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
     const api = (await ext!.activate()) as PcapViewerApi;

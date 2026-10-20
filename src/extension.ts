@@ -4,6 +4,7 @@ import { registerAnalysisCommands } from "./commands/analysis";
 import { registerOpenBerRecordsCommand } from "./commands/openBerRecords";
 import { registerOpenFileCommand } from "./commands/openFile";
 import { registerPluginCommands } from "./commands/plugins";
+import { registerProfileCommands } from "./commands/profiles";
 import { consumePrefsChange, registerPrefsCommands } from "./commands/prefs";
 import { samePrefs } from "./prefsModel";
 import { registerColoringCommands } from "./commands/coloring";
@@ -77,6 +78,7 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
   registerOpenFileCommand(context, p, log);
   registerOpenBerRecordsCommand(context, p, log);
   registerPluginCommands(context, p, log);
+  registerProfileCommands(context, p, log);
   registerPrefsCommands(context, p, log);
   registerSetupCommands(context, log);
   const recent = registerRecentCaptures(context);
@@ -144,6 +146,14 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
             void s.load("name resolution changed");
           }
         }, 300);
+      }
+      if (e.affectsConfiguration(`${SECTION}.wiresharkProfile`)) {
+        // Usually PCAP: Use Wireshark Profile…: reload the captures it changes.
+        await Promise.all(
+          p.allSessions
+            .filter((s) => readSettings(s.uri).wiresharkProfile !== s.wiresharkProfile)
+            .map((s) => s.load("Wireshark profile changed")),
+        );
       }
       if (e.affectsConfiguration(`${SECTION}.tlsKeyLogFile`)) {
         // Usually PCAP: Set TLS Key Log File…: reload the captures whose key log changed.

@@ -100,6 +100,8 @@ def rpc_methods(service: PcapService) -> dict[str, Callable[[dict[str, Any], Req
         "probe_file": service.probe_file,
         "split_ber": service.split_ber,
         "tshark_plugins": service.tshark_plugins,
+        "wireshark_profiles": service.wireshark_profiles,
+        "read_wireshark_profile": service.read_wireshark_profile,
         "edit_capture": service.edit_capture,
         "flow_graph": service.flow_graph,
         "tcp_graph": service.tcp_graph,

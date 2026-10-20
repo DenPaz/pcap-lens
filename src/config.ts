@@ -24,6 +24,7 @@ import {
   withTlsKeyLog,
 } from "./settingsModel";
 import { luaChoiceFor } from "./luaChoice";
+import { normalizeProfileName } from "./wiresharkProfile";
 
 export const SECTION = "pcapViewer";
 
@@ -55,6 +56,8 @@ export interface Settings {
   /** Saved packet-list indexes (reopening skips the index pass); 0 bytes = off. */
   indexCacheBytes: number;
   nameResolution: NameResolution;
+  /** `pcapViewer.wiresharkProfile`: the Wireshark profile tshark uses (`-C`; "" = Default). */
+  wiresharkProfile: string;
 }
 
 export function readColoringStyle(scope?: vscode.Uri): ColoringStyle {
@@ -116,6 +119,7 @@ export function readSettings(scope?: vscode.Uri): Settings {
       ? Math.max(0, cfg.get<number>("indexCache.maxSizeMB", 1024)) * 1024 * 1024
       : 0,
     nameResolution: normalizeNameResolution((key) => cfg.get<unknown>(`nameResolution.${key}`)),
+    wiresharkProfile: normalizeProfileName(cfg.get<unknown>("wiresharkProfile", "")),
   };
 }
 
