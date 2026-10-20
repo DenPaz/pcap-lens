@@ -854,6 +854,27 @@ suite("webview lib: follow stream and statistics helpers", () => {
     assert.equal(lib.rowsToText(["No."], [["7"]], false), "7");
   });
 
+  test("logTicks: powers of ten around the values; ioSeries checks the stored graphs", () => {
+    assert.deepEqual(lib.logTicks(3, 561), [1, 10, 100, 1000]);
+    assert.deepEqual(lib.logTicks(0.0009, 0.02), [0.0001, 0.001, 0.01, 0.1]);
+    assert.deepEqual(lib.logTicks(10, 10), [10, 100]);
+    assert.deepEqual(lib.logTicks(0, 0), [1, 10]);
+    assert.deepEqual(
+      lib.ioSeries([
+        { metric: "avg", field: " tcp.len ", filter: "tcp", style: "bar" },
+        { metric: "median" },
+        "junk",
+        null,
+      ]),
+      [
+        { metric: "avg", filter: "tcp", field: "tcp.len", style: "bar" },
+        { metric: "packets", filter: "", field: "", style: "line" },
+      ],
+    );
+    assert.equal(lib.ioSeries(Array(12).fill({})).length, 8);
+    assert.deepEqual(lib.ioSeries("nope"), []);
+  });
+
   test("niceTicks covers the maximum with 1-2-5 steps", () => {
     assert.deepEqual(lib.niceTicks(561), [0, 200, 400, 600]);
     assert.deepEqual(lib.niceTicks(1000), [0, 500, 1000]);

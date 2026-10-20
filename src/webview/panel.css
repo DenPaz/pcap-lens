@@ -176,18 +176,110 @@ table.stats td.wrap {
   font-variant-numeric: tabular-nums;
 }
 
+/* The IO graph's series colors, in order (the theme's chart colors). */
+.s0 {
+  --series: var(--vscode-charts-blue, #3794ff);
+}
+.s1 {
+  --series: var(--vscode-charts-red, #f14c4c);
+}
+.s2 {
+  --series: var(--vscode-charts-green, #89d185);
+}
+.s3 {
+  --series: var(--vscode-charts-orange, #d18616);
+}
+.s4 {
+  --series: var(--vscode-charts-purple, #b180d7);
+}
+.s5 {
+  --series: var(--vscode-charts-yellow, #cca700);
+}
+.s6 {
+  --series: var(--vscode-terminal-ansiCyan, #11a8cd);
+}
+.s7 {
+  --series: var(--vscode-charts-foreground, #cccccc);
+}
+
 .chart .series-area {
-  fill: var(--vscode-charts-blue, #3794ff);
+  fill: var(--series, var(--vscode-charts-blue, #3794ff));
   fill-opacity: 0.1;
   stroke: none;
 }
 
 .chart .series-line {
   fill: none;
-  stroke: var(--vscode-charts-blue, #3794ff);
+  stroke: var(--series, var(--vscode-charts-blue, #3794ff));
   stroke-width: 2;
   stroke-linejoin: round;
   stroke-linecap: round;
+}
+
+.chart .series-bars rect {
+  fill: var(--series);
+  fill-opacity: 0.7;
+}
+
+.io-series {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.io-graph {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.io-graph .io-filter {
+  flex: 1 1 16em;
+  min-width: 10em;
+}
+
+.io-graph .io-field {
+  flex: 0 1 16em;
+  min-width: 8em;
+}
+
+.io-name {
+  min-width: 4.5em;
+}
+
+.io-swatch {
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-right: var(--space-2);
+  vertical-align: middle;
+  background: var(--series);
+  border-radius: var(--radius);
+}
+
+.io-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+  margin: var(--space-2) 0 var(--space-4);
+  padding: 0;
+  list-style: none;
+}
+
+.chart .tooltip .tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.chart .tooltip .tooltip-row strong {
+  display: inline;
+  font-size: inherit;
 }
 
 .chart .crosshair {
@@ -197,7 +289,7 @@ table.stats td.wrap {
 }
 
 .chart .marker {
-  fill: var(--vscode-charts-blue, #3794ff);
+  fill: var(--series, var(--vscode-charts-blue, #3794ff));
   stroke: var(--vscode-editor-background);
   stroke-width: 2;
 }
@@ -334,7 +426,8 @@ table.rules .rule-filter {
   min-width: 16em;
 }
 
-table.rules .rule-filter.invalid {
+table.rules .rule-filter.invalid,
+.io-graph input.invalid {
   border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
 }
 

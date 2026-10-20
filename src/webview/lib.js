@@ -1479,6 +1479,47 @@
     return ticks;
   }
 
+  /**
+   * Powers of ten covering `min`..`max` (both > 0) for a log scale: from the
+   * power at or below `min` to the one at or above `max`, at least two.
+   * @param {number} min @param {number} max
+   * @returns {number[]}
+   */
+  function logTicks(min, max) {
+    if (!(min > 0) || !(max > 0)) {
+      return [1, 10];
+    }
+    const lo = Math.floor(Math.log10(Math.min(min, max)));
+    const hi = Math.max(lo + 1, Math.ceil(Math.log10(max)));
+    const ticks = [];
+    for (let e = lo; e <= hi; e++) {
+      ticks.push(Number((10 ** e).toPrecision(1)));
+    }
+    return ticks;
+  }
+
+  /**
+   * The IO graph's series as the backend takes them and the panel keeps them:
+   * up to `max` of `{metric, filter, field, style}`, unknown metrics as
+   * packets, strings trimmed and capped. Anything else is dropped.
+   * @param {unknown} raw @param {number} [max]
+   * @returns {{metric: string, filter: string, field: string, style: "line" | "bar"}[]}
+   */
+  function ioSeries(raw, max = 8) {
+    const metrics = ["packets", "bytes", "bits", "sum", "count", "max", "min", "avg", "load"];
+    const text = (/** @type {unknown} */ v) =>
+      typeof v === "string" ? v.trim().slice(0, 2000) : "";
+    return (Array.isArray(raw) ? raw : [])
+      .filter((s) => s && typeof s === "object")
+      .slice(0, max)
+      .map((/** @type {any} */ s) => ({
+        metric: metrics.includes(s.metric) ? s.metric : "packets",
+        filter: text(s.filter),
+        field: text(s.field),
+        style: s.style === "bar" ? "bar" : "line",
+      }));
+  }
+
   /** @param {string} hex */
   function hexToBytes(hex) {
     const out = new Uint8Array(hex.length >> 1);
@@ -2526,6 +2567,8 @@
     conversationFilters,
     comparePackets,
     relatedFrames,
+    logTicks,
+    ioSeries,
     bitPattern,
     packetDiagram,
     combineFilter,

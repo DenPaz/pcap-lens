@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 from pytest_bdd import given, parsers, then, when
 
+from pcap_backend import stats
 from pcap_backend.cancellation import CancelledError
 from pcap_backend.pcap_service import BASE_COLUMNS, PcapService
 from pcap_backend.protocol import FilterError, RequestContext, RpcError, UnsupportedFormatError
@@ -841,6 +842,74 @@ def _table(world: World) -> dict[str, Any]:
 def _stats_cell(world: World, row: dict[str, Any], label: str) -> Any:
     labels = [c["label"] for c in _table(world)["columns"]]
     return row["cells"][labels.index(label)]
+
+
+@when(
+    parsers.re(
+        r"I request the IO graph with interval (?P<interval>[\d.]+) and the graphs (?P<graphs>.+)$"
+    )
+)
+def request_io_graphs(world: World, interval: str, graphs: str) -> None:
+    """Graphs written ``"<metric> of <filter or field>"``."""
+    series = []
+    for graph in items(graphs):
+        metric, _, of = graph.partition(" of ")
+        if metric in stats.IO_FIELD_METRICS:
+            series.append({"metric": metric, "field": of})
+        else:
+            series.append({"metric": metric, "filter": of})
+    world.table = world.call(
+        world.service.stats, {"kind": "io", "interval": float(interval), "series": series}
+    )
+
+
+def _graph(world: World, label: str) -> list[Any]:
+    return [_stats_cell(world, r, label) for r in _table(world)["rows"]]
+
+
+@then(
+    parsers.re(
+        r'the graph "(?P<label>[^"]+)" adds up to the number of packets matching "(?P<flt>[^"]+)"$'
+    )
+)
+def graph_adds_up(world: World, label: str, flt: str) -> None:
+    total = world.service.count_matches({"filter": flt}, world.ctx)["count"]
+    assert total > 0
+    assert sum(_graph(world, label)) == total
+
+
+@then(
+    parsers.re(
+        r'the graph "(?P<label>[^"]+)" is 8 times the bytes matching "(?P<flt>[^"]+)"'
+        r" in every interval$"
+    )
+)
+def graph_bits(world: World, label: str, flt: str) -> None:
+    interval = _table(world)["interval"]
+    check = world.service.stats(
+        {"kind": "io", "interval": interval, "series": [{"metric": "bytes", "filter": flt}]},
+        world.ctx,
+    )
+    size = [r["cells"][-1] for r in check["rows"]]
+    assert any(size)
+    assert _graph(world, label) == [b * 8 for b in size]
+
+
+@then(
+    parsers.re(
+        r'the graph "(?P<label>[^"]+)" never exceeds the "(?P<other>[^"]+)" of its interval$'
+    )
+)
+def graph_at_most(world: World, label: str, other: str) -> None:
+    values, limits = _graph(world, label), _graph(world, other)
+    assert max(values) > 0
+    assert all(v <= limit for v, limit in zip(values, limits, strict=True))
+
+
+@then(parsers.re(r"the request fails with a filter error for graph (?P<n>\d+)$"))
+def io_filter_error(world: World, n: str) -> None:
+    assert isinstance(world.error, FilterError), world.error
+    assert world.error.data["series"] == int(n) - 1
 
 
 @then(parsers.re(r"the statistics have (?P<count>\d+) rows?$"))

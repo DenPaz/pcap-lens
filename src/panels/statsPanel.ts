@@ -61,13 +61,49 @@ export function expertRows(raw: unknown): ExpertRow[] {
 
 type FromPanel =
   | { type: "ready" }
-  | { type: "query"; id: number; params: { type?: string; interval?: number; limit?: boolean } }
+  | { type: "query"; id: number; params: QueryParams }
+  /** The IO graph's graphs changed: the next I/O graph starts with them. */
+  | { type: "ioGraphs"; series: unknown; logScale: unknown }
   | { type: "cancel"; id: number }
   | { type: "filter"; expr: string; apply: boolean }
   | { type: "goto"; frame: number }
   | { type: "copy"; text: string }
   /** "Ask Copilot…" about expert rows (none: the capture's errors and warnings). */
   | { type: "askCopilot"; rows: unknown[] };
+
+interface QueryParams {
+  type?: string;
+  interval?: number;
+  limit?: boolean;
+  /** The IO graph's graphs ({metric, filter, field}; the backend checks them). */
+  series?: unknown;
+}
+
+/** The IO graphs kept in globalState: what the panel posted, capped (it is checked again there). */
+export const IO_GRAPHS_KEY = "pcapViewer.ioGraphs";
+
+/**
+ * The IO graphs to keep: at most 8 entries of short strings, the rest dropped.
+ * The webview's `lib.ioSeries` normalizes them again when it reads them back.
+ */
+export function ioGraphsState(
+  series: unknown,
+  logScale: unknown,
+): { series: unknown[]; logScale: boolean } {
+  const text = (v: unknown) => (typeof v === "string" ? v.slice(0, 2000) : "");
+  return {
+    series: (Array.isArray(series) ? series : [])
+      .slice(0, 8)
+      .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
+      .map((s) => ({
+        metric: text(s.metric),
+        filter: text(s.filter),
+        field: text(s.field),
+        style: text(s.style),
+      })),
+    logScale: logScale === true,
+  };
+}
 
 /**
  * A statistics report for one capture, in a webview panel beside the editor.
@@ -103,7 +139,7 @@ export class StatsPanel {
   readonly panel: vscode.WebviewPanel;
 
   private constructor(
-    context: vscode.ExtensionContext,
+    private readonly context: vscode.ExtensionContext,
     readonly session: PcapEditorSession,
     readonly kind: StatsKind,
     private readonly key: string,
@@ -142,7 +178,14 @@ export class StatsPanel {
           title: STATS_TITLES[this.kind],
           filter: this.session.currentFilter,
           ai: this.kind === "expert" && (await this.session.aiAvailable()),
+          io: this.kind === "io" ? this.context.globalState.get(IO_GRAPHS_KEY) : undefined,
         });
+        return;
+      case "ioGraphs":
+        await this.context.globalState.update(
+          IO_GRAPHS_KEY,
+          ioGraphsState(msg.series, msg.logScale),
+        );
         return;
       case "askCopilot":
         await vscode.commands.executeCommand("pcapViewer.askAboutAnomaly", {
@@ -179,10 +222,7 @@ export class StatsPanel {
     }
   }
 
-  private async query(
-    id: number,
-    params: { type?: string; interval?: number; limit?: boolean },
-  ): Promise<void> {
+  private async query(id: number, params: QueryParams): Promise<void> {
     const client = this.session.backend;
     if (!client?.running) {
       this.post({
@@ -195,7 +235,13 @@ export class StatsPanel {
     const filter = params.limit ? this.session.currentFilter : "";
     const pending = client.send(
       "stats",
-      { kind: this.kind, type: params.type, interval: params.interval, filter },
+      {
+        kind: this.kind,
+        type: params.type,
+        interval: params.interval,
+        filter,
+        series: this.kind === "io" && Array.isArray(params.series) ? params.series : undefined,
+      },
       { timeoutMs: 0 },
     );
     this.inflight.set(id, pending.id);
@@ -204,7 +250,15 @@ export class StatsPanel {
       this.post({ type: "result", id, table });
     } catch (err) {
       const e = err instanceof RpcError ? err : new RpcError(String(err), ErrorCodes.InternalError);
-      this.post({ type: "error", id, message: e.message, cancelled: e.cancelled });
+      // A refused graph's filter or field names the graph (FilterError data.series).
+      const series = (e.data as { series?: unknown } | undefined)?.series;
+      this.post({
+        type: "error",
+        id,
+        message: e.message,
+        cancelled: e.cancelled,
+        series: typeof series === "number" ? series : undefined,
+      });
     } finally {
       this.inflight.delete(id);
     }

@@ -7,11 +7,11 @@ from typing import Any
 
 from pcap_backend import stats
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, param
-from pcap_backend.stats import Table
+from pcap_backend.stats import IoSeries, Table
 from pcap_backend.tshark import ToolError, run
 
 from .base import ServiceBase
-from .state import _Open
+from .state import _FIELD_NAME_RE, _Open
 
 
 class StatisticsMixin(ServiceBase):
@@ -22,7 +22,8 @@ class StatisticsMixin(ServiceBase):
 
         ``kind``: ``conversations`` / ``endpoints`` (with ``type`` eth, ip, ipv6,
         tcp, udp), ``phs`` (protocol hierarchy), ``io`` (with optional
-        ``interval`` in seconds), ``expert``, ``properties`` (capinfos),
+        ``interval`` in seconds and ``series``, see ``_io``), ``expert``,
+        ``properties`` (capinfos),
         ``http`` (``type`` packets, requests or load), ``dns``, ``plen``
         (packet lengths), ``srt`` (service response time, ``type`` a
         protocol of ``stats.SRT_PROTOCOLS`` or ``auto``) or ``sip``.
@@ -54,16 +55,7 @@ class StatisticsMixin(ServiceBase):
             case "phs":
                 table = stats.parse_protocol_hierarchy(self._tap(f, f"io,phs{suffix}", ctx))
             case "io":
-                duration = (
-                    f.info.end_time - f.info.start_time
-                    if f.info.end_time is not None and f.info.start_time is not None
-                    else None
-                )
-                interval = param(params, "interval", float, 0.0) or stats.io_interval(duration)
-                if not 0.000001 <= interval <= 86400:
-                    raise InvalidParamsError("interval must be between 1 µs and 1 day")
-                text = self._tap(f, f"io,stat,{interval:g}{suffix}", ctx)
-                table = stats.parse_io_stat(text, interval)
+                table = self._io(f, params, counted, ctx)
             case "expert":
                 table = self._expert(f, counted, ctx)
             case "http" | "dns" | "plen":
@@ -82,6 +74,69 @@ class StatisticsMixin(ServiceBase):
         result = table.to_json()
         result["filter"] = flt
         return result
+
+    def _io(self, f: _Open, params: dict[str, Any], counted: str, ctx: RequestContext) -> Table:
+        """The IO graph: packets and bytes per ``interval`` (default: about 100
+        intervals) of the packets in ``counted``, plus the ``series``."""
+        duration = (
+            f.info.end_time - f.info.start_time
+            if f.info.end_time is not None and f.info.start_time is not None
+            else None
+        )
+        interval = param(params, "interval", float, 0.0) or stats.io_interval(duration)
+        if not 0.000001 <= interval <= 86400:
+            raise InvalidParamsError("interval must be between 1 µs and 1 day")
+        series = self._io_series(f, params.get("series"), ctx)
+        # (tshark refuses an empty last argument: "frame" is every packet too.)
+        scope = [counted or "frame"] if counted or series else []
+        spec = ",".join([f"io,stat,{interval:g}", *scope, *(s.tap_arg(counted) for s in series)])
+        argv = f.tshark.argv("-q", "-n", "-z", spec, capture=str(f.path))
+        res = run(argv, ctx.token)
+        text = res.stdout.decode("utf-8", "replace")
+        if "Interval" not in text:
+            # (A field without numbers for SUM etc.: tshark says so and exits 0.)
+            raise f.tshark.error(res.stderr, res.returncode, "tshark -z io,stat failed")
+        return stats.parse_io_stat(text, interval, series)
+
+    def _io_series(self, f: _Open, raw: object, ctx: RequestContext) -> list[IoSeries]:
+        """The IO graph's ``series``: up to ``stats.MAX_IO_SERIES`` of
+        ``{metric, filter?, field?}`` (``stats.IO_METRICS``; field metrics need
+        a ``field``). Each filter is validated with its field (a FilterError
+        names the series as ``data.series``); io,stat separates its arguments
+        with commas, so neither may hold one."""
+        if raw is None:
+            return []
+        if not isinstance(raw, list) or len(raw) > stats.MAX_IO_SERIES:
+            raise InvalidParamsError(f"series must list at most {stats.MAX_IO_SERIES} graphs")
+        series: list[IoSeries] = []
+        for i, item in enumerate(raw):
+            if not isinstance(item, dict):
+                raise InvalidParamsError("each series must be an object")
+            metric = item.get("metric", "packets")
+            flt = str(item.get("filter") or "").strip()
+            fld = str(item.get("field") or "").strip()
+            if metric not in stats.IO_METRICS:
+                raise InvalidParamsError(f"metric must be one of {', '.join(stats.IO_METRICS)}")
+            if metric in stats.IO_FIELD_METRICS:
+                if not _FIELD_NAME_RE.match(fld):
+                    raise InvalidParamsError(
+                        f"graph {i + 1}: {metric.upper()} needs a field name", {"series": i}
+                    )
+            else:
+                fld = ""
+            if "," in flt:
+                raise FilterError(
+                    "tshark's I/O statistics separate graphs with commas: this filter can't"
+                    " hold one (write a set as {1 2} or with ||)",
+                    {"expr": flt, "series": i},
+                )
+            check = " && ".join(p for p in (fld, f"({flt})" if flt else "") if p)
+            if check:
+                error = f.tshark.validate_filter(check, ctx.token)
+                if error:
+                    raise FilterError(error, {"expr": flt or fld, "series": i})
+            series.append(IoSeries(metric, flt, fld))
+        return series
 
     def _expert(self, f: _Open, counted: str, ctx: RequestContext) -> Table:
         """Expert info: the ``-z expert`` summary joined with a fields pass for

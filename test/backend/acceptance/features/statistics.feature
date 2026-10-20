@@ -32,6 +32,16 @@ Feature: Statistics
     Then the statistics have 5 rows
     And every row has 5 "Packets"
 
+  Scenario: IO graph with several graphs
+    When I request the IO graph with interval 0.01 and the graphs "packets of dns", "bits of tcp" and "max of frame.len"
+    Then the graph "Packets · dns" adds up to the number of packets matching "dns"
+    And the graph "Bits · tcp" is 8 times the bytes matching "tcp" in every interval
+    And the graph "MAX(frame.len)" never exceeds the "Bytes" of its interval
+
+  Scenario: An IO graph's bad filter names the graph
+    When I request the IO graph with interval 0.01 and the graphs "packets of tcp" and "packets of udp.port =="
+    Then the request fails with a filter error for graph 2
+
   Scenario: Expert information links to packets
     When I request the "expert" statistics
     Then the expert row "Connection finish (FIN)" has severity "Chat", count 2 and frames 18 and 19

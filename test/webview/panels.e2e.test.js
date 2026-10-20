@@ -90,20 +90,21 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
   });
 
   /** Open stats.js with a stand-in for StatsPanel (src/panels/statsPanel.ts). */
-  async function openStats(kind, captureFilter = "", ai = false) {
+  async function openStats(kind, captureFilter = "", ai = false, io = undefined) {
     const { page, problems, post } = await newPage(browser);
     const log = [];
     await page.exposeFunction("__toHost", async (raw) => {
       const msg = JSON.parse(raw);
       log.push(msg);
       if (msg.type === "ready") {
-        await post({ type: "init", kind, title: TITLES[kind], filter: captureFilter, ai });
+        await post({ type: "init", kind, title: TITLES[kind], filter: captureFilter, ai, io });
       } else if (msg.type === "query") {
         const params = {
           kind,
           type: msg.params.type,
           interval: msg.params.interval,
           filter: msg.params.limit ? captureFilter : "",
+          series: msg.params.series,
         };
         client.request("stats", params, { timeoutMs: 0 }).then(
           (table) => post({ type: "result", id: msg.id, table }),
@@ -113,6 +114,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
               id: msg.id,
               message: err.message,
               cancelled: err.code === -32800,
+              series: typeof err.data?.series === "number" ? err.data.series : undefined,
             }),
         );
       }
@@ -237,11 +239,101 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     await page.keyboard.press("Home");
     await page.keyboard.press("ArrowRight");
     assert.match(await page.textContent(".chart .tooltip span"), /^0\.00\d+–0\.00\d+ s$/);
-    await page.selectOption("select[aria-label='Metric']", "bytes");
+    await page.selectOption("select[aria-label='Y axis of graph 1']", "bytes");
     await page.mouse.move(resized.x + resized.width / 2 + 5, resized.y + resized.height / 2);
     await page.waitForFunction(() =>
       /bytes$/.test(document.querySelector(".chart .tooltip strong")?.textContent ?? ""),
     );
+  });
+
+  test("IO graph: several graphs, a field's average, bars, log scale; a bad filter names its graph", async () => {
+    const { page, log } = await openStats("io");
+    await page.waitForSelector(".chart svg .series-line.s0");
+    const lastQuery = () => log.filter((m) => m.type === "query").at(-1);
+    await page.click("button:has-text('Add Graph')");
+    await page.fill("input[aria-label='Display filter of graph 2']", "http");
+    await page.press("input[aria-label='Display filter of graph 2']", "Enter");
+    await page.waitForSelector(".chart svg .series-line.s1");
+    assert.deepEqual(lastQuery().params.series, [
+      { metric: "packets", filter: "", field: "" },
+      { metric: "packets", filter: "http", field: "" },
+    ]);
+    // The table gets a column per graph; the legend names them.
+    await page.waitForSelector("table.stats th:has-text('Packets · http')");
+    assert.deepEqual(
+      await page.$$eval(".io-legend li", (items) => items.map((i) => i.textContent)),
+      ["Packets", "Packets · http"],
+    );
+
+    // A field metric asks for its field first, then draws its value.
+    await page.click("button:has-text('Add Graph')");
+    await page.selectOption("select[aria-label='Y axis of graph 3']", "avg");
+    assert.ok(await page.isVisible("input[aria-label='Field of graph 3']"));
+    await page.fill("input[aria-label='Field of graph 3']", "frame.len");
+    await page.press("input[aria-label='Field of graph 3']", "Enter");
+    await page.waitForSelector(".chart svg .series-line.s2");
+    await page.selectOption("select[aria-label='Style of graph 3']", "bar");
+    await page.waitForSelector(".chart svg .series-bars.s2 rect");
+    assert.equal(await page.$(".chart svg .series-line.s2"), null, "drawn as bars instead");
+    const box = await page.locator(".chart svg").boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForSelector(".chart .tooltip .tooltip-row");
+    assert.equal(await page.$$eval(".chart .tooltip .tooltip-row", (r) => r.length), 3);
+    assert.match(
+      await page.textContent(".chart .tooltip .tooltip-row:nth-child(3)"),
+      /^AVG\(frame\.len\): [\d.]+$/,
+    );
+
+    await page.check("#io-log");
+    await page.waitForFunction(() =>
+      /log scale/.test(document.querySelector(".chart svg")?.getAttribute("aria-label") ?? ""),
+    );
+    // The host keeps the graphs (styles and log scale included) for the next I/O graph.
+    const kept = log.filter((m) => m.type === "ioGraphs").at(-1);
+    assert.equal(kept.logScale, true);
+    assert.deepEqual(
+      kept.series.map((g) => [g.metric, g.filter, g.field, g.style]),
+      [
+        ["packets", "", "", "line"],
+        ["packets", "http", "", "line"],
+        ["avg", "", "frame.len", "bar"],
+      ],
+    );
+
+    // tshark refuses graph 2's filter: the notice and the input say which.
+    await page.fill("input[aria-label='Display filter of graph 2']", "tcp.port ==");
+    await page.press("input[aria-label='Display filter of graph 2']", "Enter");
+    await page.waitForSelector(".notice.error:not(.hidden)");
+    assert.match(await page.textContent(".notice.error"), /^Graph 2: /);
+    assert.equal(
+      await page.getAttribute("input[aria-label='Display filter of graph 2']", "aria-invalid"),
+      "",
+    );
+    await page.click("button[aria-label='Remove graph 2']");
+    await page.waitForFunction(
+      () =>
+        !document.querySelector(".notice.error") || document.querySelector(".notice.error.hidden"),
+    );
+    assert.equal(await page.$$eval(".io-graph", (rows) => rows.length), 2);
+  });
+
+  test("IO graph: starts with the graphs the host kept", async () => {
+    const io = {
+      series: [
+        { metric: "bytes", filter: "tcp", field: "", style: "bar" },
+        { metric: "max", filter: "", field: "frame.len", style: "line" },
+      ],
+      logScale: true,
+    };
+    const { page, log } = await openStats("io", "", false, io);
+    await page.waitForSelector(".chart svg .series-bars.s0 rect");
+    await page.waitForSelector(".chart svg .series-line.s1");
+    assert.equal(await page.isChecked("#io-log"), true);
+    assert.equal(await page.inputValue("input[aria-label='Field of graph 2']"), "frame.len");
+    assert.deepEqual(log.find((m) => m.type === "query").params.series, [
+      { metric: "bytes", filter: "tcp", field: "" },
+      { metric: "max", filter: "", field: "frame.len" },
+    ]);
   });
 
   test("expert information: severity and go to packet", async () => {
