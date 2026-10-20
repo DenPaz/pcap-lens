@@ -7,7 +7,7 @@ import shutil
 import threading
 from array import array
 from bisect import bisect_right
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Any
@@ -16,6 +16,7 @@ from pcap_backend import navigation, procs, voip
 from pcap_backend.cache import FrameIndex, LruCache
 from pcap_backend.cancellation import CancelToken
 from pcap_backend.fields import FieldCatalog
+from pcap_backend.geoip import GeoDatabases, geo_folders
 from pcap_backend.objects import ExportedObject
 from pcap_backend.prefs import Preference
 from pcap_backend.protocol import (
@@ -87,6 +88,8 @@ class ServiceBase:
         self._dissector_names: LruCache[tuple[str, tuple[str, ...]], list[dict[str, str]]] = (
             LruCache(2)
         )
+        # GeoIP: the MaxMind databases of the latest folders asked for (Endpoints).
+        self._geo: tuple[tuple[str, ...], GeoDatabases] | None = None
         # The protocols and heuristic dissectors tshark can switch, by (tshark, Lua scripts).
         self._protocol_lists: LruCache[tuple[str, tuple[str, ...]], ProtocolList] = LruCache(2)
         # Coloring: rule index + 1 per frame (0 = no rule), from the latest set_coloring.
@@ -134,6 +137,9 @@ class ServiceBase:
             wait([self._warm_future], timeout=procs.STOP_TIMEOUT)
         EMPTY_CAPTURE.remove()
         self._pool.shutdown(wait=False, cancel_futures=True)
+        if self._geo is not None:
+            self._geo[1].close()
+            self._geo = None
 
     def _close_file(self) -> None:
         live = self._view.live if self._view is not None else None
@@ -208,6 +214,17 @@ class ServiceBase:
             )
             self._protocol_lists.put(key, found)
         return found
+
+    def _geo_databases(self, folders: Sequence[str]) -> GeoDatabases:
+        """The MaxMind databases of ``folders`` and tshark's usual ones, kept
+        open until other folders are asked for."""
+        key = tuple(geo_folders(folders))
+        with self._lock:
+            if self._geo is None or self._geo[0] != key:
+                if self._geo is not None:
+                    self._geo[1].close()
+                self._geo = (key, GeoDatabases(key))
+            return self._geo[1]
 
     def _ignore_filter(self) -> str:
         """The display filter that leaves the ignored packets out (``""`` when

@@ -21,3 +21,5 @@ test/fixtures/formats/
 # Python is formatted by ruff
 *.py
 coverage/
+# Generated world map (scripts/world-map.mjs)
+src/webview/worldmap.js

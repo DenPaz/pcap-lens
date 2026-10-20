@@ -111,7 +111,7 @@ function renderEditorHtml(origin) {
 }
 
 /** A statistics / follow panel page, mirroring src/panels/panelHtml.ts. */
-function renderPanelHtml(origin, script, { media = false } = {}) {
+function renderPanelHtml(origin, script, { media = false, scripts = [] } = {}) {
   const nonce = crypto.randomBytes(16).toString("base64");
   const mediaSrc = media ? ` media-src ${origin};` : "";
   const csp = `default-src 'none'; img-src ${origin} data:; style-src ${origin}; font-src ${origin};${mediaSrc} script-src 'nonce-${nonce}'`;
@@ -123,6 +123,7 @@ function renderPanelHtml(origin, script, { media = false } = {}) {
   </head><body class="panel"><div id="app"></div>
   ${stubScript(nonce)}
   <script nonce="${nonce}" src="${origin}/lib.js"></script>
+  ${scripts.map((name) => `<script nonce="${nonce}" src="${origin}/${name}"></script>`).join("")}
   <script nonce="${nonce}" src="${origin}/${script}"></script>
   </body></html>`;
 }

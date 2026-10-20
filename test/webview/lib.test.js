@@ -842,6 +842,35 @@ suite("webview lib: follow stream and statistics helpers", () => {
     );
   });
 
+  test("geoPoints: endpoints with a location, one point per place, sized by bytes", () => {
+    const rows = [
+      { cells: ["8.8.8.8", 400], geo: { lat: 37.386, lon: -122.0838 } },
+      { cells: ["8.8.4.4", 500], geo: { lat: 37.39, lon: -122.08 } },
+      { cells: ["93.184.216.34", 100], geo: { lat: 42.1508, lon: -70.8228 } },
+      { cells: ["192.168.1.10", 9999] },
+      { cells: ["bad", 1], geo: { lat: NaN, lon: 0 } },
+    ];
+    const points = lib.geoPoints(rows, 1, (r) => r.cells[0]);
+    assert.deepEqual(
+      points.map((p) => [p.x, p.y, p.r, p.label]),
+      [
+        // Mountain View: both Google addresses (900 bytes, the largest: radius 6).
+        [57.92, 52.61, 6, "8.8.8.8\n8.8.4.4"],
+        [109.18, 47.85, 3, "93.184.216.34"],
+      ],
+    );
+    assert.equal(points[0].rows.length, 2);
+    // Without a Bytes column every place weighs the same.
+    assert.deepEqual(
+      lib.geoPoints(rows, -1, () => "").map((p) => p.r),
+      [6, 4.68],
+    );
+    assert.deepEqual(
+      lib.geoPoints([], 1, () => ""),
+      [],
+    );
+  });
+
   test("rowsToText: tab-separated rows, optional header, one line per row", () => {
     const rows = [
       ["1", "GET /\tx", "a\r\nb"],

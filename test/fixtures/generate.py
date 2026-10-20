@@ -25,6 +25,7 @@ import sys
 import zlib
 from pathlib import Path
 
+import mmdb  # test/fixtures/mmdb.py: MaxMind databases for the GeoIP tests
 import quic  # test/fixtures/quic.py: the hand-encrypted QUIC connection
 from scapy.asn1.asn1 import ASN1_OID
 from scapy.layers.dns import DNS, DNSQR, DNSRR
@@ -1340,6 +1341,44 @@ def esp_packets() -> list[Packet]:
     return _stamp(out)
 
 
+# GeoIP (pcapViewer.geoip.databaseFolders): test databases in MaxMind's format
+# for the public addresses of mixed.pcapng and http.pcap (made-up records).
+GEOIP_CITY = {
+    "93.184.216.0/24": {
+        "city": {"names": {"en": "Norwell"}},
+        "country": {"iso_code": "US", "names": {"en": "United States"}},
+        "location": {"latitude": 42.1508, "longitude": -70.8228},
+    },
+    "8.8.8.0/24": {
+        "city": {"names": {"en": "Mountain View"}},
+        "country": {"iso_code": "US", "names": {"en": "United States"}},
+        "location": {"latitude": 37.386, "longitude": -122.0838},
+    },
+    "2001:db8:10::/48": {
+        "city": {"names": {"en": "Berlin"}},
+        "country": {"iso_code": "DE", "names": {"en": "Germany"}},
+        "location": {"latitude": 52.52, "longitude": 13.405},
+    },
+}
+GEOIP_ASN = {
+    "93.184.216.0/24": {
+        "autonomous_system_number": 15133,
+        "autonomous_system_organization": "Edgecast",
+    },
+    "8.8.8.0/24": {
+        "autonomous_system_number": 15169,
+        "autonomous_system_organization": "Google LLC",
+    },
+}
+
+
+def geoip_fixtures() -> None:
+    folder = HERE / "geoip"
+    folder.mkdir(exist_ok=True)
+    (folder / "PCAP-Lens-Test-City.mmdb").write_bytes(mmdb.write_mmdb(GEOIP_CITY, "GeoLite2-City"))
+    (folder / "PCAP-Lens-Test-ASN.mmdb").write_bytes(mmdb.write_mmdb(GEOIP_ASN, "GeoLite2-ASN"))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--large", nargs=2, metavar=("COUNT", "DEST"))
@@ -1366,6 +1405,7 @@ def main() -> None:
     wrpcap(str(HERE / "credentials.pcap"), credentials_packets())
     wrpcap(str(HERE / "wep.pcap"), wep_packets())
     wrpcap(str(HERE / "esp.pcap"), esp_packets())
+    geoip_fixtures()
     hexdump_fixtures()
     (HERE / "comments.pcapng").write_bytes(
         comments_pcapng(_records(http_packets()), PACKET_COMMENTS)

@@ -1316,7 +1316,7 @@
           },
           "scope": "machine-overridable",
           "default": [],
-          "markdownDescription": "Folders of MaxMind databases (`.mmdb`: GeoLite2 or GeoIP2 City, Country and ASN) for GeoIP: country, city and AS columns and a map in **Endpoints** and **Conversations**, and the `ip.geoip.*` fields in the details and filters. tshark also looks in its usual folders (`/usr/share/GeoIP`, `/var/lib/GeoIP`…). Changing them reloads the open captures."
+          "markdownDescription": "Folders of MaxMind databases (`.mmdb`: GeoLite2 or GeoIP2 City, Country and ASN) for GeoIP: country, city and AS columns and a map of the IPv4/IPv6 **Endpoints**, and the `ip.geoip.*` fields in the details and filters. tshark also looks in its usual folders (`/usr/share/GeoIP`, `/var/lib/GeoIP`…). Changing them reloads the open captures."
         },
         "pcapViewer.tlsKeyLogFile": {
           "type": "string",
@@ -1948,7 +1948,8 @@
     "test:extension": "pnpm run compile && node ./out/test/extension/runTest.js",
     "package": "vsce package --no-dependencies",
     "release:prepare": "node scripts/release.mjs prepare",
-    "codicons": "node scripts/sync-codicons.mjs"
+    "codicons": "node scripts/sync-codicons.mjs",
+    "worldmap": "node scripts/world-map.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -1968,7 +1969,8 @@
     "pngjs": "7.0.0",
     "prettier": "^3.9.10",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.71.2"
+    "typescript-eslint": "^8.71.2",
+    "world-atlas": "2.0.2"
   },
   "packageManager": "pnpm@12.11.2"
 }

@@ -5,6 +5,11 @@ declare function acquireVsCodeApi(): {
   setState(state: unknown): void;
 };
 
+// worldmap.js (scripts/world-map.mjs): the Endpoints map's land outline.
+interface Window {
+  PcapWorldMap?: { width: number; height: number; land: string };
+}
+
 // Shared by the viewer's modules (src/webview/viewer/).
 type Column = { id: string; title: string; field: string; numeric?: boolean; custom?: boolean };
 type Row = {

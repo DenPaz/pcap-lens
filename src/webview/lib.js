@@ -1624,6 +1624,46 @@
       .map((e) => e.row);
   }
 
+  /**
+   * The Endpoints map's points (GeoIP): rows with a `geo` location, grouped
+   * by place (to a tenth of a degree), in map coordinates (x = longitude +
+   * 180, y = 90 − latitude, like worldmap.js), each with a radius from 1.5
+   * to 6 by the square root of its bytes, its rows and a tooltip. Largest
+   * first, so small points are drawn on top.
+   *
+   * @param {{cells: any[], geo?: {lat: number, lon: number}}[]} rows
+   * @param {number} bytesIndex the cell of the Bytes column (-1: equal sizes)
+   * @param {(row: any) => string} describe a row's line in the tooltip
+   * @returns {{x: number, y: number, r: number, rows: any[], label: string}[]}
+   */
+  function geoPoints(rows, bytesIndex, describe) {
+    /** @type {Map<string, {x: number, y: number, bytes: number, rows: any[]}>} */
+    const places = new Map();
+    for (const row of rows) {
+      const geo = row.geo;
+      if (!geo || !Number.isFinite(geo.lat) || !Number.isFinite(geo.lon)) {
+        continue;
+      }
+      const x = Math.min(360, Math.max(0, geo.lon + 180));
+      const y = Math.min(180, Math.max(0, 90 - geo.lat));
+      const key = `${x.toFixed(1)},${y.toFixed(1)}`;
+      const place = places.get(key) || { x, y, bytes: 0, rows: [] };
+      place.bytes += bytesIndex >= 0 ? Number(row.cells[bytesIndex]) || 0 : 1;
+      place.rows.push(row);
+      places.set(key, place);
+    }
+    const max = Math.max(1, ...[...places.values()].map((p) => p.bytes));
+    return [...places.values()]
+      .sort((a, b) => b.bytes - a.bytes)
+      .map((p) => ({
+        x: Math.round(p.x * 100) / 100,
+        y: Math.round(p.y * 100) / 100,
+        r: Math.round((1.5 + 4.5 * Math.sqrt(p.bytes / max)) * 100) / 100,
+        rows: p.rows,
+        label: p.rows.map(describe).join("\n"),
+      }));
+  }
+
   /** @param {{label: string}[]} columns @param {{cells: unknown[]}[]} rows */
   function tableToCsv(columns, rows) {
     /** @param {unknown} v */
@@ -2798,6 +2838,7 @@
     filterButtonTitle,
     sortRows,
     tableToCsv,
+    geoPoints,
     rowsToText,
     niceTicks,
     hexToBytes,

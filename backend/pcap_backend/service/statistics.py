@@ -53,6 +53,8 @@ class StatisticsMixin(ServiceBase):
                 )
                 table = parse(text, typ)
                 table.extra["type"] = typ
+                if kind == "endpoints" and typ in ("ip", "ipv6"):
+                    self._add_geoip(f, table)
             case "phs":
                 table = stats.parse_protocol_hierarchy(self._tap(f, f"io,phs{suffix}", ctx))
             case "io":
@@ -80,6 +82,32 @@ class StatisticsMixin(ServiceBase):
         result = table.to_json()
         result["filter"] = flt
         return result
+
+    def _add_geoip(self, f: _Open, table: Table) -> None:
+        """Country, city and AS columns for IP endpoints, from the MaxMind
+        databases of the settings' folders and tshark's usual ones (none found:
+        the table is unchanged); rows with a location get ``geo: {lat, lon}``
+        (the panel's map) and the table ``geoip: true``."""
+        geo = self._geo_databases(f.tshark.options.geoip)
+        if not geo:
+            return
+        table.columns[1:1] = [
+            {"id": "country", "label": "Country", "numeric": False},
+            {"id": "city", "label": "City", "numeric": False},
+            {"id": "asn", "label": "AS Number", "numeric": True},
+            {"id": "org", "label": "AS Organization", "numeric": False},
+        ]
+        for row in table.rows:
+            found = geo.lookup(str(row["cells"][0]))
+            row["cells"][1:1] = [
+                found.get("country", ""),
+                found.get("city", ""),
+                found.get("asn", ""),
+                found.get("org", ""),
+            ]
+            if "lat" in found:
+                row["geo"] = {"lat": found["lat"], "lon": found["lon"]}
+        table.extra["geoip"] = True
 
     def _io(self, f: _Open, params: dict[str, Any], counted: str, ctx: RequestContext) -> Table:
         """The IO graph: packets and bytes per ``interval`` (default: about 100

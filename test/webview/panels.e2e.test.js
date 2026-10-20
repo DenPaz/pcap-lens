@@ -90,7 +90,13 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
   });
 
   /** Open stats.js with a stand-in for StatsPanel (src/panels/statsPanel.ts). */
-  async function openStats(kind, captureFilter = "", ai = false, io = undefined) {
+  async function openStats(
+    kind,
+    captureFilter = "",
+    ai = false,
+    io = undefined,
+    { backend = client, scripts = [] } = {},
+  ) {
     const { page, problems, post } = await newPage(browser);
     const log = [];
     await page.exposeFunction("__toHost", async (raw) => {
@@ -106,7 +112,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
           filter: msg.params.limit ? captureFilter : "",
           series: msg.params.series,
         };
-        client.request("stats", params, { timeoutMs: 0 }).then(
+        backend.request("stats", params, { timeoutMs: 0 }).then(
           (table) => post({ type: "result", id: msg.id, table }),
           (err) =>
             post({
@@ -119,7 +125,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         );
       }
     });
-    await page.setContent(renderPanelHtml(origin, "stats.js"), { waitUntil: "load" });
+    await page.setContent(renderPanelHtml(origin, "stats.js", { scripts }), { waitUntil: "load" });
     pages.push(problems);
     return { page, log };
   }
@@ -133,6 +139,57 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       (count) => document.querySelectorAll("table.stats tbody tr").length === count,
       n,
     );
+
+  test("endpoints: GeoIP columns and a map of the located endpoints", async () => {
+    const geo = await startBackend(deps);
+    try {
+      await geo.request(
+        "open",
+        { path: path.join(FIXTURES, "mixed.pcapng"), geoip: [path.join(FIXTURES, "geoip")] },
+        { timeoutMs: 0 },
+      );
+      const { page, log } = await openStats("endpoints", "", false, undefined, {
+        backend: geo,
+        scripts: ["worldmap.js"],
+      });
+      await page.selectOption("select[aria-label='Address type']", "ip");
+      await page.waitForSelector("th:has-text('Country')");
+      await waitRows(page, 6);
+      assert.deepEqual(
+        (await page.$$eval("table.stats th", (ths) => ths.map((th) => th.textContent))).slice(0, 5),
+        ["Address", "Country", "City", "AS Number", "AS Organization"],
+      );
+      const google = (await rows(page)).find((r) => r[0] === "8.8.8.8");
+      assert.deepEqual(google.slice(1, 3), ["United States", "Mountain View"]);
+      assert.match(google[3], /^15,?169$/);
+      assert.equal(google[4], "Google LLC");
+      // One point per place, the busiest (example.com's 1,175 bytes) drawn first.
+      const tips = await page.$$eval(".geo-map circle.geo-point title", (ts) =>
+        ts.map((t) => t.textContent),
+      );
+      assert.deepEqual(tips, [
+        "93.184.216.34, Norwell, United States",
+        "8.8.8.8, Mountain View, United States",
+      ]);
+      assert.equal(
+        await page.getAttribute(".geo-map svg", "aria-label"),
+        "Map of 2 places with endpoints",
+      );
+      // Picking a point selects its row (and the point).
+      await page.click(".geo-map circle.geo-point >> nth=1", { force: true });
+      await page.waitForSelector(".geo-map circle.geo-point.selected");
+      await page.click("button:has-text('Apply as Filter')");
+      assert.equal(log.findLast((m) => m.type === "filter").expr, "ip.addr == 8.8.8.8");
+      // Without GeoIP databases the map stays hidden (TCP endpoints have ports).
+      await page.selectOption("select[aria-label='Address type']", "tcp");
+      await page.waitForFunction(
+        () => !document.querySelector("th:nth-child(2)")?.textContent?.includes("Country"),
+      );
+      assert.ok(await page.isHidden(".geo-map"));
+    } finally {
+      await geo.dispose();
+    }
+  });
 
   test("conversations: type switch, sorting, row filter and CSV", async () => {
     const { page, log } = await openStats("conversations");

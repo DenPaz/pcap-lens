@@ -10,14 +10,15 @@ export function webviewRoot(context: vscode.ExtensionContext): vscode.Uri {
  * HTML shell for an auxiliary panel (statistics, follow stream): the same
  * strict CSP as the editor, the Codicons stylesheet, base.css (tokens and
  * controls shared with the editor) and panel.css, `lib.js`, and one script.
- * `media` lets `<audio>` play the panel's own local resources (VoIP).
+ * `media` lets `<audio>` play the panel's own local resources (VoIP);
+ * `scripts` load before the panel's own (the Endpoints map's worldmap.js).
  */
 export function panelHtml(
   webview: vscode.Webview,
   root: vscode.Uri,
   script: string,
   title: string,
-  options: { media?: boolean } = {},
+  options: { media?: boolean; scripts?: string[] } = {},
 ): string {
   const nonce = crypto.randomBytes(16).toString("base64");
   const uri = (name: string) => webview.asWebviewUri(vscode.Uri.joinPath(root, name)).toString();
@@ -44,7 +45,7 @@ export function panelHtml(
 <body class="panel">
   <div id="app"></div>
   <script nonce="${nonce}" src="${uri("lib.js")}"></script>
-  <script nonce="${nonce}" src="${uri(script)}"></script>
+${(options.scripts ?? []).map((name) => `  <script nonce="${nonce}" src="${uri(name)}"></script>\n`).join("")}  <script nonce="${nonce}" src="${uri(script)}"></script>
 </body>
 </html>`;
 }

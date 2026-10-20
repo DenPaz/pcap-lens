@@ -158,7 +158,10 @@ export class StatsPanel {
         retainContextWhenHidden: true,
       },
     );
-    this.panel.webview.html = panelHtml(this.panel.webview, root, "stats.js", title);
+    this.panel.webview.html = panelHtml(this.panel.webview, root, "stats.js", title, {
+      // (Endpoints draw GeoIP locations on a map.)
+      scripts: kind === "endpoints" ? ["worldmap.js"] : [],
+    });
     this.disposables.push(
       this.panel.webview.onDidReceiveMessage((msg: FromPanel) => void this.onMessage(msg)),
       this.panel.onDidDispose(() => this.dispose()),

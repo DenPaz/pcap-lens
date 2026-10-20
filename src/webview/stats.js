@@ -103,8 +103,20 @@
   const seriesBox = h("div", { class: "io-series hidden", role: "group", "aria-label": "Graphs" });
   const chartBox = h("div", { class: "chart hidden", tabindex: "0", "aria-label": "I/O graph" });
   const legend = h("ul", { class: "io-legend hidden", "aria-label": "Legend" });
+  const mapBox = h("div", { class: "geo-map hidden" });
   const tableBox = h("div");
-  app.append(title, toolbar, seriesBox, actions, notice, status, chartBox, legend, tableBox);
+  app.append(
+    title,
+    toolbar,
+    seriesBox,
+    actions,
+    notice,
+    status,
+    chartBox,
+    legend,
+    mapBox,
+    tableBox,
+  );
 
   const applyBtn = h("button", { type: "button", title: "Apply this row as the display filter" }, [
     "Apply as Filter",
@@ -345,8 +357,66 @@
     if (t.kind === "io") {
       renderChart();
     }
+    renderMap();
     renderTable();
     updateActions();
+  }
+
+  /**
+   * GeoIP endpoints on a world map (worldmap.js's land outline): one point
+   * per place, sized by bytes, its addresses as the tooltip; a click selects
+   * the place's first row. The table stays the accessible view.
+   */
+  function renderMap() {
+    const t = state.table;
+    const world = /** @type {any} */ (window).PcapWorldMap;
+    const cols = t.columns.map((/** @type {any} */ c) => c.id);
+    const points =
+      t.geoip && world
+        ? lib.geoPoints(t.rows, cols.indexOf("bytes"), (/** @type {any} */ row) =>
+            [row.cells[0], row.cells[cols.indexOf("city")], row.cells[cols.indexOf("country")]]
+              .filter((v) => v)
+              .join(", "),
+          )
+        : [];
+    mapBox.classList.toggle("hidden", !points.length);
+    if (!points.length) {
+      mapBox.replaceChildren();
+      return;
+    }
+    const svg = document.createElementNS(SVG, "svg");
+    svg.setAttribute("viewBox", `0 0 ${world.width} ${world.height}`);
+    svg.setAttribute("role", "img");
+    svg.setAttribute(
+      "aria-label",
+      `Map of ${points.length} ${points.length === 1 ? "place" : "places"} with endpoints`,
+    );
+    const land = document.createElementNS(SVG, "path");
+    land.setAttribute("d", world.land);
+    land.setAttribute("class", "land");
+    svg.append(land);
+    for (const point of points) {
+      const dot = document.createElementNS(SVG, "circle");
+      dot.setAttribute("cx", String(point.x));
+      dot.setAttribute("cy", String(point.y));
+      dot.setAttribute("r", String(point.r));
+      dot.setAttribute("class", "geo-point");
+      if (point.rows.includes(state.selected)) {
+        dot.classList.add("selected");
+      }
+      const tip = document.createElementNS(SVG, "title");
+      tip.textContent = point.label;
+      dot.append(tip);
+      dot.addEventListener("click", () => {
+        state.selected = point.rows[0];
+        renderMap();
+        renderTable();
+        updateActions();
+        tableBox.querySelector("tr.selected")?.scrollIntoView({ block: "nearest" });
+      });
+      svg.append(dot);
+    }
+    mapBox.replaceChildren(svg);
   }
 
   /**
@@ -418,6 +488,9 @@
       tr.addEventListener("click", () => {
         state.selected = row;
         [...body.children].forEach((r) => r.classList.toggle("selected", r === tr));
+        if (row.geo) {
+          renderMap();
+        }
         updateActions();
       });
       tr.addEventListener("dblclick", () => (row.frame ? rowGoto() : rowFilter(true)));

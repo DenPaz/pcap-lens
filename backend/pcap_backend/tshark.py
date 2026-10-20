@@ -137,6 +137,9 @@ class DissectionOptions:
     # name (the saved-index key fingerprints them).
     secrets: tuple[tuple[str, str], ...] = field(default=(), repr=False)
     files: tuple[str, ...] = ()
+    # The GeoIP database folders (also in ``secrets`` as maxmind_db_paths):
+    # the Endpoints statistics read them too.
+    geoip: tuple[str, ...] = ()
 
     @classmethod
     def from_params(
@@ -181,6 +184,7 @@ class DissectionOptions:
             _switches("heuristic dissector", heuristics),
             secrets,
             files,
+            tuple(geoip),
         )
 
     @property
