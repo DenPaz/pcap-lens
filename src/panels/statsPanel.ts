@@ -17,7 +17,12 @@ export type StatsKind =
   | "plen"
   | "srt"
   | "sip"
-  | "credentials";
+  | "credentials"
+  | "ipv4"
+  | "ipv6"
+  | "multicast"
+  | "hosts"
+  | "sctp";
 
 export const STATS_TITLES: Record<StatsKind, string> = {
   conversations: "Conversations",
@@ -32,6 +37,11 @@ export const STATS_TITLES: Record<StatsKind, string> = {
   srt: "Service Response Time",
   sip: "SIP Statistics",
   credentials: "Credentials",
+  ipv4: "IPv4 Statistics",
+  ipv6: "IPv6 Statistics",
+  multicast: "UDP Multicast Streams",
+  hosts: "Resolved Addresses",
+  sctp: "SCTP Associations",
 };
 
 /** Expert rows as the panel sent them, checked (the webview is ours, but its data came from the capture). */

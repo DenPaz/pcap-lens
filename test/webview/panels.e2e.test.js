@@ -60,6 +60,10 @@ const TITLES = {
   dns: "DNS",
   plen: "Packet Lengths",
   srt: "Service Response Time",
+  ipv4: "IPv4 Statistics",
+  multicast: "UDP Multicast Streams",
+  sctp: "SCTP Associations",
+  hosts: "Resolved Addresses",
 };
 
 maybe("statistics and follow panels (Chromium + real backend)", function () {
@@ -188,6 +192,43 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       assert.ok(await page.isHidden(".geo-map"));
     } finally {
       await geo.dispose();
+    }
+  });
+
+  test("IPv4 statistics, multicast streams, SCTP and resolved addresses", async () => {
+    const net = await startBackend(deps);
+    try {
+      await net.request("open", { path: path.join(FIXTURES, "network.pcap") }, { timeoutMs: 0 });
+      const ipv4 = await openStats("ipv4", "", false, undefined, { backend: net });
+      await ipv4.page.waitForSelector("table.stats tbody tr");
+      assert.equal(await ipv4.page.textContent(".panel-title"), "IPv4 All Addresses");
+      // A tree: no sorting; the report picker switches to destinations and ports.
+      assert.equal(await ipv4.page.$("th[aria-sort]"), null);
+      await ipv4.page.selectOption("#stats-type", "dests");
+      await ipv4.page.waitForSelector(".panel-title:has-text('Destinations and Ports')");
+      await ipv4.page.click("table.stats tbody tr:has-text('5001')");
+      await ipv4.page.click("button:has-text('Apply as Filter')");
+      assert.equal(
+        ipv4.log.findLast((m) => m.type === "filter").expr,
+        "ip.dst == 239.2.2.2 && udp.dstport == 5001",
+      );
+
+      const mc = await openStats("multicast", "", false, undefined, { backend: net });
+      await waitRows(mc.page, 2);
+      const first = (await rows(mc.page))[0];
+      assert.deepEqual(first.slice(0, 5), ["10.1.1.5", "4,000", "239.1.1.1", "5,000", "80"]);
+      assert.deepEqual(first.slice(8), ["60", "1"]); // max burst, burst alarms
+
+      const sctp = await openStats("sctp", "udp", false, undefined, { backend: net });
+      await waitRows(sctp.page, 2);
+      await sctp.page.check("text=Limit to display filter");
+      await sctp.page.waitForSelector(".status:has-text('covers the whole capture')");
+
+      const hosts = await openStats("hosts", "", false, undefined, { backend: net });
+      await waitRows(hosts.page, 1);
+      assert.deepEqual((await rows(hosts.page))[0], ["10.1.1.5", "ntp.example.org"]);
+    } finally {
+      await net.dispose();
     }
   });
 

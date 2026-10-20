@@ -26,9 +26,13 @@ class StatisticsMixin(ServiceBase):
         ``properties`` (capinfos),
         ``http`` (``type`` packets, requests or load), ``dns``, ``plen``
         (packet lengths), ``srt`` (service response time, ``type`` a
-        protocol of ``stats.SRT_PROTOCOLS`` or ``auto``), ``sip`` or
-        ``credentials`` (Tools → Credentials).
-        ``filter`` limits the statistics to packets matching a display filter.
+        protocol of ``stats.SRT_PROTOCOLS`` or ``auto``), ``sip``,
+        ``credentials`` (Tools → Credentials), ``ipv4`` / ``ipv6`` (``type``
+        addresses, srcdst, ptype or dests), ``multicast`` (UDP multicast
+        streams), ``hosts`` (resolved addresses) or ``sctp`` (associations).
+        ``filter`` limits the statistics to packets matching a display filter
+        (``hosts`` and ``sctp`` can't be limited: the result says
+        ``unfiltered``).
         """
         kind = param(params, "kind", str)
         f = self._require_file()
@@ -43,26 +47,20 @@ class StatisticsMixin(ServiceBase):
         ctx.progress({"phase": "stats", "fraction": None})
         match kind:
             case "conversations" | "endpoints":
-                typ = param(params, "type", str, "tcp")
-                if typ not in stats.CONV_TYPES:
-                    raise InvalidParamsError(f"type must be one of {', '.join(stats.CONV_TYPES)}")
-                tap = "conv" if kind == "conversations" else "endpoints"
-                text = self._tap(f, f"{tap},{typ}{suffix}", ctx)
-                parse = (
-                    stats.parse_conversations if kind == "conversations" else stats.parse_endpoints
-                )
-                table = parse(text, typ)
-                table.extra["type"] = typ
-                if kind == "endpoints" and typ in ("ip", "ipv6"):
-                    self._add_geoip(f, table)
+                table = self._conversations(f, kind, param(params, "type", str, "tcp"), suffix, ctx)
             case "phs":
                 table = stats.parse_protocol_hierarchy(self._tap(f, f"io,phs{suffix}", ctx))
             case "io":
                 table = self._io(f, params, counted, ctx)
             case "expert":
                 table = self._expert(f, counted, ctx)
-            case "http" | "dns" | "plen":
+            case "http" | "dns" | "plen" | "ipv4" | "ipv6":
                 table = self._tree_stats(f, kind, param(params, "type", str, ""), suffix, ctx)
+            case "multicast":
+                table = self._multicast(f, counted, ctx)
+            case "hosts" | "sctp":
+                table = self._whole_capture_report(f, kind, ctx)
+                table.extra["unfiltered"] = bool(counted)
             case "srt":
                 table = self._srt(f, param(params, "type", str, "auto"), suffix, ctx)
             case "sip":
@@ -82,6 +80,22 @@ class StatisticsMixin(ServiceBase):
         result = table.to_json()
         result["filter"] = flt
         return result
+
+    def _conversations(
+        self, f: _Open, kind: str, typ: str, suffix: str, ctx: RequestContext
+    ) -> Table:
+        """Conversations or endpoints of one address type (IP endpoints with
+        their GeoIP locations)."""
+        if typ not in stats.CONV_TYPES:
+            raise InvalidParamsError(f"type must be one of {', '.join(stats.CONV_TYPES)}")
+        tap = "conv" if kind == "conversations" else "endpoints"
+        text = self._tap(f, f"{tap},{typ}{suffix}", ctx)
+        parse = stats.parse_conversations if kind == "conversations" else stats.parse_endpoints
+        table = parse(text, typ)
+        table.extra["type"] = typ
+        if kind == "endpoints" and typ in ("ip", "ipv6"):
+            self._add_geoip(f, table)
+        return table
 
     def _add_geoip(self, f: _Open, table: Table) -> None:
         """Country, city and AS columns for IP endpoints, from the MaxMind
@@ -230,11 +244,37 @@ class StatisticsMixin(ServiceBase):
             if typ not in trees:
                 raise InvalidParamsError("type must be packets, requests or load")
             tree = trees[typ]
+        elif kind in ("ipv4", "ipv6"):
+            typ = typ or "addresses"
+            if typ not in stats.IP_STATS_TYPES:
+                raise InvalidParamsError(f"type must be one of {', '.join(stats.IP_STATS_TYPES)}")
+            tree = f"{kind}_{typ}"
         table = stats.parse_stats_tree(self._tap(f, stats.TREE_TAPS[tree] + suffix, ctx), tree)
         table.kind = kind
-        if kind == "http":
+        if kind in ("http", "ipv4", "ipv6"):
             table.extra["type"] = typ
         return table
+
+    def _whole_capture_report(self, f: _Open, kind: str, ctx: RequestContext) -> Table:
+        """Resolved addresses (``hosts``) or SCTP associations: reports whose
+        taps take no filter."""
+        if kind == "sctp":
+            return stats.parse_sctp_stat(self._tap(f, "sctp,stat", ctx))
+        # (Names from the capture's DNS answers: -N d, not the taps' -n.)
+        argv = f.tshark.argv("-q", "-N", "d", "-z", "hosts", capture=str(f.path))
+        return stats.parse_hosts(run(argv, ctx.token).stdout.decode("utf-8", "replace"))
+
+    def _multicast(self, f: _Open, counted: str, ctx: RequestContext) -> Table:
+        """UDP multicast streams: one fields pass over the multicast packets
+        (and ``counted``, the filter without the ignored packets)."""
+        flt = f"({stats.MULTICAST_FILTER}) && ({counted})" if counted else stats.MULTICAST_FILTER
+        args = ["-Y", flt, "-T", "fields", "-E", "occurrence=f"]
+        for name in stats.MULTICAST_FIELDS:
+            args += ["-e", name]
+        res = run(f.tshark.argv(*args, capture=str(f.path)), ctx.token)
+        if res.returncode != 0 and not res.stdout:
+            raise f.tshark.error(res.stderr, res.returncode, "tshark failed")
+        return stats.multicast_streams(res.stdout.decode("utf-8", "replace").split("\n"))
 
     def _srt(self, f: _Open, protocol: str, suffix: str, ctx: RequestContext) -> Table:
         """Service response times of one protocol. ``auto`` picks the first

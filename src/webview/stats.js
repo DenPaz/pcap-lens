@@ -36,10 +36,17 @@
     camel: "CAMEL",
     fc: "Fibre Channel",
   };
+  // Mirrors stats.IP_STATS_TYPES (IPv4 and IPv6 Statistics).
+  const IP_REPORTS = {
+    addresses: "All Addresses",
+    srcdst: "Source and Destination Addresses",
+    ptype: "Protocol Types",
+    dests: "Destinations and Ports",
+  };
   /** Reports that are trees: their row order is the tree's, so no sorting. */
-  const TREES = ["phs", "http", "dns", "plen", "sip"];
+  const TREES = ["phs", "http", "dns", "plen", "sip", "ipv4", "ipv6"];
   /** @type {Record<string, string>} */
-  const DEFAULT_TYPE = { http: "packets", srt: "auto" };
+  const DEFAULT_TYPE = { http: "packets", srt: "auto", ipv4: "addresses", ipv6: "addresses" };
   const INTERVALS = [
     ["", "Auto"],
     ["0.001", "1 ms"],
@@ -177,7 +184,7 @@
       });
       toolbar.append(h("label", {}, ["Type ", select]));
     }
-    if (state.kind === "http" || state.kind === "srt") {
+    if (["http", "srt", "ipv4", "ipv6"].includes(state.kind)) {
       toolbar.append(typeSelect());
     }
     if (state.kind === "io") {
@@ -239,26 +246,28 @@
 
   /** The HTTP report or SRT protocol picker; protocols with traffic are marked. */
   function typeSelect() {
-    const http = state.kind === "http";
+    // HTTP and the IP statistics choose a report; service response time a protocol.
+    const report = state.kind !== "srt";
     const select = /** @type {HTMLSelectElement} */ (
-      h("select", { id: "stats-type", "aria-label": http ? "Report" : "Protocol" })
+      h("select", { id: "stats-type", "aria-label": report ? "Report" : "Protocol" })
     );
     /** @type {Record<string, string>} */
-    const choices = http ? HTTP_REPORTS : SRT_PROTOCOLS;
+    const choices =
+      state.kind === "http" ? HTTP_REPORTS : state.kind === "srt" ? SRT_PROTOCOLS : IP_REPORTS;
     const available = (state.table && state.table.available) || [];
     for (const [value, label] of Object.entries(choices)) {
-      const withTraffic = !http && available.includes(value);
+      const withTraffic = !report && available.includes(value);
       select.append(h("option", { value }, [withTraffic ? `${label} ●` : label]));
     }
     select.value = state.type in choices ? state.type : Object.keys(choices)[0];
-    select.title = http
+    select.title = report
       ? ""
       : "● marks protocols this capture has traffic for (DCE-RPC, ONC-RPC and SCSI need arguments and aren't offered)";
     select.addEventListener("change", () => {
       state.type = select.value;
       query();
     });
-    return h("label", {}, [http ? "Report " : "Protocol ", select]);
+    return h("label", {}, [report ? "Report " : "Protocol ", select]);
   }
 
   // ------------------------------------------------------------------ data
@@ -351,7 +360,9 @@
         ? `${n} intervals of ${lib.formatCell(t.interval)} s${scope}`
         : t.kind === "properties"
           ? ""
-          : `${n.toLocaleString()} ${n === 1 ? "row" : "rows"}${scope}`;
+          : t.unfiltered
+            ? `${n.toLocaleString()} ${n === 1 ? "row" : "rows"} (this report covers the whole capture: it can't be limited to the display filter)`
+            : `${n.toLocaleString()} ${n === 1 ? "row" : "rows"}${scope}`;
     chartBox.classList.toggle("hidden", t.kind !== "io");
     legend.classList.toggle("hidden", t.kind !== "io");
     if (t.kind === "io") {

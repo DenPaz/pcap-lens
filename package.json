@@ -478,6 +478,31 @@
         "category": "PCAP Statistics"
       },
       {
+        "command": "pcapViewer.statistics.ipv4",
+        "title": "IPv4 Statistics",
+        "category": "PCAP Statistics"
+      },
+      {
+        "command": "pcapViewer.statistics.ipv6",
+        "title": "IPv6 Statistics",
+        "category": "PCAP Statistics"
+      },
+      {
+        "command": "pcapViewer.statistics.multicast",
+        "title": "UDP Multicast Streams",
+        "category": "PCAP Statistics"
+      },
+      {
+        "command": "pcapViewer.statistics.resolvedAddresses",
+        "title": "Resolved Addresses",
+        "category": "PCAP Statistics"
+      },
+      {
+        "command": "pcapViewer.statistics.sctp",
+        "title": "SCTP Associations",
+        "category": "PCAP Statistics"
+      },
+      {
         "command": "pcapViewer.exportTlsKeys",
         "title": "Export TLS Session Keys…",
         "category": "PCAP"

@@ -31,8 +31,21 @@ from scapy.asn1.asn1 import ASN1_OID
 from scapy.layers.dns import DNS, DNSQR, DNSRR
 from scapy.layers.dot11 import Dot11
 from scapy.layers.inet import ICMP, IP, TCP, UDP
+from scapy.layers.inet6 import IPv6
 from scapy.layers.l2 import ARP, LLC, SNAP, Ether
 from scapy.layers.rtp import RTP
+from scapy.layers.sctp import (
+    SCTP,
+    SCTPChunkCookieAck,
+    SCTPChunkCookieEcho,
+    SCTPChunkData,
+    SCTPChunkHeartbeatAck,
+    SCTPChunkHeartbeatReq,
+    SCTPChunkInit,
+    SCTPChunkInitAck,
+    SCTPChunkParamStateCookie,
+    SCTPChunkSACK,
+)
 from scapy.layers.snmp import SNMP, SNMPget, SNMPnext, SNMPresponse, SNMPvarbind
 from scapy.packet import Packet, Raw
 from scapy.utils import wrpcap, wrpcapng
@@ -1379,6 +1392,75 @@ def geoip_fixtures() -> None:
     (folder / "PCAP-Lens-Test-ASN.mmdb").write_bytes(mmdb.write_mmdb(GEOIP_ASN, "GeoLite2-ASN"))
 
 
+def _sctp(src: str, dst: str, tag: int, chunk: Packet) -> Packet:
+    return (
+        Ether(src=CLIENT_MAC, dst=SERVER_MAC)
+        / IP(src=src, dst=dst)
+        / SCTP(sport=2905, dport=2905, tag=tag)
+        / chunk
+    )
+
+
+def network_packets() -> list[Packet]:
+    """Statistics → IPv4/IPv6, UDP Multicast Streams, Resolved Addresses and SCTP:
+    two multicast streams (the first bursting: 60 packets in 60 ms, over the
+    50-packet alarm), an SCTP association (handshake, three DATA/SACK pairs,
+    a heartbeat), IPv6 TCP and UDP, and a DNS answer naming an address."""
+    out: list[tuple[float, Packet]] = []
+    t0 = BASE_TS
+    for i in range(80):  # 60 in the first 60 ms, then one every 50 ms
+        t = t0 + (i * 0.001 if i < 60 else 0.06 + (i - 59) * 0.05)
+        out.append((t, Ether(src=CLIENT_MAC, dst="01:00:5e:01:01:01")
+                    / IP(src="10.1.1.5", dst="239.1.1.1", ttl=8)
+                    / UDP(sport=4000, dport=5000) / Raw(bytes(200))))  # fmt: skip
+    second = (
+        Ether(src=SERVER_MAC, dst="01:00:5e:02:02:02")
+        / IP(src="10.1.1.6", dst="239.2.2.2", ttl=8)
+        / UDP(sport=4001, dport=5001)
+        / Raw(bytes(50))
+    )
+    out += [(t0 + 0.5 + i * 0.1, second.copy()) for i in range(10)]
+    c, s = "10.2.0.1", "10.2.0.2"
+    sctp = [
+        _sctp(c, s, 0, SCTPChunkInit(init_tag=0x1111, a_rwnd=65535, n_out_streams=2,
+                                      n_in_streams=2, init_tsn=1)),
+        _sctp(s, c, 0x1111, SCTPChunkInitAck(init_tag=0x2222, a_rwnd=65535, n_out_streams=2,
+              n_in_streams=2, init_tsn=100, params=[SCTPChunkParamStateCookie(cookie=b"cookie")])),
+        _sctp(c, s, 0x2222, SCTPChunkCookieEcho(cookie=b"cookie")),
+        _sctp(s, c, 0x1111, SCTPChunkCookieAck()),
+    ]  # fmt: skip
+    for i in range(3):
+        data = SCTPChunkData(tsn=1 + i, stream_id=0, stream_seq=i, proto_id=3, data=b"M3UA payload")
+        sctp.append(_sctp(c, s, 0x2222, data))
+        sctp.append(_sctp(s, c, 0x1111, SCTPChunkSACK(cumul_tsn_ack=1 + i, a_rwnd=65535)))
+    sctp += [
+        _sctp(c, s, 0x2222, SCTPChunkHeartbeatReq()),
+        _sctp(s, c, 0x1111, SCTPChunkHeartbeatAck()),
+    ]
+    out += [(t0 + 1.0 + i * 0.01, pkt) for i, pkt in enumerate(sctp)]
+    v6c, v6s = "2001:db8:1::10", "2001:db8:10::1"
+    to_server = Ether(src=CLIENT_MAC, dst=SERVER_MAC) / IPv6(src=v6c, dst=v6s)
+    out += [
+        (t0 + 1.5 + i * 0.01, to_server / TCP(sport=51000, dport=443, flags="S", seq=i))
+        for i in range(3)
+    ]
+    out.append((t0 + 1.6, to_server / UDP(sport=51001, dport=123) / Raw(bytes(48))))
+    answer = DNSRR(rrname="ntp.example.org", type="A", rdata="10.1.1.5", ttl=60)
+    out.append(
+        (
+            t0 + 1.7,
+            Ether(src=SERVER_MAC, dst=CLIENT_MAC)
+            / IP(src="192.168.1.1", dst="192.168.1.10")
+            / UDP(sport=53, dport=40100)
+            / DNS(id=7, qr=1, aa=1, qd=DNSQR(qname="ntp.example.org", qtype="A"), an=answer),
+        )
+    )
+    out.sort(key=lambda item: item[0])
+    for t, pkt in out:
+        pkt.time = t
+    return [pkt for _, pkt in out]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--large", nargs=2, metavar=("COUNT", "DEST"))
@@ -1405,6 +1487,7 @@ def main() -> None:
     wrpcap(str(HERE / "credentials.pcap"), credentials_packets())
     wrpcap(str(HERE / "wep.pcap"), wep_packets())
     wrpcap(str(HERE / "esp.pcap"), esp_packets())
+    wrpcap(str(HERE / "network.pcap"), network_packets())
     geoip_fixtures()
     hexdump_fixtures()
     (HERE / "comments.pcapng").write_bytes(

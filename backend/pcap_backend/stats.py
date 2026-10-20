@@ -14,7 +14,7 @@ captured output; the tshark invocations live in ``pcap_service``.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -475,6 +475,15 @@ TREE_TAPS = {
     "http_load": "http_srv,tree",
     "dns": "dns,tree",
     "plen": "plen,tree",
+    # Statistics → IPv4 / IPv6 Statistics (``type`` addresses, srcdst, ptype, dests).
+    "ipv4_addresses": "ip_hosts,tree",
+    "ipv4_srcdst": "ip_srcdst,tree",
+    "ipv4_ptype": "ptype,tree",
+    "ipv4_dests": "dests,tree",
+    "ipv6_addresses": "ipv6_hosts,tree",
+    "ipv6_srcdst": "ipv6_srcdst,tree",
+    "ipv6_ptype": "ipv6_ptype,tree",
+    "ipv6_dests": "ipv6_dests,tree",
 }
 TREE_TITLES = {
     "http": "HTTP Packet Counter",
@@ -482,7 +491,18 @@ TREE_TITLES = {
     "http_load": "HTTP Load Distribution",
     "dns": "DNS",
     "plen": "Packet Lengths",
+    **{
+        f"{v}_{t}": f"{label} {title}"
+        for v, label in (("ipv4", "IPv4"), ("ipv6", "IPv6"))
+        for t, title in (
+            ("addresses", "All Addresses"),
+            ("srcdst", "Source and Destination Addresses"),
+            ("ptype", "Protocol Types"),
+            ("dests", "Destinations and Ports"),
+        )
+    },
 }
+IP_STATS_TYPES = ("addresses", "srcdst", "ptype", "dests")
 _IPV4 = re.compile(r"\d{1,3}(\.\d{1,3}){3}")
 _HEADER_CELL = re.compile(r"\S+(?: \S+)*")
 # The first value column: the name column is padded to the longest topic, so a
@@ -616,12 +636,65 @@ def _plen_filter(path: list[str]) -> str | None:
     return None
 
 
+# The IP statistics' "port types" (tshark's ptype tree counts packets by the
+# transport the ports belong to; ICMP and others are NONE).
+_PORT_TYPES = ("tcp", "udp", "sctp", "dccp")
+
+
+def _port_type_filter(topic: str) -> str | None:
+    name = topic.lower()
+    if name in _PORT_TYPES:
+        return name
+    return "!(" + " || ".join(_PORT_TYPES) + ")" if topic == "NONE" else None
+
+
+def _ip_filter(version: str, kind: str) -> Callable[[list[str]], str | None]:
+    """The rows of the IPv4/IPv6 statistics trees: addresses (any, source or
+    destination), port types, and destinations by port type and port."""
+    ip = "ip" if version == "ipv4" else "ipv6"
+
+    def address(addr: str, direction: str) -> str | None:
+        flt = _address_filter(addr)
+        return flt.replace(".addr ", f".{direction} ") if flt and flt.startswith(ip) else None
+
+    def to_filter(path: list[str]) -> str | None:
+        if len(path) == 1:
+            return ip
+        topic = path[-1]
+        if kind == "addresses":
+            return address(topic, "addr")
+        if kind == "srcdst":
+            return address(topic, "src" if path[0].startswith("Source") else "dst")
+        if kind == "ptype":
+            proto = _port_type_filter(topic)
+            return f"{ip} && {proto}" if proto else None
+        # dests: destination → port type → port
+        dst = address(path[1], "dst")
+        if dst is None or len(path) == 2:
+            return dst
+        proto = _port_type_filter(path[2])
+        if proto is None:
+            return None
+        if len(path) == 3:
+            return f"{dst} && {proto}"
+        if path[2] == "NONE" or not topic.isdigit():
+            return f"{dst} && {proto}" if path[2] == "NONE" else None
+        return f"{dst} && {proto}.dstport == {topic}"
+
+    return to_filter
+
+
 _TREE_FILTERS: dict[str, Callable[[list[str]], str | None]] = {
     "http": _http_filter,
     "http_requests": _http_requests_filter,
     "http_load": _http_load_filter,
     "dns": _dns_filter,
     "plen": _plen_filter,
+    **{
+        f"{v}_{t}": _ip_filter(v, t)
+        for v in ("ipv4", "ipv6")
+        for t in ("addresses", "srcdst", "ptype", "dests")
+    },
 }
 
 
@@ -880,6 +953,153 @@ def parse_credentials(text: str) -> Table:
         u = _USERNAME_FRAME.search(info)
         if u:
             row["usernameFrame"] = int(u["frame"])
+        table.rows.append(row)
+    return table
+
+
+# sctp,stat's column names, spelled out.
+_SCTP_COLUMNS = {
+    "Source IP": "Source",
+    "PortA": "Port",
+    "Dest. IP": "Destination",
+    "PortB": "Port",
+    "COOKIE": "COOKIE ECHO",
+    "COOKIACK": "COOKIE ACK",
+    "HBEAT": "HEARTBEAT",
+    "HBEATACK": "HEARTBEAT ACK",
+    "INITACK": "INIT ACK",
+}
+
+
+def parse_sctp_stat(text: str) -> Table:
+    """``tshark -q -z sctp,stat``: chunk counts per association direction, a
+    ``|``-separated table (source and destination address and port, then a
+    column per chunk type)."""
+    columns: list[dict[str, Any]] = []
+    table = Table("sctp", "SCTP Associations", columns)
+    for line in _lines(text):
+        if not line.startswith("|") or "Total packets" in line:
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if not columns:
+            if cells and cells[0] == "Source IP":
+                columns += [
+                    _col(f"c{i}", _SCTP_COLUMNS.get(c, c), i not in (0, 2))
+                    for i, c in enumerate(cells)
+                ]
+            continue
+        if len(cells) != len(columns) or not all(cells[i].isdigit() for i in (1, 3)):
+            continue
+        values = [c if i in (0, 2) else int(c) if c.isdigit() else c for i, c in enumerate(cells)]
+        row: dict[str, Any] = {"cells": values}
+        src, dst = _address_filter(cells[0]), _address_filter(cells[2])
+        if src and dst:
+            row["filter"] = (
+                f"{src.replace('.addr ', '.src ')} && sctp.srcport == {cells[1]}"
+                f" && {dst.replace('.addr ', '.dst ')} && sctp.dstport == {cells[3]}"
+            )
+        table.rows.append(row)
+    return table
+
+
+def parse_hosts(text: str) -> Table:
+    """``tshark -q -N d -z hosts``: the names the capture's DNS answers gave
+    addresses, as a hosts file (``address<TAB>name``, ``#`` comments)."""
+    table = Table("hosts", "Resolved Addresses", [_col("address", "Address"), _col("name", "Name")])
+    for line in _lines(text):
+        if not line.strip() or line.startswith("#"):
+            continue
+        addr, _, name = line.partition("\t")
+        flt = _address_filter(addr.strip())
+        if flt and name.strip():
+            table.rows.append({"cells": [addr.strip(), name.strip()], "filter": flt})
+    table.rows.sort(key=lambda r: (r["cells"][1].lower(), r["cells"][0]))
+    return table
+
+
+# UDP multicast streams (Wireshark's Statistics → UDP Multicast Streams, a GUI
+# tap tshark lacks): its defaults, a burst being the packets of 100 ms and an
+# alarm a burst of more than 50.
+MULTICAST_FILTER = "udp && (ip.dst == 224.0.0.0/4 || ipv6.dst == ff00::/8)"
+MULTICAST_FIELDS = ("frame.time_epoch", "frame.len", "ip.src", "ipv6.src", "udp.srcport",
+                    "ip.dst", "ipv6.dst", "udp.dstport")  # fmt: skip
+BURST_INTERVAL = 0.1
+BURST_ALARM = 50
+
+
+def multicast_streams(lines: Iterable[str]) -> Table:
+    """UDP multicast streams from a ``MULTICAST_FIELDS`` pass: per stream
+    (source, port, group, port) the packets, packets per second, average and
+    largest bandwidth (bits per second over BURST_INTERVAL), the largest burst
+    (packets in BURST_INTERVAL) and how many bursts exceeded BURST_ALARM."""
+    streams: dict[tuple[str, int, str, int], list[tuple[float, int]]] = {}
+    for line in lines:
+        cells = line.rstrip("\r\n").split("\t")
+        if len(cells) < len(MULTICAST_FIELDS):
+            continue
+        epoch, length, src4, src6, sport, dst4, dst6, dport = cells[: len(MULTICAST_FIELDS)]
+        try:
+            key = (src4 or src6, int(sport.split(",")[0]), dst4 or dst6, int(dport.split(",")[0]))
+            sample = (float(epoch), int(length))
+        except ValueError:
+            continue
+        streams.setdefault(key, []).append(sample)
+    table = Table(
+        "multicast",
+        "UDP Multicast Streams",
+        [
+            _col("src", "Source Address"),
+            _col("sport", "Source Port", True),
+            _col("dst", "Destination Address"),
+            _col("dport", "Destination Port", True),
+            _col("packets", "Packets", True),
+            _col("pps", "Packets/s", True),
+            _col("avg_bw", "Avg BW (bps)", True),
+            _col("max_bw", "Max BW (bps)", True),
+            _col("max_burst", f"Max Burst (/{int(BURST_INTERVAL * 1000)} ms)", True),
+            _col("alarms", "Burst Alarms", True),
+        ],
+    )
+    busiest = sorted(streams.items(), key=lambda kv: -len(kv[1]))
+    for (src, src_port, dst, dst_port), samples in busiest:
+        samples.sort()
+        first, last = samples[0][0], samples[-1][0]
+        duration = last - first
+        total = sum(n for _, n in samples)
+        # Sliding window: the packets of the last BURST_INTERVAL at each packet.
+        max_burst = max_bytes = alarms = 0
+        start = window_bytes = 0
+        over = False
+        for i, (t, n) in enumerate(samples):
+            window_bytes += n
+            while samples[start][0] <= t - BURST_INTERVAL:
+                window_bytes -= samples[start][1]
+                start += 1
+            count = i - start + 1
+            max_burst, max_bytes = max(max_burst, count), max(max_bytes, window_bytes)
+            if count > BURST_ALARM and not over:
+                alarms += 1
+            over = count > BURST_ALARM
+        row: dict[str, Any] = {
+            "cells": [
+                src,
+                src_port,
+                dst,
+                dst_port,
+                len(samples),
+                round(len(samples) / duration, 2) if duration > 0 else None,
+                round(total * 8 / duration) if duration > 0 else None,
+                round(max_bytes * 8 / BURST_INTERVAL),
+                max_burst,
+                alarms,
+            ]
+        }
+        s_flt, d_flt = _address_filter(src), _address_filter(dst)
+        if s_flt and d_flt:
+            row["filter"] = (
+                f"{s_flt.replace('.addr ', '.src ')} && udp.srcport == {src_port}"
+                f" && {d_flt.replace('.addr ', '.dst ')} && udp.dstport == {dst_port}"
+            )
         table.rows.append(row)
     return table
 
