@@ -22,13 +22,15 @@ import shutil
 import ssl
 import struct
 import sys
+import zlib
 from pathlib import Path
 
 import quic  # test/fixtures/quic.py: the hand-encrypted QUIC connection
 from scapy.asn1.asn1 import ASN1_OID
 from scapy.layers.dns import DNS, DNSQR, DNSRR
+from scapy.layers.dot11 import Dot11
 from scapy.layers.inet import ICMP, IP, TCP, UDP
-from scapy.layers.l2 import ARP, Ether
+from scapy.layers.l2 import ARP, LLC, SNAP, Ether
 from scapy.layers.rtp import RTP
 from scapy.layers.snmp import SNMP, SNMPget, SNMPnext, SNMPresponse, SNMPvarbind
 from scapy.packet import Packet, Raw
@@ -1251,6 +1253,93 @@ def tls_keylog_capture(dest: Path, keylog: Path) -> None:
     wrpcap(str(dest), _stamp(session.packets))
 
 
+# Decryption keys (PCAP: Decryption Keys…): a WEP network and an IPsec ESP
+# pair of security associations, encrypted here so tshark can only read the
+# inner packets with the keys below (test_decryption.py).
+WEP_KEY = bytes.fromhex("0a1b2c3d4e")  # 40-bit
+WEP_BSSID = "02:00:00:00:0a:01"
+ESP_SAS = (
+    # (source, destination, SPI, AES-128 key + 4-byte nonce for AES-CTR [RFC3686])
+    ("10.8.0.1", "10.8.0.2", 0x00001001, bytes.fromhex("00112233445566778899aabbccddeeff01020304")),
+    ("10.8.0.2", "10.8.0.1", 0x00002002, bytes.fromhex("ffeeddccbbaa99887766554433221100a1a2a3a4")),
+)
+
+
+def _rc4(key: bytes, data: bytes) -> bytes:
+    s = list(range(256))
+    j = 0
+    for i in range(256):
+        j = (j + s[i] + key[i % len(key)]) % 256
+        s[i], s[j] = s[j], s[i]
+    out = bytearray()
+    i = j = 0
+    for byte in data:
+        i = (i + 1) % 256
+        j = (j + s[i]) % 256
+        s[i], s[j] = s[j], s[i]
+        out.append(byte ^ s[(s[i] + s[j]) % 256])
+    return bytes(out)
+
+
+def wep_packets() -> list[Packet]:
+    """802.11 data frames of an ICMP echo, WEP-encrypted with WEP_KEY (RC4 of
+    IV + key over the LLC/SNAP payload and its CRC-32)."""
+    station = "02:00:00:00:0a:02"
+    out: list[Packet] = []
+    for i in range(4):
+        request = i % 2 == 0
+        inner = bytes(
+            LLC(dsap=0xAA, ssap=0xAA, ctrl=3)
+            / SNAP(OUI=0, code=0x0800)
+            / IP(src="192.168.10.2" if request else "192.168.10.1",
+                 dst="192.168.10.1" if request else "192.168.10.2")
+            / ICMP(type=8 if request else 0, id=7, seq=i // 2 + 1)
+            / Raw(b"wep secret payload")
+        )  # fmt: skip
+        iv = bytes([0x10 + i, 0x20, 0x30])
+        icv = struct.pack("<I", zlib.crc32(inner) & 0xFFFFFFFF)
+        body = iv + b"\x00" + _rc4(iv + WEP_KEY, inner + icv)
+        header = (
+            Dot11(type=2, subtype=0, FCfield=0x41, addr1=WEP_BSSID, addr2=station,
+                  addr3="02:00:00:00:0a:03", SC=i << 4)
+            if request
+            else Dot11(type=2, subtype=0, FCfield=0x42, addr1=station,
+                       addr2=WEP_BSSID, addr3="02:00:00:00:0a:03", SC=i << 4)
+        )  # fmt: skip
+        out.append(header / Raw(body))
+    return _stamp(out)
+
+
+def _aes_ctr(key: bytes, iv: bytes, data: bytes) -> bytes:
+    """AES-128-CTR as ESP uses it (RFC 3686): the key's last 4 bytes are the
+    nonce, the counter block is nonce + IV + a 32-bit counter from 1."""
+    aes = quic.Aes128(key[:16])
+    stream = b"".join(
+        aes.encrypt(key[16:] + iv + struct.pack(">I", n + 1)) for n in range(len(data) // 16 + 1)
+    )
+    return bytes(a ^ b for a, b in zip(data, stream, strict=False))
+
+
+def esp_packets() -> list[Packet]:
+    """ICMP echoes in transport-mode ESP, one SA per direction (ESP_SAS), with
+    AES-CTR encryption and no authentication."""
+    out: list[Packet] = []
+    for i in range(4):
+        src, dst, spi, key = ESP_SAS[i % 2]
+        icmp = bytes(ICMP(type=8 if i % 2 == 0 else 0, id=9, seq=i // 2 + 1) / Raw(b"esp secret"))
+        pad = (-(len(icmp) + 2)) % 4
+        plain = icmp + bytes(range(1, pad + 1)) + bytes([pad, 1])  # next header 1: ICMP
+        iv = struct.pack(">Q", 0x1000 + i)
+        payload = struct.pack(">II", spi, i // 2 + 1) + iv + _aes_ctr(key, iv, plain)
+        out.append(
+            Ether(src=CLIENT_MAC if i % 2 == 0 else SERVER_MAC,
+                  dst=SERVER_MAC if i % 2 == 0 else CLIENT_MAC)
+            / IP(src=src, dst=dst, proto=50, id=i + 1)
+            / Raw(payload)
+        )  # fmt: skip
+    return _stamp(out)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--large", nargs=2, metavar=("COUNT", "DEST"))
@@ -1275,6 +1364,8 @@ def main() -> None:
     wrpcap(str(HERE / "voip-media.pcap"), voip_media_packets())
     wrpcap(str(HERE / "services.pcap"), services_packets())
     wrpcap(str(HERE / "credentials.pcap"), credentials_packets())
+    wrpcap(str(HERE / "wep.pcap"), wep_packets())
+    wrpcap(str(HERE / "esp.pcap"), esp_packets())
     hexdump_fixtures()
     (HERE / "comments.pcapng").write_bytes(
         comments_pcapng(_records(http_packets()), PACKET_COMMENTS)

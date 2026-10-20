@@ -8,6 +8,8 @@ import { registerProfileCommands } from "./commands/profiles";
 import { registerFirewallCommands } from "./commands/firewall";
 import { consumePrefsChange, registerPrefsCommands } from "./commands/prefs";
 import { registerProtocolCommands } from "./commands/protocols";
+import { keyStore, registerDecryptionCommands } from "./commands/decryption";
+import { keysDigest } from "./decryptionKeys";
 import { samePrefs } from "./prefsModel";
 import { sameSwitches } from "./protocolsModel";
 import { registerColoringCommands } from "./commands/coloring";
@@ -61,6 +63,8 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
   context.subscriptions.push(assistant);
   provider = PcapEditorProvider.register(context, log, assistant);
   const p = provider;
+  // (Starts loading the keys; a capture's load waits for them.)
+  registerDecryptionCommands(context, p);
 
   registerFilterCommands(context, p);
   registerColumnCommands(context, p);
@@ -88,6 +92,16 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
   registerProtocolCommands(context, p, log);
   registerSetupCommands(context, log);
   const recent = registerRecentCaptures(context);
+  context.subscriptions.push(
+    keyStore.onDidChange(() => {
+      // PCAP: Decryption Keys… (here or in another window): reload the captures
+      // loaded with other keys.
+      const keys = keysDigest(keyStore.all);
+      for (const s of p.allSessions.filter((s) => s.keys !== keys)) {
+        void s.load("decryption keys changed");
+      }
+    }),
+  );
   // Unsaved captures left behind (a crash, or a restored editor long closed).
   void pruneTemporaryCaptures(context, new Set(p.allSessions.map((s) => s.uri.fsPath)));
   context.subscriptions.push(
@@ -179,6 +193,15 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
             }
           }
         }, 300);
+      }
+      if (e.affectsConfiguration(`${SECTION}.geoip.databaseFolders`)) {
+        await Promise.all(
+          p.allSessions
+            .filter(
+              (s) => readSettings(s.uri).geoipFolders.join("\n") !== s.geoipFolders.join("\n"),
+            )
+            .map((s) => s.load("GeoIP databases changed")),
+        );
       }
       if (e.affectsConfiguration(`${SECTION}.tlsKeyLogFile`)) {
         // Usually PCAP: Set TLS Key Log File…: reload the captures whose key log changed.

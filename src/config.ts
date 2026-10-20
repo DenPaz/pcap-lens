@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import * as vscode from "vscode";
 import {
   ColoringRule,
@@ -63,6 +64,8 @@ export interface Settings {
   protocols: Switches;
   /** `pcapViewer.heuristicDissectors`: heuristic dissectors switched here (short name → on). */
   heuristics: Switches;
+  /** `pcapViewer.geoip.databaseFolders`, resolved: folders of MaxMind databases (.mmdb). */
+  geoipFolders: string[];
 }
 
 export function readColoringStyle(scope?: vscode.Uri): ColoringStyle {
@@ -127,6 +130,15 @@ export function readSettings(scope?: vscode.Uri): Settings {
     wiresharkProfile: normalizeProfileName(cfg.get<unknown>("wiresharkProfile", "")),
     protocols: normalizeSwitches(cfg.get<unknown>("enabledProtocols", {})),
     heuristics: normalizeSwitches(cfg.get<unknown>("heuristicDissectors", {})),
+    geoipFolders: [
+      ...new Set(
+        [cfg.get<unknown>("geoip.databaseFolders", [])]
+          .flat()
+          .filter((f): f is string => typeof f === "string")
+          .map((f) => resolveSettingPath(f, baseDir))
+          .filter((f): f is string => !!f && path.isAbsolute(f)),
+      ),
+    ],
   };
 }
 

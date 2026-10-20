@@ -9,8 +9,9 @@ Every operation reads the whole capture file (not the view) and writes pcapng:
   between two times (``-A``/``-B``, Unix epoch seconds);
 * ``truncate``: ``-s <snaplen>`` (the packets keep their original length, so
   they show as "N bytes on wire, M bytes captured");
-* ``injectSecrets``: ``--inject-secrets tls,<key log>`` (a pcapng Decryption
-  Secrets Block, so the capture decrypts without the key log);
+* ``injectSecrets``: ``--inject-secrets <kind>,<key log>`` (a pcapng Decryption
+  Secrets Block, so the capture decrypts without the key log); ``kind`` is
+  ``tls`` (default), ``ssh`` or ``wg`` (WireGuard);
 * ``split``: ``-c <packets>`` or ``-i <seconds>`` per file, named
   ``<name>_NNNNN_<time>.pcapng`` by editcap (what rotation.ts recognises).
 """
@@ -26,6 +27,8 @@ from typing import Any
 from .protocol import InvalidParamsError
 
 OPERATIONS = ("timeShift", "dedup", "keep", "truncate", "injectSecrets", "split")
+# The key logs editcap embeds (``--inject-secrets help``), with their names.
+SECRET_KINDS = {"tls": "TLS", "ssh": "SSH", "wg": "WireGuard"}
 MAX_DEDUP_WINDOW = 1_000_000  # editcap's own limit
 MAX_RANGES = 10_000
 _RANGE_RE = re.compile(r"^(\d+)(?:-(\d*))?$")
@@ -123,10 +126,13 @@ def editcap_options(
             raise InvalidParamsError("snaplen (bytes per packet) is required")
         return ["-s", str(snaplen)], []
     if operation == "injectSecrets":
+        kind = str(params.get("kind") or "tls")
+        if kind not in SECRET_KINDS:
+            raise InvalidParamsError(f"kind must be one of {', '.join(SECRET_KINDS)}")
         key_log = Path(str(params.get("keyLog") or "")).expanduser()
         if not key_log.is_absolute() or not key_log.is_file():
-            raise InvalidParamsError(f"TLS key log file not found: {key_log}")
-        return ["--inject-secrets", f"tls,{key_log}"], []
+            raise InvalidParamsError(f"{SECRET_KINDS[kind]} key log file not found: {key_log}")
+        return ["--inject-secrets", f"{kind},{key_log}"], []
     if operation == "split":
         packets = _whole(params, "packets", 1, 1 << 31)
         seconds = _number(params, "seconds")

@@ -674,6 +674,42 @@ suite("PCAP Lens smoke test", () => {
     await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
   });
 
+  test("Decryption Keys: a WEP key decrypts the capture, removing it reloads without", async () => {
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    const api = (await ext!.activate()) as PcapViewerApi;
+    const uri = vscode.Uri.file(path.join(FIXTURES, "wep.pcap"));
+    await vscode.commands.executeCommand("vscode.openWith", uri, "pcapViewer.editor");
+    const session = await waitFor(() =>
+      api.provider.allSessions.find((s) => s.uri.fsPath === uri.fsPath && indexed(s)),
+    );
+    const icmp = async (): Promise<number | undefined> => {
+      try {
+        const res = await session.backend?.request<{ count: number }>("count_matches", {
+          filter: "icmp",
+        });
+        return res?.count;
+      } catch {
+        return undefined;
+      }
+    };
+    assert.equal(await waitForAsync(icmp), 0);
+    try {
+      await vscode.commands.executeCommand("pcapViewer.decryptionKeys", {
+        keys: [{ type: "wep", key: "0a1b2c3d4e" }],
+      });
+      await waitForAsync(async () => ((await icmp()) === 4 ? true : undefined));
+      const labels = await vscode.commands.executeCommand<string[]>("pcapViewer.decryptionKeys", {
+        quiet: true,
+      });
+      assert.deepEqual(labels, ["WEP key 0a1b… (5 bytes)"]);
+    } finally {
+      await vscode.commands.executeCommand("pcapViewer.decryptionKeys", { keys: [] });
+    }
+    await waitForAsync(async () => ((await icmp()) === 0 ? true : undefined));
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
+  });
+
   test("Lua dissectors: a capture's own choice, remembered across reloads", async () => {
     const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
     const api = (await ext!.activate()) as PcapViewerApi;

@@ -68,6 +68,8 @@ import {
 import type { PcapDocument } from "./pcapDocument";
 import type { PrefOverrides } from "./prefsModel";
 import type { Switches } from "./protocolsModel";
+import { keyStore } from "./commands/decryption";
+import { keysDigest } from "./decryptionKeys";
 
 const HISTORY_KEY = "pcapViewer.filterHistory";
 /**
@@ -136,6 +138,10 @@ export class PcapEditorSession {
   /** The Enabled Protocols overrides of the latest load. */
   protocols: Switches = {};
   heuristics: Switches = {};
+  /** The decryption keys of the latest load (`keysDigest`). */
+  keys = keysDigest([]);
+  /** The GeoIP database folders of the latest load. */
+  geoipFolders: string[] = [];
   private keyLogWatcher?: vscode.Disposable;
   /** Merging this rotated capture's pieces was offered (once per editor). */
   private mergeOffered = false;
@@ -276,6 +282,9 @@ export class PcapEditorSession {
     this.lua = settings.luaScripts;
     this.protocols = settings.protocols;
     this.heuristics = settings.heuristics;
+    await keyStore.ready;
+    this.keys = keysDigest(keyStore.all);
+    this.geoipFolders = settings.geoipFolders;
     await this.stopBackend();
     if (this.disposed || seq !== this.loadSeq) {
       return;
@@ -643,6 +652,8 @@ export class PcapEditorSession {
           profile: settings.wiresharkProfile || undefined,
           protocols: settings.protocols,
           heuristics: settings.heuristics,
+          keys: keyStore.all.length ? keyStore.all : undefined,
+          geoip: settings.geoipFolders.length ? settings.geoipFolders : undefined,
           columns: settings.columns.map((c) => c.field),
           // Show the first rows while the rest is indexed.
           stream: true,

@@ -528,6 +528,11 @@
         "category": "PCAP"
       },
       {
+        "command": "pcapViewer.decryptionKeys",
+        "title": "Decryption Keys…",
+        "category": "PCAP"
+      },
+      {
         "command": "pcapViewer.disableProtocol",
         "title": "Disable Protocol",
         "category": "PCAP"
@@ -622,7 +627,7 @@
       },
       {
         "command": "pcapViewer.embedTlsKeys",
-        "title": "Embed TLS Keys in Capture…",
+        "title": "Embed Key Log in Capture…",
         "category": "PCAP"
       },
       {
@@ -1303,6 +1308,15 @@
             "type": "boolean"
           },
           "markdownDescription": "Heuristic dissectors switched on (`true`) or off (`false`) for these captures, by short name (e.g. `{\"rtp_udp\": true}` finds RTP on any UDP port), whatever your Wireshark settings say (tshark's `--enable-heuristic` / `--disable-heuristic`). Edit them with **PCAP: Enabled Protocols…**; changing them reloads the captures they apply to."
+        },
+        "pcapViewer.geoip.databaseFolders": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "machine-overridable",
+          "default": [],
+          "markdownDescription": "Folders of MaxMind databases (`.mmdb`: GeoLite2 or GeoIP2 City, Country and ASN) for GeoIP: country, city and AS columns and a map in **Endpoints** and **Conversations**, and the `ip.geoip.*` fields in the details and filters. tshark also looks in its usual folders (`/usr/share/GeoIP`, `/var/lib/GeoIP`…). Changing them reloads the open captures."
         },
         "pcapViewer.tlsKeyLogFile": {
           "type": "string",

@@ -11,6 +11,7 @@ import {
   parseDuration,
 } from "../captureModel";
 import { readSettings } from "../config";
+import { keyStore } from "./decryption";
 import { PcapEditorProvider, PcapEditorSession, describeError } from "../pcapEditor";
 import { exportFileName } from "../settingsModel";
 import { discardTemporaryCapture, newTemporaryCapture } from "../tempCaptures";
@@ -52,8 +53,8 @@ const OPERATIONS: { op: EditOperation; label: string; detail: string; suffix: st
   },
   {
     op: "injectSecrets",
-    label: "Embed TLS Keys in Capture…",
-    detail: "Store a TLS key log in the capture, so it decrypts without the key log file",
+    label: "Embed Key Log in Capture…",
+    detail: "Store a TLS, SSH or WireGuard key log in the capture, so it decrypts without the file",
     suffix: "with-keys",
   },
 ];
@@ -234,31 +235,53 @@ async function truncateParams(): Promise<Params | undefined> {
   return text === undefined ? undefined : { snaplen: Number(text) };
 }
 
+/** The key logs editcap embeds (`--inject-secrets <kind>,<file>`). */
+const SECRET_KINDS = [
+  { secret: "tls", label: "TLS" },
+  { secret: "ssh", label: "SSH" },
+  { secret: "wg", label: "WireGuard" },
+] as const;
+
 async function secretsParams(session: PcapEditorSession): Promise<Params | undefined> {
-  const configured = readSettings(session.uri).tlsKeyLogFile;
-  let keyLog = configured;
-  if (configured) {
-    const pick = await choose(
-      [
-        { label: `Use ${path.basename(configured)}`, detail: configured, file: configured },
-        { label: "Choose a Key Log File…", file: "" },
-      ],
-      "Embed TLS Keys",
-    );
-    if (!pick) {
-      return undefined;
-    }
-    keyLog = pick.file;
+  // The key logs already in use: the TLS setting and the SSH/WireGuard decryption keys.
+  const known = [
+    { secret: "tls", file: readSettings(session.uri).tlsKeyLogFile },
+    ...keyStore.all.map((k) => ({
+      secret: k.type === "ssh" ? "ssh" : k.type === "wireguard" ? "wg" : "",
+      file: "file" in k ? k.file : "",
+    })),
+  ].filter((k) => k.secret && k.file);
+  const label = (secret: string) => SECRET_KINDS.find((k) => k.secret === secret)?.label ?? secret;
+  const pick = await choose(
+    [
+      ...known.map((k) => ({
+        label: `Use ${path.basename(k.file)}`,
+        description: `${label(k.secret)} key log`,
+        detail: k.file,
+        secret: k.secret,
+        file: k.file,
+      })),
+      ...SECRET_KINDS.map((k) => ({
+        label: `Choose a ${k.label} Key Log File…`,
+        secret: k.secret as string,
+        file: "",
+      })),
+    ],
+    "Embed Key Log",
+  );
+  if (!pick) {
+    return undefined;
   }
+  let keyLog = pick.file;
   if (!keyLog) {
     const chosen = await vscode.window.showOpenDialog({
-      title: "Embed TLS Keys: choose the key log (SSLKEYLOGFILE)",
+      title: `Embed Key Log: choose the ${label(pick.secret)} key log`,
       canSelectMany: false,
       filters: { "Key log": ["log", "txt", "keys"], "All files": ["*"] },
     });
     keyLog = chosen?.[0]?.fsPath ?? "";
   }
-  return keyLog ? { keyLog } : undefined;
+  return keyLog ? { keyLog, kind: pick.secret } : undefined;
 }
 
 async function splitParams(

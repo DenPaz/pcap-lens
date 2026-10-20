@@ -150,6 +150,25 @@ def test_inject_tls_secrets(
 
 
 @pytest.mark.tshark
+@pytest.mark.parametrize(("kind", "text", "magic"), [
+    ("ssh", "0123456789abcdef0123456789abcdef SHARED_SECRET 00112233\n", b"SSHK"),
+    ("wg", "LOCAL_STATIC_PRIVATE_KEY = " + "A" * 43 + "=\n", b"WGKL"),
+])  # fmt: skip
+def test_inject_ssh_and_wireguard_key_logs(
+    service: PcapService, tmp_path: Path, kind: str, text: str, magic: bytes
+) -> None:
+    keylog = tmp_path / f"{kind}.keys"
+    keylog.write_text(text)
+    service.open({"path": str(MIXED)}, RequestContext())
+    res = _edit(service, tmp_path, operation="injectSecrets", kind=kind, keyLog=str(keylog))
+    # A Decryption Secrets Block of that kind (its type is written little-endian here).
+    data = Path(str(res["path"])).read_bytes()
+    assert magic in data or magic[::-1] in data
+    with pytest.raises(InvalidParamsError, match="kind"):
+        _edit(service, tmp_path, operation="injectSecrets", kind="pgp", keyLog=str(keylog))
+
+
+@pytest.mark.tshark
 def test_refused_while_indexing(
     service: PcapService, tmp_path: Path, slow_index: threading.Event
 ) -> None:
