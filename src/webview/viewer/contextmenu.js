@@ -287,6 +287,19 @@ export function showTreeMenu(entry, x, y) {
     ["Copy Field Name", node.name ? () => copy(node.name) : null],
     ["Copy as Filter", filter ? () => copy(filter) : null],
     ["Copy Bytes (hex)", node.pos !== undefined ? () => copy(fieldBytes(node)) : null],
+    [
+      "Show Packet Bytes…",
+      node.pos !== undefined && node.size > 0 && state.detail
+        ? () =>
+            vscode.postMessage({
+              type: "showPacketBytes",
+              frame: state.detail.number,
+              field: node.name ?? "",
+              label: node.label,
+              hex: fieldBytes(node),
+            })
+        : null,
+    ],
     ["-", null],
     ["Expand Subtrees", entry.children ? () => expandAll(entry, true) : null],
     ["Collapse Subtrees", entry.children ? () => expandAll(entry, false) : null],

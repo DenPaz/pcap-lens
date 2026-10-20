@@ -190,6 +190,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
           "protocolPrefs",
           "colorize",
           "exportBytes",
+          "showPacketBytes",
         ].includes(msg.type)
       ) {
         hostLog.push(msg);
@@ -361,6 +362,16 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
   });
 
   test("apply-as-filter from the tree context menu", async () => {
+    // Show Packet Bytes… sends the field's own bytes to the host (it opens the panel).
+    await page.click("#detail-tree .node-row:has-text('Source Address')", { button: "right" });
+    await page.click("#context-menu .item:has-text('Show Packet Bytes…')");
+    await waitForHost((m) => m.type === "showPacketBytes");
+    const shown = hostLog.findLast((m) => m.type === "showPacketBytes");
+    assert.deepEqual(
+      [shown.field, shown.hex, shown.label],
+      ["ip.src", "5db8d822", "Source Address: 93.184.216.34"],
+    );
+    assert.ok(Number.isInteger(shown.frame) && shown.frame > 0);
     await page.click("#detail-tree .node-row:has-text('Source Address')", { button: "right" });
     await page.click("#context-menu .item:has-text('Apply as Filter')");
     await page.waitForFunction(

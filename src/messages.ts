@@ -157,6 +157,8 @@ export type WebviewToHost =
   | { type: "aiSuggest"; id: number; request: string }
   | { type: "aiCancel"; id: number }
   | { type: "exportBytes"; frame: number }
+  /** Show Packet Bytes for a field (checked by panels/bytesPanel.packetBytes). */
+  | { type: "showPacketBytes"; frame: number; field: string; label: string; hex: string }
   | { type: "applyColumn"; field: string; title: string }
   | { type: "removeColumn"; field: string }
   | { type: "renameColumn"; field: string }

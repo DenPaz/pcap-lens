@@ -369,19 +369,53 @@ table.stats td.wrap {
   background: color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 8%, transparent);
 }
 
-/* Follow Stream search (theme find colors; the text keeps its own color). */
-.segment mark.find-match {
+/* Follow Stream and Packet Bytes search (theme find colors; the text keeps its own color). */
+.segment mark.find-match,
+.bytes-text mark.find-match {
   color: inherit;
   background: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
 }
 
-.segment mark.find-match.current {
+.segment mark.find-match.current,
+.bytes-text mark.find-match.current {
   background: var(--vscode-editor-findMatchBackground, rgba(234, 92, 0, 0.6));
   outline: 1px solid var(--vscode-editor-findMatchBorder, transparent);
 }
 
-#follow-find {
+#follow-find,
+#bytes-find {
   width: 18em;
+}
+
+/* ------------------------------------------------------------------ packet bytes */
+
+.bytes-field {
+  margin-bottom: var(--space-4);
+  color: var(--vscode-descriptionForeground);
+  word-break: break-all;
+}
+
+#bytes-start,
+#bytes-end {
+  width: 7em;
+}
+
+.bytes-text {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  font-family: var(--mono);
+  font-size: var(--mono-size);
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: var(--vscode-textCodeBlock-background, transparent);
+}
+
+.bytes-image {
+  display: block;
+  max-width: 100%;
+  image-rendering: pixelated;
+  /* A checkerboard shows transparency. */
+  background: repeating-conic-gradient(#8884 0% 25%, transparent 0% 50%) 50% / 16px 16px;
 }
 
 .find-count {

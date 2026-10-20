@@ -43,6 +43,7 @@ import {
 import { saveFilterInteractive, showSavedFilters } from "./commands/savedFilters";
 import { addFilterButtonInteractive, editFilterButton } from "./commands/filterButtons";
 import { FOLLOW_LABELS, FollowPanel } from "./panels/followPanel";
+import { BytesPanel, packetBytes } from "./panels/bytesPanel";
 import { rotatedSiblings } from "./rotation";
 import { MenuCommand, buildCommandMenu } from "./commandMenu";
 import {
@@ -879,6 +880,13 @@ export class PcapEditorSession {
       case "exportBytes":
         await vscode.commands.executeCommand("pcapViewer.exportPacketBytes", msg.frame);
         return;
+      case "showPacketBytes": {
+        const bytes = packetBytes(msg);
+        if (bytes) {
+          BytesPanel.show(this.context, this, bytes);
+        }
+        return;
+      }
       case "applyColumn":
         await this.updateColumns((cols) => addColumn(cols, msg.field, msg.title));
         vscode.window.setStatusBarMessage(`Added column ${msg.title || msg.field}`, 3000);

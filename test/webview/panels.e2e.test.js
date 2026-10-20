@@ -1422,6 +1422,105 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     }
   });
 
+  test("packet bytes: decode as Base64 or compressed, show as text, arrays or an image, find, save", async () => {
+    const zlib = require("node:zlib");
+    const hex = (/** @type {Buffer | string} */ b) => Buffer.from(b).toString("hex");
+    let field = {
+      frame: 7,
+      field: "http.authbasic",
+      label: "Credentials: SGVsbG8sIFdvcmxkIQ==",
+      hex: hex("SGVsbG8sIFdvcmxkIQ=="),
+    };
+    const { page, log, post } = await openGraphPanel("bytes.js", async (msg, reply) => {
+      // A stand-in for BytesPanel (src/panels/bytesPanel.ts).
+      if (msg.type === "ready") {
+        await reply({ type: "show", ...field });
+      }
+    });
+    const text = () => page.textContent(".bytes-text");
+    await page.waitForSelector(".bytes-text");
+    assert.equal(await page.textContent(".panel-title"), "Packet Bytes · packet 7");
+    assert.equal(await text(), "SGVsbG8sIFdvcmxkIQ==");
+    await page.selectOption("select[aria-label='Decode as']", "base64");
+    await page.waitForFunction(
+      () => document.querySelector(".bytes-text")?.textContent === "Hello, World!",
+    );
+    assert.equal(await page.textContent(".status"), "13 of 13 bytes (decoded from 20)");
+    // Find highlights in the text; Enter steps.
+    await page.fill("#bytes-find", "o");
+    await page.press("#bytes-find", "Enter");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".bytes-text mark.find-match").length === 2,
+    );
+    // Start and end bytes cut what is shown (and saved).
+    await page.fill("#bytes-start", "7");
+    await page.fill("#bytes-end", "11");
+    await page.press("#bytes-end", "Enter");
+    await page.waitForFunction(
+      () => document.querySelector(".bytes-text")?.textContent === "World",
+    );
+    await page.selectOption("select[aria-label='Show as']", "c");
+    assert.equal(
+      await text(),
+      "static const unsigned char http_authbasic[5] = {\n    0x57, 0x6f, 0x72, 0x6c, 0x64\n};",
+    );
+    await page.click("button:has-text('Save Raw…')");
+    await page.click("button:has-text('Save as…')");
+    await page.click("button:has-text('Copy')");
+    for (let i = 0; i < 50 && log.filter((m) => m.type === "save").length < 2; i++) {
+      await page.waitForTimeout(20);
+    }
+    const saves = log.filter((m) => m.type === "save");
+    assert.deepEqual(saves[0], { type: "save", base64: Buffer.from("World").toString("base64") });
+    assert.equal(saves[1].ext, "c");
+    assert.match(saves[1].text, /^static const unsigned char/);
+    assert.match(log.find((m) => m.type === "copy")?.text ?? "", /0x57, 0x6f/);
+
+    // A gzip body, decompressed in the panel; a field that isn't compressed says so.
+    field = {
+      frame: 9,
+      field: "http.file_data",
+      label: "File Data: 31 bytes",
+      hex: hex(zlib.gzipSync("compressed text")),
+    };
+    await post({ type: "show", ...field });
+    await page.selectOption("select[aria-label='Show as']", "ascii");
+    await page.selectOption("select[aria-label='Decode as']", "compressed");
+    await page.waitForFunction(
+      () => document.querySelector(".bytes-text")?.textContent === "compressed text",
+    );
+    assert.match(await page.textContent(".status"), /gzip decompressed/);
+    await post({ type: "show", frame: 9, field: "data", label: "Data", hex: hex("plain") });
+    await page.waitForSelector(".notice.error:not(.hidden)");
+    assert.match(
+      await page.textContent(".notice.error"),
+      /^Not deflate-raw data: showing the bytes as they are\.$/,
+    );
+
+    // An image is shown as one (a 1×1 PNG).
+    const png =
+      "89504e470d0a1a0a0000000d4948445200000001000000010806000000" +
+      "1f15c4890000000d49444154789c63f8cfc0f01f0005000201a6d5eb2a0000000049454e44ae426082";
+    await post({ type: "show", frame: 3, field: "png", label: "PNG", hex: png });
+    await page.selectOption("select[aria-label='Decode as']", "none");
+    await page.selectOption("select[aria-label='Show as']", "image");
+    await page.waitForSelector(".bytes-image");
+    assert.match(
+      await page.getAttribute(".bytes-image", "src"),
+      /^data:image\/png;base64,iVBORw0KGgo/,
+    );
+    await page.waitForFunction(
+      () =>
+        /** @type {HTMLImageElement} */ (document.querySelector(".bytes-image")).naturalWidth === 1,
+    );
+    await page.click("button:has-text('Go to Packet')");
+    for (let i = 0; i < 50 && !log.some((m) => m.type === "goto"); i++) {
+      await page.waitForTimeout(20);
+    }
+    assert.ok(log.some((m) => m.type === "goto"));
+    await page.selectOption("select[aria-label='Show as']", "hexdump");
+  });
+
   test("accessibility: no WCAG A/AA violations in any panel (axe-core)", async () => {
     // Each panel as its test left it (tables filled, graphs drawn, a call selected…).
     const found = [];
