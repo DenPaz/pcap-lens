@@ -899,6 +899,10 @@ suite("webview lib: follow stream and statistics helpers", () => {
     assert.equal(lib.imageMime(Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d)), "image/png");
     assert.equal(lib.imageMime(Uint8Array.of(0xff, 0xd8, 0xff, 0xe0)), "image/jpeg");
     assert.equal(lib.imageMime(enc('<?xml version="1.0"?>\n<svg xmlns="x">')), "image/svg+xml");
+    assert.equal(lib.imageMime(enc("<!-- a --> <!-- b -->\n<svg>")), "image/svg+xml");
+    assert.equal(lib.imageMime(enc("<!-- unterminated <svg>")), null);
+    assert.equal(lib.imageMime(enc("<?xml version='1.0'?><!-- x --><html>")), null);
+    assert.equal(lib.imageMime(enc("<!--" + "--><!--".repeat(40))), null);
     assert.equal(lib.imageMime(enc("<html>")), null);
 
     const bytes = Uint8Array.of(0x48, 0x69, 0x0a, 0x00, 0xff);

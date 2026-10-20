@@ -1421,9 +1421,21 @@
     if (start([0x52, 0x49, 0x46, 0x46]) && start([0x57, 0x45, 0x42, 0x50], 8)) return "image/webp";
     if (start([0x42, 0x4d])) return "image/bmp";
     if (start([0x00, 0x00, 0x01, 0x00])) return "image/x-icon";
-    const head = String.fromCharCode(...bytes.subarray(0, 256)).trimStart();
-    if (/^(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*<svg[\s>]/i.test(head)) return "image/svg+xml";
-    return null;
+    // An SVG: past an XML declaration and comments, the first element is <svg>
+    // (skipped with indexOf: a regular expression for it can backtrack badly).
+    let head = String.fromCharCode(...bytes.subarray(0, 256)).trimStart();
+    for (;;) {
+      const end = head.startsWith("<?xml")
+        ? head.indexOf("?>") + 2
+        : head.startsWith("<!--")
+          ? head.indexOf("-->") + 3
+          : 0;
+      if (end < 2) {
+        break;
+      }
+      head = head.slice(end).trimStart();
+    }
+    return /^<svg[\s>]/i.test(head) ? "image/svg+xml" : null;
   }
 
   /**
