@@ -201,7 +201,26 @@ suite("PCAP Lens smoke test", () => {
     const follow = await waitFor(() => [...FollowPanel.panels][0]?.current);
     assert.equal(follow.stream, 0);
     assert.deepEqual(follow.bytes, [90, 491]);
+    // Back to the capture from the panel beside it: in its own column, not
+    // opened a second time in the panel's (which left the first one empty).
+    const captureColumns = () =>
+      vscode.window.tabGroups.all.flatMap((g) =>
+        g.tabs
+          .filter(
+            (t) => t.input instanceof vscode.TabInputCustom && t.input.uri.fsPath === uri.fsPath,
+          )
+          .map(() => g.viewColumn),
+      );
+    const column = captureColumns();
+    assert.equal(column.length, 1);
     session.reveal();
+    await waitFor(() => {
+      const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+      return input instanceof vscode.TabInputCustom && input.uri.fsPath === uri.fsPath
+        ? true
+        : undefined;
+    });
+    assert.deepEqual(captureColumns(), column);
     await vscode.commands.executeCommand("pcapViewer.statistics.conversations");
     const stats = await waitFor(() =>
       StatsPanel.all.find((p) => p.kind === "conversations" && p.session === session),

@@ -1237,11 +1237,25 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
         },
         frame,
       );
+    /**
+     * Wait until frame's row shows this mark class: a row whose page is being
+     * fetched again is drawn as loading, without a mark, for a moment.
+     * @param {number} frame @param {string} cls
+     */
+    const waitMark = (frame, cls) =>
+      page.waitForFunction(
+        ([f, c]) => {
+          const row = document.querySelector("#list-rows").children[f - 1];
+          return (
+            !row.classList.contains("loading") &&
+            row.querySelector(".related-mark")?.className === c
+          );
+        },
+        [frame, cls],
+      );
     await rowEl(7).click(); // HTTP response: "[Request in frame: 4]"
     await waitSelected(7);
-    await page.waitForFunction(() =>
-      document.querySelectorAll("#list-rows .list-row")[3]?.querySelector(".codicon-arrow-right"),
-    );
+    await waitMark(4, "related-mark codicon codicon-arrow-right");
     assert.deepEqual(await markOf(4), [
       "related-mark codicon codicon-arrow-right",
       "Request: the selected packet answers it",
@@ -1267,9 +1281,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     );
     await rowEl(4).click();
     await waitSelected(4);
-    await page.waitForFunction(() =>
-      document.querySelectorAll("#list-rows .list-row")[6]?.querySelector(".codicon-arrow-left"),
-    );
+    await waitMark(7, "related-mark codicon codicon-arrow-left");
     assert.equal((await markOf(7))[1], "Response to the selected packet");
     const http = page
       .locator("#detail-tree .node-row:has-text('Hypertext Transfer Protocol')")
