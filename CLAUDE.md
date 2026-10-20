@@ -1993,3 +1993,6 @@ about a call: 0.14.0. Then panels reveal the capture in its own column
 Then I/O graphs with several graphs, Wireshark profiles (use and import),
 Show Packet Bytes, Credentials, Export TLS Session Keys and Firewall ACL
 Rules: 0.15.0.
+Then Enabled Protocols, decryption keys beyond TLS (Wi-Fi, RSA, SSH,
+WireGuard, ESP, Kerberos), GeoIP with an Endpoints map, and IPv4/IPv6,
+multicast, resolved-address and SCTP statistics: 0.16.0.

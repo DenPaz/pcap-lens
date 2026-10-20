@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.16.0 — 2026-10-20
+
 ### Added
 
 - _Enabled Protocols…_: switch protocols and heuristic dissectors on or off
