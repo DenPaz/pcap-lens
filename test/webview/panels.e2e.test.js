@@ -1422,6 +1422,57 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     }
   });
 
+  test("credentials: who logged in, by protocol, go to packet and filter", async () => {
+    const creds = await startBackend(deps);
+    try {
+      await creds.request(
+        "open",
+        { path: path.join(FIXTURES, "credentials.pcap") },
+        { timeoutMs: 0 },
+      );
+      const { page, log } = await openGraphPanel("stats.js", async (msg, reply) => {
+        // A stand-in for StatsPanel (src/panels/statsPanel.ts) on its own capture.
+        if (msg.type === "ready") {
+          await reply({ type: "init", kind: "credentials", title: "Credentials", filter: "" });
+        } else if (msg.type === "query") {
+          const table = await creds.request("stats", { kind: "credentials" }, { timeoutMs: 0 });
+          await reply({ type: "result", id: msg.id, table });
+        }
+      });
+      await waitRows(page, 4);
+      assert.deepEqual(
+        (await rows(page)).map((r) => r.slice(1, 3)),
+        [
+          ["HTTP basic auth", "alice"],
+          ["FTP", "bob"],
+          ["POP3", "carol"],
+          ["IMAP", "dave"],
+        ],
+      );
+      await page.click("table.stats tbody tr:has-text('bob')");
+      await page.click("button:has-text('Go to Packet')");
+      await page.click("button:has-text('Prepare as Filter')");
+      for (let i = 0; i < 50 && !log.some((m) => m.type === "filter"); i++) {
+        await page.waitForTimeout(20);
+      }
+      const frame = Number((await rows(page))[1][0]);
+      assert.deepEqual(
+        log.find((m) => m.type === "goto"),
+        { type: "goto", frame },
+      );
+      assert.deepEqual(
+        log.find((m) => m.type === "filter"),
+        {
+          type: "filter",
+          expr: `frame.number == ${frame}`,
+          apply: false,
+        },
+      );
+    } finally {
+      await creds.dispose();
+    }
+  });
+
   test("packet bytes: decode as Base64 or compressed, show as text, arrays or an image, find, save", async () => {
     const zlib = require("node:zlib");
     const hex = (/** @type {Buffer | string} */ b) => Buffer.from(b).toString("hex");

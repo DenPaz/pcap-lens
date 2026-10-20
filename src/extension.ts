@@ -5,6 +5,7 @@ import { registerOpenBerRecordsCommand } from "./commands/openBerRecords";
 import { registerOpenFileCommand } from "./commands/openFile";
 import { registerPluginCommands } from "./commands/plugins";
 import { registerProfileCommands } from "./commands/profiles";
+import { registerFirewallCommands } from "./commands/firewall";
 import { consumePrefsChange, registerPrefsCommands } from "./commands/prefs";
 import { samePrefs } from "./prefsModel";
 import { registerColoringCommands } from "./commands/coloring";
@@ -79,6 +80,7 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
   registerOpenBerRecordsCommand(context, p, log);
   registerPluginCommands(context, p, log);
   registerProfileCommands(context, p, log);
+  registerFirewallCommands(context, p);
   registerPrefsCommands(context, p, log);
   registerSetupCommands(context, log);
   const recent = registerRecentCaptures(context);

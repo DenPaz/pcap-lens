@@ -556,6 +556,63 @@ export async function exportPacketBytes(
   return result;
 }
 
+/**
+ * _PCAP: Export TLS Session Keys…_: the keys of the TLS sessions tshark could
+ * decrypt, as a key log file (backend export_tls_keys). A capture without
+ * decrypted sessions offers _Set TLS Key Log File…_ instead. `{dest}` skips
+ * the save dialog (smoke test).
+ */
+export async function exportTlsKeys(
+  provider: PcapEditorProvider,
+  args?: { dest?: string },
+): Promise<{ sessions: number; path: string } | undefined> {
+  const session = requireSession(provider);
+  const backend = session && backendOf(session);
+  if (!session || !backend) {
+    return undefined;
+  }
+  const dest =
+    args?.dest ??
+    (await chooseDestination(session, "tls-keys", "txt", {
+      "Key log": ["txt", "keys", "log"],
+      "All files": ["*"],
+    }));
+  if (!dest) {
+    return undefined;
+  }
+  try {
+    const result = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Window, title: "PCAP: Exporting TLS session keys…" },
+      () =>
+        backend.request<{ sessions: number; path: string }>(
+          "export_tls_keys",
+          { dest },
+          { timeoutMs: 0 },
+        ),
+    );
+    if (!args?.dest) {
+      const n = result.sessions;
+      void reportExport(
+        { ok: true, path: result.path, size: 0 },
+        `the keys of ${n.toLocaleString()} TLS ${n === 1 ? "session" : "sessions"}`,
+        false,
+      );
+    }
+    return result;
+  } catch (err) {
+    if (err instanceof RpcError && (err.data as { empty?: boolean } | undefined)?.empty) {
+      const set = "Set TLS Key Log File…";
+      const choice = await vscode.window.showWarningMessage(`PCAP Lens: ${err.message}.`, set);
+      if (choice === set) {
+        await vscode.commands.executeCommand("pcapViewer.setTlsKeyLogFile");
+      }
+    } else {
+      void vscode.window.showErrorMessage(`PCAP Lens: ${describeError(err)}`);
+    }
+    return undefined;
+  }
+}
+
 export function registerExportCommands(
   context: vscode.ExtensionContext,
   provider: PcapEditorProvider,
@@ -569,6 +626,9 @@ export function registerExportCommands(
       exportDissections(provider),
     ),
     vscode.commands.registerCommand("pcapViewer.exportMarked", () => exportMarked(provider)),
+    vscode.commands.registerCommand("pcapViewer.exportTlsKeys", (args?: { dest?: string }) =>
+      exportTlsKeys(provider, args),
+    ),
     vscode.commands.registerCommand("pcapViewer.exportSelected", () => exportSelected(provider)),
     vscode.commands.registerCommand("pcapViewer.exportPacketBytes", (frame?: number) =>
       exportPacketBytes(provider, frame),

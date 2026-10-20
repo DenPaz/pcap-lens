@@ -320,6 +320,18 @@ suite("PCAP Lens smoke test", () => {
         [7, true],
       ],
     );
+    // Firewall ACL Rules: from packet 4's addresses and ports (the HTTP request).
+    session.reveal();
+    const rules = await vscode.commands.executeCommand<{ kind: string; rule: string }[]>(
+      "pcapViewer.firewallRules",
+      { frame: 4, product: "iptables" },
+    );
+    assert.ok(
+      rules?.some((r) =>
+        r.rule.endsWith("--source 192.168.1.10/32 --destination-port 80 --jump DROP"),
+      ),
+      JSON.stringify(rules),
+    );
     // VoIP Calls: this capture has neither SIP nor RTP.
     session.reveal();
     await vscode.commands.executeCommand("pcapViewer.statistics.voipCalls");

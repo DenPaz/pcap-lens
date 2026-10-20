@@ -840,6 +840,50 @@ _SIP_METHOD = re.compile(r"^(?P<method>[A-Z][A-Z-]*)\s*:\s*(?P<n>\d+) Packets")
 _SIP_SETUP = re.compile(r"^(?:\* )?(?P<what>Average setup time|Min|Max) (?P<ms>\d+) ms")
 
 
+_CREDENTIAL_ROW = re.compile(r"^(?P<frame>\d+)\s+(?P<rest>.*)$")
+_USERNAME_FRAME = re.compile(r"Username in packet:? ?(?P<frame>\d+)")
+
+
+def parse_credentials(text: str) -> Table:
+    """``tshark -q -z credentials``: the logins dissectors saw (packet,
+    protocol, username, info; tshark keeps no passwords here). Columns are
+    fixed-width (the header's starts cut each row: protocols hold spaces).
+    Rows go to their packet; a username sent in an earlier packet is
+    ``usernameFrame``."""
+    table = Table(
+        "credentials",
+        "Credentials",
+        [
+            _col("frame", "Packet", True),
+            _col("protocol", "Protocol"),
+            _col("username", "Username"),
+            _col("info", "Info"),
+        ],
+    )
+    starts: list[int] | None = None
+    for line in _lines(text):
+        if starts is None:
+            if line.startswith("Packet") and "Username" in line:
+                starts = [line.index(name) for name in ("Protocol", "Username", "Info")]
+            continue
+        m = _CREDENTIAL_ROW.match(line)
+        if not m:
+            continue
+        a, b, c = starts
+        protocol, username, info = (line[a:b].strip(), line[b:c].strip(), line[c:].strip())
+        frame = int(m["frame"])
+        row: dict[str, Any] = {
+            "cells": [frame, protocol, username, info],
+            "frame": frame,
+            "filter": f"frame.number == {frame}",
+        }
+        u = _USERNAME_FRAME.search(info)
+        if u:
+            row["usernameFrame"] = int(u["frame"])
+        table.rows.append(row)
+    return table
+
+
 def parse_sip_stat(text: str) -> Table:
     """``tshark -z sip,stat``: SIP messages and resends, responses by status
     code, requests by method (each with its filter), and the setup time

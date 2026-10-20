@@ -215,7 +215,7 @@
     actions.replaceChildren(
       ...(state.kind === "expert"
         ? [gotoBtn, applyBtn, prepareBtn, ...(state.ai ? [askBtn] : [])]
-        : state.kind === "srt"
+        : state.kind === "srt" || state.kind === "credentials"
           ? [applyBtn, prepareBtn, gotoBtn]
           : state.kind === "properties" || state.kind === "io"
             ? []

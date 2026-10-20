@@ -124,6 +124,40 @@ def http_packets() -> list[Packet]:
     return _stamp(s.packets)
 
 
+def credentials_packets() -> list[Packet]:
+    """Logins in the clear, as tshark's credentials tap lists them: HTTP Basic,
+    FTP, POP and IMAP (made-up accounts on documentation addresses)."""
+    packets: list[Packet] = []
+    http = _TcpSession("192.168.1.20", "198.51.100.80", 50100, 80)
+    http.handshake()
+    http.client_send(
+        b"GET /admin HTTP/1.1\r\nHost: intranet.example\r\n"
+        b"Authorization: Basic YWxpY2U6czNjcmV0\r\n\r\n"  # alice:s3cret
+    )
+    http.server_send(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+    http.close()
+    packets += http.packets
+    for port, dport, lines in (
+        (50101, 21, [b"220 ready\r\n", b"USER bob\r\n", b"331 password?\r\n",
+                     b"PASS hunter2\r\n", b"230 welcome\r\n"]),
+        (50102, 110, [b"+OK POP3 ready\r\n", b"USER carol\r\n", b"+OK\r\n",
+                      b"PASS pop-pass\r\n", b"+OK logged in\r\n"]),
+        (50103, 143, [b"* OK IMAP ready\r\n", b"a1 LOGIN dave imap-pass\r\n",
+                      b"a1 OK LOGIN completed\r\n"]),
+    ):  # fmt: skip
+        s = _TcpSession("192.168.1.20", f"198.51.100.{dport % 256}", port, dport)
+        s.handshake()
+        for i, line in enumerate(lines):
+            # The server speaks first, then they take turns.
+            if i % 2 == 0:
+                s.server_send(line)
+            else:
+                s.client_send(line)
+        s.close()
+        packets += s.packets
+    return _stamp(packets)
+
+
 def _http_response(body: bytes, content_type: str, extra: bytes = b"") -> bytes:
     return (
         f"HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\n".encode()
@@ -1240,6 +1274,7 @@ def main() -> None:
     wrpcap(str(HERE / "voip-calls.pcap"), voip_calls_packets())
     wrpcap(str(HERE / "voip-media.pcap"), voip_media_packets())
     wrpcap(str(HERE / "services.pcap"), services_packets())
+    wrpcap(str(HERE / "credentials.pcap"), credentials_packets())
     hexdump_fixtures()
     (HERE / "comments.pcapng").write_bytes(
         comments_pcapng(_records(http_packets()), PACKET_COMMENTS)

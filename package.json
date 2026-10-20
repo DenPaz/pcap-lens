@@ -473,6 +473,21 @@
         "category": "PCAP Statistics"
       },
       {
+        "command": "pcapViewer.statistics.credentials",
+        "title": "Credentials",
+        "category": "PCAP Statistics"
+      },
+      {
+        "command": "pcapViewer.exportTlsKeys",
+        "title": "Export TLS Session Keys…",
+        "category": "PCAP"
+      },
+      {
+        "command": "pcapViewer.firewallRules",
+        "title": "Firewall ACL Rules…",
+        "category": "PCAP"
+      },
+      {
         "command": "pcapViewer.reloadDissectors",
         "title": "Reload Dissectors",
         "category": "PCAP"

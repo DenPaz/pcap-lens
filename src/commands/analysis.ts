@@ -21,6 +21,7 @@ const STATS_COMMANDS: Record<string, StatsKind> = {
   "pcapViewer.statistics.packetLengths": "plen",
   "pcapViewer.statistics.serviceResponseTime": "srt",
   "pcapViewer.statistics.sip": "sip",
+  "pcapViewer.statistics.credentials": "credentials",
 };
 
 /** Follow-stream and statistics commands (brief 4.5 and 4.6). */

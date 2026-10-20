@@ -26,7 +26,8 @@ class StatisticsMixin(ServiceBase):
         ``properties`` (capinfos),
         ``http`` (``type`` packets, requests or load), ``dns``, ``plen``
         (packet lengths), ``srt`` (service response time, ``type`` a
-        protocol of ``stats.SRT_PROTOCOLS`` or ``auto``) or ``sip``.
+        protocol of ``stats.SRT_PROTOCOLS`` or ``auto``), ``sip`` or
+        ``credentials`` (Tools → Credentials).
         ``filter`` limits the statistics to packets matching a display filter.
         """
         kind = param(params, "kind", str)
@@ -64,6 +65,11 @@ class StatisticsMixin(ServiceBase):
                 table = self._srt(f, param(params, "type", str, "auto"), suffix, ctx)
             case "sip":
                 table = stats.parse_sip_stat(self._tap(f, f"sip,stat{suffix}", ctx))
+            case "credentials":
+                # (The tap takes no filter: rows outside it, or ignored, are left out here.)
+                table = stats.parse_credentials(self._tap(f, "credentials", ctx))
+                if counted:
+                    table.rows = self._rows_matching(f, table.rows, counted, ctx)
             case "properties":
                 if f.tshark.capinfos is None:
                     raise ToolError("capinfos (part of Wireshark) was not found")
@@ -97,6 +103,20 @@ class StatisticsMixin(ServiceBase):
             # (A field without numbers for SUM etc.: tshark says so and exits 0.)
             raise f.tshark.error(res.stderr, res.returncode, "tshark -z io,stat failed")
         return stats.parse_io_stat(text, interval, series)
+
+    def _rows_matching(
+        self, f: _Open, rows: list[dict[str, Any]], flt: str, ctx: RequestContext
+    ) -> list[dict[str, Any]]:
+        """The rows whose ``frame`` matches display filter ``flt`` (one pass)."""
+        frames = {r["frame"] for r in rows}
+        if not frames:
+            return rows
+        res = run(
+            f.tshark.argv("-Y", flt, "-T", "fields", "-e", "frame.number", capture=str(f.path)),
+            ctx.token,
+        )
+        matching = {int(n) for n in res.stdout.split() if n.isdigit()}
+        return [r for r in rows if r["frame"] in matching]
 
     def _io_series(self, f: _Open, raw: object, ctx: RequestContext) -> list[IoSeries]:
         """The IO graph's ``series``: up to ``stats.MAX_IO_SERIES`` of

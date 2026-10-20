@@ -16,7 +16,8 @@ export type StatsKind =
   | "dns"
   | "plen"
   | "srt"
-  | "sip";
+  | "sip"
+  | "credentials";
 
 export const STATS_TITLES: Record<StatsKind, string> = {
   conversations: "Conversations",
@@ -30,6 +31,7 @@ export const STATS_TITLES: Record<StatsKind, string> = {
   plen: "Packet Lengths",
   srt: "Service Response Time",
   sip: "SIP Statistics",
+  credentials: "Credentials",
 };
 
 /** Expert rows as the panel sent them, checked (the webview is ours, but its data came from the capture). */
