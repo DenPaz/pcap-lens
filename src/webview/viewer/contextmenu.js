@@ -119,6 +119,10 @@ el.rows.addEventListener("contextmenu", (e) => {
               frames: multi === 2 ? selectedFrames().sort((a, b) => a - b) : [row.number],
             }),
     ],
+    [
+      "Show Packet in New Window",
+      () => vscode.postMessage({ type: "packetWindow", frame: row.number }),
+    ],
     ["-", null],
     // Sends packet data: the host asks for consent first (pcapViewer.ai.allowPacketData).
     ...(state.ai.available

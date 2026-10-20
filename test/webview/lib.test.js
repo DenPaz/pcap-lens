@@ -487,6 +487,27 @@ suite("webview lib: bytes", () => {
 
   test("hex and formatting helpers", () => {
     assert.deepEqual([...lib.hexToBytes("00ff10")], [0, 255, 16]);
+    // One hex dump row in pieces, the highlighted bytes (2–3) marked; the
+    // space between two highlighted bytes is highlighted too.
+    const abc = Uint8Array.from({ length: 20 }, (_, i) => 0x41 + i);
+    assert.deepEqual(lib.hexRowParts(abc, 0, 2, 4), {
+      offset: "00000000",
+      hex: [
+        ["41 42 ", false],
+        ["43 44", true],
+        [" 45 46 47 48  49 4a 4b 4c 4d 4e 4f 50", false],
+      ],
+      ascii: [
+        ["AB", false],
+        ["CD", true],
+        ["EFGHIJKLMNOP", false],
+      ],
+    });
+    // The last row is padded to full width, so the ASCII column lines up.
+    const last = lib.hexRowParts(abc, 16, 0, 0);
+    assert.equal(last.offset, "00000010");
+    assert.equal(last.hex.map(([t]) => t).join("").length, 48);
+    assert.deepEqual(last.ascii, [["QRST", false]]);
     assert.equal(lib.asciiChar(0x41), "A");
     assert.equal(lib.asciiChar(0x0a), ".");
     assert.equal(lib.formatOffset(16, 100), "0010");

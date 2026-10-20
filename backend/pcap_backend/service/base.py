@@ -80,6 +80,8 @@ class ServiceBase:
         self._warm_future: Future[None] | None = None
         self._field_index: LruCache[tuple[str, ...], FieldCatalog] = LruCache(2)
         self._decode_as: LruCache[str, list[dict[str, str]]] = LruCache(32)
+        # Export PDUs: tshark's export taps (`-U ?`), by tshark path.
+        self._pdu_taps: LruCache[str, list[dict[str, str]]] = LruCache(2)
         # Wireshark's preferences with their defaults, by (tshark, Lua scripts).
         self._default_prefs: LruCache[tuple[str, tuple[str, ...]], dict[str, Preference]] = (
             LruCache(2)

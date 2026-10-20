@@ -243,6 +243,16 @@
         "category": "PCAP"
       },
       {
+        "command": "pcapViewer.showPacketInNewWindow",
+        "title": "Show Packet in New Window",
+        "category": "PCAP"
+      },
+      {
+        "command": "pcapViewer.fileFormat",
+        "title": "Show File Format",
+        "category": "PCAP"
+      },
+      {
         "command": "pcapViewer.unignoreAll",
         "title": "Unignore All Packets",
         "category": "PCAP"
@@ -585,6 +595,11 @@
       {
         "command": "pcapViewer.exportObjects",
         "title": "Export Objects…",
+        "category": "PCAP"
+      },
+      {
+        "command": "pcapViewer.exportPdus",
+        "title": "Export PDUs to File…",
         "category": "PCAP"
       },
       {
@@ -935,6 +950,10 @@
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
         },
         {
+          "command": "pcapViewer.exportPdus",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
+        },
+        {
           "command": "pcapViewer.colorizeWithFilter",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
         },
@@ -1016,6 +1035,14 @@
         },
         {
           "command": "pcapViewer.comparePackets",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
+        },
+        {
+          "command": "pcapViewer.showPacketInNewWindow",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
+        },
+        {
+          "command": "pcapViewer.fileFormat",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
         },
         {

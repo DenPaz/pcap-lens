@@ -147,6 +147,8 @@ class _Open:
     # Expert items per severity (expert_summary), once counted: (the ignored
     # packets' exclusion filter it was counted with, counts).
     expert: tuple[str, dict[str, int]] | None = None
+    # The file format view (file_format), once read.
+    file_format: dict[str, Any] | None = None
 
     def frame_count(self) -> int:
         """Frames known so far: during a streaming open, the rows published

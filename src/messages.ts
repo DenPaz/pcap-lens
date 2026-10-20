@@ -147,6 +147,8 @@ export type WebviewToHost =
   | { type: "decodeAs"; frame: number }
   /** Compare Packets: these two, or this one and one the host asks for. */
   | { type: "compare"; frames: number[] }
+  /** Show Packet in New Window. */
+  | { type: "packetWindow"; frame: number }
   | { type: "protocolPrefs"; protocol: string }
   | { type: "disableProtocol"; protocol: string }
   | { type: "follow"; proto: FollowProto; frame: number }
