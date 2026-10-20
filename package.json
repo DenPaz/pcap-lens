@@ -7,7 +7,7 @@
     "color": "#0b3a73",
     "theme": "dark"
   },
-  "version": "0.14.1",
+  "version": "0.15.0",
   "publisher": "denpaz",
   "license": "MIT",
   "repository": {
@@ -353,6 +353,16 @@
         "category": "PCAP"
       },
       {
+        "command": "pcapViewer.wiresharkProfile",
+        "title": "Use Wireshark Profile…",
+        "category": "PCAP"
+      },
+      {
+        "command": "pcapViewer.importWiresharkProfile",
+        "title": "Import from Wireshark Profile…",
+        "category": "PCAP"
+      },
+      {
         "command": "pcapViewer.followStream",
         "title": "Follow Stream…",
         "category": "PCAP"
@@ -461,6 +471,21 @@
         "command": "pcapViewer.statistics.sip",
         "title": "SIP Statistics",
         "category": "PCAP Statistics"
+      },
+      {
+        "command": "pcapViewer.statistics.credentials",
+        "title": "Credentials",
+        "category": "PCAP Statistics"
+      },
+      {
+        "command": "pcapViewer.exportTlsKeys",
+        "title": "Export TLS Session Keys…",
+        "category": "PCAP"
+      },
+      {
+        "command": "pcapViewer.firewallRules",
+        "title": "Firewall ACL Rules…",
+        "category": "PCAP"
       },
       {
         "command": "pcapViewer.reloadDissectors",
@@ -1240,6 +1265,12 @@
           "scope": "application",
           "default": false,
           "markdownDescription": "With `#pcapViewer.nameResolution.network#`, also ask your DNS server for the names of the capture's addresses. It sends a query per address (the server sees them) and makes opening and filtering slower. A workspace can't turn this on."
+        },
+        "pcapViewer.wiresharkProfile": {
+          "type": "string",
+          "scope": "resource",
+          "default": "",
+          "markdownDescription": "Wireshark configuration profile tshark uses (`-C`): its preferences, Decode As rules, display filter macros and disabled protocols. Empty uses your Default profile. Choose one with **PCAP: Use Wireshark Profile…**; changing it reloads the captures it applies to. Coloring rules, filter buttons, saved filters and columns are PCAP Lens settings: **PCAP: Import from Wireshark Profile…** copies them."
         },
         "pcapViewer.tlsKeyLogFile": {
           "type": "string",

@@ -31,13 +31,13 @@ el.rows.addEventListener("contextmenu", (e) => {
   e.preventDefault();
   const index = Number(rowEl.dataset.index);
   const row = rowAt(index);
-  if (row && state.selection.has(row.number)) {
+  if (!row) {
+    return; // (a row still loading: no menu, and the selection stays)
+  }
+  if (state.selection.has(row.number)) {
     focusIndex(index); // right-click inside a multi-selection keeps it
   } else {
     selectIndex(index);
-  }
-  if (!row) {
-    return;
   }
   const multi = state.selection.size;
   const protocol = (row.cells[4] || "").toUpperCase();
@@ -287,6 +287,19 @@ export function showTreeMenu(entry, x, y) {
     ["Copy Field Name", node.name ? () => copy(node.name) : null],
     ["Copy as Filter", filter ? () => copy(filter) : null],
     ["Copy Bytes (hex)", node.pos !== undefined ? () => copy(fieldBytes(node)) : null],
+    [
+      "Show Packet Bytes…",
+      node.pos !== undefined && node.size > 0 && state.detail
+        ? () =>
+            vscode.postMessage({
+              type: "showPacketBytes",
+              frame: state.detail.number,
+              field: node.name ?? "",
+              label: node.label,
+              hex: fieldBytes(node),
+            })
+        : null,
+    ],
     ["-", null],
     ["Expand Subtrees", entry.children ? () => expandAll(entry, true) : null],
     ["Collapse Subtrees", entry.children ? () => expandAll(entry, false) : null],

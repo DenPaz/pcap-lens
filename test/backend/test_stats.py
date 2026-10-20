@@ -484,3 +484,29 @@ def test_dns_query_response_under_its_46_display_name() -> None:
             "dns.flags.response == 1",
             "dns.flags.response == 0",
         ]
+
+
+# tshark 4.2's `-z credentials` report (fixed-width columns; protocols hold spaces;
+# its trailing spaces left out).
+CREDENTIALS = """
+===================================================================
+Packet     Protocol         Username         Info
+------     --------         --------         --------
+4          HTTP basic auth  alice
+20         FTP              bob              Username in packet: 16
+36         POP3             carol            Username in packet 32
+===================================================================
+"""
+
+
+def test_parse_credentials() -> None:
+    table = stats.parse_credentials(CREDENTIALS)
+    assert [r["cells"] for r in table.rows] == [
+        [4, "HTTP basic auth", "alice", ""],
+        [20, "FTP", "bob", "Username in packet: 16"],
+        [36, "POP3", "carol", "Username in packet 32"],
+    ]
+    assert [r.get("usernameFrame") for r in table.rows] == [None, 16, 32]
+    assert table.rows[0]["frame"] == 4
+    assert table.rows[0]["filter"] == "frame.number == 4"
+    assert stats.parse_credentials("").rows == []

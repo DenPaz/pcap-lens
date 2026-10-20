@@ -14,7 +14,7 @@ captured output; the tshark invocations live in ``pcap_service``.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -274,13 +274,54 @@ def parse_protocol_hierarchy(text: str) -> Table:
 
 # ---------------------------------------------------------------------- IO graph
 
-_IO_ROW = re.compile(
-    r"^\|\s*(?P<start>[\d.]+)\s*<>\s*(?P<end>[\d.]+|Dur)\s*\|\s*(?P<frames>\d+)\s*\|\s*(?P<bytes>\d+)\s*\|"
-)
+_IO_INTERVAL = re.compile(r"^(?P<start>[\d.]+)\s*<>\s*(?P<end>[\d.]+|Dur)$")
+
+# The IO graph's Y axis (Wireshark's "Y Field" units): packets, bytes and bits
+# count the packets matching the series' filter; the others are tshark's
+# io,stat functions of a field.
+IO_METRICS = ("packets", "bytes", "bits", "sum", "count", "max", "min", "avg", "load")
+IO_FIELD_METRICS = frozenset(IO_METRICS[3:])
+MAX_IO_SERIES = 8
 
 
-def parse_io_stat(text: str, interval: float) -> Table:
-    """``tshark -q -z io,stat,<interval>[,<filter>]`` (first column: frames and bytes)."""
+@dataclass(frozen=True)
+class IoSeries:
+    """One line or bar of the IO graph: ``metric`` of the packets matching
+    ``filter`` (field metrics: of ``field``, in the packets that have it)."""
+
+    metric: str
+    filter: str = ""
+    field: str = ""
+
+    @property
+    def label(self) -> str:
+        name = (
+            f"{self.metric.upper()}({self.field})"
+            if self.metric in IO_FIELD_METRICS
+            else self.metric.capitalize()
+        )
+        return f"{name} · {self.filter}" if self.filter else name
+
+    def cells(self) -> int:
+        """Columns tshark prints for it: frames and bytes, or the function's value."""
+        return 1 if self.metric in IO_FIELD_METRICS else 2
+
+    def tap_arg(self, scope: str = "") -> str:
+        """Its ``io,stat`` argument; ``scope`` (a display filter) limits it further.
+        Commas separate the arguments, so none may hold one (checked by the caller)."""
+        parts = [p for p in (scope, self.filter) if p]
+        if self.metric in IO_FIELD_METRICS:
+            # The field is also the filter: a function of packets without it is 0.
+            where = " && ".join([self.field, *(f"({p})" for p in parts)])
+            return f"{self.metric.upper()}({self.field}){where}"
+        # (An empty argument is every packet, but tshark refuses one at the end.)
+        return " && ".join(f"({p})" for p in parts) if len(parts) > 1 else "".join(parts) or "frame"
+
+
+def parse_io_stat(text: str, interval: float, series: Sequence[IoSeries] = ()) -> Table:
+    """``tshark -q -z io,stat,<interval>,<scope>[,<series>…]``: the first column
+    is every packet (in the scope), frames and bytes; each series adds its own
+    column(s) after it, in order (``series[i]`` becomes column ``s<i>``)."""
     table = Table(
         "io",
         "I/O Graph",
@@ -289,16 +330,38 @@ def parse_io_stat(text: str, interval: float) -> Table:
             _col("end", "End (s)", True),
             _col("packets", "Packets", True),
             _col("bytes", "Bytes", True),
+            *(_col(f"s{i}", s.label, True) for i, s in enumerate(series)),
         ],
         extra={"interval": interval},
     )
+    if series:
+        table.extra["series"] = [
+            {"metric": s.metric, "filter": s.filter, "field": s.field, "label": s.label}
+            for s in series
+        ]
     for line in _lines(text):
-        m = _IO_ROW.match(line.strip())
-        if not m:
+        parts = [p.strip() for p in line.strip().strip("|").split("|")]
+        m = _IO_INTERVAL.match(parts[0]) if parts else None
+        if not m or len(parts) < 3:
             continue
         start = _number(m["start"])
         end = _number(m["end"]) if m["end"] != "Dur" else start + interval
-        table.rows.append({"cells": [start, end, int(m["frames"]), int(m["bytes"])]})
+        values = [_number(p) for p in parts[1:]]
+        cells: list[int | float] = [start, end, *values[:2]]
+        at = 2
+        for s in series:
+            got = values[at : at + s.cells()]
+            at += s.cells()
+            if not got:
+                cells.append(0)
+            elif s.metric == "packets":
+                cells.append(got[0])
+            elif s.metric in ("bytes", "bits"):
+                size = got[1] if len(got) > 1 else 0
+                cells.append(size * 8 if s.metric == "bits" else size)
+            else:
+                cells.append(got[0])
+        table.rows.append({"cells": cells})
     return table
 
 
@@ -775,6 +838,50 @@ _SIP_RESENT = re.compile(r"^Number of resent SIP messages:\s*(\d+)")
 _SIP_CODE = re.compile(r"^SIP (?P<code>\d{3}) (?P<phrase>.*?)\s*:\s*(?P<n>\d+) Packets")
 _SIP_METHOD = re.compile(r"^(?P<method>[A-Z][A-Z-]*)\s*:\s*(?P<n>\d+) Packets")
 _SIP_SETUP = re.compile(r"^(?:\* )?(?P<what>Average setup time|Min|Max) (?P<ms>\d+) ms")
+
+
+_CREDENTIAL_ROW = re.compile(r"^(?P<frame>\d+)\s+(?P<rest>.*)$")
+_USERNAME_FRAME = re.compile(r"Username in packet:? ?(?P<frame>\d+)")
+
+
+def parse_credentials(text: str) -> Table:
+    """``tshark -q -z credentials``: the logins dissectors saw (packet,
+    protocol, username, info; tshark keeps no passwords here). Columns are
+    fixed-width (the header's starts cut each row: protocols hold spaces).
+    Rows go to their packet; a username sent in an earlier packet is
+    ``usernameFrame``."""
+    table = Table(
+        "credentials",
+        "Credentials",
+        [
+            _col("frame", "Packet", True),
+            _col("protocol", "Protocol"),
+            _col("username", "Username"),
+            _col("info", "Info"),
+        ],
+    )
+    starts: list[int] | None = None
+    for line in _lines(text):
+        if starts is None:
+            if line.startswith("Packet") and "Username" in line:
+                starts = [line.index(name) for name in ("Protocol", "Username", "Info")]
+            continue
+        m = _CREDENTIAL_ROW.match(line)
+        if not m:
+            continue
+        a, b, c = starts
+        protocol, username, info = (line[a:b].strip(), line[b:c].strip(), line[c:].strip())
+        frame = int(m["frame"])
+        row: dict[str, Any] = {
+            "cells": [frame, protocol, username, info],
+            "frame": frame,
+            "filter": f"frame.number == {frame}",
+        }
+        u = _USERNAME_FRAME.search(info)
+        if u:
+            row["usernameFrame"] = int(u["frame"])
+        table.rows.append(row)
+    return table
 
 
 def parse_sip_stat(text: str) -> Table:

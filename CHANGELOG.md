@@ -7,6 +7,27 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.15.0 — 2026-10-20
+
+### Added
+
+- I/O graphs with up to eight graphs: a display filter each, packets, bytes,
+  bits or SUM/COUNT/MAX/MIN/AVG/LOAD of a field, lines or bars, log scale.
+  [0e017cc]
+- _Use Wireshark Profile…_ (tshark runs with its preferences, Decode As and
+  filter macros) and _Import from Wireshark Profile…_ (its coloring rules,
+  filter buttons, saved filters and columns). [acfb607]
+- _Show Packet Bytes…_ for a field: decoded (Base64, compressed, hex,
+  percent-encoding, quoted-printable, ROT13) and shown as text, hex dump,
+  C/Rust array, YAML or an image; search and save. [fb31e4d]
+- Credentials, _Export TLS Session Keys…_ and _Firewall ACL Rules…_, as in
+  Wireshark's Tools menu. [08c490f]
+
+[0e017cc]: https://github.com/DenPaz/vsc_pcap_viewer/commit/0e017cc
+[acfb607]: https://github.com/DenPaz/vsc_pcap_viewer/commit/acfb607
+[fb31e4d]: https://github.com/DenPaz/vsc_pcap_viewer/commit/fb31e4d
+[08c490f]: https://github.com/DenPaz/vsc_pcap_viewer/commit/08c490f
+
 ## 0.14.1 — 2026-10-20
 
 ### Fixed

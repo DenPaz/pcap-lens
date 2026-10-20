@@ -39,6 +39,37 @@ EXPORT_CHUNK = 5000
 class ExportMixin(DetailMixin, PacketsMixin):
     """Exports: captures, the packet list, dissections and packet bytes."""
 
+    def export_tls_keys(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """Export TLS Session Keys: the keys of the TLS sessions tshark could
+        decrypt (a key log, a Decryption Secrets Block…) as a key log file at
+        ``dest`` (``tshark --export-tls-session-keys``, over the TLS packets:
+        with ``-q`` alone tshark decrypts nothing). Returns ``{sessions}``; a
+        capture without any is an InvalidParamsError and writes nothing."""
+        f = self._require_file()
+        dest = check_destination(param(params, "dest", str), f.path)
+        ctx.progress({"phase": "export", "fraction": None})
+        with atomic_output(dest) as tmp:
+            argv = f.tshark.argv(
+                "-Y", "tls", "-T", "fields", "-e", "frame.number",
+                "--export-tls-session-keys", str(tmp), capture=str(f.path),
+            )  # fmt: skip
+            res = run(argv, ctx.token)
+            if res.returncode != 0 and not tmp.exists():
+                raise f.tshark.error(res.stderr, res.returncode, "exporting TLS keys failed")
+            try:
+                text = tmp.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                text = ""
+            sessions = sum(
+                1 for line in text.split("\n") if line.strip() and not line.startswith("#")
+            )
+            if not sessions:
+                raise InvalidParamsError(
+                    "this capture has no decrypted TLS sessions: set a TLS key log file first",
+                    {"empty": True},
+                )
+        return {"sessions": sessions, "path": str(dest)}
+
     def export(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """Write an export file at ``dest`` (absolute path, never the open capture).
 

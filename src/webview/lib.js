@@ -1311,6 +1311,198 @@
     ].join("\n");
   }
 
+  /**
+   * Show Packet Bytes' "Decode as" (Wireshark's): `none`, `base64`, `hex`
+   * (hex digits, separators ignored), `percent`, `quoted-printable` or `rot13`.
+   * Compressed data is decompressed by the panel (DecompressionStream is
+   * asynchronous). Returns the decoded bytes, or an `error` and the bytes as
+   * they were.
+   * @param {Uint8Array} bytes @param {string} mode
+   * @returns {{bytes: Uint8Array, error?: string}}
+   */
+  function decodeBytes(bytes, mode) {
+    // (Base64 and hex digits are ASCII: anything else fails their check anyway.)
+    const text = () => new TextDecoder("utf-8").decode(bytes);
+    switch (mode) {
+      case "base64": {
+        const clean = text().replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/");
+        if (!/^[A-Za-z0-9+/]*={0,2}$/.test(clean) || clean.length % 4 === 1) {
+          return { bytes, error: "Not valid Base64" };
+        }
+        const padded = clean + "=".repeat((4 - (clean.length % 4)) % 4);
+        const binary = atob(padded);
+        return { bytes: Uint8Array.from(binary, (c) => c.charCodeAt(0)) };
+      }
+      case "hex": {
+        const digits = text()
+          .replace(/0x/gi, "")
+          .replace(/[\s:.,-]/g, "");
+        if (!/^([0-9a-fA-F]{2})*$/.test(digits)) {
+          return { bytes, error: "Not an even number of hex digits" };
+        }
+        return { bytes: hexToBytes(digits) };
+      }
+      case "percent": {
+        const out = [];
+        for (let i = 0; i < bytes.length; i++) {
+          const hex = String.fromCharCode(bytes[i + 1] ?? 0, bytes[i + 2] ?? 0);
+          if (bytes[i] === 0x25 && /^[0-9a-fA-F]{2}$/.test(hex)) {
+            out.push(parseInt(hex, 16));
+            i += 2;
+          } else {
+            out.push(bytes[i] === 0x2b ? 0x20 : bytes[i]); // (+ is a space in forms)
+          }
+        }
+        return { bytes: Uint8Array.from(out) };
+      }
+      case "quoted-printable": {
+        const out = [];
+        for (let i = 0; i < bytes.length; i++) {
+          if (bytes[i] !== 0x3d) {
+            out.push(bytes[i]);
+            continue;
+          }
+          const hex = String.fromCharCode(bytes[i + 1] ?? 0, bytes[i + 2] ?? 0);
+          if (/^[0-9a-fA-F]{2}$/.test(hex)) {
+            out.push(parseInt(hex, 16));
+            i += 2;
+          } else if (bytes[i + 1] === 0x0d && bytes[i + 2] === 0x0a) {
+            i += 2; // a soft line break
+          } else if (bytes[i + 1] === 0x0a) {
+            i += 1;
+          } else {
+            out.push(bytes[i]);
+          }
+        }
+        return { bytes: Uint8Array.from(out) };
+      }
+      case "rot13":
+        return {
+          bytes: bytes.map((b) =>
+            b >= 0x41 && b <= 0x5a
+              ? ((b - 0x41 + 13) % 26) + 0x41
+              : b >= 0x61 && b <= 0x7a
+                ? ((b - 0x61 + 13) % 26) + 0x61
+                : b,
+          ),
+        };
+      default:
+        return { bytes };
+    }
+  }
+
+  /**
+   * The compression a Show Packet Bytes "Compressed" decode should use:
+   * gzip by its magic, zlib by its header check, else raw deflate.
+   * @param {Uint8Array} bytes
+   * @returns {"gzip" | "deflate" | "deflate-raw"}
+   */
+  function compressionFormat(bytes) {
+    if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
+      return "gzip";
+    }
+    if (bytes.length > 1 && (bytes[0] & 0x0f) === 8 && ((bytes[0] << 8) | bytes[1]) % 31 === 0) {
+      return "deflate";
+    }
+    return "deflate-raw";
+  }
+
+  /**
+   * The image type of `bytes` by its magic number (Show Packet Bytes' Image
+   * view, as a data: URL in an <img>, where an SVG can't run scripts), or null.
+   * @param {Uint8Array} bytes
+   */
+  function imageMime(bytes) {
+    const start = (/** @type {number[]} */ magic, at = 0) =>
+      magic.every((b, i) => bytes[at + i] === b);
+    if (start([0x89, 0x50, 0x4e, 0x47])) return "image/png";
+    if (start([0xff, 0xd8, 0xff])) return "image/jpeg";
+    if (start([0x47, 0x49, 0x46, 0x38])) return "image/gif";
+    if (start([0x52, 0x49, 0x46, 0x46]) && start([0x57, 0x45, 0x42, 0x50], 8)) return "image/webp";
+    if (start([0x42, 0x4d])) return "image/bmp";
+    if (start([0x00, 0x00, 0x01, 0x00])) return "image/x-icon";
+    // An SVG: past an XML declaration and comments, the first element is <svg>
+    // (skipped with indexOf: a regular expression for it can backtrack badly).
+    let head = String.fromCharCode(...bytes.subarray(0, 256)).trimStart();
+    for (;;) {
+      const end = head.startsWith("<?xml")
+        ? head.indexOf("?>") + 2
+        : head.startsWith("<!--")
+          ? head.indexOf("-->") + 3
+          : 0;
+      if (end < 2) {
+        break;
+      }
+      head = head.slice(end).trimStart();
+    }
+    return /^<svg[\s>]/i.test(head) ? "image/svg+xml" : null;
+  }
+
+  /**
+   * Show Packet Bytes' text views ("Show as"): `ascii` (Wireshark's printable
+   * ASCII, other bytes as "."), `ascii-control` (control characters as their
+   * Unicode Control Pictures), `latin1`, `utf-8`, `utf-16`, `ebcdic`, `hexdump`,
+   * `hex` (raw hex digits), `c` and `rust` (arrays) and `yaml`.
+   * @param {Uint8Array} bytes @param {string} view @param {string} [name]
+   */
+  function bytesAs(bytes, view, name = "packet_bytes") {
+    const hex2 = (/** @type {number} */ b) => b.toString(16).padStart(2, "0");
+    const rows = (/** @type {number} */ per, /** @type {(b: number) => string} */ cell) => {
+      const lines = [];
+      for (let i = 0; i < bytes.length; i += per) {
+        lines.push(`    ${[...bytes.subarray(i, i + per)].map(cell).join(", ")}`);
+      }
+      return lines.join(",\n");
+    };
+    const ident = name.replace(/[^A-Za-z0-9_]/g, "_").replace(/^(?=\d)/, "_") || "packet_bytes";
+    switch (view) {
+      case "ascii":
+        return Array.from(bytes, (b) =>
+          b === 0x0a || b === 0x0d || b === 0x09 || (b >= 0x20 && b < 0x7f)
+            ? String.fromCharCode(b)
+            : ".",
+        ).join("");
+      case "ascii-control":
+        return Array.from(bytes, (b) =>
+          b === 0x0a
+            ? "\u240a\n"
+            : b < 0x20
+              ? String.fromCharCode(0x2400 + b)
+              : b === 0x7f
+                ? "\u2421"
+                : b < 0x7f
+                  ? String.fromCharCode(b)
+                  : ".",
+        ).join("");
+      case "latin1":
+        return Array.from(bytes, (b) => String.fromCharCode(b)).join("");
+      case "utf-8":
+        return new TextDecoder("utf-8").decode(bytes);
+      case "utf-16":
+        return new TextDecoder("utf-16le").decode(bytes);
+      case "ebcdic":
+        return decodeStream(bytes, "ebcdic");
+      case "hexdump":
+        return hexDump(bytes);
+      case "hex":
+        return Array.from(bytes, hex2).join("");
+      case "c":
+        return `static const unsigned char ${ident}[${bytes.length}] = {\n${rows(8, (b) => `0x${hex2(b)}`)}\n};`;
+      case "rust":
+        return `let ${ident}: [u8; ${bytes.length}] = [\n${rows(8, (b) => `0x${hex2(b)}`)}\n];`;
+      case "yaml": {
+        const data = bytesToBase64(bytes).match(/.{1,64}/g) ?? [];
+        return [
+          "# Packet Bytes: Base64 encoded",
+          `${ident}: !!binary |`,
+          ...data.map((line) => `  ${line}`),
+        ].join("\n");
+      }
+      default:
+        return "";
+    }
+  }
+
   /** The field numbering each Follow Stream protocol's sub-streams. */
   const SUBSTREAM_FIELDS = { http2: "http2.streamid", quic: "quic.stream.stream_id" };
 
@@ -1477,6 +1669,47 @@
       ticks.push(Math.round((ticks[ticks.length - 1] + step) * 1e9) / 1e9);
     }
     return ticks;
+  }
+
+  /**
+   * Powers of ten covering `min`..`max` (both > 0) for a log scale: from the
+   * power at or below `min` to the one at or above `max`, at least two.
+   * @param {number} min @param {number} max
+   * @returns {number[]}
+   */
+  function logTicks(min, max) {
+    if (!(min > 0) || !(max > 0)) {
+      return [1, 10];
+    }
+    const lo = Math.floor(Math.log10(Math.min(min, max)));
+    const hi = Math.max(lo + 1, Math.ceil(Math.log10(max)));
+    const ticks = [];
+    for (let e = lo; e <= hi; e++) {
+      ticks.push(Number((10 ** e).toPrecision(1)));
+    }
+    return ticks;
+  }
+
+  /**
+   * The IO graph's series as the backend takes them and the panel keeps them:
+   * up to `max` of `{metric, filter, field, style}`, unknown metrics as
+   * packets, strings trimmed and capped. Anything else is dropped.
+   * @param {unknown} raw @param {number} [max]
+   * @returns {{metric: string, filter: string, field: string, style: "line" | "bar"}[]}
+   */
+  function ioSeries(raw, max = 8) {
+    const metrics = ["packets", "bytes", "bits", "sum", "count", "max", "min", "avg", "load"];
+    const text = (/** @type {unknown} */ v) =>
+      typeof v === "string" ? v.trim().slice(0, 2000) : "";
+    return (Array.isArray(raw) ? raw : [])
+      .filter((s) => s && typeof s === "object")
+      .slice(0, max)
+      .map((/** @type {any} */ s) => ({
+        metric: metrics.includes(s.metric) ? s.metric : "packets",
+        filter: text(s.filter),
+        field: text(s.field),
+        style: s.style === "bar" ? "bar" : "line",
+      }));
   }
 
   /** @param {string} hex */
@@ -2526,6 +2759,12 @@
     conversationFilters,
     comparePackets,
     relatedFrames,
+    decodeBytes,
+    compressionFormat,
+    imageMime,
+    bytesAs,
+    logTicks,
+    ioSeries,
     bitPattern,
     packetDiagram,
     combineFilter,

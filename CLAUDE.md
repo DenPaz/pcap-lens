@@ -166,6 +166,10 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   helpers (pure); `src/commands/reveal.ts` shows saved files.
   `src/commandMenu.ts` the viewer's ☰ command list from package.json (pure).
   `src/plugins.ts` the TShark plugins picker's rows (pure).
+  `src/wiresharkProfile.ts` Wireshark profiles: the setting's name, the
+  pickers' rows, what an import writes (pure); `src/commands/profiles.ts`.
+  `src/firewall.ts` firewall ACL rules for a packet (pure);
+  `src/commands/firewall.ts`.
   `src/recentCaptures.ts` the Recent Captures list (pure);
   `src/commands/recent.ts` its tree view and commands.
 - `src/webview/` plain JS/CSS/HTML (no build step). `lib.js` = pure helpers
@@ -183,10 +187,11 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   (`scripts/sync-codicons.mjs`). CSS: `base.css` (tokens and controls, loaded
   by the editor and the panels), `styles.css` (the viewer), `panel.css`.
 - `src/panels/` statistics, follow-stream, coloring-rules, export-objects,
-  flow-graph, TCP-graph, VoIP and compare-packets webview panels
-  (`panelHtml.ts` builds their CSP'd HTML); their UIs are
+  flow-graph, TCP-graph, VoIP, compare-packets and packet-bytes webview
+  panels (`panelHtml.ts` builds their CSP'd HTML); their UIs are
   `src/webview/stats.js`, `follow.js`, `coloring.js`, `objects.js`,
-  `flowgraph.js`, `tcpgraph.js`, `voip.js` and `compare.js` with `panel.css`.
+  `flowgraph.js`, `tcpgraph.js`, `voip.js`, `compare.js` and `bytes.js` with
+  `panel.css`.
 - `backend/pcap_backend/` Python package run as `python -m pcap_backend`
   with `PYTHONPATH=backend`. `server.py` (JSON-RPC), `pcap_service.py`
   (`PcapService`, assembled from the `service/` mixins, `rpc_methods`, and
@@ -214,7 +219,9 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   Dump), `ber.py` (counting back-to-back BER records), `codecs.py` (G.722,
   G.726-32 and L16 decoders), `filterhelp.py` (a filter's
   field names, case hints, value counts), `plugins.py` (`tshark -G
-plugins` and the plugin folders), `voip.py` (RTP
+plugins` and the plugin folders), `wsprofile.py` (Wireshark profiles: where
+  they are, their colorfilters/dfilter_buttons/dfilters/dfilter_macros/
+  gui.column.format), `voip.py` (RTP
   stream report, SIP calls, RTP stream
   analysis, G.711 decoding and WAV), `protocol.py` (error codes,
   request context), `cancellation.py`, `index_cache.py` (saved indexes),
@@ -823,10 +830,27 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
 - **Panels** (`src/panels/`) are separate webview panels beside the editor. They
   share the editor's backend (`session.backend`), close with it
   (`session.onDidDispose`), and send filters/goto back to it. One stats panel
-  per (editor, kind); follow panels are per invocation. The IO graph is a
-  single-series SVG line in the theme's `--vscode-charts-blue` (no legend,
-  hover crosshair, keyboard arrows/Home/End, the table below is the
-  accessible view). Packets or bytes is a switch, never a second axis.
+  per (editor, kind); follow panels are per invocation. The IO graph is an
+  SVG chart (hover crosshair, keyboard arrows/Home/End, the table below is
+  the accessible view) of up to `stats.MAX_IO_SERIES` (8) graphs (`stats
+{kind: "io", series: [{metric, filter, field}]}`, `stats.IoSeries`): one
+  `-z io,stat,<interval>,<scope>,<graph>…` run, packets/bytes/bits of the
+  graph's filter (bits = bytes × 8) or tshark's SUM/COUNT/MAX/MIN/AVG/LOAD
+  of a field, written `FUNC(field)field && (scope) && (filter)` (the field
+  doubles as the filter: packets without it would count as 0). The scope is
+  the "limit to display filter" plus the ignored packets' exclusion. io,stat
+  splits its arguments on commas, so a graph's filter can't hold one
+  (FilterError naming `data.series`, like an invalid filter or field), and
+  tshark refuses an empty last argument, so "every packet" is `frame`; a
+  field without numbers for SUM etc. makes tshark print an error and exit 0
+  (no "Interval" in stdout → ToolError). The table gets a column `s<i>` per
+  graph (the panel hides the every-packet columns then, they'd repeat graph
+  1). Graphs share one axis (linear or `lib.logTicks` log scale), lines or
+  bars (side by side per interval), colors `.s0`…`.s7` (the theme's chart
+  colors), a legend and one tooltip line each. The panel posts `ioGraphs`
+  and the host keeps them in globalState (`pcapViewer.ioGraphs`,
+  `ioGraphsState`; `lib.ioSeries` checks them on the way back) for the next
+  I/O graph.
 - **Dissector check**: `check_dissectors` loads the Lua scripts against the
   empty capture (no packets read) and returns tshark's `Lua:` stderr blocks
   (exit code stays 0 on Lua errors). Lua shortens long chunk paths to
@@ -898,6 +922,73 @@ plugins` (never cached, so a plugin just installed shows up) through
   install folder (created if missing, `revealFile`) or copy its path, then
   your plugins and Wireshark's; picking one reveals its file. `{quiet: true}`
   returns the result (smoke test). README: _Wireshark plugins_.
+- **Wireshark profiles** (`wsprofile.py`, `wiresharkProfile.ts`,
+  `commands/profiles.ts`): the Default profile is the personal
+  configuration folder, the others `<personal>/profiles/<name>`, then
+  Wireshark's global `profiles/` (a personal one of the same name hides it;
+  tshark finds both). _PCAP: Use Wireshark Profile…_ writes
+  `pcapViewer.wiresharkProfile` (resource scope; "" = Default;
+  `normalizeProfileName`) and the captures it changes reload without
+  asking (`session.wiresharkProfile`). `open {profile}` →
+  `DissectionOptions.profile` → `-C <name>` first in every dissecting pass
+  (checked like the rest: a missing profile is a ConfigError at open), so
+  the profile's preferences, Decode As, disabled protocols and display
+  filter macros apply (tshark expands `${name:args}` itself, also in filter
+  validation). Coloring passes set `WIRESHARK_CONFIG_DIR` to a temporary
+  folder: with a profile, its files and the generated colorfilters go into
+  `profiles/<name>` there (`prepare_config_dir(…, profile)`), where tshark
+  looks under `-C`. The saved-index key has the profile and fingerprints
+  its folder (a global one is outside the personal folder). `-G` runs
+  can't take `-C` (it must be first), so the field catalogue and Protocol
+  Preferences still show the Default profile's. _PCAP: Import from
+  Wireshark Profile…_ (`wireshark_profiles`, `read_wireshark_profile
+{name}`) copies what PCAP Lens keeps as settings, chosen per kind
+  (`importChoices`, `importSettings`): colorfilters (`@name@filter@[fg][bg]`,
+  16-bit channels, `!` = disabled) replace `coloringRules`; dfilter_buttons
+  (UAT: enabled, label, expression, comment; `uat_fields` decodes `\xHH`)
+  add enabled buttons with a new filter; dfilters (`"name" filter`) add
+  saved filters with a new name; `gui.column.format` (continuation lines
+  indented) adds its custom columns (`%Cus:field:…`, one field only) and
+  sets `columnLayout` to its order (every time format is the one Time
+  column), hiding the rest. Preferences, Decode As and macros are counted
+  and offered as _Use This Profile_.
+- **Show Packet Bytes** (`panels/bytesPanel.ts`, `bytes.js`): the tree's
+  menu posts `showPacketBytes {frame, field, label, hex}` (the field's bytes
+  from the detail's own sources; `packetBytes` checks it, ≤ 16 MB) and one
+  panel per editor shows it. Everything is decoded in the panel:
+  `lib.decodeBytes` (base64 incl. URL-safe and unpadded, hex digits with
+  separators, percent, quoted-printable with soft breaks, ROT13); the
+  "Compressed" decode uses the browser's DecompressionStream with
+  `lib.compressionFormat` (gzip magic, zlib header check, else raw
+  deflate), capped at 64 MB, a truncated stream keeping what came before;
+  `lib.bytesAs` views (ASCII, ASCII & control as Control Pictures, ISO
+  8859-1, UTF-8, UTF-16, EBCDIC, hex dump, raw hex, C and Rust arrays
+  named after the field, YAML `!!binary`). The image view takes
+  `lib.imageMime` (PNG, JPEG, GIF, WebP, BMP, ICO, SVG by magic) as a data:
+  URL in an <img> (the panels' CSP already allows `img-src data:`; an SVG
+  can't run scripts there). Start/end bytes cut what is shown and saved;
+  Save as… writes the text shown, Save Raw… the decoded bytes (base64 to
+  the host), Copy the text.
+- **Wireshark's tools**: _Credentials_ (`stats {kind: "credentials"}`,
+  `stats.parse_credentials`, the stats panel with Go to Packet): tshark's
+  `-z credentials` report is fixed-width (the header's column starts cut
+  each row; "HTTP basic auth" holds spaces) and lists usernames only;
+  "Username in packet: N" gives `usernameFrame`. The tap takes no filter,
+  so the limit and the ignored packets' exclusion are one `-Y` pass over
+  the rows' frames (`_rows_matching`). `credentials.pcap` (generate.py)
+  has HTTP Basic, FTP, POP and IMAP logins. _Export TLS Session Keys…_
+  (`export_tls_keys {dest}`): `--export-tls-session-keys` over `-Y tls -T
+fields -e frame.number` (with `-q` alone tshark decrypts nothing and
+  writes an empty file) into an atomic output; no sessions (no key log) is
+  an InvalidParamsError with `data.empty` and no file, and the host offers
+  _Set TLS Key Log File…_. QUIC keys aren't exported (tshark's option is
+  TLS over TCP). _Firewall ACL Rules…_ (`firewall.ts`): the selected
+  packet's innermost eth/ip/ipv6/tcp/udp fields from its detail
+  (`packetEndpoints`), rules per product (iptables/ip6tables, nftables,
+  Cisco IOS standard and extended, IP Filter, ipfw, pf, netsh advfirewall)
+  and kind (MAC source, IP source, IP destination, destination port,
+  source + port), deny/allow and inbound/outbound toggled with the
+  QuickPick's title buttons; picking one copies it, nothing runs.
 - **Protocol preferences** (`protocol_prefs {protocol?}`, `prefs.py`,
   `prefsModel.ts` (pure), `commands/prefs.ts`, `pcapViewer.protocolPreferences`):
   `tshark -G defaultprefs` (cached per tshark and Lua scripts) and
@@ -1805,3 +1896,6 @@ Then whole-call stereo playback with a waveform, G.722/G.726-32/L16 audio,
 RTCP reports per stream, SIP statistics and registrations, and Ask Copilot
 about a call: 0.14.0. Then panels reveal the capture in its own column
 (no second, empty tab): 0.14.1.
+Then I/O graphs with several graphs, Wireshark profiles (use and import),
+Show Packet Bytes, Credentials, Export TLS Session Keys and Firewall ACL
+Rules: 0.15.0.

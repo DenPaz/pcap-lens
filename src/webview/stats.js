@@ -56,7 +56,11 @@
     type: "tcp",
     interval: "",
     limit: false,
-    metric: "packets",
+    /** The IO graph's graphs (lib.ioSeries) and its Y axis. */
+    series: [{ metric: "packets", filter: "", field: "", style: "line" }],
+    logScale: false,
+    /** The graph whose filter or field the last query refused. @type {number | null} */
+    badSeries: null,
     /** @type {any} */ table: null,
     /** @type {{col: number, desc: boolean} | null} */ sort: null,
     /** @type {any} */ selected: null,
@@ -96,9 +100,11 @@
   const actions = h("div", { class: "toolbar" });
   const status = h("div", { class: "status", role: "status" });
   const notice = h("div", { class: "notice error hidden", role: "alert" });
+  const seriesBox = h("div", { class: "io-series hidden", role: "group", "aria-label": "Graphs" });
   const chartBox = h("div", { class: "chart hidden", tabindex: "0", "aria-label": "I/O graph" });
+  const legend = h("ul", { class: "io-legend hidden", "aria-label": "Legend" });
   const tableBox = h("div");
-  app.append(title, toolbar, actions, notice, status, chartBox, tableBox);
+  app.append(title, toolbar, seriesBox, actions, notice, status, chartBox, legend, tableBox);
 
   const applyBtn = h("button", { type: "button", title: "Apply this row as the display filter" }, [
     "Apply as Filter",
@@ -131,7 +137,14 @@
   gotoBtn.addEventListener("click", () => rowGoto());
   copyBtn.addEventListener("click", () => {
     if (state.table) {
-      vscode.postMessage({ type: "copy", text: lib.tableToCsv(state.table.columns, sortedRows()) });
+      const shown = shownColumns();
+      vscode.postMessage({
+        type: "copy",
+        text: lib.tableToCsv(
+          shown.map((i) => state.table.columns[i]),
+          sortedRows().map((/** @type {any} */ r) => ({ cells: shown.map((i) => r.cells[i]) })),
+        ),
+      });
     }
   });
 
@@ -160,20 +173,23 @@
       for (const [value, label] of INTERVALS) {
         interval.append(h("option", { value }, [label]));
       }
+      /** @type {HTMLSelectElement} */ (interval).value = state.interval;
       interval.addEventListener("change", () => {
         state.interval = /** @type {HTMLSelectElement} */ (interval).value;
         query();
       });
-      const metric = h("select", { "aria-label": "Metric" });
-      metric.append(
-        h("option", { value: "packets" }, ["Packets"]),
-        h("option", { value: "bytes" }, ["Bytes"]),
-      );
-      metric.addEventListener("change", () => {
-        state.metric = /** @type {HTMLSelectElement} */ (metric).value;
+      const log = /** @type {HTMLInputElement} */ (h("input", { type: "checkbox", id: "io-log" }));
+      log.checked = state.logScale;
+      log.addEventListener("change", () => {
+        state.logScale = log.checked;
+        rememberSeries();
         renderChart();
       });
-      toolbar.append(h("label", {}, ["Interval ", interval]), h("label", {}, ["Show ", metric]));
+      toolbar.append(h("label", {}, ["Interval ", interval]), h("label", {}, [log, "Log scale"]));
+    }
+    seriesBox.classList.toggle("hidden", state.kind !== "io");
+    if (state.kind === "io") {
+      renderSeriesEditor();
     }
     if (state.kind !== "properties") {
       const box = /** @type {HTMLInputElement} */ (h("input", { type: "checkbox" }));
@@ -199,7 +215,7 @@
     actions.replaceChildren(
       ...(state.kind === "expert"
         ? [gotoBtn, applyBtn, prepareBtn, ...(state.ai ? [askBtn] : [])]
-        : state.kind === "srt"
+        : state.kind === "srt" || state.kind === "credentials"
           ? [applyBtn, prepareBtn, gotoBtn]
           : state.kind === "properties" || state.kind === "io"
             ? []
@@ -250,6 +266,10 @@
         type: state.type,
         interval: state.interval ? Number(state.interval) : undefined,
         limit: state.limit,
+        series:
+          state.kind === "io"
+            ? state.series.map(({ metric, filter, field }) => ({ metric, filter, field }))
+            : undefined,
       },
     });
   }
@@ -265,12 +285,19 @@
       state.type = DEFAULT_TYPE[msg.kind] || state.type;
       state.filter = msg.filter || "";
       state.ai = !!msg.ai;
+      if (msg.io) {
+        // The graphs last drawn (any capture), as the host kept them.
+        const series = lib.ioSeries(msg.io.series, MAX_SERIES);
+        state.series = series.length ? series : state.series;
+        state.logScale = !!msg.io.logScale;
+      }
       title.textContent = msg.title;
       buildToolbar();
       query();
     } else if (msg.type === "result" && msg.id === state.pending) {
       state.pending = null;
       state.table = msg.table;
+      markBadSeries(null);
       state.selected = null;
       state.sort = null;
       title.textContent = msg.table.title;
@@ -284,8 +311,10 @@
       state.pending = null;
       status.textContent = "";
       if (!msg.cancelled) {
-        notice.textContent = msg.message;
+        notice.textContent =
+          typeof msg.series === "number" ? `Graph ${msg.series + 1}: ${msg.message}` : msg.message;
         notice.classList.remove("hidden");
+        markBadSeries(typeof msg.series === "number" ? msg.series : null);
       }
     }
   });
@@ -312,6 +341,7 @@
           ? ""
           : `${n.toLocaleString()} ${n === 1 ? "row" : "rows"}${scope}`;
     chartBox.classList.toggle("hidden", t.kind !== "io");
+    legend.classList.toggle("hidden", t.kind !== "io");
     if (t.kind === "io") {
       renderChart();
     }
@@ -319,10 +349,25 @@
     updateActions();
   }
 
+  /**
+   * The columns the table shows (indexes into the cells): all, except that an IO
+   * graph with graphs shows the times and the graphs (its every-packet columns
+   * would repeat graph 1).
+   */
+  function shownColumns() {
+    const t = state.table;
+    const all = t.columns.map((/** @type {any} */ _c, /** @type {number} */ i) => i);
+    return t.kind === "io" && t.series
+      ? all.filter((/** @type {number} */ i) => !["packets", "bytes"].includes(t.columns[i].id))
+      : all;
+  }
+
   function renderTable() {
     const t = state.table;
+    const shown = shownColumns();
     const headRow = h("tr");
-    t.columns.forEach((/** @type {any} */ col, /** @type {number} */ i) => {
+    shown.forEach((/** @type {number} */ i) => {
+      const col = t.columns[i];
       const sorted = state.sort && state.sort.col === i;
       const th = h("th", { class: col.numeric ? "num" : "", scope: "col" }, [
         col.label,
@@ -350,7 +395,8 @@
     const body = h("tbody");
     for (const row of sortedRows()) {
       const tr = h("tr");
-      row.cells.forEach((/** @type {unknown} */ value, /** @type {number} */ i) => {
+      shown.forEach((/** @type {number} */ i) => {
+        const value = row.cells[i];
         const col = t.columns[i];
         const td = h("td", { class: col.numeric ? "num" : "" });
         if (i === 0 && row.depth) {
@@ -438,7 +484,155 @@
     }
   }
 
-  // ------------------------------------------------------------------ IO chart
+  // ------------------------------------------------------------------ IO graphs
+
+  const MAX_SERIES = 8;
+  const METRICS = [
+    ["packets", "Packets"],
+    ["bytes", "Bytes"],
+    ["bits", "Bits"],
+    ["sum", "SUM(field)"],
+    ["count", "COUNT(field)"],
+    ["max", "MAX(field)"],
+    ["min", "MIN(field)"],
+    ["avg", "AVG(field)"],
+    ["load", "LOAD(field)"],
+  ];
+  const FIELD_METRICS = ["sum", "count", "max", "min", "avg", "load"];
+  const UNITS = { packets: "packets", bytes: "bytes", bits: "bits" };
+
+  /** The graphs are kept by the host, so the next I/O graph starts with them. */
+  function rememberSeries() {
+    vscode.postMessage({ type: "ioGraphs", series: state.series, logScale: state.logScale });
+  }
+
+  /** @param {number | null} index */
+  function markBadSeries(index) {
+    state.badSeries = index;
+    seriesBox.querySelectorAll(".io-graph").forEach((row, i) => {
+      for (const input of row.querySelectorAll("input[type='text']")) {
+        input.toggleAttribute("aria-invalid", i === index);
+        input.classList.toggle("invalid", i === index);
+      }
+    });
+  }
+
+  /** One row per graph: filter, Y axis, field (field metrics), style, remove; then Add. */
+  function renderSeriesEditor() {
+    seriesBox.replaceChildren();
+    state.series.forEach((graph, i) => {
+      const n = i + 1;
+      const filter = /** @type {HTMLInputElement} */ (
+        h("input", {
+          type: "text",
+          class: "io-filter",
+          "aria-label": `Display filter of graph ${n}`,
+          placeholder: "All packets (or a display filter)",
+          spellcheck: "false",
+        })
+      );
+      filter.value = graph.filter;
+      const metric = /** @type {HTMLSelectElement} */ (
+        h("select", { class: "io-metric", "aria-label": `Y axis of graph ${n}` })
+      );
+      for (const [value, label] of METRICS) {
+        metric.append(h("option", { value }, [label]));
+      }
+      metric.value = graph.metric;
+      const field = /** @type {HTMLInputElement} */ (
+        h("input", {
+          type: "text",
+          class: "io-field",
+          "aria-label": `Field of graph ${n}`,
+          placeholder: "Field, e.g. tcp.analysis.ack_rtt",
+          spellcheck: "false",
+        })
+      );
+      field.value = graph.field;
+      field.classList.toggle("hidden", !FIELD_METRICS.includes(graph.metric));
+      const style = /** @type {HTMLSelectElement} */ (
+        h("select", { class: "io-style", "aria-label": `Style of graph ${n}` })
+      );
+      style.append(
+        h("option", { value: "line" }, ["Line"]),
+        h("option", { value: "bar" }, ["Bar"]),
+      );
+      style.value = graph.style;
+      const remove = h(
+        "button",
+        {
+          type: "button",
+          class: "icon io-remove",
+          "aria-label": `Remove graph ${n}`,
+          title: "Remove this graph",
+        },
+        [icon("trash")],
+      );
+      remove.toggleAttribute("disabled", state.series.length === 1);
+      /** A change that needs tshark again. */
+      const changed = () => {
+        graph.filter = filter.value.trim();
+        graph.metric = metric.value;
+        graph.field = field.value.trim();
+        field.classList.toggle("hidden", !FIELD_METRICS.includes(graph.metric));
+        rememberSeries();
+        if (FIELD_METRICS.includes(graph.metric) && !graph.field) {
+          field.focus(); // (asked for when it has one)
+          return;
+        }
+        query();
+      };
+      filter.addEventListener("change", changed);
+      field.addEventListener("change", changed);
+      metric.addEventListener("change", changed);
+      for (const input of [filter, field]) {
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            input.blur(); // (fires change when edited)
+          }
+        });
+      }
+      style.addEventListener("change", () => {
+        graph.style = style.value === "bar" ? "bar" : "line";
+        rememberSeries();
+        renderChart();
+      });
+      remove.addEventListener("click", () => {
+        state.series.splice(i, 1);
+        rememberSeries();
+        renderSeriesEditor();
+        query();
+      });
+      seriesBox.append(
+        h("div", { class: "io-graph" }, [
+          h("span", { class: `io-swatch s${i}`, "aria-hidden": "true" }),
+          h("span", { class: "io-name" }, [`Graph ${n}`]),
+          filter,
+          metric,
+          field,
+          style,
+          remove,
+        ]),
+      );
+    });
+    const add = h("button", { type: "button", class: "secondary io-add" }, [
+      icon("add"),
+      " Add Graph",
+    ]);
+    add.toggleAttribute("disabled", state.series.length >= MAX_SERIES);
+    add.addEventListener("click", () => {
+      state.series.push({ metric: "packets", filter: "", field: "", style: "line" });
+      rememberSeries();
+      renderSeriesEditor();
+      /** @type {HTMLInputElement | null} */ (
+        seriesBox.querySelector(".io-graph:last-of-type .io-filter")
+      )?.focus();
+      query();
+    });
+    seriesBox.append(add);
+    markBadSeries(state.badSeries);
+  }
 
   const CHART_HEIGHT = 220;
   const MARGIN = { top: 12, right: 16, bottom: 28, left: 64 };
@@ -455,35 +649,64 @@
     return node;
   }
 
+  /**
+   * The graphs the table holds: each series' column and how it is drawn (the
+   * table came back for `table.series`, which may predate an edit of the styles).
+   */
+  function chartSeries() {
+    const t = state.table;
+    const cols = t.columns.map((/** @type {any} */ c) => c.id);
+    const drawn = t.series || [{ metric: "packets", filter: "", field: "", label: "Packets" }];
+    return drawn.map((/** @type {any} */ g, /** @type {number} */ i) => {
+      const at = cols.indexOf(`s${i}`);
+      return {
+        index: i,
+        label: String(g.label),
+        unit: /** @type {Record<string, string>} */ (UNITS)[g.metric] || "",
+        style: state.series[i] ? state.series[i].style : "line",
+        values: t.rows.map((/** @type {any} */ r) => Number(r.cells[at >= 0 ? at : 2]) || 0),
+      };
+    });
+  }
+
   function renderChart() {
     const t = state.table;
     if (!t || t.kind !== "io") {
       return;
     }
-    const col = state.metric === "bytes" ? 3 : 2;
+    const graphs = chartSeries();
     const width = Math.max(320, chartBox.clientWidth || 600);
     renderedWidth = chartBox.clientWidth;
     const innerW = width - MARGIN.left - MARGIN.right;
     const innerH = CHART_HEIGHT - MARGIN.top - MARGIN.bottom;
     const rows = t.rows;
     const xMax = rows.length ? rows[rows.length - 1].cells[1] : 1;
-    const values = rows.map((/** @type {any} */ r) => r.cells[col]);
-    const ticks = lib.niceTicks(Math.max(0, ...values));
+    const all = graphs.flatMap((g) => g.values);
+    const positive = all.filter((v) => v > 0);
+    const log = state.logScale && positive.length > 0;
+    const ticks = log
+      ? lib.logTicks(Math.min(...positive), Math.max(...positive))
+      : lib.niceTicks(Math.max(0, ...all));
+    const yMin = log ? ticks[0] : 0;
     const yMax = ticks[ticks.length - 1] || 1;
-    // Each interval is plotted at its midpoint.
     const x = (/** @type {number} */ v) => MARGIN.left + (v / (xMax || 1)) * innerW;
-    const y = (/** @type {number} */ v) => MARGIN.top + innerH - (v / yMax) * innerH;
-    const points = rows.map((/** @type {any} */ r) => ({
-      x: x((r.cells[0] + r.cells[1]) / 2),
-      y: y(r.cells[col]),
-      row: r,
-    }));
+    const bottom = MARGIN.top + innerH;
+    const y = (/** @type {number} */ v) =>
+      log
+        ? v <= 0
+          ? bottom
+          : bottom -
+            ((Math.log10(v) - Math.log10(yMin)) / (Math.log10(yMax) - Math.log10(yMin))) * innerH
+        : bottom - (v / yMax) * innerH;
+    // Each interval is plotted at its midpoint.
+    const mids = rows.map((/** @type {any} */ r) => x((r.cells[0] + r.cells[1]) / 2));
 
+    const names = graphs.map((g) => g.label).join(", ");
     const svg = s("svg", {
       viewBox: `0 0 ${width} ${CHART_HEIGHT}`,
       height: CHART_HEIGHT,
       role: "img",
-      "aria-label": `${state.metric === "bytes" ? "Bytes" : "Packets"} per ${lib.formatCell(t.interval)} s interval`,
+      "aria-label": `${names} per ${lib.formatCell(t.interval)} s interval${log ? " (log scale)" : ""}`,
     });
     const grid = s("g", { class: "grid" });
     const axis = s("g", { class: "axis" });
@@ -503,25 +726,47 @@
       axis.append(label);
     }
     svg.append(grid, axis);
-    if (points.length) {
-      const line = points
-        .map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)},${p.y.toFixed(1)}`)
-        .join("");
-      const base = (MARGIN.top + innerH).toFixed(1);
-      svg.append(
-        s("path", {
-          class: "series-area",
-          d: `${line}L${points[points.length - 1].x.toFixed(1)},${base}L${points[0].x.toFixed(1)},${base}Z`,
-        }),
-        s("path", { class: "series-line", d: line }),
-      );
-    }
-    const crosshair = s("line", {
-      class: "crosshair hidden",
-      y1: MARGIN.top,
-      y2: MARGIN.top + innerH,
+    // Bars first (lines stay visible over them), side by side within an interval.
+    const bars = graphs.filter((g) => g.style === "bar");
+    bars.forEach((g, k) => {
+      const group = s("g", { class: `series-bars s${g.index}` });
+      rows.forEach((/** @type {any} */ r, /** @type {number} */ i) => {
+        const x0 = x(r.cells[0]);
+        const span = Math.max(1, x(r.cells[1]) - x0);
+        const w = (span * 0.8) / bars.length;
+        const top = y(g.values[i]);
+        if (bottom - top > 0) {
+          group.append(
+            s("rect", {
+              x: (x0 + span * 0.1 + k * w).toFixed(1),
+              y: top.toFixed(1),
+              width: Math.max(1, w - 0.5).toFixed(1),
+              height: (bottom - top).toFixed(1),
+            }),
+          );
+        }
+      });
+      svg.append(group);
     });
-    const marker = s("circle", { class: "marker hidden", r: 4 });
+    for (const g of graphs.filter((g) => g.style === "line")) {
+      if (!rows.length) {
+        break;
+      }
+      const line = g.values
+        .map((v, i) => `${i ? "L" : "M"}${mids[i].toFixed(1)},${y(v).toFixed(1)}`)
+        .join("");
+      if (graphs.length === 1) {
+        svg.append(
+          s("path", {
+            class: `series-area s${g.index}`,
+            d: `${line}L${mids[mids.length - 1].toFixed(1)},${bottom.toFixed(1)}L${mids[0].toFixed(1)},${bottom.toFixed(1)}Z`,
+          }),
+        );
+      }
+      svg.append(s("path", { class: `series-line s${g.index}`, d: line }));
+    }
+    const crosshair = s("line", { class: "crosshair hidden", y1: MARGIN.top, y2: bottom });
+    const markers = graphs.map((g) => s("circle", { class: `marker hidden s${g.index}`, r: 4 }));
     // Hit area larger than the marks: the whole plot.
     const overlay = s("rect", {
       x: MARGIN.left,
@@ -530,50 +775,68 @@
       height: innerH,
       fill: "transparent",
     });
-    svg.append(crosshair, marker, overlay);
+    svg.append(crosshair, ...markers, overlay);
     const tooltip = h("div", { class: "tooltip hidden", role: "status" });
     chartBox.replaceChildren(svg, tooltip);
+    legend.replaceChildren(
+      ...graphs.map((g) =>
+        h("li", {}, [
+          h("span", { class: `io-swatch s${g.index}`, "aria-hidden": "true" }),
+          g.label,
+        ]),
+      ),
+    );
 
     const show = (/** @type {number} */ i) => {
       hoverIndex = i;
-      const p = points[i];
-      if (!p) {
+      const row = rows[i];
+      if (!row) {
         return;
       }
-      crosshair.setAttribute("x1", String(p.x));
-      crosshair.setAttribute("x2", String(p.x));
-      marker.setAttribute("cx", String(p.x));
-      marker.setAttribute("cy", String(p.y));
+      const px = mids[i];
+      crosshair.setAttribute("x1", String(px));
+      crosshair.setAttribute("x2", String(px));
       crosshair.classList.remove("hidden");
-      marker.classList.remove("hidden");
-      const [start, end, packets, bytes] = p.row.cells;
-      const value =
-        state.metric === "bytes"
-          ? `${lib.formatCell(bytes)} bytes`
-          : `${lib.formatCell(packets)} packets`;
+      graphs.forEach((g, k) => {
+        markers[k].setAttribute("cx", String(px));
+        markers[k].setAttribute("cy", String(y(g.values[i])));
+        markers[k].classList.remove("hidden");
+      });
+      const [start, end] = row.cells;
+      const value = (/** @type {(typeof graphs)[number]} */ g) =>
+        `${lib.formatCell(g.values[i])}${g.unit ? ` ${g.unit}` : ""}`;
       tooltip.replaceChildren(
-        h("strong", {}, [value]),
-        h("span", {}, [`${lib.formatCell(start)}–${lib.formatCell(end)} s`]),
+        // One graph: its value large, as before; several: one line each.
+        ...(graphs.length === 1
+          ? [h("strong", {}, [value(graphs[0])])]
+          : graphs.map((g) =>
+              h("div", { class: "tooltip-row" }, [
+                h("span", { class: `io-swatch s${g.index}`, "aria-hidden": "true" }),
+                `${g.label}: `,
+                h("strong", {}, [value(g)]),
+              ]),
+            )),
+        h("span", { class: "tooltip-time" }, [`${lib.formatCell(start)}–${lib.formatCell(end)} s`]),
       );
       tooltip.classList.remove("hidden");
       const box = chartBox.getBoundingClientRect();
       const scale = box.width / width;
-      const left = p.x * scale + 12;
-      tooltip.style.left = `${Math.min(left, box.width - tooltip.offsetWidth - 4)}px`;
-      tooltip.style.top = `${Math.max(0, p.y * scale - 40)}px`;
+      const top = Math.min(...graphs.map((g) => y(g.values[i])));
+      tooltip.style.left = `${Math.min(px * scale + 12, box.width - tooltip.offsetWidth - 4)}px`;
+      tooltip.style.top = `${Math.max(0, top * scale - 40)}px`;
     };
     const hide = () => {
       hoverIndex = -1;
       crosshair.classList.add("hidden");
-      marker.classList.add("hidden");
+      markers.forEach((m) => m.classList.add("hidden"));
       tooltip.classList.add("hidden");
     };
     overlay.addEventListener("pointermove", (e) => {
       const box = svg.getBoundingClientRect();
       const px = ((e.clientX - box.left) / box.width) * width;
       let best = 0;
-      points.forEach((p, i) => {
-        if (Math.abs(p.x - px) < Math.abs(points[best].x - px)) {
+      mids.forEach((m, i) => {
+        if (Math.abs(m - px) < Math.abs(mids[best] - px)) {
           best = i;
         }
       });
@@ -584,19 +847,19 @@
       if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
         e.preventDefault();
         const next = hoverIndex < 0 ? 0 : hoverIndex + (e.key === "ArrowRight" ? 1 : -1);
-        show(Math.max(0, Math.min(points.length - 1, next)));
+        show(Math.max(0, Math.min(rows.length - 1, next)));
       } else if (e.key === "Home" || e.key === "End") {
         e.preventDefault();
-        show(e.key === "Home" ? 0 : points.length - 1);
+        show(e.key === "Home" ? 0 : rows.length - 1);
       } else if (e.key === "Escape") {
         hide();
       }
     };
     chartBox.onblur = hide;
-    // A redraw (resize, metric switch) keeps the hovered point: the old overlay is
+    // A redraw (resize, style switch) keeps the hovered point: the old overlay is
     // gone without a pointerleave, and the pointer may not move again.
     if (hoverIndex >= 0) {
-      show(Math.min(hoverIndex, points.length - 1));
+      show(Math.min(hoverIndex, rows.length - 1));
     }
   }
 

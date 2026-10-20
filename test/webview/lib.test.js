@@ -854,6 +854,77 @@ suite("webview lib: follow stream and statistics helpers", () => {
     assert.equal(lib.rowsToText(["No."], [["7"]], false), "7");
   });
 
+  test("logTicks: powers of ten around the values; ioSeries checks the stored graphs", () => {
+    assert.deepEqual(lib.logTicks(3, 561), [1, 10, 100, 1000]);
+    assert.deepEqual(lib.logTicks(0.0009, 0.02), [0.0001, 0.001, 0.01, 0.1]);
+    assert.deepEqual(lib.logTicks(10, 10), [10, 100]);
+    assert.deepEqual(lib.logTicks(0, 0), [1, 10]);
+    assert.deepEqual(
+      lib.ioSeries([
+        { metric: "avg", field: " tcp.len ", filter: "tcp", style: "bar" },
+        { metric: "median" },
+        "junk",
+        null,
+      ]),
+      [
+        { metric: "avg", filter: "tcp", field: "tcp.len", style: "bar" },
+        { metric: "packets", filter: "", field: "", style: "line" },
+      ],
+    );
+    assert.equal(lib.ioSeries(Array(12).fill({})).length, 8);
+    assert.deepEqual(lib.ioSeries("nope"), []);
+  });
+
+  test("Show Packet Bytes: decoders, compression format, image type and text views", () => {
+    const enc = (/** @type {string} */ t) => new TextEncoder().encode(t);
+    const dec = (/** @type {Uint8Array} */ b) => new TextDecoder().decode(b);
+    assert.equal(dec(lib.decodeBytes(enc("aGVs bG8=\n"), "base64").bytes), "hello");
+    assert.equal(dec(lib.decodeBytes(enc("aGVsbG8"), "base64").bytes), "hello", "unpadded");
+    assert.equal(dec(lib.decodeBytes(enc("-_8"), "base64").bytes), "\ufffd\ufffd", "URL-safe");
+    assert.equal(lib.decodeBytes(enc("a*b"), "base64").error, "Not valid Base64");
+    assert.equal(dec(lib.decodeBytes(enc("68:65 6c-6C 0x6f"), "hex").bytes), "hello");
+    assert.match(lib.decodeBytes(enc("abc"), "hex").error, /even number/);
+    assert.equal(dec(lib.decodeBytes(enc("a%20b+c%2"), "percent").bytes), "a b c%2");
+    assert.equal(
+      dec(lib.decodeBytes(enc("caf=C3=A9 =\r\nok=3"), "quoted-printable").bytes),
+      "café ok=3",
+    );
+    assert.equal(dec(lib.decodeBytes(enc("Uryyb, Jbeyq!"), "rot13").bytes), "Hello, World!");
+    assert.equal(dec(lib.decodeBytes(enc("same"), "none").bytes), "same");
+
+    assert.equal(lib.compressionFormat(Uint8Array.of(0x1f, 0x8b, 8)), "gzip");
+    assert.equal(lib.compressionFormat(Uint8Array.of(0x78, 0x9c)), "deflate");
+    assert.equal(lib.compressionFormat(Uint8Array.of(0xcb, 0x48)), "deflate-raw");
+
+    assert.equal(lib.imageMime(Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d)), "image/png");
+    assert.equal(lib.imageMime(Uint8Array.of(0xff, 0xd8, 0xff, 0xe0)), "image/jpeg");
+    assert.equal(lib.imageMime(enc('<?xml version="1.0"?>\n<svg xmlns="x">')), "image/svg+xml");
+    assert.equal(lib.imageMime(enc("<!-- a --> <!-- b -->\n<svg>")), "image/svg+xml");
+    assert.equal(lib.imageMime(enc("<!-- unterminated <svg>")), null);
+    assert.equal(lib.imageMime(enc("<?xml version='1.0'?><!-- x --><html>")), null);
+    assert.equal(lib.imageMime(enc("<!--" + "--><!--".repeat(40))), null);
+    assert.equal(lib.imageMime(enc("<html>")), null);
+
+    const bytes = Uint8Array.of(0x48, 0x69, 0x0a, 0x00, 0xff);
+    assert.equal(lib.bytesAs(bytes, "ascii"), "Hi\n..");
+    assert.equal(lib.bytesAs(bytes, "ascii-control"), "Hi\u240a\n\u2400.");
+    assert.equal(lib.bytesAs(bytes, "latin1"), "Hi\n\u0000ÿ");
+    assert.equal(lib.bytesAs(bytes, "hex"), "48690a00ff");
+    assert.equal(
+      lib.bytesAs(bytes, "c", "http.file_data"),
+      "static const unsigned char http_file_data[5] = {\n    0x48, 0x69, 0x0a, 0x00, 0xff\n};",
+    );
+    assert.equal(
+      lib.bytesAs(bytes, "rust", "1x"),
+      "let _1x: [u8; 5] = [\n    0x48, 0x69, 0x0a, 0x00, 0xff\n];",
+    );
+    assert.equal(
+      lib.bytesAs(bytes, "yaml", "data"),
+      "# Packet Bytes: Base64 encoded\ndata: !!binary |\n  SGkKAP8=",
+    );
+    assert.ok(lib.bytesAs(bytes, "hexdump").startsWith("00000000  48 69 0a 00 ff"));
+  });
+
   test("niceTicks covers the maximum with 1-2-5 steps", () => {
     assert.deepEqual(lib.niceTicks(561), [0, 200, 400, 600]);
     assert.deepEqual(lib.niceTicks(1000), [0, 500, 1000]);

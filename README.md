@@ -82,6 +82,11 @@ registered under its name in lower case).
 - **Protocol tree and hex view** with two-way highlighting, reassembled data
   included. Right-click a field to apply or prepare it as a filter, colorize,
   add it as a column or copy it.
+- **Show Packet Bytes** (right-click a field): its bytes decoded from Base64,
+  gzip/zlib/deflate, hex digits, percent-encoding, quoted-printable or ROT13,
+  shown as text (ASCII, UTF-8, UTF-16, ISO 8859-1, EBCDIC), a hex dump, a C
+  or Rust array, YAML or an image, from any start to end byte; search it,
+  copy it, save it as shown or raw.
 
   ![The packet list, protocol tree and bytes of an HTTP response reassembled from two TCP segments](media/screenshots/viewer.png)
 
@@ -170,6 +175,12 @@ filter, and its rows apply or prepare the matching display filter.
 - Conversations, Endpoints, Protocol Hierarchy, I/O Graph, Expert Information,
   Capture File Properties. The status bar shows the capture's most severe
   expert findings ("3 warnings"); click it for Expert Information.
+- **I/O graphs** with up to eight graphs, each a display filter and a Y axis:
+  packets, bytes, bits, or SUM, COUNT, MAX, MIN, AVG or LOAD of a field (say
+  `tcp.analysis.ack_rtt`), as lines or bars, on a linear or log scale. The
+  graphs are kept for the next I/O graph.
+- **Credentials**: the usernames logins carried in the clear (HTTP Basic, FTP,
+  POP, IMAP…), each linked to its packet.
 - HTTP (status codes, requests by host, load by server), DNS, packet lengths,
   service response times (ICMP, SMB, LDAP, SNMP, Diameter, GTP…) and SIP
   (messages, resends, response codes, request methods, setup times).
@@ -207,8 +218,11 @@ filter, and its rows apply or prepare the matching display filter.
 - **Capture editing** (_PCAP: Edit Capture…_): time shift, remove duplicates,
   keep a range, truncate, split, embed TLS keys. The result is a new capture.
 - **Export** packets (displayed, all, selected or marked) to pcapng/pcap, the
-  packet list to CSV/JSON, packet bytes, and full dissections as text, PDML or
-  JSON.
+  packet list to CSV/JSON, packet bytes, full dissections as text, PDML or
+  JSON, and the TLS session keys tshark could decrypt as a key log.
+- **Firewall ACL Rules** for the selected packet: iptables, nftables, Cisco
+  IOS, IP Filter, ipfw, pf and Windows Firewall rules by address and port,
+  denying or allowing, to copy.
 - **Export Objects**: files carried over HTTP, SMB, TFTP, IMF, DICOM and
   FTP-DATA.
 - **Merge captures**, with an offer to merge a rotated capture's pieces.
@@ -235,6 +249,12 @@ and never overwrite the open capture.
   capture reloads, ↺ goes back to Wireshark's value. Changes are stored in
   `pcapViewer.prefs`, per workspace folder.
 - **Decode As** rules, per workspace folder.
+- **Wireshark profiles**: _PCAP: Use Wireshark Profile…_ makes tshark use one
+  of your configuration profiles (or one Wireshark ships): its preferences,
+  Decode As rules, display filter macros (`${name:args}`) and disabled
+  protocols. _PCAP: Import from Wireshark Profile…_ copies its coloring
+  rules, filter buttons, saved display filters and packet list columns into
+  PCAP Lens's settings.
 - **Wireshark plugins** (dissectors in C): installed once for tshark, used by
   the viewer too; see [Wireshark plugins](#wireshark-plugins).
 
@@ -288,6 +308,7 @@ be set in user settings.
 | `luaScripts`†, `dissectorsFolder`†                                          | Lua dissectors to load                                                      |
 | `decodeAs`†, `prefs`†                                                       | Decode As rules (`"tcp.port==8080,http"`) and preference overrides          |
 | `tlsKeyLogFile`†                                                            | TLS key log for decryption                                                  |
+| `wiresharkProfile`†                                                         | Wireshark configuration profile tshark uses (empty: Default)                |
 | `columns`†, `columnLayout`                                                  | Custom columns; column order and hidden columns                             |
 | `timeFormat`                                                                | `relative`, `delta_displayed`, `delta_captured`, `absolute`, `utc`, `epoch` |
 | `savedFilters`, `filterButtons`                                             | Named filters and filter buttons (user or workspace)                        |

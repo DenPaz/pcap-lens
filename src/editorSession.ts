@@ -43,6 +43,7 @@ import {
 import { saveFilterInteractive, showSavedFilters } from "./commands/savedFilters";
 import { addFilterButtonInteractive, editFilterButton } from "./commands/filterButtons";
 import { FOLLOW_LABELS, FollowPanel } from "./panels/followPanel";
+import { BytesPanel, packetBytes } from "./panels/bytesPanel";
 import { rotatedSiblings } from "./rotation";
 import { MenuCommand, buildCommandMenu } from "./commandMenu";
 import {
@@ -125,6 +126,8 @@ export class PcapEditorSession {
   keyLogFile = "";
   /** Name resolution this capture was last loaded with. */
   names: NameResolution = DEFAULT_NAME_RESOLUTION;
+  /** The Wireshark profile of the latest load ("" = Default). */
+  wiresharkProfile = "";
   /** The preference overrides of the latest load (incl. the TLS key log): see readSettings. */
   prefs: PrefOverrides = {};
   /** The Lua scripts of the latest load (settings, or this capture's choice). */
@@ -264,6 +267,7 @@ export class PcapEditorSession {
     const settings = readSettings(this.uri);
     this.watchKeyLog(settings.tlsKeyLogFile);
     this.names = settings.nameResolution;
+    this.wiresharkProfile = settings.wiresharkProfile;
     this.prefs = settings.prefs;
     this.lua = settings.luaScripts;
     await this.stopBackend();
@@ -630,6 +634,7 @@ export class PcapEditorSession {
           decodeAs: settings.decodeAs,
           prefs: settings.prefs,
           names: settings.nameResolution,
+          profile: settings.wiresharkProfile || undefined,
           columns: settings.columns.map((c) => c.field),
           // Show the first rows while the rest is indexed.
           stream: true,
@@ -875,6 +880,13 @@ export class PcapEditorSession {
       case "exportBytes":
         await vscode.commands.executeCommand("pcapViewer.exportPacketBytes", msg.frame);
         return;
+      case "showPacketBytes": {
+        const bytes = packetBytes(msg);
+        if (bytes) {
+          BytesPanel.show(this.context, this, bytes);
+        }
+        return;
+      }
       case "applyColumn":
         await this.updateColumns((cols) => addColumn(cols, msg.field, msg.title));
         vscode.window.setStatusBarMessage(`Added column ${msg.title || msg.field}`, 3000);

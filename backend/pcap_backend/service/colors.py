@@ -88,7 +88,9 @@ class ColoringMixin(ServiceBase):
         total = max(1, f.info.frames)
         last_emit = 0.0
         with tempfile.TemporaryDirectory(prefix="pcapviewer-colors-") as tmp:
-            coloring.prepare_config_dir(Path(tmp), rules, personal)
+            coloring.prepare_config_dir(
+                Path(tmp), rules, personal, f.tshark.profile_config(ctx.token)
+            )
             env = {**os.environ, "WIRESHARK_CONFIG_DIR": tmp}
             for line in stream_lines(argv, result, ctx.token, env=env):
                 number, _, rule = line.partition(b"\t")

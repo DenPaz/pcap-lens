@@ -190,6 +190,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
           "protocolPrefs",
           "colorize",
           "exportBytes",
+          "showPacketBytes",
         ].includes(msg.type)
       ) {
         hostLog.push(msg);
@@ -361,6 +362,16 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
   });
 
   test("apply-as-filter from the tree context menu", async () => {
+    // Show Packet Bytes… sends the field's own bytes to the host (it opens the panel).
+    await page.click("#detail-tree .node-row:has-text('Source Address')", { button: "right" });
+    await page.click("#context-menu .item:has-text('Show Packet Bytes…')");
+    await waitForHost((m) => m.type === "showPacketBytes");
+    const shown = hostLog.findLast((m) => m.type === "showPacketBytes");
+    assert.deepEqual(
+      [shown.field, shown.hex, shown.label],
+      ["ip.src", "5db8d822", "Source Address: 93.184.216.34"],
+    );
+    assert.ok(Number.isInteger(shown.frame) && shown.frame > 0);
     await page.click("#detail-tree .node-row:has-text('Source Address')", { button: "right" });
     await page.click("#context-menu .item:has-text('Apply as Filter')");
     await page.waitForFunction(
@@ -533,7 +544,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       const row = document.querySelectorAll("#list-rows .list-row")[3];
       return row && !row.classList.contains("loading") && row.children[0].textContent === "4";
     });
-    await page.click("#list-rows .list-row >> nth=3", { button: "right" }); // frame 4 (HTTP GET)
+    await rightClick(page.locator("#list-rows .list-row >> nth=3")); // frame 4 (HTTP GET)
     assert.ok(hostLog.some((m) => m.type === "selection" && m.frame === 4));
     const items = await page.$$eval("#context-menu .item", (els) =>
       els.map((e) => [e.textContent, !e.classList.contains("disabled")]),
@@ -556,14 +567,14 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     ]);
     await page.click("#context-menu .item:has-text('Follow HTTP Stream')");
     await expectHostLast({ type: "follow", proto: "http", frame: 4 });
-    await page.click("#list-rows .list-row >> nth=3", { button: "right" });
+    await rightClick(page.locator("#list-rows .list-row >> nth=3"));
     await page.click("#context-menu .item:has-text('Decode As')");
     await expectHostLast({ type: "decodeAs", frame: 4 });
   });
 
   test("Conversation Filter and Colorize Conversation list the packet's conversations", async () => {
     await cleanView();
-    const conversations = () => rowEl(4).click({ button: "right" });
+    const conversations = () => rightClick(rowEl(4));
     await conversations();
     await page.click("#context-menu .item:has-text('Conversation Filter…')");
     await page.waitForSelector("#context-menu .item:has-text('TCP')");
@@ -608,11 +619,11 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
 
   test("Compare with Packet… and Compare 2 Selected Packets reach the host", async () => {
     await cleanView();
-    await rowEl(4).click({ button: "right" });
+    await rightClick(rowEl(4));
     await page.click("#context-menu .item:has-text('Compare with Packet…')");
     await expectHostLast({ type: "compare", frames: [4] }, { ofType: true });
     await rowEl(7).click({ modifiers: ["ControlOrMeta"] });
-    await rowEl(7).click({ button: "right" });
+    await rightClick(rowEl(7));
     await page.click("#context-menu .item:has-text('Compare 2 Selected Packets')");
     await expectHostLast({ type: "compare", frames: [4, 7] }, { ofType: true });
     await rowEl(4).click(); // (the next test starts on frame 4, alone)
@@ -731,7 +742,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.click("#detail-tree .node-row:has-text('Source Address')", { button: "right" });
     await page.click("#context-menu .item:has-text('Colorize with Filter')");
     await expectHostLast({ type: "colorize", filter: "ip.src == 192.168.1.10" });
-    await page.click("#list-rows .list-row >> nth=3", { button: "right" });
+    await rightClick(page.locator("#list-rows .list-row >> nth=3"));
     await page.click("#context-menu .item:has-text('Export Packet Bytes')");
     await expectHostLast({ type: "exportBytes", frame: 4 });
 
@@ -866,6 +877,9 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
 
   /** Open another capture in the viewer, as the host would after a reload. */
   async function reopenCapture(file, extra = {}, label = "Names: MAC", lua = "") {
+    // (init applies the filter box's text when it names no filter: a test that
+    // failed midway must not leave its filter to the next capture.)
+    await page.fill("#filter-input", "");
     const info = await client.request(
       "open",
       { path: path.join(ROOT, "test", "fixtures", file), columns: ["tcp.stream"], ...extra },
@@ -894,8 +908,31 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     );
   }
 
+  /**
+   * Right-click a packet-list row or cell, or a tree node, and wait for the menu.
+   * A row whose page is being fetched again is drawn as loading for a moment and
+   * opens no menu: then try again.
+   * @param {import("playwright-core").Locator} target
+   */
+  async function rightClick(target) {
+    for (let attempt = 1; ; attempt++) {
+      await target.click({ button: "right" });
+      try {
+        await page.waitForSelector("#context-menu:not(.hidden)", { timeout: 2000 });
+        return;
+      } catch (err) {
+        if (attempt === 5) {
+          throw err;
+        }
+      }
+    }
+  }
+
   async function cleanView() {
     await post({ type: "aiAvailable", available: false });
+    if (await page.isVisible("#context-menu")) {
+      await page.keyboard.press("Escape"); // a failed menu test must not block the rest
+    }
     for (const dialog of ["#shortcuts", "#builder"]) {
       if (await page.isVisible(dialog)) {
         await page.keyboard.press("Escape"); // a failed dialog test must not block the rest
@@ -1317,7 +1354,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     // The expert summary is recounted without it (frame 2 has no expert items: same text).
     await page.waitForSelector("#status-expert:not(.hidden)");
 
-    await rowEl(2).click({ button: "right" });
+    await rightClick(rowEl(2));
     await page.click("#context-menu .item:has-text('Unignore Packet')");
     await page.waitForFunction(() => !document.querySelector("#list-rows .list-row.ignored"));
     assert.doesNotMatch(await status(), /Ignored/);
@@ -1408,7 +1445,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await command("previousMark");
     await waitSelected(9);
 
-    await rowEl(9).click({ button: "right" });
+    await rightClick(rowEl(9));
     assert.ok(await page.isVisible("#context-menu .item:has-text('Unmark Packet')"));
     await page.keyboard.press("Escape");
     await command("unmarkAll");
@@ -1423,7 +1460,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     // A field deep in the IP tree: the preferences are the protocol's (its top level).
     const src = page.locator("#detail-tree .node-row:has-text('Source Address')").first();
     await src.waitFor();
-    await src.click({ button: "right" });
+    await rightClick(src);
     await page.click("#context-menu .item:has-text('Protocol Preferences: ip…')");
     await expectHostLast({ type: "protocolPrefs", protocol: "ip" }, { ofType: true });
   });
@@ -1533,7 +1570,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await waitSelected(4);
     const src = page.locator("#detail-tree .node-row:has-text('Source Address')").first();
     await src.waitFor();
-    await src.click({ button: "right" });
+    await rightClick(src);
     await page.click("#context-menu .item:has-text('Apply as Column')");
     await expectHostLast(
       {
@@ -1597,7 +1634,12 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
   test("cell menu: Apply / Prepare as Filter from a packet-list cell", async () => {
     await cleanView();
     const srcCell = rowEl(1).locator("div").nth(2); // Source of frame 1: 192.168.1.10
-    await srcCell.click({ button: "right" });
+    // (The columns as the last test left them, and the row loaded.)
+    await page.waitForFunction(() => {
+      const cells = document.querySelector("#list-rows .list-row:not(.loading)")?.children;
+      return cells?.[0]?.textContent === "1" && cells[2]?.textContent === "192.168.1.10";
+    });
+    await rightClick(srcCell);
     await page.click("#context-menu .item:text-is('Apply as Filter')");
     await page.waitForFunction(
       () => document.querySelector("#filter-input").value === "ip.src == 192.168.1.10",
@@ -1607,15 +1649,15 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     );
 
     // Displayed now: 1, 3, 4, 8, 9, 11; the third row is frame 4, Protocol "HTTP".
-    await page
-      .locator("#list-rows .list-row")
-      .nth(2)
-      .locator("div")
-      .nth(4)
-      .click({ button: "right" });
+    await page.waitForFunction(
+      () =>
+        document.querySelectorAll("#list-rows .list-row:not(.loading)")[2]?.children[0]
+          ?.textContent === "4",
+    );
+    await rightClick(rowEl(3).locator("div").nth(4));
     await page.click("#context-menu .item:text-is('Prepare as Filter')");
     assert.equal(await page.inputValue("#filter-input"), "http");
-    await rowEl(1).locator("div").nth(6).click({ button: "right" }); // Info: no filter
+    await rightClick(rowEl(1).locator("div").nth(6)); // Info: no filter
     assert.ok(
       await page.$eval("#context-menu .item:text-is('Apply as Filter')", (i) =>
         i.classList.contains("disabled"),
@@ -1716,7 +1758,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await waitSelected(8);
 
     // Right-click inside the selection keeps it; the menu acts on all of it.
-    await rowEl(4).click({ button: "right" });
+    await rightClick(rowEl(4));
     assert.deepEqual(await selectedNumbers(), [2, 4, 5, 8]);
     await page.click("#context-menu .item:has-text('Copy 4 Rows')");
     await waitForHost((m) => m.type === "copy" && m.text.startsWith("No.\t"));
@@ -1751,7 +1793,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await command("toggleMark"); // all marked: unmark them
     await page.waitForFunction(() => !document.querySelector("#list-rows .list-row.marked"));
 
-    await rowEl(2).click({ button: "right" });
+    await rightClick(rowEl(2));
     await page.click("#context-menu .item:has-text('Export 4 Selected Packets')");
     await waitForHost((m) => m.type === "exportSelected");
 
@@ -1831,7 +1873,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
 
   test("Ask Copilot About This Packet / N Selected Packets (only when AI help is available)", async () => {
     await cleanView(); // AI unavailable
-    await rowEl(4).click({ button: "right" });
+    await rightClick(rowEl(4));
     assert.ok(
       !(await page.isVisible("#context-menu .item:has-text('Ask Copilot')")),
       "hidden without a language model",
@@ -1839,7 +1881,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.keyboard.press("Escape");
 
     await post({ type: "aiAvailable", available: true });
-    await rowEl(4).click({ button: "right" });
+    await rightClick(rowEl(4));
     await page.click("#context-menu .item:text-is('Ask Copilot About This Packet…')");
     await waitForHost((m) => m.type === "askAboutPackets");
     await expectHostLast(
@@ -1852,7 +1894,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
 
     await rowEl(7).click({ modifiers: ["ControlOrMeta"] });
     await rowEl(2).click({ modifiers: ["ControlOrMeta"] });
-    await rowEl(7).click({ button: "right" }); // inside the selection: keeps it
+    await rightClick(rowEl(7)); // inside the selection: keeps it
     await page.click("#context-menu .item:text-is('Ask Copilot About 3 Selected Packets…')");
     await waitForHost((m) => m.type === "askAboutPackets" && m.frames.length === 3);
     assert.deepEqual(
@@ -2595,7 +2637,6 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
         );
         return cells.length > 0 && cells.every((c) => c === "DNS");
       });
-      assert.deepEqual([...new Set(await column("protocol"))], ["DNS"]);
       await page.click("#list-header > div[data-id='length']");
       await page.waitForFunction(() =>
         /Sorting is available when indexing finishes/.test(
@@ -2678,30 +2719,9 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       // cancels its passes and waits for them), then retry while a last tshark exits.
       await client.request("close", {}).catch(() => undefined);
       fs.rmSync(big, { force: true, maxRetries: 20, retryDelay: 250 });
+      // Back to the small capture for the other tests, also when this one failed.
+      await reopenCapture("http.pcap");
     }
-    // Back to the small capture for the other tests.
-    const info = await client.request(
-      "open",
-      { path: path.join(ROOT, "test", "fixtures", "http.pcap"), columns: ["tcp.stream"] },
-      { timeoutMs: 0 },
-    );
-    await post({
-      type: "init",
-      info,
-      columns: customCols,
-      layout,
-      timeFormat: "relative",
-      quickDetail: { after: 20000, window: 300 },
-      filter: "",
-      history: [],
-      savedFilters,
-      elapsedMs: 1,
-      names: "Names: MAC",
-    });
-    await page.fill("#filter-input", "");
-    await page.waitForFunction(
-      () => document.querySelectorAll("#list-rows .list-row:not(.loading)").length === 11,
-    );
   });
 
   test("Lua dissectors: the status link shows the capture's scripts and opens the picker", async () => {
@@ -2735,12 +2755,12 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
         !(await rowEl(12).locator("div").nth(2).getAttribute("title")),
         "an address: no tooltip",
       );
-      await source.click({ button: "right" });
+      await rightClick(source);
       await page.click("#context-menu .item:text-is('Prepare as Filter')");
       assert.equal(await page.inputValue("#filter-input"), "ip.src == 93.184.216.34");
       const broadcast = rowEl(1).locator("div").nth(3);
       assert.equal(await broadcast.textContent(), "Broadcast");
-      await broadcast.click({ button: "right" });
+      await rightClick(broadcast);
       await page.click("#context-menu .item:text-is('Prepare as Filter')");
       assert.equal(await page.inputValue("#filter-input"), "eth.dst == ff:ff:ff:ff:ff:ff");
     } finally {
@@ -2793,7 +2813,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       );
 
       // Add one from the row menu; Esc cancels, Apply adds.
-      await rowEl(1).click({ button: "right" });
+      await rightClick(rowEl(1));
       await page.click("#context-menu .item:text-is('Add Packet Comment…')");
       await page.waitForFunction(() => document.activeElement?.id === "comment-input");
       await page.keyboard.press("Escape");
@@ -2816,6 +2836,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
   });
 
   test("live capture: the status bar shows it, the list follows new packets, Stop", async () => {
+    await page.fill("#filter-input", ""); // (init would apply what the box holds)
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pcapviewer-e2e-capture-"));
     // Like PcapEditorSession: "index" and "capture" notifications go to the viewer.
     const stopIndex = client.onNotification("index", (p) =>

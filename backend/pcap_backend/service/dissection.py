@@ -76,7 +76,10 @@ class DissectionMixin(ServiceBase):
         base = self._file.tshark if self._file else self._require_tshark()
         if "lua" in params:
             options = DissectionOptions.from_params(
-                str_list(params, "lua"), base.options.decode_as, dict(base.options.prefs)
+                str_list(params, "lua"),
+                base.options.decode_as,
+                dict(base.options.prefs),
+                profile=base.options.profile,
             )
         else:
             options = base.options

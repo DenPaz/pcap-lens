@@ -22,7 +22,7 @@ from collections.abc import Generator, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import procs
+from . import procs, wsprofile
 from .cancellation import CancelledError, CancelToken
 from .sandbox import permission_hint
 
@@ -123,6 +123,8 @@ class DissectionOptions:
     # Name resolution as ``-N`` letters ("" = ``-n``); None leaves tshark's own
     # preferences (see name_flags).
     names: str | None = None
+    # A Wireshark configuration profile (``-C``; "" = the Default profile).
+    profile: str = ""
 
     @classmethod
     def from_params(
@@ -131,7 +133,10 @@ class DissectionOptions:
         decode_as: Sequence[str] = (),
         prefs: Mapping[str, object] | None = None,
         names: Mapping[str, object] | None = None,
+        profile: str = "",
     ) -> DissectionOptions:
+        if profile and not wsprofile.valid_name(profile):
+            raise ConfigError(f"invalid Wireshark profile name {profile!r}")
         for rule in decode_as:
             if not _DECODE_AS_RE.match(rule):
                 raise ConfigError(
@@ -146,15 +151,17 @@ class DissectionOptions:
                 raise ConfigError(f"preference {key!r} must be a single line")
             pref_items.append((key, text))
         flags = name_flags(names) if names is not None else None
-        return cls(tuple(lua), tuple(decode_as), tuple(sorted(pref_items)), flags)
+        return cls(tuple(lua), tuple(decode_as), tuple(sorted(pref_items)), flags, profile)
 
     @property
     def resolves_addresses(self) -> bool:
         """Source/Destination may show names instead of addresses."""
         return self.names is None or "m" in self.names or "n" in self.names
 
-    def args(self) -> list[str]:
-        out: list[str] = []
+    def args(self, profile: bool = True) -> list[str]:
+        """tshark's options for these settings (``profile=False``: without
+        ``-C``, for a pass whose configuration folder holds the profile's files)."""
+        out: list[str] = ["-C", self.profile] if self.profile and profile else []
         if self.names is not None:
             out += ["-N", self.names] if self.names else ["-n"]
         for script in self.lua_scripts:
@@ -539,6 +546,17 @@ class Tshark:
             with _FOLDERS_LOCK:
                 _FOLDERS[self.path] = cached
         return cached
+
+    def profile_config(self, token: CancelToken | None = None) -> tuple[str, Path] | None:
+        """The Wireshark profile in use (``-C``) and its folder, or None."""
+        name = self.options.profile
+        if not name:
+            return None
+        personal, global_ = wsprofile.config_folders(self.folders(token))
+        folder = wsprofile.profile_dir(personal, global_, name)
+        if folder is None:
+            raise ConfigError(f'Wireshark profile "{name}" does not exist')
+        return name, folder
 
     def error(self, stderr: str, returncode: int | None, default: str) -> ToolError:
         """A ToolError for a failed run, explaining sandbox permission problems."""
