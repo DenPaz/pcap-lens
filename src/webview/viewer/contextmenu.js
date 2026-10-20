@@ -273,6 +273,12 @@ export function showTreeMenu(entry, x, y) {
           () => vscode.postMessage({ type: "protocolPrefs", protocol: prefsProtocol }),
         ]
       : ["Protocol Preferences…", null],
+    prefsProtocol && prefsProtocol !== "frame"
+      ? [
+          `Disable Protocol: ${prefsProtocol}`,
+          () => vscode.postMessage({ type: "disableProtocol", protocol: prefsProtocol }),
+        ]
+      : ["Disable Protocol", null],
     ...(frameLinkTarget(node) !== null
       ? /** @type {[string, (() => void) | null][]} */ ([
           [

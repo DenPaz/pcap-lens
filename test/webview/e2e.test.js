@@ -188,6 +188,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
           "follow",
           "decodeAs",
           "protocolPrefs",
+          "disableProtocol",
           "colorize",
           "exportBytes",
           "showPacketBytes",
@@ -1463,6 +1464,17 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await rightClick(src);
     await page.click("#context-menu .item:has-text('Protocol Preferences: ip…')");
     await expectHostLast({ type: "protocolPrefs", protocol: "ip" }, { ofType: true });
+  });
+
+  test("detail tree: Disable Protocol of the node's protocol", async () => {
+    await cleanView();
+    await rowEl(4).click();
+    await waitSelected(4);
+    const src = page.locator("#detail-tree .node-row:has-text('Source Address')").first();
+    await src.waitFor();
+    await rightClick(src);
+    await page.click("#context-menu .item:has-text('Disable Protocol: ip')");
+    await expectHostLast({ type: "disableProtocol", protocol: "ip" }, { ofType: true });
   });
 
   test("expert information in the status bar opens the Expert Information panel", async () => {

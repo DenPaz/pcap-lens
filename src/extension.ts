@@ -7,7 +7,9 @@ import { registerPluginCommands } from "./commands/plugins";
 import { registerProfileCommands } from "./commands/profiles";
 import { registerFirewallCommands } from "./commands/firewall";
 import { consumePrefsChange, registerPrefsCommands } from "./commands/prefs";
+import { registerProtocolCommands } from "./commands/protocols";
 import { samePrefs } from "./prefsModel";
+import { sameSwitches } from "./protocolsModel";
 import { registerColoringCommands } from "./commands/coloring";
 import { registerColumnCommands } from "./commands/columns";
 import { registerDissectorCommands } from "./commands/dissectors";
@@ -42,6 +44,7 @@ import { sameNameResolution } from "./settingsModel";
 let provider: PcapEditorProvider | undefined;
 let namesTimer: ReturnType<typeof setTimeout> | undefined;
 let prefsTimer: ReturnType<typeof setTimeout> | undefined;
+let switchesTimer: ReturnType<typeof setTimeout> | undefined;
 
 export interface PcapViewerApi {
   /** Exposed for integration tests. */
@@ -82,6 +85,7 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
   registerProfileCommands(context, p, log);
   registerFirewallCommands(context, p);
   registerPrefsCommands(context, p, log);
+  registerProtocolCommands(context, p, log);
   registerSetupCommands(context, log);
   const recent = registerRecentCaptures(context);
   // Unsaved captures left behind (a crash, or a restored editor long closed).
@@ -156,6 +160,25 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
             .filter((s) => readSettings(s.uri).wiresharkProfile !== s.wiresharkProfile)
             .map((s) => s.load("Wireshark profile changed")),
         );
+      }
+      if (
+        e.affectsConfiguration(`${SECTION}.enabledProtocols`) ||
+        e.affectsConfiguration(`${SECTION}.heuristicDissectors`)
+      ) {
+        // PCAP: Enabled Protocols… (both keys, one after the other) or Disable
+        // Protocol: reload the captures whose switches changed.
+        clearTimeout(switchesTimer);
+        switchesTimer = setTimeout(() => {
+          for (const s of p.allSessions) {
+            const settings = readSettings(s.uri);
+            if (
+              !sameSwitches(settings.protocols, s.protocols) ||
+              !sameSwitches(settings.heuristics, s.heuristics)
+            ) {
+              void s.load("enabled protocols changed");
+            }
+          }
+        }, 300);
       }
       if (e.affectsConfiguration(`${SECTION}.tlsKeyLogFile`)) {
         // Usually PCAP: Set TLS Key Log File…: reload the captures whose key log changed.

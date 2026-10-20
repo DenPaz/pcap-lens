@@ -25,6 +25,7 @@ import {
 } from "./settingsModel";
 import { luaChoiceFor } from "./luaChoice";
 import { normalizeProfileName } from "./wiresharkProfile";
+import { Switches, normalizeSwitches } from "./protocolsModel";
 
 export const SECTION = "pcapViewer";
 
@@ -58,6 +59,10 @@ export interface Settings {
   nameResolution: NameResolution;
   /** `pcapViewer.wiresharkProfile`: the Wireshark profile tshark uses (`-C`; "" = Default). */
   wiresharkProfile: string;
+  /** `pcapViewer.enabledProtocols`: protocols switched on or off here (filter name → on). */
+  protocols: Switches;
+  /** `pcapViewer.heuristicDissectors`: heuristic dissectors switched here (short name → on). */
+  heuristics: Switches;
 }
 
 export function readColoringStyle(scope?: vscode.Uri): ColoringStyle {
@@ -120,6 +125,8 @@ export function readSettings(scope?: vscode.Uri): Settings {
       : 0,
     nameResolution: normalizeNameResolution((key) => cfg.get<unknown>(`nameResolution.${key}`)),
     wiresharkProfile: normalizeProfileName(cfg.get<unknown>("wiresharkProfile", "")),
+    protocols: normalizeSwitches(cfg.get<unknown>("enabledProtocols", {})),
+    heuristics: normalizeSwitches(cfg.get<unknown>("heuristicDissectors", {})),
   };
 }
 

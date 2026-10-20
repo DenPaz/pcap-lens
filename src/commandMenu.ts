@@ -49,6 +49,7 @@ export const EXCLUDED_COMMANDS: Readonly<Record<string, string>> = {
   "pcapViewer.recentCaptures.reveal": "acts on an entry of the Recent Captures view",
   "pcapViewer.recentCaptures.copyPath": "acts on an entry of the Recent Captures view",
   "pcapViewer.recentCaptures.refresh": "the Recent Captures view's own button",
+  "pcapViewer.disableProtocol": "acts on a protocol of the packet details (their context menu)",
 };
 
 /** Which heading each command goes under (see COMMAND_GROUPS). */
@@ -122,6 +123,7 @@ const GROUP_OF: Readonly<Record<string, CommandGroup>> = {
   "pcapViewer.decodeAs": "Dissectors",
   "pcapViewer.manageDecodeAs": "Dissectors",
   "pcapViewer.protocolPreferences": "Dissectors",
+  "pcapViewer.enabledProtocols": "Dissectors",
   "pcapViewer.setTlsKeyLogFile": "Dissectors",
   "pcapViewer.showPlugins": "Dissectors",
   "pcapViewer.wiresharkProfile": "Dissectors",

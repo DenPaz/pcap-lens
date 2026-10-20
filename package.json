@@ -523,6 +523,16 @@
         "category": "PCAP"
       },
       {
+        "command": "pcapViewer.enabledProtocols",
+        "title": "Enabled Protocols…",
+        "category": "PCAP"
+      },
+      {
+        "command": "pcapViewer.disableProtocol",
+        "title": "Disable Protocol",
+        "category": "PCAP"
+      },
+      {
         "command": "pcapViewer.manageColumns",
         "title": "Manage Custom Columns",
         "category": "PCAP"
@@ -738,6 +748,10 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "pcapViewer.disableProtocol",
+          "when": "false"
+        },
         {
           "command": "pcapViewer.recentCaptures.remove",
           "when": "false"
@@ -1271,6 +1285,24 @@
           "scope": "resource",
           "default": "",
           "markdownDescription": "Wireshark configuration profile tshark uses (`-C`): its preferences, Decode As rules, display filter macros and disabled protocols. Empty uses your Default profile. Choose one with **PCAP: Use Wireshark Profile…**; changing it reloads the captures it applies to. Coloring rules, filter buttons, saved filters and columns are PCAP Lens settings: **PCAP: Import from Wireshark Profile…** copies them."
+        },
+        "pcapViewer.enabledProtocols": {
+          "type": "object",
+          "scope": "resource",
+          "default": {},
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "markdownDescription": "Protocols switched on (`true`) or off (`false`) for these captures, by filter name (e.g. `{\"http\": false}`), whatever your Wireshark settings say (tshark's `--enable-protocol` / `--disable-protocol`). Edit them with **PCAP: Enabled Protocols…** or a protocol's **Disable Protocol** in the packet details; changing them reloads the captures they apply to."
+        },
+        "pcapViewer.heuristicDissectors": {
+          "type": "object",
+          "scope": "resource",
+          "default": {},
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "markdownDescription": "Heuristic dissectors switched on (`true`) or off (`false`) for these captures, by short name (e.g. `{\"rtp_udp\": true}` finds RTP on any UDP port), whatever your Wireshark settings say (tshark's `--enable-heuristic` / `--disable-heuristic`). Edit them with **PCAP: Enabled Protocols…**; changing them reloads the captures they apply to."
         },
         "pcapViewer.tlsKeyLogFile": {
           "type": "string",

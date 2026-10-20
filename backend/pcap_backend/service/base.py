@@ -24,6 +24,7 @@ from pcap_backend.protocol import (
     NotOpenError,
     RequestContext,
 )
+from pcap_backend.protocols import ProtocolList
 from pcap_backend.tshark import EMPTY_CAPTURE, Tshark
 
 from .state import MAX_FILTER_ARG, _Indexing, _Open, _View
@@ -86,6 +87,8 @@ class ServiceBase:
         self._dissector_names: LruCache[tuple[str, tuple[str, ...]], list[dict[str, str]]] = (
             LruCache(2)
         )
+        # The protocols and heuristic dissectors tshark can switch, by (tshark, Lua scripts).
+        self._protocol_lists: LruCache[tuple[str, tuple[str, ...]], ProtocolList] = LruCache(2)
         # Coloring: rule index + 1 per frame (0 = no rule), from the latest set_coloring.
         self._colors: array[int] | None = None
         self._coloring_id = 0
@@ -193,6 +196,18 @@ class ServiceBase:
             if self._tshark is None:
                 self._tshark = Tshark.locate()
             return self._tshark
+
+    def _protocol_list(self, tshark: Tshark, token: CancelToken) -> ProtocolList:
+        """The protocols and heuristic dissectors this tshark (with these Lua
+        scripts) knows, cached."""
+        key = (str(tshark.path), tuple(tshark.options.lua_scripts))
+        found = self._protocol_lists.get(key)
+        if found is None:
+            found = ProtocolList.parse(
+                tshark.glossary("protocols", token), tshark.glossary("heuristic-decodes", token)
+            )
+            self._protocol_lists.put(key, found)
+        return found
 
     def _ignore_filter(self) -> str:
         """The display filter that leaves the ignored packets out (``""`` when
