@@ -2026,3 +2026,5 @@ Rules: 0.15.0.
 Then Enabled Protocols, decryption keys beyond TLS (Wi-Fi, RSA, SSH,
 WireGuard, ESP, Kerberos), GeoIP with an Endpoints map, and IPv4/IPv6,
 multicast, resolved-address and SCTP statistics: 0.16.0.
+Then Export PDUs to File, Show Packet in New Window and the capture's
+file format view: 0.17.0.

@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.17.0 — 2026-10-21
+
 ### Added
 
 - _Export PDUs to File…_: the PDUs one of tshark's export taps collects
