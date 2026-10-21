@@ -170,6 +170,7 @@ suite("PCAP Lens smoke test", () => {
       "pcapViewer.fileFormat",
       "pcapViewer.exportPdus",
       "pcapViewer.captureToFiles",
+      "pcapViewer.captureReport",
       "pcapViewer.exportMarked",
       "pcapViewer.exportSelected",
       "pcapViewer.selectAll",
@@ -838,6 +839,21 @@ suite("PCAP Lens smoke test", () => {
         () => PacketPanel.all.find((p) => p.session === session && p.view.kind === "file")?.current,
       );
       assert.equal(file.title, "PCAP File Format");
+
+      // Capture Report: a self-contained HTML page with the packet list.
+      session.reveal();
+      const reportDir = fs.mkdtempSync(path.join(os.tmpdir(), "pcap-report-"));
+      const dest = path.join(reportDir, "voip-report.html");
+      const written = await vscode.commands.executeCommand<string | undefined>(
+        "pcapViewer.captureReport",
+        { format: "html", packets: true, dest },
+      );
+      assert.equal(written, dest);
+      const report = fs.readFileSync(dest, "utf8");
+      assert.match(report, /<h1>Capture report: voip\.pcap<\/h1>/);
+      assert.match(report, /<h2>Protocol hierarchy<\/h2>/);
+      assert.match(report, /All 110 packets/);
+      removeDir(reportDir);
 
       session.reveal();
       const res = await vscode.commands.executeCommand<{ pdus: number; path: string } | undefined>(

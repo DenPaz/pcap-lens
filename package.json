@@ -603,6 +603,11 @@
         "category": "PCAP"
       },
       {
+        "command": "pcapViewer.captureReport",
+        "title": "Capture Report…",
+        "category": "PCAP"
+      },
+      {
         "command": "pcapViewer.openFile",
         "title": "Open File in PCAP Lens…",
         "category": "PCAP",
@@ -957,6 +962,10 @@
         },
         {
           "command": "pcapViewer.exportPdus",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
+        },
+        {
+          "command": "pcapViewer.captureReport",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
         },
         {
