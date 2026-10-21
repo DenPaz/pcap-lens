@@ -192,11 +192,11 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   (`scripts/sync-codicons.mjs`). CSS: `base.css` (tokens and controls, loaded
   by the editor and the panels), `styles.css` (the viewer), `panel.css`.
 - `src/panels/` statistics, follow-stream, coloring-rules, export-objects,
-  flow-graph, TCP-graph, VoIP, compare-packets and packet-bytes webview
+  flow-graph, TCP-graph, VoIP, compare-packets, packet-bytes and packet window webview
   panels (`panelHtml.ts` builds their CSP'd HTML); their UIs are
   `src/webview/stats.js`, `follow.js`, `coloring.js`, `objects.js`,
-  `flowgraph.js`, `tcpgraph.js`, `voip.js`, `compare.js` and `bytes.js` with
-  `panel.css`.
+  `flowgraph.js`, `tcpgraph.js`, `voip.js`, `compare.js`, `bytes.js` and
+  `packet.js` with `panel.css`.
 - `backend/pcap_backend/` Python package run as `python -m pcap_backend`
   with `PYTHONPATH=backend`. `server.py` (JSON-RPC), `pcap_service.py`
   (`PcapService`, assembled from the `service/` mixins, `rpc_methods`, and
@@ -978,6 +978,36 @@ plugins` (never cached, so a plugin just installed shows up) through
   can't run scripts there). Start/end bytes cut what is shown and saved;
   Save as… writes the text shown, Save Raw… the decoded bytes (base64 to
   the host), Copy the text.
+- **Packet window and file format** (`panels/packetPanel.ts`, `packet.js`,
+  `lib.hexRowParts`): one panel per (editor, packet) or (editor, "file"),
+  a flat ARIA tree (levels, posinset/setsize, arrows, Home/End, Enter =
+  Apply as Filter, Expand/Collapse all) over a hex dump of the sources (a
+  tablist when there are several), the selected field's bytes in `<mark>`s;
+  Apply/Prepare as Filter (`lib.buildFieldFilter`), Copy Value, Go to
+  Packet. _Show Packet in New Window_ (row menu `packetWindow`, command
+  with a frame) shows `packet_detail` with `session.detailParams` (two-pass
+  for small captures). _Show File Format_ is `file_format` (`service/
+detail.py`): `tshark -X "read_format:MIME Files Format" -r <capture> -T
+pdml` (and `-x`) reads the whole file as one record whose tree is "PCAP
+  File Format" (Header, Packet N) or "PCAPNG File Format" (one node per
+  block with its options); the wrapper protocols (`geninfo`, `frame`,
+  `mime_dlt`) are dropped. Files over `FILE_FORMAT_LIMIT` (256 KiB) show
+  their start (a truncated copy in the work dir; `truncated` and a note),
+  compressed ones that big are refused (a cut gzip isn't readable).
+  Cached on the `_Open`. The file view opens only its first node.
+- **Export PDUs** (`export_pdu_taps`, `export_pdus {tap, filter, dest}`,
+  `commands/exportPdus.ts`): `tshark -U <tap>` (the taps: tshark lists
+  them on stderr for an unknown name, `-U ""`, but only with `-r` and `-w`
+  given (Windows CI's tshark refused `-U ?` alone: "PDUs export requires a
+  capture file"); `parse_pdu_taps`, cached per tshark) `-F pcapng -w <tmp>` with
+  `-P -T fields -e frame.number` for progress, `-Y` the scope (the view's
+  filter by default, validated, minus the ignored packets) through
+  `atomic_output`; zero PDUs is an InvalidParamsError with `data.empty` and
+  no file. "OSI layer 4" = transport payloads with addresses and ports,
+  "OSI layer 7" = what dissectors export (SIP…), "IP", "Ethernet"… The
+  host asks the tap (last choice first) and Displayed/All when filtered,
+  then opens the result as an unsaved capture (`<name>-pdus.pcapng`).
+  `{tap, filter}` skip the questions (smoke test).
 - **Wireshark's tools**: _Credentials_ (`stats {kind: "credentials"}`,
   `stats.parse_credentials`, the stats panel with Go to Packet): tshark's
   `-z credentials` report is fixed-width (the header's column starts cut
@@ -1996,3 +2026,5 @@ Rules: 0.15.0.
 Then Enabled Protocols, decryption keys beyond TLS (Wi-Fi, RSA, SSH,
 WireGuard, ESP, Kerberos), GeoIP with an Endpoints map, and IPv4/IPv6,
 multicast, resolved-address and SCTP statistics: 0.16.0.
+Then Export PDUs to File, Show Packet in New Window and the capture's
+file format view: 0.17.0.

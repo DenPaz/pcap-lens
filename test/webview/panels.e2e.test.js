@@ -1670,6 +1670,63 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     await page.selectOption("select[aria-label='Show as']", "hexdump");
   });
 
+  test("packet window: tree over bytes, field highlight, keyboard, filters", async () => {
+    const { page, log, post } = await openGraphPanel("packet.js", async (msg, reply) => {
+      // A stand-in for PacketPanel (src/panels/packetPanel.ts).
+      if (msg.type === "ready") {
+        const d = await client.request("packet_detail", { number: 4 }, { timeoutMs: 0 });
+        await reply({ type: "show", title: "Packet 4", frame: 4, ...d });
+      }
+    });
+    await page.waitForSelector(".packet-node");
+    assert.equal(await page.textContent(".panel-title"), "Packet 4");
+    // Top-level protocols start open; the first is selected and takes Tab.
+    const top = await page.$$eval(".packet-node[aria-level='1']", (els) =>
+      els.map((e) => [e.textContent, e.getAttribute("aria-expanded")]),
+    );
+    assert.ok(top.length >= 4 && top.every(([, open]) => open === "true"), String(top));
+    assert.equal(await page.getAttribute(".packet-node.selected", "tabindex"), "0");
+    // Pick the DNS query name: its bytes are highlighted, filters are offered.
+    await page.click("button[aria-label='Expand all']");
+    await page.click(".packet-node:text-is('Name: example.com')");
+    assert.equal(await page.getAttribute(".packet-node.selected", "aria-level"), "4");
+    const marked = await page.$$eval(".packet-hex .hex-ascii mark", (els) =>
+      els.map((e) => e.textContent).join(""),
+    );
+    assert.equal(marked, ".example.com.");
+    await page.click("button:has-text('Apply as Filter')");
+    await expectLast(log, { type: "filter", expr: 'dns.qry.name == "example.com"', apply: true });
+    await page.click("button:has-text('Copy Value')");
+    await expectLast(log, { type: "copy", text: "example.com" });
+    // Arrow keys: Left goes to the parent (and closes it), Right opens and enters.
+    await page.focus(".packet-node.selected");
+    await page.keyboard.press("ArrowLeft");
+    assert.match(await page.textContent(".packet-node.selected"), /^example\.com: type A/);
+    await page.keyboard.press("ArrowLeft");
+    assert.equal(await page.getAttribute(".packet-node.selected", "aria-expanded"), "false");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("ArrowRight");
+    assert.match(await page.textContent(".packet-node.selected"), /^Name: example\.com$/);
+    // Collapse all leaves the top level.
+    await page.click("button[aria-label='Collapse all']");
+    assert.equal(await page.locator(".packet-node").count(), top.length);
+    await page.click("button:has-text('Go to Packet')");
+    await expectLast(log, { type: "goto", frame: 4 });
+
+    // The file view: the file's own tree (only its first node open), no frame.
+    const file = await client.request("file_format", {}, { timeoutMs: 0 });
+    await post({ type: "show", title: file.format, ...file, expand: false });
+    await page.waitForFunction(
+      () => document.querySelector(".panel-title")?.textContent === "PCAPNG File Format",
+    );
+    assert.ok(await page.isHidden("button:has-text('Go to Packet')"));
+    assert.match(
+      await page.textContent(".packet-node[aria-level='2']"),
+      /^Block 1: Section Header Block/,
+    );
+    assert.match(await page.textContent(".hex-row .hex-bytes"), /^0a 0d 0d 0a/);
+  });
+
   test("accessibility: no WCAG A/AA violations in any panel (axe-core)", async () => {
     // Each panel as its test left it (tables filled, graphs drawn, a call selected…).
     const found = [];

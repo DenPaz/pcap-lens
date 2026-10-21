@@ -16,6 +16,7 @@ import { registerColoringCommands } from "./commands/coloring";
 import { registerColumnCommands } from "./commands/columns";
 import { registerDissectorCommands } from "./commands/dissectors";
 import { registerExportCommands } from "./commands/export";
+import { registerExportPdusCommand } from "./commands/exportPdus";
 import { registerNavigationCommands } from "./commands/navigation";
 import { registerFilterCommands } from "./commands/filter";
 import { registerSavedFilterCommands } from "./commands/savedFilters";
@@ -73,6 +74,7 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
   registerAnalysisCommands(context, p);
   registerDissectorCommands(context, p, log);
   registerExportCommands(context, p);
+  registerExportPdusCommand(context, p, log);
   registerNavigationCommands(context, p);
   registerColoringCommands(context, p);
   registerAiCommands(context, p, log);

@@ -12,6 +12,7 @@ import type { PcapViewerApi } from "../../../src/extension";
 import { FlowGraphPanel } from "../../../src/panels/flowGraphPanel";
 import { FOLLOW_COMMANDS, FollowPanel } from "../../../src/panels/followPanel";
 import { ObjectsPanel } from "../../../src/panels/objectsPanel";
+import { PacketPanel } from "../../../src/panels/packetPanel";
 import { StatsPanel } from "../../../src/panels/statsPanel";
 import { TcpGraphPanel } from "../../../src/panels/tcpGraphPanel";
 import { ComparePanel } from "../../../src/panels/comparePanel";
@@ -165,6 +166,9 @@ suite("PCAP Lens smoke test", () => {
       "pcapViewer.toggleIgnore",
       "pcapViewer.unignoreAll",
       "pcapViewer.comparePackets",
+      "pcapViewer.showPacketInNewWindow",
+      "pcapViewer.fileFormat",
+      "pcapViewer.exportPdus",
       "pcapViewer.exportMarked",
       "pcapViewer.exportSelected",
       "pcapViewer.selectAll",
@@ -808,6 +812,48 @@ suite("PCAP Lens smoke test", () => {
       await vscode.commands.executeCommand("workbench.action.closeAllEditors");
       await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
       removeDir(dir);
+    }
+  });
+
+  test("packet window, file format and Export PDUs (SIP messages as a new capture)", async () => {
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    const api = (await ext!.activate()) as PcapViewerApi;
+    const uri = vscode.Uri.file(path.join(FIXTURES, "voip.pcap"));
+    await vscode.commands.executeCommand("vscode.openWith", uri, "pcapViewer.editor");
+    try {
+      const session = await waitFor(() =>
+        api.provider.allSessions.find((s) => s.uri.fsPath === uri.fsPath && indexed(s)),
+      );
+      await vscode.commands.executeCommand("pcapViewer.showPacketInNewWindow", 1);
+      const shown = await waitFor(
+        () =>
+          PacketPanel.all.find((p) => p.session === session && p.view.kind === "packet")?.current,
+      );
+      assert.equal(shown.title, "Packet 1");
+      assert.ok(shown.tree.length > 0);
+      session.reveal();
+      await vscode.commands.executeCommand("pcapViewer.fileFormat");
+      const file = await waitFor(
+        () => PacketPanel.all.find((p) => p.session === session && p.view.kind === "file")?.current,
+      );
+      assert.equal(file.title, "PCAP File Format");
+
+      session.reveal();
+      const res = await vscode.commands.executeCommand<{ pdus: number; path: string } | undefined>(
+        "pcapViewer.exportPdus",
+        { tap: "OSI layer 7", filter: "" },
+      );
+      assert.equal(res?.pdus, 11);
+      assert.equal(path.basename(res.path), "voip-pdus.pcapng");
+      const pdus = await waitFor(() =>
+        api.provider.allSessions.find((s) => s.uri.fsPath === res.path && indexed(s)),
+      );
+      assert.ok(pdus.document.temporary, "the PDUs are an unsaved capture");
+      assert.equal(pdus.openInfo?.frames, 11);
+      await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
+    } finally {
+      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+      await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
     }
   });
 

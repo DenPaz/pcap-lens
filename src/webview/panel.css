@@ -210,6 +210,82 @@ table.stats td.wrap {
   stroke-width: 0.5;
 }
 
+/* ------------------------------------------------------------------ packet window */
+
+/* Show Packet in New Window and the File Format view (packet.js): a tree over a hex dump. */
+.packet-tree {
+  max-height: 55vh;
+  overflow: auto;
+  margin-bottom: var(--space-3);
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: var(--mono-size);
+  outline: none;
+}
+
+.packet-node {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--row-height);
+  padding-left: calc(var(--depth, 0) * 14px + var(--space-1));
+  white-space: pre;
+  cursor: default;
+}
+
+.packet-node .twistie {
+  display: inline-block;
+  width: 16px;
+}
+
+.packet-node:hover {
+  background-color: var(--vscode-list-hoverBackground);
+}
+
+.packet-node.selected {
+  background-color: var(--vscode-list-inactiveSelectionBackground);
+}
+
+.packet-node.selected:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+  color: var(--vscode-list-activeSelectionForeground);
+  background-color: var(--vscode-list-activeSelectionBackground);
+}
+
+.packet-sources {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.packet-sources [aria-selected="true"] {
+  font-weight: 600;
+}
+
+.packet-hex {
+  max-height: 40vh;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: var(--mono-size);
+  white-space: pre;
+}
+
+.packet-hex .hex-offset {
+  color: var(--vscode-descriptionForeground);
+  margin-right: var(--space-4);
+}
+
+.packet-hex .hex-ascii {
+  margin-left: var(--space-4);
+}
+
+/* (Like the viewer's bytes pane; the fallback is Light Modern's selection, for themeless tests.) */
+.packet-hex mark {
+  color: var(--vscode-editor-selectionForeground, inherit);
+  background-color: var(--vscode-editor-selectionBackground, #add6ff);
+}
+
 /* The IO graph's series colors, in order (the theme's chart colors). */
 .s0 {
   --series: var(--vscode-charts-blue, #3794ff);
@@ -877,4 +953,13 @@ th > .codicon {
 :is(.vscode-high-contrast, .vscode-high-contrast-light) .geo-map .geo-point.selected {
   stroke: var(--hc-active);
   stroke-width: 0.8;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) .packet-node.selected {
+  outline: 1px solid var(--hc-active);
+  outline-offset: -1px;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) .packet-hex mark {
+  outline: 1px solid var(--hc-active);
 }

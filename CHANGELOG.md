@@ -7,6 +7,20 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.17.0 — 2026-10-21
+
+### Added
+
+- _Export PDUs to File…_: the PDUs one of tshark's export taps collects
+  (transport payloads, SIP messages, IP packets…) from the displayed or all
+  packets, as a new capture. [b9403be]
+- _Show Packet in New Window_ (packet list menu) keeps a packet's details and
+  bytes in a panel of their own, and _Show File Format_ shows the capture
+  file's own headers, records and pcapng blocks over its bytes. [09312e5]
+
+[b9403be]: https://github.com/DenPaz/vsc_pcap_viewer/commit/b9403be
+[09312e5]: https://github.com/DenPaz/vsc_pcap_viewer/commit/09312e5
+
 ## 0.16.0 — 2026-10-20
 
 ### Added

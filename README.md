@@ -87,6 +87,11 @@ registered under its name in lower case).
   shown as text (ASCII, UTF-8, UTF-16, ISO 8859-1, EBCDIC), a hex dump, a C
   or Rust array, YAML or an image, from any start to end byte; search it,
   copy it, save it as shown or raw.
+- **Show Packet in New Window** (right-click a packet): its details and
+  bytes in a panel of their own that stays while you select other packets.
+- **File format view** (_PCAP: Show File Format_): the capture file itself,
+  as Wireshark's _Reload as File Format_ shows it: the pcap header and
+  records, or every pcapng block and option, over the file's bytes.
 
   ![The packet list, protocol tree and bytes of an HTTP response reassembled from two TCP segments](media/screenshots/viewer.png)
 
@@ -235,6 +240,9 @@ filter, and its rows apply or prepare the matching display filter.
   denying or allowing, to copy.
 - **Export Objects**: files carried over HTTP, SMB, TFTP, IMF, DICOM and
   FTP-DATA.
+- **Export PDUs to File**: what one of tshark's export taps collects (each
+  packet's transport payload, the SIP or Diameter messages, the IP
+  packets…) from the displayed or all packets, as a new capture.
 - **Merge captures**, with an offer to merge a rotated capture's pieces.
 - **Import from Hex Dump** (text2pcap) from the editor, the clipboard or a file.
 

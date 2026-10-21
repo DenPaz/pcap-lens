@@ -878,6 +878,11 @@ export class PcapEditorSession {
           frames: Array.isArray(msg.frames) ? msg.frames.slice(0, 2) : [],
         });
         return;
+      case "packetWindow":
+        if (Number.isInteger(msg.frame) && msg.frame > 0) {
+          await vscode.commands.executeCommand("pcapViewer.showPacketInNewWindow", msg.frame);
+        }
+        return;
       case "protocolPrefs":
         await vscode.commands.executeCommand("pcapViewer.protocolPreferences", {
           protocol: msg.protocol,

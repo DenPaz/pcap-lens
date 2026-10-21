@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import re
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
 
-from pcap_backend import navigation
+from pcap_backend import comments, navigation
 from pcap_backend.cache import FrameIndex
 from pcap_backend.export import (
     CAPTURE_FORMATS,
@@ -20,6 +22,7 @@ from pcap_backend.export import (
 )
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, param, str_list
 from pcap_backend.tshark import (
+    EMPTY_CAPTURE,
     StreamResult,
     ToolError,
     ToolNotFoundError,
@@ -34,6 +37,18 @@ from .packets import PacketsMixin
 from .state import _TRUNCATION_HINTS, BASE_COLUMNS, MAX_FILTER_ARG, PROGRESS_INTERVAL_S, _Open
 
 EXPORT_CHUNK = 5000
+# A line of tshark's export tap list: "    OSI layer 4 - Wireshark Upper PDU export".
+_PDU_TAP_RE = re.compile(r"^\s+(?P<name>\S.*?)\s+-\s+(?P<encap>\S.*)$")
+
+
+def parse_pdu_taps(text: str) -> list[dict[str, str]]:
+    """The export taps of ``tshark -U ?`` (name and the link type they write)."""
+    taps: list[dict[str, str]] = []
+    for line in text.split("\n"):
+        m = _PDU_TAP_RE.match(line.rstrip("\r"))
+        if m:
+            taps.append({"name": m["name"], "encapsulation": m["encap"]})
+    return taps
 
 
 class ExportMixin(DetailMixin, PacketsMixin):
@@ -69,6 +84,85 @@ class ExportMixin(DetailMixin, PacketsMixin):
                     {"empty": True},
                 )
         return {"sessions": sessions, "path": str(dest)}
+
+    def export_pdu_taps(self, _params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """The taps Export PDUs can use (tshark lists them on stderr for an
+        unknown ``-U`` name, each with the link type its capture gets):
+        ``{taps: [{name, encapsulation}]}``, cached per tshark. Needs no open
+        capture."""
+        tshark = self._file.tshark if self._file else self._require_tshark()
+        key = str(tshark.path)
+        taps = self._pdu_taps.get(key)
+        if taps is None:
+            # tshark lists them for an unknown tap name, but only once the rest
+            # of an export is there (Windows' 4.6 checks -r and -w first), so
+            # it gets both; nothing is written. (Read stdout too, in case.)
+            with tempfile.TemporaryDirectory(prefix="pcap-taps-") as tmp:
+                argv = [str(tshark.path), "-r", str(EMPTY_CAPTURE.get())]
+                res = run([*argv, "-w", str(Path(tmp) / "none.pcapng"), "-U", ""], ctx.token)
+            out = res.stdout.decode("utf-8", "replace")
+            text = f"{res.stderr}\n{out}"
+            taps = parse_pdu_taps(text)
+            if not taps:
+                raise tshark.error(text.strip(), res.returncode, "tshark lists no export taps")
+            self._pdu_taps.put(key, taps)
+        return {"taps": taps}
+
+    def export_pdus(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """Export PDUs to File: the PDUs export tap ``tap`` (``export_pdu_taps``)
+        collects from the packets matching ``filter`` (default: the current
+        display filter; ``""`` = all; never the ignored ones), as a pcapng at
+        ``dest`` (``tshark -U``): e.g. "OSI layer 4" keeps each packet's
+        transport payload with its addresses and ports, "OSI layer 7" the
+        application messages some dissectors (SIP, Diameter…) export.
+        Returns ``{pdus, frames, filter}``; no PDU at all is an
+        InvalidParamsError with ``data.empty`` and writes nothing."""
+        f = self._require_file()
+        self._require_indexed()
+        dest = check_destination(param(params, "dest", str), f.path)
+        tap = param(params, "tap", str)
+        names = {t["name"] for t in self.export_pdu_taps({}, ctx)["taps"]}
+        if tap not in names:
+            raise InvalidParamsError(f"unknown export tap {tap!r}")
+        if "filter" in params:
+            flt = param(params, "filter", str, "").strip()
+        else:
+            flt = self._require_view()[1].expr
+        if flt:
+            error = f.tshark.validate_filter(flt, ctx.token)
+            if error:
+                raise FilterError(error, {"expr": flt})
+        counted = self._without_ignored(flt)
+        frames = 0
+        with atomic_output(dest) as tmp:
+            # -P prints each dissected packet's number: that is our progress.
+            argv = f.tshark.argv(
+                *(["-Y", counted] if counted else []),
+                "-U", tap, "-F", "pcapng", "-w", str(tmp),
+                "-P", "-T", "fields", "-e", "frame.number",
+                capture=str(f.path),
+            )  # fmt: skip
+            result = StreamResult()
+            total = max(1, f.info.frames)
+            last_emit = 0.0
+            ctx.progress({"phase": "export", "fraction": None})
+            for line in stream_lines(argv, result, ctx.token):
+                if not line.strip().isdigit():
+                    continue
+                frames += 1
+                now = time.monotonic()
+                if now - last_emit >= PROGRESS_INTERVAL_S:
+                    last_emit = now
+                    ctx.progress({"phase": "export", "fraction": min(0.99, int(line) / total)})
+            if result.returncode not in (0, None) or not tmp.exists():
+                raise f.tshark.error(result.stderr, result.returncode, "exporting PDUs failed")
+            pdus = comments.packet_count(tmp)
+            if not pdus:
+                raise InvalidParamsError(
+                    f"no {tap} PDUs in {'the packets matching ' + flt if flt else 'this capture'}",
+                    {"empty": True},
+                )
+        return {"pdus": pdus, "frames": frames, "filter": flt, "path": str(dest)}
 
     def export(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """Write an export file at ``dest`` (absolute path, never the open capture).

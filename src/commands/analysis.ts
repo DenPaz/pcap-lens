@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { FOLLOW_COMMANDS, FOLLOW_LABELS, FollowPanel, FollowProto } from "../panels/followPanel";
 import { FlowGraphPanel } from "../panels/flowGraphPanel";
 import { ObjectsPanel } from "../panels/objectsPanel";
+import { PacketPanel } from "../panels/packetPanel";
 import { StatsKind, StatsPanel } from "../panels/statsPanel";
 import { ComparePanel } from "../panels/comparePanel";
 import { TcpGraphPanel } from "../panels/tcpGraphPanel";
@@ -135,6 +136,22 @@ export function registerAnalysisCommands(
         return ComparePanel.show(context, session, [frames[0], frames[1]]);
       },
     ),
+    vscode.commands.registerCommand("pcapViewer.showPacketInNewWindow", (frame?: number) => {
+      const session = requireSession(provider);
+      const target = typeof frame === "number" ? frame : session?.selectedFrame;
+      if (!session) {
+        return undefined;
+      }
+      if (target === null || target === undefined) {
+        void vscode.window.showInformationMessage("Select a packet first.");
+        return undefined;
+      }
+      return PacketPanel.show(context, session, { kind: "packet", frame: target });
+    }),
+    vscode.commands.registerCommand("pcapViewer.fileFormat", () => {
+      const session = requireSession(provider);
+      return session ? PacketPanel.show(context, session, { kind: "file" }) : undefined;
+    }),
     vscode.commands.registerCommand("pcapViewer.statistics.flowGraph", () => {
       const session = requireSession(provider);
       return session ? FlowGraphPanel.show(context, session) : undefined;

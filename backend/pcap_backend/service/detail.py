@@ -28,6 +28,15 @@ MIN_QUICK_WINDOW = 2
 MAX_QUICK_WINDOW = 5000
 
 
+# File format view: at most this much of the file is dissected (the whole
+# file is one record of tshark's "MIME Files Format", and its hex dump goes to
+# the panel).
+FILE_FORMAT_LIMIT = 256 * 1024
+# The record's wrappers, left out of the file format tree.
+_WRAPPERS = ("geninfo", "frame", "mime_dlt", "fake-field-wrapper")
+# Compressed captures can't be cut short (the rest wouldn't decompress).
+_COMPRESSED_MAGIC = (b"\x1f\x8b", b"\x28\xb5\x2f\xfd", b"\x04\x22\x4d\x18")
+
 # FT_FRAMENUM fields by name, while the field catalogue is still loading.
 _FRAMENUM_HINT = re.compile(
     r"\.(?:request_in|response_in|response_to|prev_request_in|next_request_in|reassembled_in"
@@ -122,6 +131,56 @@ class DetailMixin(DissectionMixin):
             "sources": [s.to_json() for s in sources],
             "warnings": _stderr_warnings(pdml_res.stderr),
         }
+
+    def file_format(self, _params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """Wireshark's Reload as File Format: the capture file's own structure
+        (pcapng blocks with their options, a pcap header and records…) as a
+        detail tree with the file's bytes, from tshark's "MIME Files Format"
+        reader, which dissects the whole file as one record. Only the first
+        FILE_FORMAT_LIMIT bytes of a larger file (``truncated``: its last
+        block shows as cut); a larger compressed capture is refused. Returns
+        ``{tree, sources, size, shown, truncated, format}``, cached per capture."""
+        f = self._require_file()
+        if f.file_format is not None:
+            return f.file_format
+        size = f.path.stat().st_size
+        source = f.path
+        truncated = size > FILE_FORMAT_LIMIT
+        if truncated:
+            with f.path.open("rb") as fh:
+                head = fh.read(FILE_FORMAT_LIMIT)
+            if head.startswith(_COMPRESSED_MAGIC):
+                raise InvalidParamsError(
+                    "this compressed capture is too large to show its file format"
+                    f" (more than {FILE_FORMAT_LIMIT // 1024} KB)"
+                )
+            assert self._work_dir is not None
+            source = self._work_dir / "file-format.bin"
+            source.write_bytes(head)
+        base = [str(f.tshark.path), "-X", "read_format:MIME Files Format", "-r", str(source)]
+        hex_future = self._pool.submit(run, [*base, "-x"], ctx.token)
+        try:
+            pdml_res = run([*base, "-T", "pdml"], ctx.token)
+        except BaseException:
+            if not hex_future.cancel():
+                wait([hex_future])
+            raise
+        hex_res = hex_future.result()
+        if not pdml_res.stdout.strip():
+            raise f.tshark.error(pdml_res.stderr, pdml_res.returncode, "tshark can't read the file")
+        sources = pdml.parse_hexdump(hex_res.stdout.decode("utf-8", "replace"))
+        tree = pdml.parse_pdml(pdml_res.stdout, source_count=max(1, len(sources)))
+        # (geninfo, frame and the MIME wrapper first; the file's own tree last.)
+        protocols = [n for n in tree if n.get("proto") and n.get("name") not in _WRAPPERS]
+        f.file_format = {
+            "tree": protocols or tree,
+            "sources": [s.to_json() for s in sources],
+            "size": size,
+            "shown": min(size, FILE_FORMAT_LIMIT),
+            "truncated": truncated,
+            "format": protocols[-1].get("label", "") if protocols else "",
+        }
+        return f.file_format
 
     def _quick_detail(
         self, f: _Open, number: int, window: int, ctx: RequestContext

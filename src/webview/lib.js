@@ -1192,6 +1192,43 @@
   }
 
   /**
+   * One 16-byte row of a hex dump as text pieces, with the bytes in
+   * [`hiStart`, `hiEnd`) flagged (the selected field): `{offset, hex, ascii}`,
+   * each piece `[text, highlighted]`, so a panel can wrap the flagged ones in
+   * <mark> without building markup from bytes.
+   *
+   * @param {Uint8Array} bytes @param {number} row the row's first byte
+   * @param {number} hiStart @param {number} hiEnd
+   * @returns {{offset: string, hex: [string, boolean][], ascii: [string, boolean][]}}
+   */
+  function hexRowParts(bytes, row, hiStart, hiEnd) {
+    /** @type {[string, boolean][]} */ const hex = [];
+    /** @type {[string, boolean][]} */ const ascii = [];
+    const push = (/** @type {[string, boolean][]} */ list, text, hi) => {
+      const last = list[list.length - 1];
+      if (last && last[1] === hi) {
+        last[0] += text;
+      } else {
+        list.push([text, hi]);
+      }
+    };
+    for (let i = 0; i < 16; i++) {
+      const at = row + i;
+      const hi = at >= hiStart && at < hiEnd;
+      const sep = i === 0 ? "" : i === 8 ? "  " : " ";
+      // (The space before a byte belongs to the highlight only inside it.)
+      push(hex, sep, hi && at > hiStart);
+      if (at < bytes.length) {
+        push(hex, bytes[at].toString(16).padStart(2, "0"), hi);
+        push(ascii, asciiChar(bytes[at]), hi);
+      } else {
+        push(hex, "  ", false);
+      }
+    }
+    return { offset: row.toString(16).padStart(8, "0"), hex, ascii };
+  }
+
+  /**
    * Text with Follow Stream's cleaning: CR before LF dropped, and control
    * characters other than tab and newline (C0, DEL and C1) shown as ".".
    * @param {string} text
@@ -2838,6 +2875,7 @@
     filterButtonTitle,
     sortRows,
     tableToCsv,
+    hexRowParts,
     geoPoints,
     rowsToText,
     niceTicks,
