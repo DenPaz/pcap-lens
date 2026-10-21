@@ -18,8 +18,8 @@ TAP_LIST = """\
 tshark: The available export tap names and the encapsulation types they produce…
     DLT User - Wireshark Upper PDU export
     Ethernet - Ethernet
-    IP - Raw IP
-    OSI layer 7 - Wireshark Upper PDU export
+    IP  -  Raw IP
+	OSI layer 7 - Wireshark Upper PDU export\r
 """
 
 

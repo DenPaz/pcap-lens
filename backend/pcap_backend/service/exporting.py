@@ -37,13 +37,13 @@ from .state import _TRUNCATION_HINTS, BASE_COLUMNS, MAX_FILTER_ARG, PROGRESS_INT
 
 EXPORT_CHUNK = 5000
 # A line of tshark's export tap list: "    OSI layer 4 - Wireshark Upper PDU export".
-_PDU_TAP_RE = re.compile(r"^\s+(?P<name>\S.*?) - (?P<encap>\S.*)$")
+_PDU_TAP_RE = re.compile(r"^\s+(?P<name>\S.*?)\s+-\s+(?P<encap>\S.*)$")
 
 
-def parse_pdu_taps(stderr: str) -> list[dict[str, str]]:
+def parse_pdu_taps(text: str) -> list[dict[str, str]]:
     """The export taps of ``tshark -U ?`` (name and the link type they write)."""
     taps: list[dict[str, str]] = []
-    for line in stderr.split("\n"):
+    for line in text.split("\n"):
         m = _PDU_TAP_RE.match(line.rstrip("\r"))
         if m:
             taps.append({"name": m["name"], "encapsulation": m["encap"]})
@@ -93,7 +93,12 @@ class ExportMixin(DetailMixin, PacketsMixin):
         taps = self._pdu_taps.get(key)
         if taps is None:
             res = run([str(tshark.path), "-U", "?", "-r", str(EMPTY_CAPTURE.get())], ctx.token)
-            taps = parse_pdu_taps(res.stderr)
+            # (4.2 lists them on stderr; read both, whichever a version uses.)
+            out = res.stdout.decode("utf-8", "replace")
+            text = f"{res.stderr}\n{out}"
+            taps = parse_pdu_taps(text)
+            if not taps:
+                raise tshark.error(text.strip(), res.returncode, "tshark lists no export taps")
             self._pdu_taps.put(key, taps)
         return {"taps": taps}
 
