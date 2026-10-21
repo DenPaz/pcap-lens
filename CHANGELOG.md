@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.18.0 — 2026-10-21
+
 ### Added
 
 - Remote and other capture helpers (Wireshark's extcap): _Start Capture_

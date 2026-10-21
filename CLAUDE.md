@@ -2107,4 +2107,4 @@ multicast, resolved-address and SCTP statistics: 0.16.0.
 Then Export PDUs to File, Show Packet in New Window and the capture's
 file format view: 0.17.0.
 Then extcap capture helpers (SSH, Cisco, Android, UDP, randpkt), Capture to
-Files with ring buffers, saved capture filters and the capture report.
+Files with ring buffers, saved capture filters and the capture report: 0.18.0.
