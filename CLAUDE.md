@@ -996,8 +996,10 @@ pdml` (and `-x`) reads the whole file as one record whose tree is "PCAP
   compressed ones that big are refused (a cut gzip isn't readable).
   Cached on the `_Open`. The file view opens only its first node.
 - **Export PDUs** (`export_pdu_taps`, `export_pdus {tap, filter, dest}`,
-  `commands/exportPdus.ts`): `tshark -U <tap>` (the taps from `-U ?`'s
-  stderr, `parse_pdu_taps`, cached per tshark) `-F pcapng -w <tmp>` with
+  `commands/exportPdus.ts`): `tshark -U <tap>` (the taps: tshark lists
+  them on stderr for an unknown name, `-U ""`, but only with `-r` and `-w`
+  given (Windows CI's tshark refused `-U ?` alone: "PDUs export requires a
+  capture file"); `parse_pdu_taps`, cached per tshark) `-F pcapng -w <tmp>` with
   `-P -T fields -e frame.number` for progress, `-Y` the scope (the view's
   filter by default, validated, minus the ignored packets) through
   `atomic_output`; zero PDUs is an InvalidParamsError with `data.empty` and

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -85,15 +86,20 @@ class ExportMixin(DetailMixin, PacketsMixin):
         return {"sessions": sessions, "path": str(dest)}
 
     def export_pdu_taps(self, _params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
-        """The taps Export PDUs can use (``tshark -U ?`` lists them on stderr,
-        each with the link type its capture gets): ``{taps: [{name,
-        encapsulation}]}``, cached per tshark. Needs no open capture."""
+        """The taps Export PDUs can use (tshark lists them on stderr for an
+        unknown ``-U`` name, each with the link type its capture gets):
+        ``{taps: [{name, encapsulation}]}``, cached per tshark. Needs no open
+        capture."""
         tshark = self._file.tshark if self._file else self._require_tshark()
         key = str(tshark.path)
         taps = self._pdu_taps.get(key)
         if taps is None:
-            res = run([str(tshark.path), "-U", "?", "-r", str(EMPTY_CAPTURE.get())], ctx.token)
-            # (4.2 lists them on stderr; read both, whichever a version uses.)
+            # tshark lists them for an unknown tap name, but only once the rest
+            # of an export is there (Windows' 4.6 checks -r and -w first), so
+            # it gets both; nothing is written. (Read stdout too, in case.)
+            with tempfile.TemporaryDirectory(prefix="pcap-taps-") as tmp:
+                argv = [str(tshark.path), "-r", str(EMPTY_CAPTURE.get())]
+                res = run([*argv, "-w", str(Path(tmp) / "none.pcapng"), "-U", ""], ctx.token)
             out = res.stdout.decode("utf-8", "replace")
             text = f"{res.stderr}\n{out}"
             taps = parse_pdu_taps(text)
