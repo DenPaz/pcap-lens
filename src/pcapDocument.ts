@@ -15,6 +15,8 @@ export interface CaptureRequest {
   filter: string;
   limits: CaptureLimits;
   promiscuous: boolean;
+  /** Extcap interfaces among `interfaces`: name → {option: value}. */
+  extcap?: Record<string, Record<string, string>>;
 }
 
 /**

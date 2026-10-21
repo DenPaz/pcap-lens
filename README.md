@@ -228,13 +228,26 @@ filter, and its rows apply or prepare the matching display filter.
 
 - **Live capture** (_PCAP: Start Capture…_) on one or more interfaces with a
   capture filter; the list fills as packets arrive. Needs
-  [permission to capture](#live-capture).
+  [permission to capture](#live-capture). The filter box keeps **saved capture
+  filters** (its bookmark and save buttons).
+- **Remote and other capture helpers** (Wireshark's extcap): capture over SSH
+  (`sshdump`), from Cisco routers (`ciscodump`), Android devices
+  (`androiddump`), a UDP port (`udpdump`) or Wireshark's packet generator
+  (`randpkt`), with each helper's own options asked in a form.
+- **Capture to Files** (_PCAP: Capture to Files…_): straight into files, like
+  Wireshark's output options: a new file every so many MB, seconds or packets,
+  a ring buffer that keeps the newest ones, stop after N files, pcapng or pcap.
+  Then open the latest file or merge them all.
 - **Capture editing** (_PCAP: Edit Capture…_): time shift, remove duplicates,
   keep a range, truncate, split, embed a TLS, SSH or WireGuard key log. The
   result is a new capture.
 - **Export** packets (displayed, all, selected or marked) to pcapng/pcap, the
   packet list to CSV/JSON, packet bytes, full dissections as text, PDML or
   JSON, and the TLS session keys tshark could decrypt as a key log.
+- **Capture Report** (_PCAP: Capture Report…_): the capture's properties,
+  protocol hierarchy, top conversations and endpoints, expert information and,
+  if you like, the displayed packets, as Markdown or one HTML file to share.
+  Made locally, without AI.
 - **Firewall ACL Rules** for the selected packet: iptables, nftables, Cisco
   IOS, IP Filter, ipfw, pf and Windows Firewall rules by address and port,
   denying or allowing, to copy.
@@ -363,6 +376,12 @@ Capturing runs Wireshark's `dumpcap`, which needs permission:
   `brew install --cask wireshark-chmodbpf`), then log in again.
 - **Windows**: install [Npcap](https://npcap.com) (included with Wireshark).
 
+Capture helpers (extcap) are the programs in Wireshark's extcap folders (_Help
+→ About Wireshark → Folders_; yours can go in the personal one). tshark runs
+them, so _Start Capture_ lists the interfaces tshark sees. Their options are
+remembered per interface, except passwords, which are asked again in each VS
+Code session; prefer an SSH key or agent.
+
 Unsaved captures live in the extension's storage and are removed after 7 days
 if left behind.
 
@@ -438,7 +457,8 @@ _PCAP: Show Log_ shows backend and tshark messages.
 - **Decryption keys** stay in VS Code's secret storage. tshark gets them as
   command-line options, so other users of the same computer could see them in
   the process list while a capture is being read; use a key file (RSA, SSH,
-  WireGuard, Kerberos) where that matters.
+  WireGuard, Kerberos) where that matters. The same goes for capture helpers'
+  options (an SSH password, for instance).
 - **AI requests** go through VS Code's Language Model API, so VS Code asks for
   consent and your Copilot policies apply. `"pcapViewer.ai.enabled": false`
   turns it all off. The `allow*` settings are user-only, so a workspace can't

@@ -6,15 +6,17 @@ import type { PcapEditorProvider } from "../pcapEditor";
 /**
  * Run `fn` with a backend: the active capture's, or a short-lived one when no
  * capture is open (merging needs no open capture, only tshark's tools).
+ * `own`: always a short-lived one (a long task an editor's closing mustn't end).
  */
 export async function withBackend<T>(
   provider: PcapEditorProvider,
   context: vscode.ExtensionContext,
   log: vscode.LogOutputChannel,
   fn: (b: BackendClient) => Promise<T>,
+  options: { own?: boolean } = {},
 ): Promise<T> {
   const active = provider.activeSession?.backend;
-  if (active?.running) {
+  if (active?.running && !options.own) {
     return fn(active);
   }
   const settings = readSettings();

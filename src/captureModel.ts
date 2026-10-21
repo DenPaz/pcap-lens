@@ -4,6 +4,7 @@
  * dialogs. Times are handled as nanoseconds (bigint) so offsets reach editcap
  * exactly, however large.
  */
+import type { ExtcapArg, ExtcapValues } from "./extcapModel";
 import { safeFileName } from "./settingsModel";
 
 /** Stop conditions of a live capture (0 or absent: none). */
@@ -195,3 +196,79 @@ export function parseCaptureTime(text: string, firstPacketNs: bigint): bigint | 
   const offset = parseDuration(text);
   return offset === undefined ? undefined : firstPacketNs + offset;
 }
+
+/** Capture to Files' own options, in the extcap form's shape. */
+const FILE_OPTIONS: ExtcapArg[] = [
+  ["switchMegabytes", "New file every … MB", "double", "A new file once this one is this big"],
+  ["switchSeconds", "New file every … seconds", "unsigned", ""],
+  ["switchPackets", "New file every … packets", "unsigned", ""],
+  ["ring", "Ring buffer: keep the newest … files", "unsigned", "Older files are deleted"],
+  ["stopAfter", "Stop after … files", "unsigned", ""],
+  ["stopPackets", "Stop after … packets", "unsigned", ""],
+  ["stopSeconds", "Stop after … seconds", "unsigned", ""],
+].map(([call, display, type, tooltip], number) => ({
+  number,
+  call: `--${call}`,
+  display,
+  type,
+  tooltip: tooltip || undefined,
+  group: number < 4 ? "Files" : "Stop",
+  required: false,
+  mustexist: false,
+  values: [],
+}));
+const FORMAT_OPTION: ExtcapArg = {
+  number: 7,
+  call: "--format",
+  display: "File format",
+  type: "selector",
+  group: "Files",
+  required: false,
+  mustexist: false,
+  values: [
+    { value: "pcapng", display: "pcapng", default: true },
+    { value: "pcap", display: "pcap (extcap helpers write pcapng)", default: false },
+  ],
+};
+
+/** What capture_to_files needs from the form (sizes in bytes). */
+export function fileParams(values: ExtcapValues): {
+  format: string;
+  files: Record<string, number>;
+  limits: Record<string, number>;
+} {
+  const n = (key: string) => {
+    const v = Number(values[`--${key}`] ?? "");
+    return Number.isFinite(v) && v > 0 ? v : undefined;
+  };
+  const files: Record<string, number> = {};
+  const mb = n("switchMegabytes");
+  if (mb) {
+    files.switchBytes = Math.round(mb * 1_000_000);
+  }
+  for (const key of ["switchSeconds", "switchPackets", "ring", "stopAfter"]) {
+    const v = n(key);
+    if (v) {
+      files[key] = Math.round(v);
+    }
+  }
+  const limits: Record<string, number> = {};
+  if (n("stopPackets")) {
+    limits.packets = Math.round(n("stopPackets") ?? 0);
+  }
+  if (n("stopSeconds")) {
+    limits.seconds = n("stopSeconds") ?? 0;
+  }
+  return { format: values["--format"] === "pcap" ? "pcap" : "pcapng", files, limits };
+}
+
+export function fileCheck(values: ExtcapValues): string | undefined {
+  const { files } = fileParams(values);
+  const switches = files.switchBytes || files.switchSeconds || files.switchPackets;
+  return (files.ring || files.stopAfter) && !switches
+    ? "A ring buffer or a number of files needs a new file every so many MB, seconds or packets"
+    : undefined;
+}
+
+/** Capture to Files' form: the file switching and stop options, then the format. */
+export const FILE_ARGS: ExtcapArg[] = [...FILE_OPTIONS, FORMAT_OPTION];

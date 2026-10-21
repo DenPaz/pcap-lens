@@ -177,6 +177,7 @@ def test_a_profile_is_listed_read_and_used(
     (mine / "dfilters").write_text(DFILTERS)
     (mine / "dfilter_macros").write_text(MACROS)
     (mine / "preferences").write_text(PREFERENCES)
+    (mine / "cfilters").write_text('"No ARP" not arp\n"Web" tcp port 80 or tcp port 443\n')
     listed = service.wireshark_profiles({}, ctx)["profiles"]
     assert listed[0]["name"] == "Default"
     entry = next(p for p in listed if p["name"] == "PV Test")
@@ -192,6 +193,10 @@ def test_a_profile_is_listed_read_and_used(
     assert [b["label"] for b in read["filterButtons"]] == ["Web", "Quoted"]
     assert read["columns"][3] == {"title": "TTL", "field": "ip.ttl"}
     assert (read["preferences"], len(read["macros"])) == (2, 2)
+    assert read["captureFilters"] == [
+        {"name": "No ARP", "filter": "not arp"},
+        {"name": "Web", "filter": "tcp port 80 or tcp port 443"},
+    ]
     assert service.read_wireshark_profile({}, ctx)["name"] == "Default"
     with pytest.raises(InvalidParamsError, match="does not exist"):
         service.read_wireshark_profile({"name": "Nope"}, ctx)

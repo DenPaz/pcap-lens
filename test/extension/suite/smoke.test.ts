@@ -169,6 +169,8 @@ suite("PCAP Lens smoke test", () => {
       "pcapViewer.showPacketInNewWindow",
       "pcapViewer.fileFormat",
       "pcapViewer.exportPdus",
+      "pcapViewer.captureToFiles",
+      "pcapViewer.captureReport",
       "pcapViewer.exportMarked",
       "pcapViewer.exportSelected",
       "pcapViewer.selectAll",
@@ -838,6 +840,21 @@ suite("PCAP Lens smoke test", () => {
       );
       assert.equal(file.title, "PCAP File Format");
 
+      // Capture Report: a self-contained HTML page with the packet list.
+      session.reveal();
+      const reportDir = fs.mkdtempSync(path.join(os.tmpdir(), "pcap-report-"));
+      const dest = path.join(reportDir, "voip-report.html");
+      const written = await vscode.commands.executeCommand<string | undefined>(
+        "pcapViewer.captureReport",
+        { format: "html", packets: true, dest },
+      );
+      assert.equal(written, dest);
+      const report = fs.readFileSync(dest, "utf8");
+      assert.match(report, /<h1>Capture report: voip\.pcap<\/h1>/);
+      assert.match(report, /<h2>Protocol hierarchy<\/h2>/);
+      assert.match(report, /All 110 packets/);
+      removeDir(reportDir);
+
       session.reveal();
       const res = await vscode.commands.executeCommand<{ pdus: number; path: string } | undefined>(
         "pcapViewer.exportPdus",
@@ -854,6 +871,57 @@ suite("PCAP Lens smoke test", () => {
     } finally {
       await vscode.commands.executeCommand("workbench.action.closeAllEditors");
       await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
+    }
+  });
+
+  test("capture to files: a ring buffer of files, and extcap helpers where installed", async function () {
+    this.timeout(120_000);
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    const api = (await ext!.activate()) as PcapViewerApi;
+    const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "pcap-files-")));
+    try {
+      // The fake dumpcap's 26 packets, a new file every 10, keeping the newest two.
+      const res = await vscode.commands.executeCommand<
+        { files: string[]; packets: number } | undefined
+      >("pcapViewer.captureToFiles", {
+        interfaces: ["fake0"],
+        folder: dir,
+        name: "ring",
+        files: { switchPackets: 10, ring: 2 },
+        limits: { packets: 26 },
+      });
+      assert.equal(res?.packets, 26);
+      assert.deepEqual(
+        res.files.map((f) => path.basename(f).slice(0, 10)),
+        ["ring_00002", "ring_00003"],
+      );
+
+      // Extcap: Wireshark's random packet generator, live, where it is installed.
+      const uri = vscode.Uri.file(path.join(FIXTURES, "http.pcap"));
+      await vscode.commands.executeCommand("vscode.openWith", uri, "pcapViewer.editor");
+      const opened = await waitFor(() =>
+        api.provider.allSessions.find((s) => s.uri.fsPath === uri.fsPath && indexed(s)),
+      );
+      const listed = await opened.backend!.request<{
+        interfaces: { name: string; extcap?: boolean }[];
+      }>("list_interfaces", {}, { timeoutMs: 60_000 });
+      if (listed.interfaces.some((i) => i.name === "randpkt" && i.extcap)) {
+        const live = await vscode.commands.executeCommand<vscode.Uri | undefined>(
+          "pcapViewer.startCapture",
+          { interfaces: ["randpkt"], extcap: { randpkt: { "--count": "5", "--type": "dns" } } },
+        );
+        assert.ok(live, "the extcap capture opened");
+        const session = await waitFor(
+          () => api.provider.allSessions.find((s) => s.uri.fsPath === live.fsPath && indexed(s)),
+          60_000,
+        );
+        assert.equal(session.openInfo?.frames, 5);
+        await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
+      }
+    } finally {
+      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+      await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
+      removeDir(dir);
     }
   });
 

@@ -29,6 +29,7 @@ const CONTENTS: ProfileContents = {
     { name: "No ARP", filter: "not arp" },
     { name: "Web", filter: "http" },
   ],
+  captureFilters: [{ name: "No ARP", filter: "not arp" }],
   macros: [{ name: "web", text: "tcp.port == $1" }],
   columns: [
     { title: "No.", id: "number" },
@@ -80,15 +81,17 @@ suite("Wireshark profiles", () => {
         ["coloringRules", "2 coloring rules"],
         ["filterButtons", "2 filter buttons"],
         ["savedFilters", "2 saved display filters"],
+        ["captureFilters", "1 capture filter"],
         ["columns", "4 packet list columns"],
       ],
     );
-    assert.match(importChoices(CONTENTS)[3].detail, /its 1 custom column added/);
+    assert.match(importChoices(CONTENTS)[4].detail, /its 1 custom column added/);
     const empty = {
       ...CONTENTS,
       coloringRules: [],
       filterButtons: [],
       savedFilters: [],
+      captureFilters: undefined,
       columns: [],
     };
     assert.deepEqual(importChoices(empty), []);
@@ -98,6 +101,7 @@ suite("Wireshark profiles", () => {
     const current = {
       filterButtons: [{ label: "DNS", filter: "dns" }],
       savedFilters: [{ name: "Web", filter: "tcp.port == 80" }],
+      captureFilters: [{ name: "Mine", filter: "port 22" }],
       columns: [{ field: "tcp.stream", title: "Stream" }],
     };
     assert.deepEqual(importSettings("coloringRules", CONTENTS, current).writes, [
@@ -132,6 +136,15 @@ suite("Wireshark profiles", () => {
       (filters.writes[0].value as { name: string }[]).map((f) => f.name),
       ["Web", "No ARP"],
     );
+    assert.deepEqual(importSettings("captureFilters", CONTENTS, current).writes, [
+      {
+        key: "capture.savedFilters",
+        value: [
+          { name: "Mine", filter: "port 22" },
+          { name: "No ARP", filter: "not arp" },
+        ],
+      },
+    ]);
     const columns = importSettings("columns", CONTENTS, current);
     assert.deepEqual(columns.writes, [
       {
