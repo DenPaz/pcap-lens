@@ -1446,9 +1446,12 @@ folders`, personal first, left out as root) for `--extcap-interfaces` (in
   (`captureOptions`): one left out would take the user's saved Wireshark
   preference instead of what the form showed. Tests: a fake helper
   (`test/fixtures/fake_extcap.py`, installed with a shebang into the
-  personal extcap folder by the `fake_extcap` fixture, skipped as root and
-  on Windows), randpkt where installed (Linux CI), and `{interfaces,
-extcap}` arguments in the smoke test.
+  personal extcap folder by the `fake_extcap` fixture as a shell script that
+  answers `--extcap-interfaces` and runs the Python for the rest; skipped as
+  root, on Windows and where `tshark -D` doesn't list it: macOS CI's
+  Homebrew tshark loads no extcap helper at all, not even an instant shell
+  one), randpkt where installed (Linux CI), and `{interfaces, extcap}`
+  arguments in the smoke test.
 - **Capture to Files** (`capture_to_files`, `capture_files_stop`,
   `FileCapture`, `FileOptions`; `pcapViewer.captureToFiles`): no live view;
   dumpcap (tshark for extcap, which always writes pcapng) writes

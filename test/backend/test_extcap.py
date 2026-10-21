@@ -199,13 +199,9 @@ def fake_extcap(service: PcapService) -> Iterator[str]:
         tshark = service._require_tshark().path
         listed = run([str(tshark), "-D"])
         if "fake-remote" not in listed.stdout.decode("utf-8", "replace"):
-            answer = run([str(helper), "--extcap-interfaces"])
-            pytest.fail(
-                f"tshark doesn't list the fake extcap helper {helper}\n"
-                f"tshark -D:\n{listed.stdout.decode()}\n{listed.stderr}\n"
-                f"tshark -G folders:\n{folders}\n"
-                f"the helper's answer: {answer.returncode} {answer.stdout.decode()} {answer.stderr}"
-            )
+            # (macOS CI's Homebrew tshark loads no extcap helper at all, its own
+            # included: there is nothing of ours to test then.)
+            pytest.skip(f"this tshark doesn't load extcap helpers from {personal}")
         yield "fake-remote"
     finally:
         helper.unlink()
