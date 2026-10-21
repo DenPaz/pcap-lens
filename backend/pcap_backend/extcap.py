@@ -54,6 +54,20 @@ def sentences(text: str) -> list[tuple[str, dict[str, str]]]:
     return out
 
 
+def listed_names(tshark_d: str) -> set[str]:
+    """The interface names of ``tshark -D`` ("3. lo (Loopback)" → "lo"; a
+    name may hold spaces on Windows, so the description in brackets at the
+    end is what goes)."""
+    names = set()
+    for raw in tshark_d.split("\n"):
+        m = re.match(r"^\s*\d+\.\s+(.+?)\s*$", raw)
+        if m:
+            text = m.group(1)
+            names.add(text)
+            names.add(re.sub(r"\s+\([^()]*\)$", "", text))
+    return names
+
+
 @dataclass(slots=True)
 class Helper:
     path: Path

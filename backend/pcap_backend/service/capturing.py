@@ -124,26 +124,34 @@ class CaptureMixin(OpeningMixin):
     def list_interfaces(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """The interfaces dumpcap can capture on (``dumpcap -D -M``), then the
         extcap helpers' (``extcap: true``, with ``helper`` = the program's
-        name; ``extcap: false`` in the params leaves them out). A dumpcap
-        that lists nothing is only an error when no helper offers one."""
+        name; ``extcap: false`` in the params leaves them out): those that
+        ``tshark -D`` lists too, since tshark is what runs them (it can leave
+        out a helper our scan of its folders finds). A dumpcap that lists
+        nothing is only an error when no helper offers an interface."""
         tshark = self._require_tshark()
         command = dumpcap_command(tshark.path)
-        pool = self._pool.submit(self._extcap_helpers, ctx) if params.get("extcap", True) else None
+        want_extcap = params.get("extcap", True)
+        helpers = self._pool.submit(self._extcap_helpers, ctx) if want_extcap else None
+        tshark_d = [str(tshark.path), "-D"]
+        listed = self._pool.submit(run, tshark_d, ctx.token) if want_extcap else None
         res = run([*command, "-D", "-M"], ctx.token)
         interfaces = [i.to_json() for i in parse_interfaces(res.stdout.decode("utf-8", "replace"))]
-        helpers = pool.result() if pool is not None else []
-        for helper in helpers:
-            for value, display in helper.interfaces:
-                interfaces.append(
-                    {
-                        "name": value,
-                        "description": display,
-                        "addresses": [],
-                        "loopback": False,
-                        "extcap": True,
-                        "helper": helper.path.name,
-                    }
-                )
+        if helpers is not None and listed is not None:
+            tshark_names = extcap.listed_names(listed.result().stdout.decode("utf-8", "replace"))
+            for helper in helpers.result():
+                for value, display in helper.interfaces:
+                    if value not in tshark_names:
+                        continue
+                    interfaces.append(
+                        {
+                            "name": value,
+                            "description": display,
+                            "addresses": [],
+                            "loopback": False,
+                            "extcap": True,
+                            "helper": helper.path.name,
+                        }
+                    )
         if res.returncode != 0 and not interfaces:
             raise capture_error(res.stderr, res.returncode, "dumpcap could not list interfaces")
         return {"interfaces": interfaces}

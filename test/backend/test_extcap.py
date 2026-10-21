@@ -16,7 +16,7 @@ from pcap_backend.cancellation import CancelledError, CancelToken
 from pcap_backend.capture import CaptureOptions, capture_command
 from pcap_backend.pcap_service import PcapService
 from pcap_backend.protocol import InvalidParamsError, RequestContext
-from pcap_backend.tshark import ToolError
+from pcap_backend.tshark import ToolError, run
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 AS_ROOT = hasattr(os, "geteuid") and os.geteuid() == 0
@@ -127,7 +127,8 @@ def test_extcap_interfaces_capture_through_tshark() -> None:
         "-c", "10",
         "-w", "-",
     ]  # fmt: skip
-    assert capture_command(Path("/bin/tshark"), options) == ["/bin/tshark"]
+    tshark = Path("/bin/tshark")
+    assert capture_command(tshark, options) == [str(tshark)]
 
 
 @pytest.mark.parametrize(
@@ -187,6 +188,16 @@ def fake_extcap(service: PcapService) -> Iterator[str]:
     helper.write_text(f"#!{sys.executable}\n{source}")
     helper.chmod(0o755)
     try:
+        tshark = service._require_tshark().path
+        listed = run([str(tshark), "-D"])
+        if "fake-remote" not in listed.stdout.decode("utf-8", "replace"):
+            answer = run([str(helper), "--extcap-interfaces"])
+            pytest.fail(
+                f"tshark doesn't list the fake extcap helper {helper}\n"
+                f"tshark -D:\n{listed.stdout.decode()}\n{listed.stderr}\n"
+                f"tshark -G folders:\n{folders}\n"
+                f"the helper's answer: {answer.returncode} {answer.stdout.decode()} {answer.stderr}"
+            )
         yield "fake-remote"
     finally:
         helper.unlink()
