@@ -137,10 +137,12 @@ class CaptureMixin(OpeningMixin):
         res = run([*command, "-D", "-M"], ctx.token)
         interfaces = [i.to_json() for i in parse_interfaces(res.stdout.decode("utf-8", "replace"))]
         if helpers is not None and listed is not None:
-            tshark_names = extcap.listed_names(listed.result().stdout.decode("utf-8", "replace"))
+            shown = listed.result()
+            # (Only when tshark could list: without Npcap, Windows' tshark -D fails.)
+            names = extcap.listed_names(shown.stdout.decode()) if shown.returncode == 0 else None
             for helper in helpers.result():
                 for value, display in helper.interfaces:
-                    if value not in tshark_names:
+                    if names is not None and value not in names:
                         continue
                     interfaces.append(
                         {

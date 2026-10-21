@@ -280,7 +280,10 @@ def test_a_failing_extcap_reports_its_error(
 @pytest.mark.tshark
 def test_capture_with_randpkt(service: PcapService, tmp_path: Path) -> None:
     """Wireshark's own random packet generator, where it is installed."""
-    listed = service.list_interfaces({}, RequestContext())["interfaces"]
+    try:
+        listed = service.list_interfaces({}, RequestContext())["interfaces"]
+    except ToolError as exc:
+        pytest.skip(f"no interfaces to list here: {exc}")
     if not any(i["name"] == "randpkt" and i.get("extcap") for i in listed):
         pytest.skip("no randpktdump")
     events = _events(service)
@@ -294,3 +297,11 @@ def test_capture_with_randpkt(service: PcapService, tmp_path: Path) -> None:
     )
     _wait(lambda: _done(events))
     assert service.capture_info({}, RequestContext())["frames"] == 5
+
+
+def test_tshark_d_names() -> None:
+    names = extcap.listed_names(
+        "1. eth0\n3. lo (Loopback)\r\n12. sshdump (SSH remote capture)\n"
+        "4. \\Device\\NPF_{A1} (Ethernet 2)\nnot a line\n"
+    )
+    assert {"eth0", "lo", "sshdump", "\\Device\\NPF_{A1}"} <= names
