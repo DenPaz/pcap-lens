@@ -7,6 +7,23 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- Remote and other capture helpers (Wireshark's extcap): _Start Capture_
+  lists sshdump, ciscodump, androiddump, udpdump, randpkt… with each
+  helper's options in a form. [ff18c62]
+- _Capture to Files…_: a new file every so many MB, seconds or packets, ring
+  buffers, stop after N files, pcapng or pcap; then open or merge the files.
+  [ff18c62]
+- Saved capture filters in _Start Capture_'s filter box, and a Wireshark
+  profile's capture filters in _Import from Wireshark Profile_. [ff18c62]
+- _Capture Report…_: properties, protocol hierarchy, top conversations and
+  endpoints, expert information and the packet list as Markdown or HTML.
+  [515b32b]
+
+[ff18c62]: https://github.com/DenPaz/vsc_pcap_viewer/commit/ff18c62
+[515b32b]: https://github.com/DenPaz/vsc_pcap_viewer/commit/515b32b
+
 ## 0.17.0 — 2026-10-21
 
 ### Added

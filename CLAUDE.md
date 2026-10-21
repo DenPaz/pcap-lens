@@ -176,6 +176,9 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   store (secret storage) and its command.
   `src/recentCaptures.ts` the Recent Captures list (pure);
   `src/commands/recent.ts` its tree view and commands.
+  `src/extcapModel.ts` extcap options' values, checks and labels (pure).
+  `src/captureReport.ts` the capture report as Markdown or HTML (pure);
+  `src/commands/report.ts`.
 - `src/webview/` plain JS/CSS/HTML (no build step). `lib.js` = pure helpers
   shared with Node tests (a classic script, `window.PcapLib`, like the panels'
   scripts and `worldmap.js`, the Endpoints map's land outline that
@@ -219,7 +222,8 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   checks, atomic output, CSV/JSON writers), `objects.py` (export objects:
   linking files to packets, safe names), `comments.py` (pcapng packet
   comments, editcap options, packet counts), `capture.py` (live capture:
-  dumpcap interfaces, filters, the pcapng tee), `editing.py` (editcap options
+  dumpcap interfaces, filters, the pcapng tee, capturing to files), `extcap.py`
+  (extcap helpers: their folders, interfaces and options), `editing.py` (editcap options
   of capture editing), `hexdump.py` (text2pcap options of Import from Hex
   Dump), `ber.py` (counting back-to-back BER records), `codecs.py` (G.722,
   G.726-32 and L16 decoders), `filterhelp.py` (a filter's
@@ -1412,6 +1416,77 @@ filesize` needs a file) block by block: one chunk can hold many blocks, so
   `-D -M`, `-d`, `-c`, `-a duration:`, SIGINT; `FAKE_DUMPCAP_*` env), and a
   real loopback capture when allowed (CI sets dumpcap's capabilities on
   Linux).
+- **Extcap helpers** (`extcap.py`, `extcap_config {interface}`,
+  `extcapModel.ts`, `commands/capture.ts`): dumpcap doesn't know extcap
+  interfaces; tshark runs the helper (into a FIFO) and dumpcap together. So
+  `list_interfaces` also asks every program in tshark's extcap folders (`-G
+folders`, personal first, left out as root) for `--extcap-interfaces` (in
+  parallel, `HELPER_TIMEOUT_S` each, failures ignored) and offers those that
+  `tshark -D` lists too (`extcap.listed_names`: on macOS CI tshark didn't
+  load a helper the scan found), `extcap: true` with the `helper`'s name.
+  `extcap_config` runs `--extcap-interface X --extcap-config` and parses the
+  `arg {number=…}{call=…}{type=…}…` / `value {arg=…}…` sentences
+  (`parse_config`; a value may hold braces). A capture with an extcap
+  interface (`CaptureOptions.extcap` = name → {call: value}) runs `tshark -i
+<name> -o extcap.<name>.<call>:<value> … -q -w -` instead of dumpcap
+  (`capture_command`); the key is Wireshark's `extcap_settings_key`
+  (`settings_key`: the interface lower-cased with other characters as "_",
+  the call without them), local interfaces in the same capture keep -f/-p/-s.
+  tshark writes pcapng to stdout like dumpcap, so the tee is unchanged;
+  SIGINT stops all three cleanly ("Interrupted system call" on stderr is
+  ignored), and on Windows a kill doesn't reach tshark's children, which
+  hold our pipe, so stopping it is `procs.kill_tree` (`taskkill /T /F`).
+  The host asks each picked extcap interface's options in a QuickPick form
+  (`optionsForm`: Start first, then the options in the helper's groups, each
+  edited by type: booleans On/Off, selectors, multicheck, file pickers,
+  passwords in a password box, numbers checked by `validateValue`, required
+  ones block Start) and remembers them per interface in globalState
+  (`pcapViewer.capture.extcap`), never passwords (kept in memory for the
+  session). Every option is passed, empty and "false" ones too
+  (`captureOptions`): one left out would take the user's saved Wireshark
+  preference instead of what the form showed. Tests: a fake helper
+  (`test/fixtures/fake_extcap.py`, installed with a shebang into the
+  personal extcap folder by the `fake_extcap` fixture, skipped as root and
+  on Windows), randpkt where installed (Linux CI), and `{interfaces,
+extcap}` arguments in the smoke test.
+- **Capture to Files** (`capture_to_files`, `capture_files_stop`,
+  `FileCapture`, `FileOptions`; `pcapViewer.captureToFiles`): no live view;
+  dumpcap (tshark for extcap, which always writes pcapng) writes
+  `folder/name.pcapng` itself, with `-b filesize:kB|duration:|packets:` a
+  new `name_00001_<time>.ext` file each time, `-b files:N` a ring buffer,
+  `-a files:N` stop after N, `-P` pcap. A ring buffer or a file count needs a
+  switch condition (InvalidParamsError). The request runs until dumpcap ends
+  and reports progress every second (packets from dumpcap's `\rPackets: N`
+  stderr counts, read even before the line ends; files and bytes from the
+  folder, files that were there before excluded); `capture_files_stop`
+  SIGINTs it (the request then returns `{files, packets, seconds, dropped,
+stopped}`), cancelling kills it. The host runs it on its own short-lived
+  backend (`withBackend(…, {own: true})`: closing an editor mustn't end it),
+  in a cancellable progress notification whose Cancel stops it, asks the
+  folder, the name and the options form (`captureModel.FILE_ARGS`,
+  `fileParams`, `fileCheck`; remembered in globalState), and then offers
+  Open (Latest), Merge and Open (`pcapViewer.mergeCaptures` with the files)
+  and Show Files. The fake dumpcap writes files too (`_Files`: -w, -b
+  packets/files, -a files, -P).
+- **Saved capture filters** (`pcapViewer.capture.savedFilters`, `{name,
+filter}` like saved display filters; defaults: a few of Wireshark's
+  cfilters): Start Capture's filter box is a `createInputBox` with a bookmark
+  button (pick one) and a save button (name it); validation as before.
+  _Import from Wireshark Profile_ adds a profile's `cfilters` (same format
+  as dfilters; `captureFilters` in `read_wireshark_profile`).
+- **Capture report** (`captureReport.ts`, `commands/report.ts`,
+  `pcapViewer.captureReport`): `capture_info` and the `stats` phs, TCP/UDP
+  conversations, IPv4 endpoints and expert tables (a failed one is listed as
+  not available), plus `list_packets` of the view (at most
+  `REPORT_LIMITS.packets`) when asked, rendered as blocks (heading,
+  paragraph, table, note) into Markdown (`markdownEscape` on every cell,
+  numeric columns right-aligned) or one HTML page (`htmlEscape`, inline
+  styles with a dark scheme, `<meta>` CSP `default-src 'none';
+style-src 'unsafe-inline'`: it holds untrusted packet text). Top 20 rows by
+  bytes (`topRows`), expert counts and the top messages (`expertCounts`),
+  protocol rows indented with non-breaking spaces. Written with
+  `workspace.fs`; Markdown opens in the preview, HTML in the browser.
+  `{format, packets, dest}` skip the questions.
 - **Unsaved captures** (`tempCaptures.ts`; live captures and editing results):
   files in `globalStorageUri/captures/<random>/<name>.pcapng`
   (`isTemporaryCapture` by path). `PcapDocument.temporary`; the provider fires
@@ -2028,3 +2103,5 @@ WireGuard, ESP, Kerberos), GeoIP with an Endpoints map, and IPv4/IPv6,
 multicast, resolved-address and SCTP statistics: 0.16.0.
 Then Export PDUs to File, Show Packet in New Window and the capture's
 file format view: 0.17.0.
+Then extcap capture helpers (SSH, Cisco, Android, UDP, randpkt), Capture to
+Files with ring buffers, saved capture filters and the capture report.
