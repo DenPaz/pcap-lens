@@ -184,8 +184,16 @@ def fake_extcap(service: PcapService) -> Iterator[str]:
     personal = Path(line.partition(":")[2].strip())
     personal.mkdir(parents=True, exist_ok=True)
     helper = personal / "fake_extcap"
-    source = (FIXTURES / "fake_extcap.py").read_text()
-    helper.write_text(f"#!{sys.executable}\n{source}")
+    # (A shell script answers tshark's interface query at once; Python does the rest.)
+    helper.write_text(
+        "#!/bin/sh\n"
+        'case " $* " in *" --extcap-interfaces "*)\n'
+        "  echo 'extcap {version=1.0}{help=https://example.invalid/fake}'\n"
+        "  echo 'interface {value=fake-remote}{display=Fake remote capture}'\n"
+        "  exit 0;;\n"
+        "esac\n"
+        f'exec "{sys.executable}" "{FIXTURES / "fake_extcap.py"}" "$@"\n'
+    )
     helper.chmod(0o755)
     try:
         tshark = service._require_tshark().path
