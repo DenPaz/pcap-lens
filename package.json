@@ -630,6 +630,12 @@
         "icon": "$(record)"
       },
       {
+        "command": "pcapViewer.captureToFiles",
+        "title": "Capture to Files…",
+        "category": "PCAP",
+        "icon": "$(files)"
+      },
+      {
         "command": "pcapViewer.stopCapture",
         "title": "Stop Capture",
         "category": "PCAP",
@@ -1659,6 +1665,59 @@
           "default": 0,
           "minimum": 0,
           "markdownDescription": "Stop a live capture once its file reaches this size (MB). `0`: no limit. Until it is saved, the capture is kept in the extension's storage."
+        },
+        "pcapViewer.capture.savedFilters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "filter": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "filter"
+            ]
+          },
+          "default": [
+            {
+              "name": "No ARP and no DNS",
+              "filter": "not arp and not port 53"
+            },
+            {
+              "name": "No broadcast and no multicast",
+              "filter": "not broadcast and not multicast"
+            },
+            {
+              "name": "IPv4 only",
+              "filter": "ip"
+            },
+            {
+              "name": "IPv6 only",
+              "filter": "ip6"
+            },
+            {
+              "name": "TCP only",
+              "filter": "tcp"
+            },
+            {
+              "name": "UDP only",
+              "filter": "udp"
+            },
+            {
+              "name": "Web (TCP 80 and 443)",
+              "filter": "tcp port 80 or tcp port 443"
+            },
+            {
+              "name": "DNS (port 53)",
+              "filter": "port 53"
+            }
+          ],
+          "markdownDescription": "Named capture (BPF) filters, e.g. `{ \"name\": \"No SSH\", \"filter\": \"not port 22\" }`: the bookmark button of *Start Capture*'s filter box offers them, and its save button adds one. *Import from Wireshark Profile* brings a profile's capture filters (`cfilters`)."
         },
         "pcapViewer.capture.promiscuous": {
           "type": "boolean",

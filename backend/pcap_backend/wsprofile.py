@@ -281,6 +281,8 @@ def read_profile(folder: Path) -> dict[str, Any]:
         "coloringRules": parse_colorfilters(_read(folder / "colorfilters")),
         "filterButtons": parse_filter_buttons(_read(folder / "dfilter_buttons")),
         "savedFilters": parse_dfilters(_read(folder / "dfilters")),
+        # (Same "name" filter format; Wireshark's capture filters, which tshark doesn't read.)
+        "captureFilters": parse_dfilters(_read(folder / "cfilters")),
         "macros": parse_macros(_read(folder / "dfilter_macros")),
         "columns": parse_columns(prefs),
         "preferences": changed,

@@ -143,7 +143,7 @@ def _start(service: PcapService, tmp_path: Path, **params: Any) -> dict[str, Any
 @pytest.mark.usefixtures("fake")
 def test_interfaces_and_filters(service: PcapService) -> None:
     ifaces = service.list_interfaces({}, RequestContext())["interfaces"]
-    assert [i["name"] for i in ifaces] == ["fake0", "lo"]
+    assert [i["name"] for i in ifaces if not i.get("extcap")] == ["fake0", "lo"]
     assert ifaces[1]["loopback"] and ifaces[0]["addresses"] == ["10.0.0.1", "fe80::1"]
     check = service.validate_capture_filter
     assert check({"interface": "fake0", "filter": ""}, RequestContext())["valid"]
@@ -354,3 +354,110 @@ def test_real_capture_on_loopback(service: PcapService, tmp_path: Path) -> None:
     assert (
         service.set_filter({"expr": f"udp.dstport == {port}"}, RequestContext())["matchCount"] >= 3
     )
+
+
+# --------------------------------------------------------------------------- to files
+
+
+def test_file_capture_args(tmp_path: Path) -> None:
+    files = capture.FileOptions(
+        folder=tmp_path, name="night", switch_bytes=1_500_000, switch_packets=1000, ring_files=5,
+        stop_files=20,
+    )  # fmt: skip
+    options = CaptureOptions(interfaces=("eth0",), capture_filter="tcp", seconds=60)
+    assert capture.file_capture_args(options, files) == [
+        "-i", "eth0", "-f", "tcp", "-a", "duration:60",
+        "-w", str(tmp_path / "night.pcapng"),
+        "-b", "filesize:1500", "-b", "packets:1000", "-b", "files:5", "-a", "files:20",
+    ]  # fmt: skip
+    pcap = capture.FileOptions(folder=tmp_path, name="x", pcap=True)
+    assert capture.file_capture_args(CaptureOptions(interfaces=("lo",)), pcap)[-3:] == [
+        "-w", str(tmp_path / "x.pcap"), "-P",
+    ]  # fmt: skip
+    extcap = CaptureOptions(interfaces=("sshdump",), extcap={"sshdump": {}})
+    assert capture.file_capture_args(extcap, pcap)[-2:] == ["-w", str(tmp_path / "x.pcapng")]
+    for name in ("x.pcapng", "x_00001_20261021173704.pcapng", "x_2.pcapng", "y.pcapng", "x.pcap"):
+        (tmp_path / name).write_bytes(b"")
+    assert [p.name for p in pcap.pieces(uses_tshark=True)] == [
+        "x.pcapng", "x_00001_20261021173704.pcapng",
+    ]  # fmt: skip
+
+
+def _to_files(service: PcapService, tmp_path: Path, **params: Any) -> dict[str, Any]:
+    return service.capture_to_files(
+        {"folder": str(tmp_path / "out"), "name": "cap", "interfaces": ["fake0"], **params},
+        RequestContext(),
+    )
+
+
+@pytest.mark.tshark
+@pytest.mark.usefixtures("fake")
+def test_capture_to_files_with_a_ring_buffer(service: PcapService, tmp_path: Path) -> None:
+    res = _to_files(
+        service, tmp_path, limits={"packets": MIXED_PACKETS}, files={"switchPackets": 10, "ring": 2}
+    )
+    names = [Path(f).name for f in res["files"]]
+    assert [n[:10] for n in names] == ["cap_00002_", "cap_00003_"], "the newest two of three"
+    assert (res["packets"], res["stopped"], res["dropped"]) == (MIXED_PACKETS, False, 0)
+    assert [comments.packet_count(Path(f)) for f in res["files"]] == [10, 6]
+    # Stop after two files: twenty packets.
+    res = _to_files(service, tmp_path, name="two", files={"switchPackets": 10, "stopAfter": 2})
+    assert len(res["files"]) == 2 and res["packets"] == 20
+
+
+@pytest.mark.tshark
+@pytest.mark.usefixtures("fake")
+def test_capture_to_one_pcap_file_until_stopped(service: PcapService, tmp_path: Path) -> None:
+    import threading  # noqa: PLC0415
+
+    progress: list[dict[str, Any]] = []
+    result: dict[str, Any] = {}
+
+    def run() -> None:
+        result.update(
+            service.capture_to_files(
+                {
+                    "folder": str(tmp_path),
+                    "name": "one",
+                    "format": "pcap",
+                    "interfaces": ["fake0"],
+                },
+                RequestContext(progress=progress.append),
+            )
+        )
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    try:
+        _wait(lambda: any(p["packets"] >= MIXED_PACKETS and p["files"] == 1 for p in progress))
+    finally:
+        assert service.capture_files_stop({}, RequestContext())["stopped"]
+        worker.join(20)
+    assert result["files"] == [str(tmp_path / "one.pcap")] and result["stopped"]
+    assert (tmp_path / "one.pcap").read_bytes()[:4] == bytes.fromhex("d4c3b2a1")
+    assert not service.capture_files_stop({}, RequestContext())["stopped"]
+
+
+@pytest.mark.parametrize(
+    ("params", "message"),
+    [
+        ({"files": {"ring": 3}}, "needs a new file"),
+        ({"name": "../x"}, "must be a file name"),
+        ({"folder": "relative"}, "absolute path"),
+        ({"format": "erf"}, "pcapng or pcap"),
+    ],
+)
+def test_bad_file_options(
+    service: PcapService, tmp_path: Path, params: dict[str, Any], message: str
+) -> None:
+    with pytest.raises(InvalidParamsError, match=message):
+        _to_files(service, tmp_path, **params)
+
+
+@pytest.mark.tshark
+def test_a_failed_file_capture_says_why(
+    service: PcapService, fake: Callable[..., None], tmp_path: Path
+) -> None:
+    fake(fail="You don't have permission to capture on that device")
+    with pytest.raises(ToolError, match="permission to capture"):
+        _to_files(service, tmp_path)

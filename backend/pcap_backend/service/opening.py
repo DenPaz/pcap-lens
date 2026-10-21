@@ -15,7 +15,7 @@ from typing import Any
 from pcap_backend import coloring, comments
 from pcap_backend.cache import FrameIndex, RowStore
 from pcap_backend.cancellation import CancelledError, CancelToken
-from pcap_backend.capture import CaptureOptions, LiveCapture, dumpcap_command
+from pcap_backend.capture import CaptureOptions, LiveCapture, capture_command
 from pcap_backend.index_cache import (
     CachedIndex,
     IndexCache,
@@ -126,7 +126,7 @@ class OpeningMixin(CommentsMixin):
         stream = bool(params.get("stream")) or live is not None
         cache = _cache_from(params.get("cache")) if live is None else None
         inline = _inline_coloring(params.get("coloring"))
-        command = dumpcap_command(tshark.path) if live is not None else []
+        command = capture_command(tshark.path, live[0]) if live is not None else []
 
         with self._lock:
             self._close_file()

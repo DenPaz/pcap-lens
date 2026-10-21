@@ -674,6 +674,7 @@ export class PcapEditorSession {
                 filter: capture.filter,
                 limits: capture.limits,
                 promiscuous: capture.promiscuous,
+                extcap: capture.extcap,
               },
             ]
           : [

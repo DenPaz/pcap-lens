@@ -29,11 +29,11 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any
 
-from . import procs
+from . import extcap, procs
 from .cancellation import CancelledError, CancelToken
 from .tshark import IS_WINDOWS, PROCESSES, ToolError, clean_stderr, find_tool
 
@@ -104,7 +104,9 @@ def capture_error(stderr: str, returncode: int | None, default: str) -> ToolErro
     lines = [
         ln
         for ln in text.split("\n")
-        if ln.strip() and not ln.startswith(("Capturing on", "File: ", "Packets"))
+        if ln.strip()
+        and not ln.startswith(("Capturing on", "File: ", "Packets"))
+        and not re.match(r"^\d+ packets? captured$", ln.strip())  # (tshark's, for extcap)
     ]
     message = "\n".join(lines).removeprefix("dumpcap: ") or default
     hint = permission_hint(text)
@@ -160,13 +162,26 @@ class CaptureOptions:
     max_bytes: int | None = None  # … once the file is this big (enforced here)
     promiscuous: bool = True
     snaplen: int | None = None
+    # Extcap interfaces among ``interfaces``: name → {option call: value}.
+    extcap: dict[str, dict[str, str]] = field(default_factory=dict)
+
+    @property
+    def uses_tshark(self) -> bool:
+        """An extcap interface needs tshark (it runs the helper and dumpcap)."""
+        return bool(self.extcap)
 
     def dumpcap_args(self) -> list[str]:
-        """dumpcap options (after the program): per interface -i, -f, -p and -s
-        (each applies to the -i before it), the stop conditions, pcapng to stdout."""
+        """Capture options (after dumpcap, or tshark for extcap interfaces): per
+        interface -i, -f, -p and -s (each applies to the -i before it; an
+        extcap interface gets its options as ``-o extcap.…`` preferences
+        instead, and filters with its own), the stop conditions, pcapng to stdout."""
         args = ["-q"]
         for name in self.interfaces:
             args += ["-i", name]
+            if name in self.extcap:
+                for call, value in self.extcap[name].items():
+                    args += ["-o", f"{extcap.settings_key(name, call)}:{value}"]
+                continue
             if self.capture_filter:
                 args += ["-f", self.capture_filter]
             if not self.promiscuous:
@@ -178,6 +193,11 @@ class CaptureOptions:
         if self.seconds:
             args += ["-a", f"duration:{max(1, round(self.seconds))}"]
         return [*args, "-w", "-"]
+
+
+def capture_command(tshark: Path, options: CaptureOptions) -> list[str]:
+    """The program a capture runs: dumpcap, or tshark when it uses extcap."""
+    return [str(tshark)] if options.uses_tshark else dumpcap_command(tshark)
 
 
 def filter_problem(stderr: str) -> str | None:
@@ -329,7 +349,7 @@ class LiveCapture:
                 return False
             self._stop_requested = True
             proc = self._proc
-        if not procs.interrupt_process(proc):
+        if not self._halt(proc, gently=True):
             self._signal_refused = True  # the copy loop then closes dumpcap's stdout
         return True
 
@@ -338,8 +358,15 @@ class LiveCapture:
         with self._lock:
             self._stop_requested = True
             proc = self._proc
-        if proc is not None and not procs.kill_process(proc):
+        if proc is not None and not self._halt(proc, gently=False):
             self._signal_refused = True
+
+    def _halt(self, proc: subprocess.Popen[bytes], gently: bool) -> bool:
+        """SIGINT (or a kill); tshark on Windows takes its dumpcap and extcap
+        helper with it (a kill there doesn't reach them, and they hold our pipe)."""
+        if IS_WINDOWS and self.options.uses_tshark:
+            return procs.kill_tree(proc)
+        return procs.interrupt_process(proc) if gently else procs.kill_process(proc)
 
     def join(self, timeout: float | None = None) -> None:
         if self._thread is not None:
@@ -486,3 +513,223 @@ class LiveCapture:
         if self.error:
             event["error"] = self.error
         self.notify(event)
+
+
+# ---------------------------------------------------------------------- capturing to files
+
+# dumpcap's stderr while it writes files: "\rPackets: 12 " now and then, "File:
+# <path>" at every new file, "Packets captured: 25" at the end; tshark (extcap)
+# only says "25 packets captured" at the end.
+_COUNT_RE = re.compile(r"Packets(?: captured)?: (\d+)|^(\d+) packets? captured")
+_PIECE_SUFFIX = r"(?:_\d{5}_\d{14})?"
+PROGRESS_INTERVAL_S = 1.0
+
+
+@dataclass(frozen=True, slots=True)
+class FileOptions:
+    """Where and how a capture writes files (dumpcap's -w, -b and -a files)."""
+
+    folder: Path
+    name: str  # the file name before dumpcap's "_00001_<time>" and the extension
+    pcap: bool = False  # pcap instead of pcapng (dumpcap only: tshark writes pcapng)
+    switch_bytes: int | None = None  # a new file once this one has this many bytes
+    switch_seconds: int | None = None  # … after this long
+    switch_packets: int | None = None  # … after this many packets
+    ring_files: int | None = None  # keep only the newest N files
+    stop_files: int | None = None  # stop after N files
+
+    @property
+    def switches(self) -> bool:
+        return bool(self.switch_bytes or self.switch_seconds or self.switch_packets)
+
+    def extension(self, uses_tshark: bool) -> str:
+        return ".pcap" if self.pcap and not uses_tshark else ".pcapng"
+
+    def args(self, uses_tshark: bool) -> list[str]:
+        args = ["-w", str(self.folder / f"{self.name}{self.extension(uses_tshark)}")]
+        if self.switch_bytes:
+            args += ["-b", f"filesize:{max(1, -(-self.switch_bytes // 1000))}"]  # kB, rounded up
+        if self.switch_seconds:
+            args += ["-b", f"duration:{self.switch_seconds}"]
+        if self.switch_packets:
+            args += ["-b", f"packets:{self.switch_packets}"]
+        if self.ring_files:
+            args += ["-b", f"files:{self.ring_files}"]
+        if self.stop_files:
+            args += ["-a", f"files:{self.stop_files}"]
+        if self.pcap and not uses_tshark:
+            args.append("-P")
+        return args
+
+    def pieces(self, uses_tshark: bool) -> list[Path]:
+        """The files of this name in the folder (dumpcap numbers them when it
+        switches files: ``name_00001_20261021173704.pcapng``)."""
+        pattern = re.compile(
+            re.escape(self.name) + _PIECE_SUFFIX + re.escape(self.extension(uses_tshark)) + "$"
+        )
+        try:
+            return sorted(p for p in self.folder.iterdir() if pattern.match(p.name) and p.is_file())
+        except OSError:
+            return []
+
+
+def file_capture_args(options: CaptureOptions, files: FileOptions) -> list[str]:
+    """dumpcap's (or tshark's) options for writing files: the interfaces and
+    stop conditions of a live capture, without -q (so dumpcap counts packets on
+    stderr) and with the files instead of stdout."""
+    args = options.dumpcap_args()
+    assert args[0] == "-q" and args[-2:] == ["-w", "-"]
+    return [*args[1:-2], *files.args(options.uses_tshark)]
+
+
+class FileCapture:
+    """One dumpcap (or tshark, for extcap) run writing files; reports its
+    progress until it ends (a limit, :meth:`stop`, or a failure)."""
+
+    def __init__(
+        self,
+        command: Sequence[str],
+        options: CaptureOptions,
+        files: FileOptions,
+        report: Callable[[dict[str, Any]], None],
+    ) -> None:
+        self.command = list(command)
+        self.options = options
+        self.files = files
+        self.report = report
+        self.packets = 0
+        self.started_at = 0.0
+        self.error: str | None = None
+        self._before: set[Path] = set()
+        self._stderr: list[str] = []
+        self._proc: subprocess.Popen[bytes] | None = None
+        self._reader: threading.Thread | None = None
+        self._stop_requested = False
+        self._lock = threading.Lock()
+
+    def _written(self) -> list[Path]:
+        return [p for p in self.files.pieces(self.options.uses_tshark) if p not in self._before]
+
+    def _read_stderr(self) -> None:
+        proc = self._proc
+        assert proc is not None and proc.stderr is not None
+        pending = ""
+        fd = proc.stderr.fileno()
+        for chunk in iter(lambda: os.read(fd, 4096), b""):
+            pending += chunk.decode("utf-8", "replace")
+            *lines, pending = re.split(r"[\r\n]", pending)
+            for line in lines:
+                self._line(line)
+            # ("\rPackets: 12 " stays unterminated until the next count.)
+            if m := _COUNT_RE.search(pending.strip()):
+                with self._lock:
+                    self.packets = int(m.group(1) or m.group(2))
+        self._line(pending)
+
+    def _line(self, line: str) -> None:
+        m = _COUNT_RE.search(line.strip())
+        with self._lock:
+            if m:
+                self.packets = int(m.group(1) or m.group(2))
+            elif line.strip() and sum(len(s) for s in self._stderr) < 1 << 16:
+                self._stderr.append(line)
+
+    @property
+    def stderr(self) -> str:
+        with self._lock:
+            return clean_stderr("\n".join(self._stderr))
+
+    def run(self, token: CancelToken) -> dict[str, Any]:
+        """Capture until the end; cancelling ``token`` kills it (``stop`` ends it
+        cleanly). Returns ``{files, packets, seconds, dropped, stopped, error?}``."""
+        self.files.folder.mkdir(parents=True, exist_ok=True)
+        self._before = set(self.files.pieces(self.options.uses_tshark))
+        argv = [*self.command, *file_capture_args(self.options, self.files)]
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if IS_WINDOWS else 0
+        try:
+            proc = subprocess.Popen(
+                argv,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                creationflags=flags,
+            )
+        except OSError as exc:
+            raise ToolError(f"could not start the capture: {exc}") from exc
+        PROCESSES.add(proc)
+        self._proc = proc
+        self.started_at = time.time()
+        self._reader = threading.Thread(target=self._read_stderr, daemon=True)
+        self._reader.start()
+        killed = False
+        last = 0.0
+        try:
+            while proc.poll() is None:
+                if token.cancelled and not killed:
+                    killed = True
+                    self._halt(gently=False)
+                now = time.monotonic()
+                if now - last >= PROGRESS_INTERVAL_S:
+                    last = now
+                    self.report(self._progress())
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    proc.wait(timeout=procs.POLL_INTERVAL)
+        finally:
+            procs.stop_process(proc, [self._reader], on_reaped=lambda: PROCESSES.discard(proc))
+        token.raise_if_cancelled()
+        stderr = self.stderr
+        written = self._written()
+        drops = [int(m.group(2)) for m in _DROPPED_RE.finditer(stderr)]
+        if proc.returncode not in (0, None) and not self._stop_requested:
+            self.error = capture_error(
+                stderr, proc.returncode, f"the capture exited with code {proc.returncode}"
+            ).args[0]
+            if not written:
+                raise ToolError(self.error, stderr, proc.returncode)
+        result: dict[str, Any] = {
+            "files": [str(p) for p in written],
+            "packets": self.packets,
+            "seconds": round(time.time() - self.started_at, 3),
+            "dropped": sum(drops) if drops else None,
+            "stopped": self._stop_requested,
+        }
+        if self.error:
+            result["error"] = self.error
+        return result
+
+    def _progress(self) -> dict[str, Any]:
+        written = self._written()
+        size = 0
+        for path in written:
+            with contextlib.suppress(OSError):
+                size += path.stat().st_size
+        return {
+            "phase": "capture",
+            "fraction": None,
+            "packets": self.packets,
+            "files": len(written),
+            "current": str(written[-1]) if written else None,
+            "bytes": size,
+            "seconds": round(time.time() - self.started_at, 3),
+        }
+
+    def stop(self) -> bool:
+        """End the capture cleanly (the files written stay); False if not running."""
+        with self._lock:
+            proc = self._proc
+            if proc is None or proc.poll() is not None or self._stop_requested:
+                return False
+            self._stop_requested = True
+        self._halt(gently=True)
+        return True
+
+    def _halt(self, gently: bool) -> None:
+        proc = self._proc
+        if proc is None:
+            return
+        if IS_WINDOWS and self.options.uses_tshark:
+            procs.kill_tree(proc)
+        elif gently:
+            procs.interrupt_process(proc)
+        else:
+            procs.kill_process(proc)

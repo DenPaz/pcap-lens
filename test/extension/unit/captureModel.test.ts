@@ -1,5 +1,8 @@
 import * as assert from "node:assert/strict";
 import {
+  FILE_ARGS,
+  fileCheck,
+  fileParams,
   captureFileName,
   captureLimits,
   epochNs,
@@ -81,5 +84,39 @@ suite("live capture and editing helpers", () => {
     assert.equal(parseCaptureTime("90", first), first + 90n * S);
     assert.equal(parseCaptureTime("2023-11-14T22:13:21Z", first), first + S);
     assert.equal(parseCaptureTime("soon", first), undefined);
+  });
+
+  test("Capture to Files: the form's values as capture_to_files' options", () => {
+    assert.deepEqual(
+      FILE_ARGS.map((a) => a.call),
+      [
+        "--switchMegabytes",
+        "--switchSeconds",
+        "--switchPackets",
+        "--ring",
+        "--stopAfter",
+        "--stopPackets",
+        "--stopSeconds",
+        "--format",
+      ],
+    );
+    assert.deepEqual(
+      fileParams({
+        "--switchMegabytes": "1.5",
+        "--switchPackets": "",
+        "--ring": "5",
+        "--stopSeconds": "3600",
+        "--format": "pcap",
+      }),
+      {
+        format: "pcap",
+        files: { switchBytes: 1_500_000, ring: 5 },
+        limits: { seconds: 3600 },
+      },
+    );
+    assert.deepEqual(fileParams({}), { format: "pcapng", files: {}, limits: {} });
+    assert.match(fileCheck({ "--ring": "5" }) ?? "", /needs a new file/);
+    assert.equal(fileCheck({ "--ring": "5", "--switchSeconds": "60" }), undefined);
+    assert.equal(fileCheck({}), undefined);
   });
 });

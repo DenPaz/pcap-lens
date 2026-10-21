@@ -38,6 +38,8 @@ export interface ProfileContents {
   }[];
   filterButtons: (FilterButton & { enabled: boolean })[];
   savedFilters: SavedFilter[];
+  /** Capture (BPF) filters (`cfilters`; older backends leave it out). */
+  captureFilters?: SavedFilter[];
   macros: { name: string; text: string }[];
   columns: ProfileColumn[];
   /** Preferences the profile sets (they apply when tshark uses it). */
@@ -89,7 +91,8 @@ export function profileItems(
   });
 }
 
-export type ImportKind = "coloringRules" | "filterButtons" | "savedFilters" | "columns";
+export type ImportKind =
+  "coloringRules" | "filterButtons" | "savedFilters" | "captureFilters" | "columns";
 
 /** What a profile can bring in, each with a count and what importing does. */
 export function importChoices(
@@ -120,6 +123,14 @@ export function importChoices(
       detail: "Added to your saved filters; a name you already use is skipped",
     });
   }
+  const captureFilters = contents.captureFilters ?? [];
+  if (captureFilters.length) {
+    out.push({
+      kind: "captureFilters",
+      label: n(captureFilters.length, "capture filter", "capture filters"),
+      detail: "Added to your saved capture filters; a name you already use is skipped",
+    });
+  }
   if (contents.columns.length) {
     out.push({
       kind: "columns",
@@ -133,6 +144,7 @@ export function importChoices(
 export interface CurrentSettings {
   filterButtons: FilterButton[];
   savedFilters: SavedFilter[];
+  captureFilters: SavedFilter[];
   columns: ColumnSetting[];
 }
 
@@ -167,6 +179,14 @@ export function importSettings(
       const added = contents.savedFilters.filter((f) => !have.has(f.name));
       return {
         writes: [{ key: "savedFilters", value: [...current.savedFilters, ...added] }],
+        added: added.length,
+      };
+    }
+    case "captureFilters": {
+      const have = new Set(current.captureFilters.map((f) => f.name));
+      const added = (contents.captureFilters ?? []).filter((f) => !have.has(f.name));
+      return {
+        writes: [{ key: "capture.savedFilters", value: [...current.captureFilters, ...added] }],
         added: added.length,
       };
     }

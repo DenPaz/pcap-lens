@@ -13,6 +13,7 @@ waited for and its pipes closed, so nothing leaks.
 from __future__ import annotations
 
 import contextlib
+import os
 import signal
 import subprocess
 import sys
@@ -86,6 +87,24 @@ def interrupt_process(proc: Proc) -> bool:
         _log(f"could not interrupt {_program(proc).name} (pid {proc.pid}): {exc}")
         return False
     return True
+
+
+def kill_tree(proc: Proc) -> bool:
+    """Kill ``proc`` and the processes it started. On Windows a kill doesn't
+    reach a child's children (tshark's dumpcap and extcap helper, which keep
+    writing into our pipe), so ``taskkill /T`` goes first; elsewhere they stop
+    at their next write once their reader is gone. Never raises."""
+    if sys.platform == "win32" and proc.poll() is None:
+        taskkill = Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32" / "taskkill.exe"
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            subprocess.run(
+                [str(taskkill), "/PID", str(proc.pid), "/T", "/F"],
+                capture_output=True,
+                timeout=STOP_TIMEOUT,
+                check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+    return kill_process(proc)
 
 
 def _warn_kill_denied(proc: Proc, exc: OSError) -> None:

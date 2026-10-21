@@ -15,6 +15,7 @@ from typing import Any
 from pcap_backend import navigation, procs, voip
 from pcap_backend.cache import FrameIndex, LruCache
 from pcap_backend.cancellation import CancelToken
+from pcap_backend.capture import FileCapture
 from pcap_backend.fields import FieldCatalog
 from pcap_backend.geoip import GeoDatabases, geo_folders
 from pcap_backend.objects import ExportedObject
@@ -82,6 +83,8 @@ class ServiceBase:
         self._decode_as: LruCache[str, list[dict[str, str]]] = LruCache(32)
         # Export PDUs: tshark's export taps (`-U ?`), by tshark path.
         self._pdu_taps: LruCache[str, list[dict[str, str]]] = LruCache(2)
+        self._extcap_tools: dict[str, Path] = {}  # extcap interface → its helper
+        self._file_capture: FileCapture | None = None  # capture_to_files running
         # Wireshark's preferences with their defaults, by (tshark, Lua scripts).
         self._default_prefs: LruCache[tuple[str, tuple[str, ...]], dict[str, Preference]] = (
             LruCache(2)
