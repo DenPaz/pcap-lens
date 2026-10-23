@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.19.0 — 2026-10-23
+
 ### Added
 
 - VoIP Calls lists H.323, MGCP and IAX2 calls next to SIP's, with their call

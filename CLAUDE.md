@@ -2163,4 +2163,4 @@ Then Export PDUs to File, Show Packet in New Window and the capture's
 file format view: 0.17.0.
 Then extcap capture helpers (SSH, Cisco, Android, UDP, randpkt), Capture to
 Files with ring buffers, saved capture filters and the capture report: 0.18.0.
-Then H.323, MGCP and IAX2 calls in the VoIP panel.
+Then H.323, MGCP and IAX2 calls in the VoIP panel: 0.19.0.
