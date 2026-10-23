@@ -130,6 +130,29 @@ registered under its name in lower case).
 - **Time formats** (relative, deltas, absolute, UTC, epoch) and a time
   reference (`Ctrl+T`).
 
+### Menus and toolbar
+
+- **Context menus with submenus**: right-click a packet or a field for _Apply
+  as Filter ›_ and _Prepare as Filter ›_ (Selected, Not Selected and, with a
+  filter applied, …and/…or (not) Selected, each showing the filter it makes),
+  _Conversation Filter ›_, _Colorize Conversation ›_, _Follow ›_ (the streams
+  that packet is part of), _Copy ›_ and more, with icons and key bindings.
+  What doesn't apply to the packet isn't listed. `Shift+F10` or the menu key
+  opens them from the keyboard.
+
+  ![The packet list's menu: Follow open on an HTTP packet, offering its TCP and HTTP streams and the TCP stream graph](media/screenshots/menus.png)
+
+- **☰ All commands** at the end of the filter bar: every PCAP Lens command
+  under its heading (Packets, Streams, Statistics, Network Statistics, Service
+  Statistics, Telephony, Export…), the ones you ran lately first; type to
+  filter.
+- **The editor's title bar**: Start/Stop Capture, Find Packet, Follow Stream,
+  a _Statistics_ menu with every report, and the coloring switch; Reload, the
+  exports and the capture report in its _…_ menu.
+- **Toolbar** under the filter: go to a packet, first, previous, next, last,
+  back, forward, mark, find and coloring.
+- **Row height**: `pcapViewer.listDensity` (compact, normal, comfortable).
+
 ### Display filters
 
 - Wireshark syntax, **validated as you type**; invalid filters are never applied.

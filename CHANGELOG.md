@@ -7,6 +7,32 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- Context menus with submenus (_Apply as Filter ›_, _Prepare as Filter ›_,
+  _Conversation Filter ›_, _Colorize Conversation ›_, _Follow ›_, _Copy ›_),
+  icons, key bindings and keyboard use; entries that don't apply are left out,
+  and _Follow ›_ lists the packet's own streams. [c2018f3]
+- Actions in the editor's title bar: Start/Stop Capture, Find, Follow Stream,
+  a Statistics menu and the coloring switch. [dedadc8]
+- A toolbar under the filter (go to, first/previous/next/last, back/forward,
+  mark, find, coloring) and `pcapViewer.listDensity` for the row height.
+  [95f8023]
+
+### Changed
+
+- ☰ All commands: icons on the headings, recently used commands first, and
+  the statistics split into Streams, Statistics, Network Statistics, Service
+  Statistics and Telephony. [76ca42f]
+- The filter bar is one rounded field with its buttons inside and a coloured
+  validity edge; filter buttons are pills; the status bar's items have icons.
+  [95f8023]
+
+[c2018f3]: https://github.com/DenPaz/vsc_pcap_viewer/commit/c2018f3
+[dedadc8]: https://github.com/DenPaz/vsc_pcap_viewer/commit/dedadc8
+[95f8023]: https://github.com/DenPaz/vsc_pcap_viewer/commit/95f8023
+[76ca42f]: https://github.com/DenPaz/vsc_pcap_viewer/commit/76ca42f
+
 ## 0.19.0 — 2026-10-23
 
 ### Added
