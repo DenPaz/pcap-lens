@@ -7,6 +7,25 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- Right-click menus in the panels: statistics rows (_Apply as Filter ›_ and
+  _Prepare as Filter ›_ combined with the capture's filter, _Go to Packet_,
+  _Copy ›_), Export Objects and the VoIP calls and streams; Shift+F10 or the
+  menu key opens the selected row's. [c32bf02] [43a2bb1]
+
+### Changed
+
+- The panels look like the viewer: icons on every button, rounder buttons and
+  fields, VS Code-style section headings and table headers. [c32bf02]
+  [43a2bb1]
+- The packet list's header shows where to drag to resize a column, and the
+  selected row and field have rounded corners. [21dbb84]
+
+[c32bf02]: https://github.com/DenPaz/vsc_pcap_viewer/commit/c32bf02
+[43a2bb1]: https://github.com/DenPaz/vsc_pcap_viewer/commit/43a2bb1
+[21dbb84]: https://github.com/DenPaz/vsc_pcap_viewer/commit/21dbb84
+
 ## 0.20.0 — 2026-10-23
 
 ### Added
