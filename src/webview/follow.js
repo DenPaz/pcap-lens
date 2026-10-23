@@ -10,6 +10,7 @@
 (function () {
   "use strict";
 
+  const kit = /** @type {any} */ (window).PcapPanel;
   const vscode = acquireVsCodeApi();
   /** @type {any} */
   const lib = /** @type {any} */ (window).PcapLib;
@@ -105,21 +106,30 @@
     { type: "button", class: "secondary", title: "Next stream", "aria-label": "Next stream" },
     [icon("chevron-right")],
   );
-  const filterBtn = h(
-    "button",
-    { type: "button", title: "Apply a display filter for this stream in the capture" },
-    ["Filter to Stream"],
+  const filterBtn = kit.withIcon(
+    h(
+      "button",
+      { type: "button", title: "Apply a display filter for this stream in the capture" },
+      ["Filter to Stream"],
+    ),
+    "filter",
   );
-  const filterOutBtn = h(
-    "button",
-    {
-      type: "button",
-      class: "secondary",
-      title: "Hide this stream in the capture (within the display filter applied)",
-    },
-    ["Filter Out This Stream"],
+  const filterOutBtn = kit.withIcon(
+    h(
+      "button",
+      {
+        type: "button",
+        class: "secondary",
+        title: "Hide this stream in the capture (within the display filter applied)",
+      },
+      ["Filter Out This Stream"],
+    ),
+    "filter-filled",
   );
-  const saveBtn = h("button", { type: "button", class: "secondary" }, ["Save as…"]);
+  const saveBtn = kit.withIcon(
+    h("button", { type: "button", class: "secondary" }, ["Save as…"]),
+    "save",
+  );
   toolbar.append(
     h("label", {}, ["Show ", dirSelect]),
     h("label", {}, ["as ", formatSelect]),

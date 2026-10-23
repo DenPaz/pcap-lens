@@ -50,7 +50,8 @@ type FromPanel =
   | { type: "playCall"; id: number; call: number; streams: CallStream[] }
   | { type: "saveCallAudio"; call: number; streams: CallStream[] }
   | { type: "askCopilot"; call: number }
-  | { type: "goto"; frame: number };
+  | { type: "goto"; frame: number }
+  | { type: "copy"; text: string };
 
 /**
  * VoIP calls of one capture: the SIP, H.323, MGCP and IAX2 calls (with their
@@ -142,6 +143,10 @@ export class VoipPanel {
         return this.play(msg.id, msg.stream);
       case "save":
         return this.save(msg.stream, msg.format === "raw" ? "raw" : "wav");
+      case "copy":
+        await vscode.env.clipboard.writeText(msg.text);
+        vscode.window.setStatusBarMessage("Copied to clipboard", 2000);
+        return;
       case "filter":
         if (typeof msg.expr === "string" && msg.expr) {
           this.session.applyFilter(msg.expr);

@@ -1062,6 +1062,11 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       await page.click("#objects-save-all");
       const saveAll = await lastOfType(log, "saveAll");
       assert.deepEqual([...saveAll.ids].sort(), [0, 1, 2, 3, 4, 5, 6]);
+      // The row menu: right-click a row (it is selected): Go to Packet, Save…, Copy ›.
+      await page.click("table.stats tbody tr:has-text('logo.png')", { button: "right" });
+      assert.deepEqual(await menuLabels(page), ["Go to Packet 6", "Save…", "Copy"]);
+      await pickMenu(page, "Copy", "File Name");
+      await expectLast(log, { type: "copy", text: "logo.png" });
 
       await page.click("button:has-text('Refresh')");
       await page.waitForFunction(() =>
@@ -1465,6 +1470,19 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         /^Not answered · final response 486 Busy Here · ended by the callee \(10\.0\.0\.2\)$/,
       );
       assert.match(await page.textContent("#voip-call-details"), /Not answered: no media expected/);
+
+      // Row menus: the toolbar's actions that can act now, then Copy ›.
+      await page.click("#voip-calls tbody tr >> nth=0", { button: "right" });
+      await page.waitForSelector("#context-menu:not(.hidden)");
+      const callMenu = await menuLabels(page);
+      assert.deepEqual(callMenu.slice(0, 2), ["Filter Call", "Save Call…"]);
+      assert.equal(callMenu.at(-1), "Copy");
+      await pickMenu(page, "Filter Call");
+      assert.equal((await lastOfType(log, "filter")).type, "filter");
+      await page.click("#voip-streams tbody tr >> nth=0", { button: "right" });
+      assert.deepEqual((await menuLabels(page)).slice(0, 2), ["Analyse", "Play"]);
+      await pickMenu(page, "Copy", "Row");
+      assert.match((await lastOfType(log, "copy")).text, /^10\.0\.0\.1:40000\t/);
 
       await page.check("#voip-heuristic");
       assert.equal(

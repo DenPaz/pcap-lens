@@ -57,11 +57,13 @@
         return false;
       }
       spec.select(row);
-      const entries = spec.entries(row, cell);
+      // (Selecting may draw the rows again: the menu is the row's as it is now.)
+      const current = /** @type {HTMLElement} */ (container.querySelector(selected) ?? row);
+      const entries = spec.entries(current, cell);
       if (!entries || !entries.length) {
         return false;
       }
-      const rect = row.getBoundingClientRect();
+      const rect = current.getBoundingClientRect();
       menus.show(x ?? rect.left + 24, y ?? rect.bottom, entries);
       return true;
     };

@@ -10,6 +10,7 @@
 (function () {
   "use strict";
 
+  const kit = /** @type {any} */ (window).PcapPanel;
   const vscode = acquireVsCodeApi();
   const VALIDATE_DELAY_MS = 300;
 
@@ -128,9 +129,11 @@
   // ------------------------------------------------------------------ rendering
 
   const tbody = h("tbody");
-  const saveButton = /** @type {HTMLButtonElement} */ (h("button", { type: "button" }, ["Save"]));
+  const saveButton = /** @type {HTMLButtonElement} */ (
+    kit.withIcon(h("button", { type: "button" }, ["Save"]), "save")
+  );
   const revertButton = /** @type {HTMLButtonElement} */ (
-    h("button", { type: "button", class: "secondary" }, ["Revert"])
+    kit.withIcon(h("button", { type: "button", class: "secondary" }, ["Revert"]), "discard")
   );
   const statusLine = h("span", { class: "status", role: "status" });
 
@@ -336,13 +339,16 @@
 
   // ------------------------------------------------------------------ layout
 
-  const addButton = h("button", { type: "button" }, ["Add Rule"]);
+  const addButton = kit.withIcon(h("button", { type: "button" }, ["Add Rule"]), "add");
   addButton.addEventListener("click", add);
   saveButton.addEventListener("click", () =>
     vscode.postMessage({ type: "save", rules: currentRules() }),
   );
   revertButton.addEventListener("click", () => vscode.postMessage({ type: "ready" }));
-  const defaultsButton = h("button", { type: "button", class: "secondary" }, ["Restore Defaults"]);
+  const defaultsButton = kit.withIcon(
+    h("button", { type: "button", class: "secondary" }, ["Restore Defaults"]),
+    "discard",
+  );
   defaultsButton.addEventListener("click", () => {
     state.rows = toRows(state.defaults);
     state.errors.clear();
