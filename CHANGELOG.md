@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.21.0 — 2026-10-23
+
 ### Added
 
 - Right-click menus in the panels: statistics rows (_Apply as Filter ›_ and

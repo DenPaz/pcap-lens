@@ -2249,4 +2249,4 @@ Files with ring buffers, saved capture filters and the capture report: 0.18.0.
 Then H.323, MGCP and IAX2 calls in the VoIP panel: 0.19.0.
 Then context menus with submenus, a reorganised ☰ menu, editor title bar
 actions, a filter field and toolbar, list density and status bar items: 0.20.0.
-Then the panels in the same style, with row menus, and column dividers.
+Then the panels in the same style, with row menus, and column dividers: 0.21.0.
