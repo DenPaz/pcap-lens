@@ -69,6 +69,37 @@ export function resetView(opts = { keepSelection: false }) {
   render();
 }
 
+/**
+ * Change the row height (pcapViewer.listDensity) of the list, the tree and
+ * the bytes, keeping the first row on screen in place.
+ * @param {number} px
+ */
+export function setRowHeight(px) {
+  if (px === state.rowHeight) {
+    return;
+  }
+  const first = lib.computeWindow({
+    scrollTop: el.viewport.scrollTop,
+    viewportHeight: el.viewport.clientHeight,
+    total: state.total,
+    rowHeight: state.rowHeight,
+  }).first;
+  state.rowHeight = px;
+  document.documentElement.style.setProperty("--row-height", `${px}px`);
+  updateSpacer();
+  // (Centring the row half a screen below puts `first` at the top.)
+  const fully = Math.max(1, Math.floor(el.viewport.clientHeight / px));
+  el.viewport.scrollTop = lib.scrollTopForIndex({
+    index: first + Math.floor(fully / 2),
+    scrollTop: 0,
+    viewportHeight: el.viewport.clientHeight,
+    total: state.total,
+    rowHeight: px,
+    center: true,
+  });
+  render();
+}
+
 export function updateSpacer() {
   const win = lib.computeWindow({
     scrollTop: 0,

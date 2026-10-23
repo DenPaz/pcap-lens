@@ -20,28 +20,18 @@
   <body>
     <div id="app">
       <div id="filter-bar" role="search">
-        <button
-          id="filter-saved"
-          type="button"
-          class="icon"
-          title="Saved and recent filters"
-          aria-label="Saved and recent filters"
-          aria-haspopup="listbox"
-          aria-controls="suggest"
-        >
-          <span class="codicon codicon-star-full" aria-hidden="true"></span>
-        </button>
-        <button
-          id="filter-ai"
-          type="button"
-          class="icon hidden"
-          aria-pressed="false"
-          title="Ask AI for a display filter: describe the packets you want (only your text, the current filter and protocol/field names are sent)"
-          aria-label="Ask AI for a display filter"
-        >
-          <span class="codicon codicon-sparkle" aria-hidden="true"></span>
-        </button>
         <div id="filter-field">
+          <button
+            id="filter-saved"
+            type="button"
+            class="icon"
+            title="Saved and recent filters"
+            aria-label="Saved and recent filters"
+            aria-haspopup="listbox"
+            aria-controls="suggest"
+          >
+            <span class="codicon codicon-star-full" aria-hidden="true"></span>
+          </button>
           <label for="filter-input" class="visually-hidden">Display filter</label>
           <input
             id="filter-input"
@@ -54,20 +44,46 @@
             aria-controls="suggest"
             placeholder="Apply a display filter … (Enter to apply, Ctrl+Space for suggestions)"
           />
+          <button
+            id="filter-clear"
+            type="button"
+            class="icon"
+            title="Clear display filter"
+            aria-label="Clear display filter"
+          >
+            <span class="codicon codicon-close" aria-hidden="true"></span>
+          </button>
+          <button
+            id="filter-ai"
+            type="button"
+            class="icon hidden"
+            aria-pressed="false"
+            title="Ask AI for a display filter: describe the packets you want (only your text, the current filter and protocol/field names are sent)"
+            aria-label="Ask AI for a display filter"
+          >
+            <span class="codicon codicon-sparkle" aria-hidden="true"></span>
+          </button>
+          <button
+            id="filter-build"
+            type="button"
+            class="icon"
+            title="Build a display filter from a field, a relation and a value"
+            aria-label="Build a display filter"
+            aria-haspopup="dialog"
+          >
+            <span class="codicon codicon-list-filter" aria-hidden="true"></span>
+          </button>
+          <button
+            id="filter-apply"
+            type="button"
+            class="icon"
+            title="Apply display filter (Enter)"
+            aria-label="Apply display filter"
+          >
+            <span class="codicon codicon-arrow-right" aria-hidden="true"></span>
+          </button>
           <div id="suggest" class="suggest hidden" role="listbox"></div>
         </div>
-        <button
-          id="filter-build"
-          type="button"
-          class="icon"
-          title="Build a display filter from a field, a relation and a value"
-          aria-label="Build a display filter"
-          aria-haspopup="dialog"
-        >
-          <span class="codicon codicon-list-filter" aria-hidden="true"></span>
-        </button>
-        <button id="filter-apply" type="button" title="Apply display filter (Enter)">Apply</button>
-        <button id="filter-clear" type="button" title="Clear display filter">Clear</button>
         <button
           id="filter-menu"
           type="button"
@@ -84,7 +100,10 @@
           Cancel
         </button>
       </div>
-      <div id="filter-buttons" class="hidden" role="toolbar" aria-label="Filter buttons"></div>
+      <div id="toolbar">
+        <div id="nav-tools" role="toolbar" aria-label="Packet navigation"></div>
+        <div id="filter-buttons" class="hidden" role="toolbar" aria-label="Filter buttons"></div>
+      </div>
       <div id="find-bar" class="hidden" role="search" aria-label="Find packet">
         <select id="find-mode" aria-label="Find by">
           <option value="filter">Display filter</option>

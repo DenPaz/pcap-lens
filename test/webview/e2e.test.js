@@ -288,8 +288,10 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       ),
       [
         ["filter-saved", "codicon codicon-star-full", "Saved and recent filters"],
+        ["filter-clear", "codicon codicon-close", "Clear display filter"],
         ["filter-ai", "codicon codicon-sparkle", "Ask AI for a display filter"],
         ["filter-build", "codicon codicon-list-filter", "Build a display filter"],
+        ["filter-apply", "codicon codicon-arrow-right", "Apply display filter"],
         ["filter-menu", "codicon codicon-menu", "All PCAP commands"],
       ],
     );
@@ -2071,7 +2073,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     let b = await button();
     assert.deepEqual(
       [b.after, b.label, b.title, b.popup, b.expanded],
-      ["filter-clear", "All PCAP commands", "All PCAP commands", "menu", "false"],
+      ["filter-field", "All PCAP commands", "All PCAP commands", "menu", "false"],
     );
 
     // Open with a click: the headings in their order, folded, with their counts.
@@ -2282,12 +2284,13 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     try {
       for (const width of [320, 480, 800]) {
         await page.setViewportSize({ width, height: 600 });
-        const box = await page.$eval("#filter-input", (i) => i.getBoundingClientRect().width);
+        // (The field: the input with its buttons inside.)
+        const box = await page.$eval("#filter-field", (i) => i.getBoundingClientRect().width);
         const menu = await page.$eval("#filter-menu", (m) => {
           const r = m.getBoundingClientRect();
           return { right: r.right, visible: r.width > 0 };
         });
-        assert.ok(box >= Math.min(180, width - 80), `input ${box}px wide at ${width}px`);
+        assert.ok(box >= Math.min(180, width - 80), `field ${box}px wide at ${width}px`);
         assert.ok(menu.visible && menu.right <= width, `☰ inside the window at ${width}px`);
         if (process.env.PCAP_SCREENSHOTS) {
           await page.screenshot({
@@ -2325,7 +2328,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     }));
     assert.deepEqual(
       { role: bar.role, label: bar.label, after: bar.afterFilterBar },
-      { role: "toolbar", label: "Filter buttons", after: "filter-bar" },
+      { role: "toolbar", label: "Filter buttons", after: "nav-tools" },
     );
     assert.deepEqual(bar.buttons, [
       { text: "HTTP", title: "http", pressed: "false" },
@@ -2392,6 +2395,105 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     );
     await post({ type: "filterButtons", buttons: [] });
     assert.equal(await page.isHidden("#filter-buttons"), true);
+  });
+
+  test("the toolbar: go through the packets, mark, find, coloring; one Tab stop", async () => {
+    await cleanView();
+    const tools = () =>
+      page.$$eval("#nav-tools button", (b) =>
+        b.map((x) => [
+          x.id,
+          x.getAttribute("aria-disabled"),
+          x.getAttribute("aria-pressed"),
+          x.tabIndex,
+        ]),
+      );
+    const all = await tools();
+    assert.deepEqual(
+      all.map((t) => t[0]),
+      [
+        "tool-go-to",
+        "tool-first",
+        "tool-previous",
+        "tool-next",
+        "tool-last",
+        "tool-back",
+        "tool-forward",
+        "tool-mark",
+        "tool-find",
+        "tool-coloring",
+      ],
+    );
+    assert.equal(await page.getAttribute("#nav-tools", "role"), "toolbar");
+    assert.deepEqual(
+      all.map((t) => t[3]),
+      [0, -1, -1, -1, -1, -1, -1, -1, -1, -1],
+      "one Tab stop",
+    );
+    assert.equal(await page.getAttribute("#tool-go-to", "title"), "Go to Packet… (Ctrl+G)");
+    // The arrows move between the buttons.
+    await page.focus("#tool-go-to");
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "tool-first");
+    await page.keyboard.press("End");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "tool-coloring");
+    // Last, previous, first, next select packets.
+    await page.click("#tool-last");
+    await waitSelected(11);
+    await page.click("#tool-previous");
+    await waitSelected(10);
+    await page.click("#tool-first");
+    await waitSelected(1);
+    await page.click("#tool-next");
+    await waitSelected(2);
+    // Mark acts on the selection; Go to Packet and coloring are the host's commands.
+    await page.click("#tool-mark");
+    await page.waitForSelector("#list-rows .list-row.marked");
+    await page.click("#tool-mark");
+    await page.waitForFunction(() => !document.querySelector("#list-rows .list-row.marked"));
+    await page.click("#tool-go-to");
+    await expectHostLast({ type: "runCommand", id: "pcapViewer.goToPacket" }, { ofType: true });
+    await post({
+      type: "coloring",
+      coloringId: 0,
+      rules: [{ name: "TCP", foreground: "#000000", background: "#e7e6ff" }],
+    });
+    await page.waitForSelector("#tool-coloring[aria-pressed='true']");
+    await page.click("#tool-coloring");
+    await expectHostLast({ type: "runCommand", id: "pcapViewer.toggleColoring" }, { ofType: true });
+    await post({ type: "coloring", coloringId: 0, rules: [] });
+    await page.waitForSelector("#tool-coloring[aria-pressed='false']");
+    await page.click("#tool-find");
+    await page.waitForSelector("#find-bar:not(.hidden)");
+    await page.keyboard.press("Escape");
+    assert.deepEqual(await axeViolations(page, { exclude: [["#bytes"]] }), []);
+  });
+
+  test("list density: pcapViewer.listDensity sets the rows' height", async () => {
+    await cleanView();
+    await rowEl(1).click();
+    await waitSelected(1);
+    await page.waitForSelector("#detail-tree .node-row");
+    const height = () =>
+      page.$eval("#list-rows .list-row", (r) => r.getBoundingClientRect().height);
+    assert.equal(await height(), 22);
+    await post({ type: "listDensity", density: "comfortable" });
+    await page.waitForFunction(
+      () => document.querySelector("#list-rows .list-row")?.getBoundingClientRect().height === 26,
+    );
+    assert.equal(
+      await page.$eval("#detail-tree .node-row", (r) => r.getBoundingClientRect().height),
+      26,
+      "the details too",
+    );
+    await post({ type: "listDensity", density: "compact" });
+    await page.waitForFunction(
+      () => document.querySelector("#list-rows .list-row")?.getBoundingClientRect().height === 20,
+    );
+    await post({ type: "listDensity", density: "normal" });
+    await page.waitForFunction(
+      () => document.querySelector("#list-rows .list-row")?.getBoundingClientRect().height === 22,
+    );
   });
 
   test("the busy bar goes away once a sort is done", async () => {

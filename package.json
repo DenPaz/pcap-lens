@@ -1664,6 +1664,21 @@
           ],
           "markdownDescription": "How `#pcapViewer.coloringRules#` color the packet list. The rules themselves don't change; only how they are drawn."
         },
+        "pcapViewer.listDensity": {
+          "type": "string",
+          "enum": [
+            "compact",
+            "normal",
+            "comfortable"
+          ],
+          "default": "normal",
+          "markdownEnumDescriptions": [
+            "20 px rows: more packets on screen.",
+            "22 px rows.",
+            "26 px rows: more space between packets."
+          ],
+          "markdownDescription": "Row height of the packet list, the packet details and the bytes pane."
+        },
         "pcapViewer.coloringRules": {
           "type": "array",
           "scope": "resource",

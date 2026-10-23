@@ -40,6 +40,16 @@
     return { first, count, top, virtualHeight, scaled };
   }
 
+  /** Row heights per pcapViewer.listDensity (px; "normal" for anything else). */
+  const DENSITY_ROW_HEIGHTS = { compact: 20, normal: 22, comfortable: 26 };
+
+  /** @param {unknown} density @returns {number} */
+  function densityRowHeight(density) {
+    return Object.hasOwn(DENSITY_ROW_HEIGHTS, String(density))
+      ? DENSITY_ROW_HEIGHTS[/** @type {keyof typeof DENSITY_ROW_HEIGHTS} */ (String(density))]
+      : DENSITY_ROW_HEIGHTS.normal;
+  }
+
   /**
    * Scroll position that makes row `index` visible (minimal movement), or the
    * current position if it already is.
@@ -2947,6 +2957,7 @@
     MAX_SCROLL_HEIGHT,
     computeWindow,
     scrollTopForIndex,
+    densityRowHeight,
     pagesForRange,
     LruMap,
     quoteFilterString,

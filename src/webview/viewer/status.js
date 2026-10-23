@@ -5,6 +5,7 @@ import { TIME_LABELS, el, icon, lib, rpc, state, vscode } from "./core.js";
 import { renderProgress } from "./host.js";
 import { applyFilter } from "./filterbar.js";
 import { renderEmpty } from "./empty.js";
+import { updateToolbar } from "./toolbar.js";
 
 /**
  * The filter-button bar: one button per `pcapViewer.filterButtons` entry
@@ -117,12 +118,29 @@ el.statusExpert.addEventListener("click", () =>
   vscode.postMessage({ type: "runCommand", id: "pcapViewer.statistics.expertInfo" }),
 );
 
+// The clickable status bar items: an icon, then their text (setStatusText).
+for (const [item, glyph] of /** @type {[HTMLElement, string][]} */ ([
+  [el.statusLua, "file-code"],
+  [el.statusNames, "globe"],
+  [el.statusTime, "clock"],
+])) {
+  const text = document.createElement("span");
+  text.className = "status-text";
+  item.replaceChildren(icon(glyph), text);
+}
+
+/** The text of a status bar item (after its icon). @param {HTMLElement} item @param {string} text */
+export function setStatusText(item, text) {
+  /** @type {HTMLElement} */ (item.querySelector(".status-text")).textContent = text;
+}
+
 export function updateStatus() {
   updateFilterButtons();
+  updateToolbar();
   renderEmpty();
   renderProgress();
   const info = state.info;
-  el.statusTime.textContent = TIME_LABELS[state.timeFormat] ?? "";
+  setStatusText(el.statusTime, TIME_LABELS[state.timeFormat] ?? "");
   el.statusTime.classList.toggle("hidden", !info);
   el.statusNames.classList.toggle("hidden", !info);
   el.statusLua.classList.toggle("hidden", !info || !el.statusLua.textContent);

@@ -82,6 +82,7 @@ export const el = {
   filterSaved: $("filter-saved"),
   filterMenu: $("filter-menu"),
   filterButtons: $("filter-buttons"),
+  navTools: $("nav-tools"),
   filterAi: $("filter-ai"),
   filterField: $("filter-field"),
   suggest: $("suggest"),

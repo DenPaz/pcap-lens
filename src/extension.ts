@@ -27,6 +27,7 @@ import {
   RELOAD_KEYS,
   SECTION,
   readColoringStyle,
+  readListDensity,
   readQuickDetail,
   readSettings,
 } from "./config";
@@ -139,6 +140,11 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
       if (e.affectsConfiguration(`${SECTION}.coloringStyle`)) {
         for (const s of p.allSessions) {
           s.setColoringStyle(readColoringStyle(s.uri));
+        }
+      }
+      if (e.affectsConfiguration(`${SECTION}.listDensity`)) {
+        for (const s of p.allSessions) {
+          s.setListDensity(readListDensity(s.uri));
         }
       }
       if (e.affectsConfiguration(`${SECTION}.filterButtons`)) {
