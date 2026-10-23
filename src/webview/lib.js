@@ -40,6 +40,16 @@
     return { first, count, top, virtualHeight, scaled };
   }
 
+  /** Row heights per pcapViewer.listDensity (px; "normal" for anything else). */
+  const DENSITY_ROW_HEIGHTS = { compact: 20, normal: 22, comfortable: 26 };
+
+  /** @param {unknown} density @returns {number} */
+  function densityRowHeight(density) {
+    return Object.hasOwn(DENSITY_ROW_HEIGHTS, String(density))
+      ? DENSITY_ROW_HEIGHTS[/** @type {keyof typeof DENSITY_ROW_HEIGHTS} */ (String(density))]
+      : DENSITY_ROW_HEIGHTS.normal;
+  }
+
   /**
    * Scroll position that makes row `index` visible (minimal movement), or the
    * current position if it already is.
@@ -259,6 +269,71 @@
     };
     lists(treeA ?? [], treeB ?? [], 0);
     return rows;
+  }
+
+  /** Follow ▸'s streams: [packet_detail protocol names, label, follow kind]. */
+  const FOLLOWS = /** @type {const} */ ([
+    [["tcp"], "TCP Stream", "tcp"],
+    [["udp"], "UDP Stream", "udp"],
+    [["tls", "ssl"], "TLS Stream", "tls"],
+    [["http"], "HTTP Stream", "http"],
+    [["http2"], "HTTP/2 Stream", "http2"],
+    [["quic", "http3"], "QUIC Stream", "quic"],
+    [["websocket"], "WebSocket Stream", "websocket"],
+  ]);
+
+  /**
+   * The streams a packet can be followed in, from the protocols of its
+   * detail tree (top-level protocol names, any depth: a tunnel's inner
+   * packet counts), in Follow ▸'s order.
+   * @param {any[]} tree packet_detail's tree
+   * @returns {{label: string, proto: string}[]}
+   */
+  function followOptions(tree) {
+    /** @type {Set<string>} */
+    const names = new Set();
+    /** @param {any[]} nodes */
+    const walk = (nodes) => {
+      for (const node of nodes) {
+        if (node.proto && node.name) {
+          names.add(String(node.name).toLowerCase());
+        }
+        if (node.proto && node.children) {
+          walk(node.children.filter((/** @type {any} */ c) => c.proto));
+        }
+      }
+    };
+    walk(tree);
+    return FOLLOWS.filter(([protos]) => protos.some((p) => names.has(p))).map(
+      ([, label, proto]) => ({
+        label,
+        proto,
+      }),
+    );
+  }
+
+  /**
+   * Apply/Prepare as Filter ▸'s choices for a field's filter, Wireshark's:
+   * Selected, Not Selected, and with a filter applied …and/…or (not)
+   * Selected, each with the expression it makes.
+   * @param {string} current the applied filter @param {string} term
+   * @returns {{label: string, expr: string}[]}
+   */
+  function filterChoices(current, term) {
+    const cur = current.trim();
+    const out = [
+      { label: "Selected", expr: term },
+      { label: "Not Selected", expr: `!(${term})` },
+    ];
+    if (cur) {
+      out.push(
+        { label: "…and Selected", expr: `(${cur}) && (${term})` },
+        { label: "…or Selected", expr: `(${cur}) || (${term})` },
+        { label: "…and not Selected", expr: `(${cur}) && !(${term})` },
+        { label: "…or not Selected", expr: `(${cur}) || !(${term})` },
+      );
+    }
+    return out;
   }
 
   /** Conversation Filter's protocols: [label, address/stream fields, filter field]. */
@@ -2350,7 +2425,11 @@
   const COMMAND_GROUP_ORDER = [
     "Filters",
     "Packets",
+    "Streams",
     "Statistics",
+    "Network Statistics",
+    "Service Statistics",
+    "Telephony",
     "Export",
     "Capture",
     "Editing",
@@ -2358,6 +2437,37 @@
     "AI",
     "Other",
   ];
+
+  /** The commands run from the menu lately, above the headings. */
+  const RECENT_COMMANDS = "Recently Used";
+  const MAX_RECENT_COMMANDS = 5;
+
+  /** Each heading's Codicon. @type {Record<string, string>} */
+  const COMMAND_GROUP_ICONS = {
+    [RECENT_COMMANDS]: "history",
+    Filters: "filter",
+    Packets: "list-flat",
+    Streams: "debug-step-over",
+    Statistics: "graph",
+    "Network Statistics": "globe",
+    "Service Statistics": "server",
+    Telephony: "call-outgoing",
+    Export: "export",
+    Capture: "record",
+    Editing: "edit",
+    Dissectors: "symbol-namespace",
+    AI: "sparkle",
+    Other: "ellipsis",
+  };
+
+  /**
+   * The recently used list after running `id`: it goes first, once, and the
+   * list keeps MAX_RECENT_COMMANDS.
+   * @param {string[]} recent @param {string} id
+   */
+  function rememberCommand(recent, id) {
+    return [id, ...recent.filter((r) => r !== id)].slice(0, MAX_RECENT_COMMANDS);
+  }
 
   /**
    * @typedef {{id: string, title: string, category: string, group: string,
@@ -2386,12 +2496,27 @@
    * The ☰ menu's rows: a heading per group, then the commands of the groups
    * that are open. While searching every group with a match is open and its
    * heading is only a label (`foldable: false`), so results show at once.
+   * The recently used commands come first (not while searching), under a
+   * heading that is only a label.
    * @param {{group: string, commands: MenuCommand[]}[]} groups
    * @param {ReadonlySet<string>} openGroups @param {boolean} searching
+   * @param {MenuCommand[]} [recent]
    */
-  function commandMenuRows(groups, openGroups, searching) {
+  function commandMenuRows(groups, openGroups, searching, recent = []) {
     /** @type {({kind: "group", group: string, count: number, open: boolean, foldable: boolean} | {kind: "command", group: string, command: MenuCommand})[]} */
     const rows = [];
+    if (!searching && recent.length) {
+      rows.push({
+        kind: "group",
+        group: RECENT_COMMANDS,
+        count: recent.length,
+        open: true,
+        foldable: false,
+      });
+      for (const command of recent) {
+        rows.push({ kind: "command", group: RECENT_COMMANDS, command });
+      }
+    }
     for (const g of groups) {
       const open = searching || openGroups.has(g.group);
       rows.push({
@@ -2809,6 +2934,9 @@
 
   const api = {
     COMMAND_GROUP_ORDER,
+    COMMAND_GROUP_ICONS,
+    RECENT_COMMANDS,
+    rememberCommand,
     groupCommands,
     commandMenuRows,
     filterCommands,
@@ -2829,6 +2957,7 @@
     MAX_SCROLL_HEIGHT,
     computeWindow,
     scrollTopForIndex,
+    densityRowHeight,
     pagesForRange,
     LruMap,
     quoteFilterString,
@@ -2838,6 +2967,8 @@
     expertStatus,
     relatedKind,
     conversationFilters,
+    followOptions,
+    filterChoices,
     comparePackets,
     relatedFrames,
     decodeBytes,

@@ -349,6 +349,17 @@ export function normalizeColoringStyle(raw: unknown): ColoringStyle {
   return COLORING_STYLES.find((s) => s === raw) ?? "auto";
 }
 
+/**
+ * How tall the rows of the packet list, details and bytes are
+ * (pcapViewer.listDensity; the webview maps it to pixels, lib.densityRowHeight).
+ */
+export const LIST_DENSITIES = ["compact", "normal", "comfortable"] as const;
+export type ListDensity = (typeof LIST_DENSITIES)[number];
+
+export function normalizeListDensity(raw: unknown): ListDensity {
+  return LIST_DENSITIES.find((d) => d === raw) ?? "normal";
+}
+
 /** Packet-list column order and hidden columns (pcapViewer.columnLayout), by column id. */
 export interface ColumnLayout {
   order: string[];

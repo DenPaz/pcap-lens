@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import {
   ColoringRule,
   ColoringStyle,
+  ListDensity,
   ColumnLayout,
   ColumnSetting,
   FilterButton,
@@ -14,6 +15,7 @@ import {
   configTargetFor,
   normalizeColoringRules,
   normalizeColoringStyle,
+  normalizeListDensity,
   normalizeColumnLayout,
   normalizeColumns,
   normalizeFilterButtons,
@@ -73,6 +75,12 @@ export interface Settings {
 export function readColoringStyle(scope?: vscode.Uri): ColoringStyle {
   return normalizeColoringStyle(
     vscode.workspace.getConfiguration(SECTION, scope).get<unknown>("coloringStyle"),
+  );
+}
+
+export function readListDensity(scope?: vscode.Uri): ListDensity {
+  return normalizeListDensity(
+    vscode.workspace.getConfiguration(SECTION, scope).get<unknown>("listDensity"),
   );
 }
 

@@ -61,7 +61,51 @@ suite("☰ commands menu (from package.json)", () => {
       assert.ok(COMMAND_GROUPS.includes(c.group), `${c.id}: ${c.group}`);
     }
     assert.equal(commandGroup("pcapViewer.brandNew", "PCAP Statistics"), "Statistics");
+    // Statistics are split by what they look at.
+    assert.equal(commandGroup("pcapViewer.followTcpStream", "PCAP"), "Streams");
+    assert.equal(
+      commandGroup("pcapViewer.statistics.tcpStreamGraph", "PCAP Statistics"),
+      "Streams",
+    );
+    assert.equal(
+      commandGroup("pcapViewer.statistics.ipv4", "PCAP Statistics"),
+      "Network Statistics",
+    );
+    assert.equal(
+      commandGroup("pcapViewer.statistics.dns", "PCAP Statistics"),
+      "Service Statistics",
+    );
+    assert.equal(commandGroup("pcapViewer.statistics.sip", "PCAP Statistics"), "Telephony");
     assert.equal(commandGroup("pcapViewer.brandNew", "PCAP"), "Other");
+  });
+
+  test("the editor title bar: icon actions, a Statistics submenu with every statistic", () => {
+    const ids = new Map(contributed.map((c) => [c.command, c as { icon?: string }]));
+    const title: { command?: string; submenu?: string; when: string; group: string }[] =
+      pkg.contributes.menus["editor/title"];
+    for (const item of title) {
+      assert.match(item.when, /activeCustomEditorId =~/, `${item.command ?? item.submenu}`);
+      if (item.command) {
+        assert.ok(ids.has(item.command), `${item.command} is contributed`);
+        if (item.group.startsWith("navigation")) {
+          assert.ok(ids.get(item.command)?.icon, `${item.command} needs an icon in the title bar`);
+        }
+      }
+    }
+    const submenu = pkg.contributes.submenus.find(
+      (s: { id: string }) => s.id === "pcapViewer.statisticsMenu",
+    );
+    assert.ok(submenu?.icon && title.some((t) => t.submenu === submenu.id));
+    const inSubmenu = new Set(
+      pkg.contributes.menus["pcapViewer.statisticsMenu"].map((m: { command: string }) => m.command),
+    );
+    assert.deepEqual(
+      contributed
+        .filter((c) => c.category === "PCAP Statistics" && !inSubmenu.has(c.command))
+        .map((c) => c.command),
+      [],
+      "every statistic is in the title bar's Statistics submenu",
+    );
   });
 
   test("requirements", () => {

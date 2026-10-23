@@ -22,6 +22,7 @@ import "./viewer/detail.js";
 import "./viewer/diagram.js";
 import "./viewer/contextmenu.js";
 import "./viewer/commandmenu.js";
+import "./viewer/toolbar.js";
 import "./viewer/filterbar.js";
 import "./viewer/autocomplete.js";
 import "./viewer/navigation.js";

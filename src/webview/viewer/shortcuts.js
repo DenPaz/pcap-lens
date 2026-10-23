@@ -5,9 +5,8 @@
  * binding (lib.shortcutSections), as the platform shows them.
  */
 
-import { el, lib, state } from "./core.js";
+import { el, isMac, lib, state } from "./core.js";
 
-const isMac = /Mac|iPhone|iPad/i.test(window.navigator.platform || window.navigator.userAgent);
 /** Where the focus was before the dialog opened (it goes back there). @type {HTMLElement | null} */
 let returnFocus = null;
 

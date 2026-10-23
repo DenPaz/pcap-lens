@@ -2,10 +2,18 @@
 /** The column header: its menu, hiding columns, drag to reorder and fit to contents. */
 
 import { el, lib, state, vscode } from "./core.js";
-import { applyColumnWidths, columns, rebuildColumns, resizing, visibleColumns } from "./columns.js";
+import {
+  applyColumnWidths,
+  columns,
+  rebuildColumns,
+  resizing,
+  setSort,
+  visibleColumns,
+} from "./columns.js";
 import { scheduleRender } from "./list.js";
-import { showMenu } from "./contextmenu.js";
+import { showMenu } from "./menu.js";
 import { persist } from "./status.js";
+/** @import { MenuEntry } from "./menu.js" */
 
 /** @param {string} id */
 const isHidden = (id) => state.layout.hidden.includes(id);
@@ -61,42 +69,83 @@ el.header.addEventListener("contextmenu", (e) => {
   }
   e.preventDefault();
   const visible = visibleColumns().length;
-  /** @type {[string, (() => void) | null, boolean?][]} */
+  const sorted = state.sort && state.sort.field === col.field ? state.sort : null;
+  /** @type {MenuEntry[]} */
   const items = [
-    [`Hide “${col.title}”`, visible > 1 ? () => setHidden(col.id, true) : null],
-    ["Resize to Contents", col.id !== "info" ? () => resizeToContents(col.id) : null],
-    ...(col.custom
-      ? /** @type {[string, (() => void) | null][]} */ ([
-          ["Rename Column…", () => vscode.postMessage({ type: "renameColumn", field: col.field })],
-          ["Remove Column", () => vscode.postMessage({ type: "removeColumn", field: col.field })],
-        ])
-      : []),
-    ["-", null],
-    ...columns().map(
-      (c) =>
-        /** @type {[string, (() => void) | null, boolean]} */ ([
-          c.title,
-          !isHidden(c.id) && visible === 1 ? null : () => setHidden(c.id, !isHidden(c.id)),
-          !isHidden(c.id),
-        ]),
-    ),
-    ["-", null],
-    [
-      "Reset Column Widths",
-      () => {
+    {
+      label: "Sort Ascending",
+      icon: "arrow-up",
+      checked: sorted ? !sorted.desc : false,
+      action: () => setSort({ field: col.field, desc: false }),
+    },
+    {
+      label: "Sort Descending",
+      icon: "arrow-down",
+      checked: sorted ? sorted.desc : false,
+      action: () => setSort({ field: col.field, desc: true }),
+    },
+  ];
+  if (state.sort) {
+    items.push({ label: "Capture Order", icon: "list-ordered", action: () => setSort(null) });
+  }
+  items.push("-");
+  if (visible > 1) {
+    items.push({
+      label: `Hide “${col.title}”`,
+      icon: "eye-closed",
+      action: () => setHidden(col.id, true),
+    });
+  }
+  if (col.id !== "info") {
+    items.push({
+      label: "Resize to Contents",
+      icon: "arrow-both",
+      action: () => resizeToContents(col.id),
+    });
+  }
+  if (col.custom) {
+    items.push(
+      {
+        label: "Rename Column…",
+        icon: "edit",
+        action: () => vscode.postMessage({ type: "renameColumn", field: col.field }),
+      },
+      {
+        label: "Remove Column",
+        icon: "trash",
+        action: () => vscode.postMessage({ type: "removeColumn", field: col.field }),
+      },
+    );
+  }
+  items.push(
+    "-",
+    {
+      label: "Columns",
+      icon: "list-flat",
+      children: columns().map((c) => ({
+        label: c.title,
+        checked: !isHidden(c.id),
+        action: !isHidden(c.id) && visible === 1 ? null : () => setHidden(c.id, !isHidden(c.id)),
+      })),
+    },
+    {
+      label: "Reset Column Widths",
+      icon: "discard",
+      action: () => {
         state.widths = {};
         applyColumnWidths();
         persist();
       },
-    ],
-    [
-      "Reset Column Order and Visibility",
-      () => {
+    },
+    {
+      label: "Reset Column Order and Visibility",
+      icon: "discard",
+      action: () => {
         state.layout = { order: [], hidden: [] };
         saveLayout();
       },
-    ],
-  ];
+    },
+  );
   showMenu(e.clientX, e.clientY, items);
 });
 

@@ -17,6 +17,7 @@ import {
   Settings,
   getSetting,
   readColoringStyle,
+  readListDensity,
   readQuickDetail,
   readSettings,
   updateSetting,
@@ -49,6 +50,7 @@ import { MenuCommand, buildCommandMenu } from "./commandMenu";
 import {
   ColoringRule,
   ColoringStyle,
+  ListDensity,
   ColumnLayout,
   ColumnSetting,
   DEFAULT_NAME_RESOLUTION,
@@ -209,6 +211,7 @@ export class PcapEditorSession {
           // (Before the capture loads: Reload or Show Log help when it fails.)
           this.post({ type: "commands", commands: this.menuCommands });
           this.setColoringStyle(readColoringStyle(this.uri));
+          this.setListDensity(readListDensity(this.uri));
           this.setFilterButtons(readSettings().filterButtons);
         }
         void this.onMessage(msg);
@@ -1438,6 +1441,10 @@ export class PcapEditorSession {
 
   setColoringStyle(style: ColoringStyle): void {
     this.post({ type: "coloringStyle", style });
+  }
+
+  setListDensity(density: ListDensity): void {
+    this.post({ type: "listDensity", density });
   }
 
   setFilterButtons(buttons: FilterButton[]): void {

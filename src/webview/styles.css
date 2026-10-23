@@ -46,19 +46,43 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+/* One rounded field: ★, the input, then clear, ✨, build and apply inside it. The
+   field draws the border, the focus ring and the filter's validity (a tint and a
+   coloured left edge); the input inside is borderless. */
 #filter-field {
   position: relative;
   flex: 1 1 14em;
   min-width: min(14em, 100%);
   display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-1);
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--border));
+  border-radius: var(--radius-toolbar);
+}
+
+/* (An outline, so the validity's border colour stays visible with the focus.) */
+#filter-field:has(#filter-input:focus-visible) {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 0;
+}
+
+#filter-field > button.icon {
+  flex: none;
+  padding: var(--space-1);
 }
 
 #filter-bar > button {
   flex: none;
 }
 
-#filter-field.ai-mode #filter-input {
+#filter-field.ai-mode {
   border-color: var(--vscode-focusBorder);
+}
+
+#filter-field.ai-mode #filter-input {
   font-family: var(--vscode-font-family);
 }
 
@@ -68,17 +92,47 @@ body {
 
 /* ------------------------------------------------------------------ filter buttons */
 
-#filter-buttons {
+/* The toolbar row: packet navigation, then the filter buttons after a divider. */
+#toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2);
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--border);
 }
 
+#nav-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+#nav-tools .tool-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 var(--space-2);
+  background: var(--vscode-menu-separatorBackground, var(--border));
+}
+
+#nav-tools button.disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+#filter-buttons {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--vscode-menu-separatorBackground, var(--border));
+}
+
 #filter-buttons button.filter-button {
-  padding: var(--control-pad-y-sm) var(--space-4);
+  padding: var(--control-pad-y-sm) var(--space-5);
+  border-radius: 999px;
   max-width: 20em;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -187,27 +241,41 @@ body {
 #filter-input {
   flex: 1;
   min-width: 0;
+  padding-left: var(--space-2);
   font-family: var(--mono);
   font-size: var(--mono-size);
+  background: transparent;
+  border: none;
+}
+
+#filter-input:focus-visible {
+  outline: none; /* (the field shows the focus) */
 }
 
 /* Wireshark-style validity colouring, using theme-aware tints. */
-#filter-input.valid {
+#filter-field:has(#filter-input.valid) {
   border-color: var(--vscode-testing-iconPassed, #3fb950);
   background: color-mix(
     in srgb,
     var(--vscode-testing-iconPassed, #3fb950) 12%,
     var(--vscode-input-background)
   );
+  box-shadow: inset 3px 0 0 var(--vscode-testing-iconPassed, #3fb950);
 }
 
-#filter-input.invalid {
+#filter-field:has(#filter-input.invalid) {
   border-color: var(--vscode-inputValidation-errorBorder, #f14c4c);
   background: color-mix(
     in srgb,
     var(--vscode-inputValidation-errorBorder, #f14c4c) 14%,
     var(--vscode-input-background)
   );
+  box-shadow: inset 3px 0 0 var(--vscode-inputValidation-errorBorder, #f14c4c);
+}
+
+/* Nothing to clear: the × stays (and works) but recedes. */
+#filter-field:has(#filter-input:placeholder-shown) #filter-clear:not(:hover, :focus-visible) {
+  opacity: 0.4;
 }
 
 #filter-error {
@@ -1228,35 +1296,80 @@ button.pd-cell:hover {
 .context-menu {
   position: fixed;
   z-index: 20;
-  min-width: 180px;
-  padding: var(--space-2) 0;
+  min-width: 200px;
+  max-width: min(520px, calc(100vw - 8px));
+  padding: var(--space-2);
   color: var(--vscode-menu-foreground);
   background: var(--vscode-menu-background);
   border: 1px solid var(--vscode-menu-border, var(--border));
+  border-radius: var(--radius-toolbar);
   box-shadow: var(--shadow);
 }
 
-.context-menu .item {
-  padding: var(--control-pad-y) var(--space-6);
+.context-menu:focus {
+  outline: none;
+}
+
+/* A submenu (viewer/menu.js) sits above its parent. */
+.context-menu.submenu {
+  z-index: 21;
+}
+
+/* Context menu items: [icon] label [hint …] [keys] [›] */
+.context-menu:not(.command-menu) .item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--control-pad-y) var(--space-4);
+  border-radius: var(--radius-toolbar);
   cursor: pointer;
   white-space: nowrap;
 }
 
-.context-menu .item:hover,
-.context-menu .item:focus {
+.context-menu:not(.command-menu) .item.active,
+.context-menu:not(.command-menu) .item:focus {
   color: var(--vscode-menu-selectionForeground);
   background: var(--vscode-menu-selectionBackground);
   outline: none;
 }
 
-/* A check mark (or the same blank space) before checkable items. */
-.context-menu .item.checkable {
-  padding-left: var(--space-3);
+.context-menu .menu-icon {
+  flex: none;
+  width: 16px;
 }
 
-.context-menu .item.checkable > .codicon {
-  margin-right: var(--space-3);
-  vertical-align: text-bottom;
+.context-menu:not(.command-menu) .label {
+  flex: none;
+}
+
+/* The filter an entry applies, the value it copies: dimmed, cut with … */
+.context-menu .hint {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 28em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-sm);
+  opacity: 0.7;
+}
+
+.context-menu:not(.command-menu) .keys {
+  flex: none;
+  margin-left: auto;
+  padding-left: var(--space-6);
+  font-size: var(--text-sm);
+  opacity: 0.8;
+}
+
+.context-menu .submenu-chevron {
+  flex: none;
+  margin-left: auto;
+  padding-left: var(--space-5);
+}
+
+.context-menu .keys + .submenu-chevron {
+  padding-left: var(--space-3);
+  margin-left: 0;
 }
 
 .context-menu .item.disabled {
@@ -1266,7 +1379,7 @@ button.pd-cell:hover {
 
 .context-menu .sep {
   height: 1px;
-  margin: var(--space-2) 0;
+  margin: var(--space-2) var(--space-3);
   background: var(--vscode-menu-separatorBackground, var(--border));
 }
 
@@ -1295,10 +1408,18 @@ button.pd-cell:hover {
 }
 
 .command-menu .heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   padding: var(--space-3) var(--space-5) var(--space-1);
   font-size: var(--text-sm);
   font-weight: 600;
   color: var(--vscode-descriptionForeground);
+}
+
+.command-menu .group-icon {
+  flex: none;
+  width: 16px;
 }
 
 .command-menu .item {
@@ -1324,8 +1445,13 @@ button.pd-cell:hover {
   width: 16px;
 }
 
-/* Commands under an open heading are indented past its chevron. */
+/* Commands line up with their heading's title: past its chevron and icon (a
+   label heading, Recently Used or a search result's, has only the icon). */
 .command-menu .heading.item ~ .item {
+  padding-left: calc(var(--space-5) + 2 * (16px + var(--space-3)));
+}
+
+.command-menu .heading:not(.item) ~ .item {
   padding-left: calc(var(--space-5) + 16px + var(--space-3));
 }
 
@@ -1430,14 +1556,28 @@ button.pd-cell:hover {
   padding: 0 var(--space-3);
 }
 
+/* Status bar items, like VS Code's: an icon and a label, a fill on hover. */
 .status-link {
-  padding: 0;
-  margin-right: var(--space-5);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
   color: inherit;
   background: transparent;
   border: none;
+  border-radius: var(--radius);
   font: inherit;
   cursor: pointer;
+}
+
+#status-right {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+#status-info {
+  padding-left: var(--space-3);
 }
 
 #status-expert {
@@ -1459,8 +1599,8 @@ button.pd-cell:hover {
 }
 
 .status-link:hover {
-  color: var(--vscode-textLink-foreground);
-  text-decoration: underline;
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
 }
 
 /* Column headers: drag to reorder. */
@@ -1514,7 +1654,7 @@ button.pd-cell:hover {
 }
 
 :is(.vscode-high-contrast, .vscode-high-contrast-light)
-  :is(.context-menu .item:hover, .context-menu .item:focus, .command-menu .item.active) {
+  :is(.context-menu .item.active, .context-menu .item:focus, .command-menu .item.active) {
   color: inherit;
   background: transparent;
   outline: 1px solid var(--vscode-menu-selectionBorder, var(--hc-active));
@@ -1542,4 +1682,10 @@ button.pd-cell:hover {
 
 :is(.vscode-high-contrast, .vscode-high-contrast-light) .dialog-box {
   border-color: var(--hc-border);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) .status-link:hover {
+  background: transparent;
+  outline: 1px dashed var(--hc-active);
+  outline-offset: -1px;
 }

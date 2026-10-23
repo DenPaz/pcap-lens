@@ -188,7 +188,8 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   part of the UI (`core` = shared state, constants, element lookups and
   rpc, and imports nothing, so it is evaluated first; `host`, `list`,
   `columns`, `selection`, `detail`, `diagram`, `filterbar`, `autocomplete`,
-  `navigation`, menus, `status`…). Function declarations make the cycles
+  `navigation`, `menu` (the context-menu engine), `contextmenu`,
+  `commandmenu`, `toolbar`, `status`…). Function declarations make the cycles
   between modules safe; top-level code only touches `core` and its own
   module. Shared JSDoc types live in `globals.d.ts`. Type-checked via JSDoc +
   `tsconfig.webview.json` (`module: ES2022`). `codicons/` = the vendored Codicons font
@@ -816,7 +817,7 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
 - **Filter buttons** (`pcapViewer.filterButtons`: `{label, filter, comment?}`,
   `normalizeFilterButtons`, at most 50; window scope like saved filters): the
   host posts `filterButtons` on "ready" and on setting changes; the webview's
-  `#filter-buttons` toolbar (after `#filter-bar`, hidden when empty) applies a
+  `#filter-buttons` toolbar (in `#toolbar` after `#nav-tools`, hidden when empty) applies a
   button's filter on click (it goes into the filter box first) and marks the
   applied one `aria-pressed` (`updateFilterButtons`, from `updateStatus`). **+**
   posts `addFilterButton {filter}`; `contextmenu` (right-click, Shift+F10, the
@@ -1223,10 +1224,11 @@ fields -e frame.number` gives progress when filtering; without a filter
 - **Conversation filter and colorization** (row menu, `lib.conversationFilters`):
   the packet's conversations come from its exact detail tree (the
   innermost `eth.src/dst`, `ip.*`, `ipv6.*`, `tcp.stream`, `udp.stream`;
-  values that aren't addresses or numbers are dropped), shown as a second
-  flat menu at the same spot (`conversationMenu`; it fetches the exact
-  detail when the selected one is missing or a quick view, whose stream
-  numbers are the window's). _Conversation Filter_ applies the filter.
+  values that aren't addresses or numbers are dropped), shown as the
+  _Conversation Filter ›_ / _Colorize Conversation ›_ submenus
+  (`conversationItems`; `exactDetail` fetches the exact detail when the
+  selected one is missing or a quick view, whose stream numbers are the
+  window's). _Conversation Filter_ applies the filter.
   _Colorize Conversation_ posts `colorizeConversation`: the session keeps
   `temporaryRules` (`settingsModel.colorizeConversation`: newest first, the
   first `COLORIZE_PALETTE` color the others don't use, at most ten, i.e.
@@ -1968,15 +1970,17 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
     _Apply as Column_, rename and remove write for the capture's folder.
     `lib.cellFilter` builds cell filters (ip/ipv6/eth by address form; none for
     Time or Info). `lib.formatBytesAs` has the bytes-pane copy formats.
-- **Commands menu** (☰ `#filter-menu` after `#filter-clear`; `commandMenu.ts`,
+- **Commands menu** (☰ `#filter-menu` after `#filter-field`; `commandMenu.ts`,
   `main.js` `commandsMenu`): the list is built from package.json
   (`context.extension.packageJSON`: `contributes.commands` plus the first
   `contributes.keybindings` entry per command, `buildCommandMenu`), so a new
   command appears by itself; `GROUP_OF` gives its heading (Filters, Packets,
-  Statistics, Export, Capture, Editing, Dissectors, AI, Other; "Packets" was
-  added for navigation, marks, time reference and comments; a unit test fails
-  when a command has no explicit heading, and category "PCAP Statistics"
-  falls back to Statistics) and `REQUIRES` what it needs (selection, marks,
+  Streams, Statistics, Network Statistics, Service Statistics, Telephony,
+  Export, Capture, Editing, Dissectors, AI, Other; "Packets" was added for
+  navigation, marks, time reference and comments, and 0.20.0 split the 30
+  statistics by subject; a unit test fails when a command has no explicit
+  heading, and category "PCAP Statistics" falls back to Statistics; each
+  heading has a Codicon, `lib.COMMAND_GROUP_ICONS`) and `REQUIRES` what it needs (selection, marks,
   filter, capturing, ai). `EXCLUDED_COMMANDS` names what is left out and why
   (only `savedFilters`: the ★ button in the same bar). **Foldable groups**:
   `lib.commandMenuRows` turns the groups into rows (a heading per group,
@@ -2006,10 +2010,68 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   (`lib.formatKeybinding`: "Ctrl+Shift+N", or the `mac` binding as "⌘⇧N";
   macOS is detected from the webview's navigator, which is the local machine
   even in a remote window). `.command-menu` reuses `.context-menu`; its
-  colors fall back to system colors when a theme variable is missing. The
-  filter bar wraps (`flex-wrap`, `#filter-field` 14em minimum), so on a
-  narrow editor the buttons go to a second line instead of squeezing the
-  input (e2e test at 320/480/800 px).
+  colors fall back to system colors when a theme variable is missing.
+  **Recently Used**: the last `MAX_RECENT_COMMANDS` (5) commands run from the
+  menu (`lib.rememberCommand`, `state.recentCommands` in the webview state)
+  come first under a label heading (not foldable, hidden while searching;
+  ← on them has no heading to go to). The filter bar wraps (`flex-wrap`,
+  `#filter-field` 14em minimum), so on a narrow editor ☰ goes to a second
+  line instead of squeezing the field (e2e test at 320/480/800 px).
+- **Context menus** (`viewer/menu.js`; `contextmenu.js` builds the row and
+  tree menus, `header.js` the header's, `detail.js` the bytes pane's):
+  `showMenu(x, y, entries)` with `MenuItem`s `{label, icon, hint, keys,
+action (null = disabled), checked, children, title}` and `"-"`
+  separators (the old `[label, action, checked]` tuples still work). The
+  root is `#context-menu`; a submenu is a `div.context-menu.submenu#context-menu-N`
+  appended to body beside its item (right, else left), its parent item
+  `aria-haspopup`/`aria-expanded`/`aria-controls`. `children` may be an
+  async function: "Loading…" meanwhile, a `generation` counter drops a
+  late answer (Conversation Filter ›, Colorize Conversation ›, Follow ›
+  read the exact detail). Hover opens a submenu after `OPEN_DELAY_MS`
+  (150); keys (a capture-phase document listener while a menu is open):
+  ↑/↓/Home/End over enabled items, → or Enter opens, ← or Esc closes one
+  level, Esc on the root and Tab close all and give the focus back, a
+  letter jumps (typeahead). An item's `keys` come from package.json
+  (`commandKeys(id)`, the ☰ list) or `viewerKeys("ctrl+a")` for the
+  webview's own keys. **Entries that can't apply are left out** (not
+  greyed): Apply/Prepare as Filter ›, Reset Colorization, Delete Packet
+  Comment, Build Filter, Protocol Preferences… only when they can act.
+  _Apply/Prepare as Filter ›_ hold `lib.filterChoices` (Selected, Not
+  Selected, and with a filter applied …and/…or (not) Selected), each with
+  its expression as the dimmed `hint`. _Follow ›_ lists
+  `lib.followOptions(detail.tree)` (the tree's protocols, nested ones too;
+  TCP + UDP when the detail can't be read) plus TCP Stream Graph for TCP.
+  Shift+F10 / the menu key fire `contextmenu` on the focused grid or tree
+  (button 0): the selected row's or node's menu opens below it. The
+  header menu sorts (`setSort`), and its columns are a _Columns ›_
+  submenu of checkboxes. e2e helpers: `pickMenu(...labels)` and
+  `menuLabels(level)`.
+- **Editor title bar** (package.json `menus["editor/title"]`, `submenus`):
+  Start Capture (Stop while `pcapViewer.capturing`), Find Packet, Follow
+  Stream, the `pcapViewer.statisticsMenu` submenu (every PCAP Statistics
+  command, grouped as in ☰), Toggle Packet Coloring in `navigation`; Reload,
+  the exports, Capture Report and Show Log in the overflow. Navigation
+  commands need an `icon` (a unit test checks, and that every statistic is
+  in the submenu).
+- **Filter field and toolbar** (`index.html`, `viewer/toolbar.js`):
+  `#filter-field` is the rounded control (border, focus outline via
+  `:has(#filter-input:focus-visible)`, validity tint and a 3 px left edge via
+  `:has(#filter-input.valid/.invalid)`); ★, ×, ✨, build and → are icon
+  buttons inside it (`#filter-apply`, `#filter-clear` keep their ids; × fades
+  when the box is empty but always works). `#toolbar` holds `#nav-tools`
+  (role toolbar, a roving tabindex: arrows/Home/End; `aria-disabled` rather
+  than `disabled`, so focus stays) and `#filter-buttons` (pills). Its
+  buttons run the webview's `runCommand` or post `runCommand` for host
+  commands (Go to Packet, Toggle Packet Coloring, whose `aria-pressed`
+  follows `state.coloring`); `updateToolbar()` runs from `updateStatus`.
+- **List density** (`pcapViewer.listDensity`: compact, normal, comfortable;
+  posted as `listDensity` on "ready" and on change, like `coloringStyle`):
+  `lib.densityRowHeight` (20/22/26 px) → `setRowHeight` sets
+  `state.rowHeight` and `--row-height` (list, tree and bytes rows) and keeps
+  the top row in place. Status bar items (`#status-lua`, `-names`, `-time`)
+  get a Codicon and a `.status-text` span from `status.js` (`setStatusText`);
+  the HTML buttons stay empty, since Prettier would put whitespace into
+  them and make `textContent` non-empty.
 - **Icons** are Codicons, VS Code's icon font (`@vscode/codicons`, pinned dev
   dependency). vsce packages with `--no-dependencies`, so
   `scripts/sync-codicons.mjs` (`pnpm run codicons`, run by `make update`)
@@ -2024,7 +2086,7 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   `codiconFontLoaded` checks the editor and the panels). Icons are
   `<span class="codicon codicon-NAME" aria-hidden="true">` built with
   `icon(name)` (main.js and each panel script), so buttons carry an
-  `aria-label`. Checkable context-menu items (`showMenu`'s third element) are
+  `aria-label`. Checkable context-menu items (`checked`) are
   `menuitemcheckbox` with a check icon. Text symbols remain only inside text
   (● in `<option>`s and marked rows, ⚠ in a table cell, → in labels).
 - **ARIA structure** (checked by axe, see _Accessibility checks_): the
@@ -2164,3 +2226,5 @@ file format view: 0.17.0.
 Then extcap capture helpers (SSH, Cisco, Android, UDP, randpkt), Capture to
 Files with ring buffers, saved capture filters and the capture report: 0.18.0.
 Then H.323, MGCP and IAX2 calls in the VoIP panel: 0.19.0.
+Then context menus with submenus, a reorganised ☰ menu, editor title bar
+actions, a filter field and toolbar, list density and status bar items: 0.20.0.

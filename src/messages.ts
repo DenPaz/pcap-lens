@@ -6,6 +6,7 @@ import type { MenuCommand } from "./commandMenu";
 import type { FollowProto } from "./panels/followPanel";
 import type {
   ColoringStyle,
+  ListDensity,
   ColumnLayout,
   ColumnSetting,
   FilterButton,
@@ -214,6 +215,8 @@ export type HostToWebview =
   | { type: "commands"; commands: MenuCommand[] }
   /** `pcapViewer.coloringStyle` (sent on "ready" and when the setting changes). */
   | { type: "coloringStyle"; style: ColoringStyle }
+  /** `pcapViewer.listDensity` (sent on "ready" and when the setting changes). */
+  | { type: "listDensity"; density: ListDensity }
   /** `pcapViewer.filterButtons` (sent on "ready" and when the setting changes). */
   | { type: "filterButtons"; buttons: FilterButton[] }
   | { type: "error"; message: string; canReload: boolean }

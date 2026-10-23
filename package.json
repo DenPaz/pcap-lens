@@ -7,7 +7,7 @@
     "color": "#0b3a73",
     "theme": "dark"
   },
-  "version": "0.19.0",
+  "version": "0.20.0",
   "publisher": "denpaz",
   "license": "MIT",
   "repository": {
@@ -165,7 +165,8 @@
       {
         "command": "pcapViewer.find",
         "title": "Find Packet…",
-        "category": "PCAP"
+        "category": "PCAP",
+        "icon": "$(search)"
       },
       {
         "command": "pcapViewer.findNext",
@@ -375,7 +376,8 @@
       {
         "command": "pcapViewer.followStream",
         "title": "Follow Stream…",
-        "category": "PCAP"
+        "category": "PCAP",
+        "icon": "$(debug-step-over)"
       },
       {
         "command": "pcapViewer.followTcpStream",
@@ -694,7 +696,8 @@
       {
         "command": "pcapViewer.toggleColoring",
         "title": "Toggle Packet Coloring",
-        "category": "PCAP"
+        "category": "PCAP",
+        "icon": "$(symbol-color)"
       },
       {
         "command": "pcapViewer.resetColorization",
@@ -709,7 +712,8 @@
       {
         "command": "pcapViewer.reload",
         "title": "Reload Capture",
-        "category": "PCAP"
+        "category": "PCAP",
+        "icon": "$(refresh)"
       },
       {
         "command": "pcapViewer.showLog",
@@ -1188,9 +1192,141 @@
       ],
       "editor/title": [
         {
+          "command": "pcapViewer.startCapture",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ && !pcapViewer.capturing",
+          "group": "navigation@1"
+        },
+        {
           "command": "pcapViewer.stopCapture",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ && pcapViewer.capturing",
-          "group": "navigation"
+          "group": "navigation@1"
+        },
+        {
+          "command": "pcapViewer.find",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/",
+          "group": "navigation@2"
+        },
+        {
+          "command": "pcapViewer.followStream",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/",
+          "group": "navigation@3"
+        },
+        {
+          "submenu": "pcapViewer.statisticsMenu",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/",
+          "group": "navigation@4"
+        },
+        {
+          "command": "pcapViewer.toggleColoring",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/",
+          "group": "navigation@5"
+        },
+        {
+          "command": "pcapViewer.reload",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/",
+          "group": "1_capture@1"
+        },
+        {
+          "command": "pcapViewer.exportFiltered",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/",
+          "group": "2_export@1"
+        },
+        {
+          "command": "pcapViewer.exportPacketList",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/",
+          "group": "2_export@2"
+        },
+        {
+          "command": "pcapViewer.captureReport",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/",
+          "group": "2_export@3"
+        },
+        {
+          "command": "pcapViewer.showLog",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/",
+          "group": "3_other@1"
+        }
+      ],
+      "pcapViewer.statisticsMenu": [
+        {
+          "command": "pcapViewer.statistics.captureProperties",
+          "group": "1_general@1"
+        },
+        {
+          "command": "pcapViewer.statistics.protocolHierarchy",
+          "group": "1_general@2"
+        },
+        {
+          "command": "pcapViewer.statistics.conversations",
+          "group": "1_general@3"
+        },
+        {
+          "command": "pcapViewer.statistics.endpoints",
+          "group": "1_general@4"
+        },
+        {
+          "command": "pcapViewer.statistics.ioGraph",
+          "group": "1_general@5"
+        },
+        {
+          "command": "pcapViewer.statistics.expertInfo",
+          "group": "1_general@6"
+        },
+        {
+          "command": "pcapViewer.statistics.packetLengths",
+          "group": "1_general@7"
+        },
+        {
+          "command": "pcapViewer.statistics.flowGraph",
+          "group": "2_streams@1"
+        },
+        {
+          "command": "pcapViewer.statistics.tcpStreamGraph",
+          "group": "2_streams@2"
+        },
+        {
+          "command": "pcapViewer.statistics.ipv4",
+          "group": "3_network@1"
+        },
+        {
+          "command": "pcapViewer.statistics.ipv6",
+          "group": "3_network@2"
+        },
+        {
+          "command": "pcapViewer.statistics.multicast",
+          "group": "3_network@3"
+        },
+        {
+          "command": "pcapViewer.statistics.resolvedAddresses",
+          "group": "3_network@4"
+        },
+        {
+          "command": "pcapViewer.statistics.sctp",
+          "group": "3_network@5"
+        },
+        {
+          "command": "pcapViewer.statistics.http",
+          "group": "4_services@1"
+        },
+        {
+          "command": "pcapViewer.statistics.dns",
+          "group": "4_services@2"
+        },
+        {
+          "command": "pcapViewer.statistics.serviceResponseTime",
+          "group": "4_services@3"
+        },
+        {
+          "command": "pcapViewer.statistics.credentials",
+          "group": "4_services@4"
+        },
+        {
+          "command": "pcapViewer.statistics.voipCalls",
+          "group": "5_telephony@1"
+        },
+        {
+          "command": "pcapViewer.statistics.sip",
+          "group": "5_telephony@2"
         }
       ]
     },
@@ -1527,6 +1663,21 @@
             "Only a stripe in the rule's color at the row's start; background and text stay the theme's."
           ],
           "markdownDescription": "How `#pcapViewer.coloringRules#` color the packet list. The rules themselves don't change; only how they are drawn."
+        },
+        "pcapViewer.listDensity": {
+          "type": "string",
+          "enum": [
+            "compact",
+            "normal",
+            "comfortable"
+          ],
+          "default": "normal",
+          "markdownEnumDescriptions": [
+            "20 px rows: more packets on screen.",
+            "22 px rows.",
+            "26 px rows: more space between packets."
+          ],
+          "markdownDescription": "Row height of the packet list, the packet details and the bytes pane."
         },
         "pcapViewer.coloringRules": {
           "type": "array",
@@ -2051,6 +2202,13 @@
             ]
           }
         ]
+      }
+    ],
+    "submenus": [
+      {
+        "id": "pcapViewer.statisticsMenu",
+        "label": "Statistics",
+        "icon": "$(graph)"
       }
     ]
   },

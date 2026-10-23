@@ -36,6 +36,11 @@ export const DEFAULT_WIDTHS = {
 export const CUSTOM_WIDTH = 120;
 export const NUMERIC_IDS = new Set(["number", "time", "length"]);
 
+/** macOS (the webview's own machine, also in a remote window): ⌘ instead of Ctrl. */
+export const isMac = /Mac|iPhone|iPad/i.test(
+  window.navigator.platform || window.navigator.userAgent,
+);
+
 /** @param {string} id */
 export const $ = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
 
@@ -77,6 +82,7 @@ export const el = {
   filterSaved: $("filter-saved"),
   filterMenu: $("filter-menu"),
   filterButtons: $("filter-buttons"),
+  navTools: $("nav-tools"),
   filterAi: $("filter-ai"),
   filterField: $("filter-field"),
   suggest: $("suggest"),
@@ -273,6 +279,10 @@ export const state = {
   /** @type {Set<string>} */ menuGroups: new Set(
     Array.isArray(saved.menuGroups) ? saved.menuGroups : [],
   ),
+  /** The ids of the commands run from the ☰ menu lately, newest first (webview state). */
+  /** @type {string[]} */ recentCommands: Array.isArray(saved.recentCommands)
+    ? saved.recentCommands.filter((/** @type {unknown} */ id) => typeof id === "string")
+    : [],
   ai: {
     available: false,
     asking: false,

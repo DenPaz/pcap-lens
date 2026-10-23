@@ -11,7 +11,7 @@ import {
   rebuildColumns,
   tickCapture,
 } from "./columns.js";
-import { refreshRows, resetView, scheduleRender } from "./list.js";
+import { refreshRows, resetView, scheduleRender, setRowHeight } from "./list.js";
 import { gotoFrame, showComment } from "./comments.js";
 import { clearDetail } from "./detail.js";
 import { applyFilter, setHistory, validateSoon } from "./filterbar.js";
@@ -19,7 +19,13 @@ import { showSavedMenu, suggest } from "./autocomplete.js";
 import { runCommand } from "./navigation.js";
 import { resetEmptyHints } from "./empty.js";
 import { leaveAskMode, onAiSuggestions, setAiAvailable } from "./ai.js";
-import { loadExpertSummary, renderFilterButtons, resetExpert, updateStatus } from "./status.js";
+import {
+  loadExpertSummary,
+  renderFilterButtons,
+  resetExpert,
+  setStatusText,
+  updateStatus,
+} from "./status.js";
 
 window.addEventListener("message", (event) => {
   // VS Code posts to this frame with its own origin as the target; ignore other senders.
@@ -87,6 +93,9 @@ window.addEventListener("message", (event) => {
     case "coloringStyle":
       state.coloringStyle = msg.style;
       scheduleRender();
+      break;
+    case "listDensity":
+      setRowHeight(lib.densityRowHeight(msg.density));
       break;
     case "indexProgress":
       onIndexProgress(msg);
@@ -158,8 +167,8 @@ function onInit(msg) {
   state.customColumns = lib.acceptedColumns(msg.columns, msg.info.columns.slice(7));
   state.layout = msg.layout || { order: [], hidden: [] };
   state.timeFormat = msg.timeFormat || "relative";
-  el.statusNames.textContent = msg.names || "";
-  el.statusLua.textContent = msg.lua || "";
+  setStatusText(el.statusNames, msg.names || "");
+  setStatusText(el.statusLua, msg.lua || "");
   state.quickDetail = msg.quickDetail || state.quickDetail;
   state.timeRef = null;
   state.markCount = 0;
