@@ -63,7 +63,8 @@ OTHER_FIELDS = [
     "h225.dialledDigits",
     "h225.sourceAddress",
     "h225.destinationAddress",
-    "h225.reason",
+    "h225.reason",  # (tshark 4.6: h225.releaseCompleteReason)
+    "h225.releaseCompleteReason",
     "h225.h245Ip",
     "h225.h245IpPort",
     "h225.fastStart",
@@ -380,7 +381,7 @@ def _h225_message(call: _Call, cols: Columns, cells: list[str], row: _Row, messa
         cause = cols.get(cells, "q931.cause_value")
         if cause.isdigit():
             reasons.append(_cause(int(cause)))
-        reason = cols.get(cells, "h225.reason")
+        reason = cols.get(cells, "h225.reason") or cols.get(cells, "h225.releaseCompleteReason")
         if reason.isdigit() and int(reason) < len(H225_REASONS):
             reasons.append(f"H.225 {H225_REASONS[int(reason)]}")
         call.reasons += [r for r in reasons if r not in call.reasons]

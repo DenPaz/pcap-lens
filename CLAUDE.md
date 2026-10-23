@@ -1638,7 +1638,9 @@ h225 || h245 || mgcp || iax2`, `SIP_FIELDS` then `OTHER_FIELDS`; a field
   OpenLogicalChannel's and its Ack's addresses are the sender's own:
   side = sender, first announcement wins), codecs (`h245.audioData` → `offer`),
   DTMF from UserInputIndication; Release Complete's Q.850 cause and
-  `h225.reason` are the `reasons`. MGCP (`_MgcpCalls`): a call is a CallId
+  `h225.reason` (tshark 4.6: `h225.releaseCompleteReason`; both are asked
+  for, the refused one is remembered in `f.rejected`: tshark checks fields
+  before reading, so the retry is cheap) are the `reasons`. MGCP (`_MgcpCalls`): a call is a CallId
   (`C:`); an endpoint's commands from its off-hook NTFY (`L/hd`) are kept
   (with their responses, by `mgcp.reqframe`) and join the call its first CRCX
   names; caller = the first endpoint, ringing = `S: rg` to the callee or `rt`

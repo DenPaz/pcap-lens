@@ -73,10 +73,11 @@ class TelephonyMixin(StatisticsMixin):
     def _signalling_lines(self, f: _Open, ctx: RequestContext) -> tuple[list[str], list[str]]:
         """The signalling pass's lines and fields: voip.SIP_FIELDS, then the
         voip_protocols.OTHER_FIELDS this tshark knows (one it refuses is left
-        out and the pass run again). SIP message bodies are kept only for
+        out and the pass run again; tshark checks fields before reading, and
+        the capture remembers refused ones). SIP message bodies are kept only for
         INFO requests (DTMF): an INVITE's SDP is read from its own fields."""
         method, body = voip.SIP_FIELDS.index("sip.Method"), voip.SIP_FIELDS.index("sip.msg_body")
-        others = list(voip_protocols.OTHER_FIELDS)
+        others = [o for o in voip_protocols.OTHER_FIELDS if o not in f.rejected]
         while True:
             fields = voip.SIP_FIELDS + others
             args = [
@@ -97,6 +98,7 @@ class TelephonyMixin(StatisticsMixin):
             if not lines and result.returncode not in (0, None):
                 rejected = [r for r in _rejected_fields(result.stderr) if r in others]
                 if rejected:  # (an older or newer tshark without one of them)
+                    f.rejected.update(rejected)
                     others = [o for o in others if o not in rejected]
                     continue
                 raise f.tshark.error(
