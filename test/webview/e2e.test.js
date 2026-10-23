@@ -562,7 +562,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     assert.ok(!items.includes("Reset Colorization") && !items.includes("Delete Packet Comment"));
     assert.equal(
       await page.textContent("#context-menu .item:has-text('Mark Packet') .keys"),
-      "Ctrl+M",
+      process.platform === "darwin" ? "⌘M" : "Ctrl+M",
     );
     // Follow ▸ offers the streams of the packet's own protocols.
     await pickMenu("Follow");
@@ -2430,7 +2430,10 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       [0, -1, -1, -1, -1, -1, -1, -1, -1, -1],
       "one Tab stop",
     );
-    assert.equal(await page.getAttribute("#tool-go-to", "title"), "Go to Packet… (Ctrl+G)");
+    assert.equal(
+      await page.getAttribute("#tool-go-to", "title"),
+      `Go to Packet… (${process.platform === "darwin" ? "⌘G" : "Ctrl+G"})`,
+    );
     // The arrows move between the buttons.
     await page.focus("#tool-go-to");
     await page.keyboard.press("ArrowRight");

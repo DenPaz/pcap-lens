@@ -25,8 +25,37 @@ import {
 
 /** @typedef {"tcp" | "udp" | "tls" | "http" | "http2" | "quic" | "websocket"} FollowKind */
 
+/**
+ * Shift+F10 and the menu key: Chromium turns them into "contextmenu" on
+ * Windows and Linux but not on macOS, so the list and the tree handle the
+ * keys themselves (a "contextmenu" without a pointer opens the selected row's
+ * or node's menu) and ignore the "contextmenu" that may follow them.
+ */
+let keyMenuAt = -Infinity;
+for (const pane of [el.viewport, el.tree]) {
+  pane.addEventListener("keydown", (e) => {
+    if ((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") {
+      e.preventDefault();
+      keyMenuAt = Date.now();
+      pane.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    }
+  });
+}
+
+/** The browser's own "contextmenu" for a key just handled above. @param {MouseEvent} e */
+function repeatedKeyMenu(e) {
+  if (e.isTrusted && e.button !== 2 && Date.now() - keyMenuAt < 1000) {
+    e.preventDefault();
+    return true;
+  }
+  return false;
+}
+
 // The packet list's menu: right-click, Shift+F10 or the context menu key.
 el.viewport.addEventListener("contextmenu", (e) => {
+  if (repeatedKeyMenu(e)) {
+    return;
+  }
   const target = /** @type {HTMLElement} */ (e.target);
   let rowEl = /** @type {HTMLElement | null} */ (target.closest(".list-row"));
   let x = e.clientX;
@@ -328,6 +357,9 @@ async function followItems(row) {
 
 // The detail tree's menu: right-click, Shift+F10 or the context menu key.
 el.tree.addEventListener("contextmenu", (e) => {
+  if (repeatedKeyMenu(e)) {
+    return;
+  }
   let row = /** @type {HTMLElement | null} */ (
     /** @type {HTMLElement} */ (e.target).closest(".node-row")
   );
