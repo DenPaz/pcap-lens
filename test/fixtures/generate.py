@@ -23,8 +23,11 @@ import ssl
 import struct
 import sys
 import zlib
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
+import h323  # test/fixtures/h323.py: H.225.0 and H.245 messages in aligned PER
 import mmdb  # test/fixtures/mmdb.py: MaxMind databases for the GeoIP tests
 import quic  # test/fixtures/quic.py: the hand-encrypted QUIC connection
 from scapy.asn1.asn1 import ASN1_OID
@@ -733,6 +736,329 @@ def voip_media_packets() -> list[Packet]:
     frames = [struct.pack(">160h", *tone[i : i + 160]) for i in range(0, 4000, 160)]
     _media_stream(c, KEN, ERIN, 50000, 52000, 97, 0x99999999, 2.42, frames)
     c.bye(3.2, KEN, "ken", cid)
+    return c.packets()
+
+
+# voip-other.pcap: calls over H.323, IAX2 and MGCP.
+ALAN, BETTY, CARL = "10.0.2.10", "10.0.2.20", "10.0.2.30"
+MIKE, NINA, PBX = "10.0.3.10", "10.0.3.20", "10.0.3.1"
+AGENT, GW1, GW2 = "10.0.4.1", "10.0.4.11", "10.0.4.12"
+H323_GUIDS = tuple(bytes([0x11 * (n + 1)] * 4) + bytes(range(12)) for n in range(3))
+MGCP_CALLS = ("A3C47F21456789F0", "B4D58A3256789AB1")
+IAX2_ULAW = 4  # AST_FORMAT_ULAW
+
+
+def alaw_encode(sample: int) -> int:
+    """G.711 A-law byte of a 16-bit linear sample (the usual segment encoder)."""
+    sign = 0x80 if sample >= 0 else 0
+    magnitude = min(abs(sample), 32767) >> 3
+    if magnitude < 32:
+        code = magnitude >> 1
+    else:
+        exponent = magnitude.bit_length() - 5
+        code = (exponent << 4) | ((magnitude >> exponent) & 0x0F)
+    return (sign | code) ^ 0x55
+
+
+def _alaw_tone(freq: float, start: int, count: int) -> bytes:
+    import math  # noqa: PLC0415 - only the VoIP fixtures need it
+
+    return bytes(
+        alaw_encode(int(12000 * math.sin(2 * math.pi * freq * (start + i) / 8000)))
+        for i in range(count)
+    )
+
+
+class _Tcp:
+    """One TCP connection's segments (no handshake), each at a script time."""
+
+    def __init__(self, c: _CallScript, a: tuple[str, int], b: tuple[str, int]) -> None:
+        self.c, self.ends = c, (a, b)
+        self.seq = {a: 1000, b: 5000}
+
+    def send(self, time: float, src: tuple[str, int], data: bytes) -> None:
+        dst = self.ends[1] if src == self.ends[0] else self.ends[0]
+        pkt = (
+            Ether() / IP(src=src[0], dst=dst[0])
+            / TCP(sport=src[1], dport=dst[1], flags="PA", seq=self.seq[src], ack=self.seq[dst])
+            / Raw(data)
+        )  # fmt: skip
+        self.seq[src] += len(data)
+        self.c.at(time, pkt)
+
+
+def _h323_message(tcp: _Tcp, time: float, src: tuple[str, int], ref: int, kind: int,
+                  body: h323.Writer | None, tunnelling: bool = True,
+                  h245: Sequence[bytes] = (), **ies: Any) -> None:  # fmt: skip
+    """One H.225.0 message; ``ies`` are q931()'s calling/called/cause/display."""
+    uuie = h323.user_information(kind, body, tunnelling, h245)
+    tcp.send(time, src, h323.q931(ref, src != tcp.ends[0], kind, uuie, **ies))
+
+
+def _ulaw_stream(c: _CallScript, src: str, dst: str, sport: int, dport: int, ssrc: int,
+                 start: float, freq: float) -> None:  # fmt: skip
+    payloads = [_tone(freq, 160 * i, 160) for i in range(RTP_PACKETS)]
+    _media_stream(c, src, dst, sport, dport, 0, ssrc, start, payloads)
+
+
+def _h323_calls(c: _CallScript) -> None:
+    """1. alan → betty (calling 1001, called 2002), H.245 tunnelled in
+       Facility messages: an OpenLogicalChannel and its Ack each way, G.711
+       µ-law both ways, a DTMF "5" (UserInputIndication); alan releases
+       (Q.850 cause 16).
+    2. carl → betty: Setup proposes fast start, but betty's Connect gives
+       an h245Address instead; on that H.245 connection carl opens his
+       channel and betty's Ack names her media address, and it ends with
+       betty's EndSessionCommand; only carl sends RTP; betty releases.
+       (One OpenLogicalChannel per message: tshark 4.2.2 fails on a second
+       DataType in a packet, so a fast start proposal with a reverse channel
+       can't be read there.)
+    3. alan → betty: released at once, Q.850 cause 17 (user busy), reason
+       inConf."""
+    guid = H323_GUIDS[0]
+    alan, betty = (ALAN, 11720), (BETTY, 1720)
+    tcp = _Tcp(c, alan, betty)
+    _h323_message(tcp, 0.0, alan, 1, h323.SETUP, h323.setup(guid, ["alan"], ["2002"]),
+                  calling="1001", called="2002", display="Alan")  # fmt: skip
+    _h323_message(tcp, 0.01, betty, 1, h323.CALL_PROCEEDING, h323.call_proceeding(guid))
+    _h323_message(tcp, 0.1, betty, 1, h323.ALERTING, h323.alerting(guid))
+    _h323_message(tcp, 0.8, betty, 1, h323.CONNECT, h323.connect(guid))
+    channels = [
+        (0.81, alan, h323.open_logical_channel(1, h323.G711_ULAW, control=(ALAN, 5001),
+                                               message=True)),
+        (0.82, betty, h323.open_logical_channel_ack(1, (BETTY, 6000), (BETTY, 6001))),
+        (0.83, betty, h323.open_logical_channel(1, h323.G711_ULAW, control=(BETTY, 6001),
+                                                message=True)),
+        (0.84, alan, h323.open_logical_channel_ack(1, (ALAN, 5000), (ALAN, 5001))),
+    ]  # fmt: skip
+    for time, src, message in channels:
+        _h323_message(tcp, time, src, 1, h323.EMPTY, None, h245=[message])
+    _ulaw_stream(c, ALAN, BETTY, 5000, 6000, 0x23230001, 0.85, RTP_TONES[0])
+    _ulaw_stream(c, BETTY, ALAN, 6000, 5000, 0x23230002, 0.851, RTP_TONES[1])
+    _h323_message(tcp, 1.3, alan, 1, h323.EMPTY, None, h245=[h323.user_input_signal("5", 160)])
+    _h323_message(tcp, 2.0, alan, 1, h323.RELEASE_COMPLETE, h323.release_complete(guid),
+                  cause=16)  # fmt: skip
+
+    guid = H323_GUIDS[1]
+    carl = (CARL, 11721)
+    tcp = _Tcp(c, carl, betty)
+    proposal = h323.open_logical_channel(1, h323.G711_ULAW, control=(CARL, 5011))
+    _h323_message(tcp, 3.0, carl, 2, h323.SETUP,
+                  h323.setup(guid, ["carl"], ["betty"], [proposal]), tunnelling=False,
+                  calling="3003", called="2002")  # fmt: skip
+    _h323_message(tcp, 3.1, betty, 2, h323.ALERTING, h323.alerting(guid), tunnelling=False)
+    _h323_message(tcp, 3.5, betty, 2, h323.CONNECT, h323.connect(guid, h245=(BETTY, 1800)),
+                  tunnelling=False)  # fmt: skip
+    control = _Tcp(c, (CARL, 11801), (BETTY, 1800))
+    control.send(3.52, (CARL, 11801), h323.tpkt(h323.open_logical_channel(
+        1, h323.G711_ULAW, control=(CARL, 5011), message=True)))  # fmt: skip
+    control.send(
+        3.53,
+        (BETTY, 1800),
+        h323.tpkt(h323.open_logical_channel_ack(1, (BETTY, 6010), (BETTY, 6011))),
+    )
+    _ulaw_stream(c, CARL, BETTY, 5010, 6010, 0x23230003, 3.54, RTP_TONES[0])
+    control.send(4.6, (BETTY, 1800), h323.tpkt(h323.end_session()))
+    _h323_message(tcp, 4.7, betty, 2, h323.RELEASE_COMPLETE, h323.release_complete(guid),
+                  tunnelling=False, cause=16)  # fmt: skip
+
+    guid = H323_GUIDS[2]
+    tcp = _Tcp(c, (ALAN, 11722), betty)
+    _h323_message(tcp, 5.0, (ALAN, 11722), 3, h323.SETUP, h323.setup(guid, ["alan"], ["2002"]),
+                  calling="1001", called="2002")  # fmt: skip
+    _h323_message(tcp, 5.05, betty, 3, h323.RELEASE_COMPLETE,
+                  h323.release_complete(guid, h323.IN_CONF), cause=17)  # fmt: skip
+
+
+def _iax2_ie(ie: int, value: bytes) -> bytes:
+    return bytes([ie, len(value)]) + value
+
+
+class _Iax2:
+    """One IAX2 call's frames between a client and the PBX (UDP 4569):
+    full frames with both call numbers and sequence numbers, mini frames
+    for voice."""
+
+    def __init__(self, c: _CallScript, client: str, start: float, number: int) -> None:
+        self.c, self.client, self.start = c, client, start
+        self.calls = {client: number, PBX: number + 100}
+        self.out = {client: 0, PBX: 0}
+
+    def _send(self, time: float, src: str, data: bytes) -> None:
+        dst = PBX if src == self.client else self.client
+        self.c.at(time, Ether() / IP(src=src, dst=dst) / UDP(sport=4569, dport=4569) / Raw(data))
+
+    def ts(self, time: float) -> int:
+        return round((time - self.start) * 1000) + 3
+
+    def full(self, time: float, src: str, kind: int, subclass: int, ies: bytes = b"",
+             first: bool = False) -> None:  # fmt: skip
+        """A full frame (``first``: the NEW, before the PBX picked a call number)."""
+        dst = PBX if src == self.client else self.client
+        header = struct.pack(
+            ">HHIBBBB", 0x8000 | self.calls[src], 0 if first else self.calls[dst],
+            self.ts(time), self.out[src], self.out[dst], kind, subclass,
+        )  # fmt: skip
+        if kind != 6 or subclass != 4:  # (an ACK doesn't count)
+            self.out[src] += 1
+        self._send(time, src, header + ies)
+
+    def mini(self, time: float, src: str, payload: bytes) -> None:
+        self._send(time, src, struct.pack(">HH", self.calls[src], self.ts(time) & 0xFFFF) + payload)
+
+    def voice(self, start: float, src: str, freq: float) -> None:
+        """RTP_PACKETS 20 ms µ-law frames: a full voice frame, then mini frames."""
+        for i in range(RTP_PACKETS):
+            payload = _tone(freq, 160 * i, 160)
+            if i == 0:
+                self.full(start, src, 2, IAX2_ULAW, payload)
+            else:
+                self.mini(start + 0.02 * i, src, payload)
+
+
+def _iax2_calls(c: _CallScript) -> None:
+    """1. mike (3001, "Mike") → 4001 at the PBX: ringing, answered, µ-law both
+       ways, a DTMF "7" from mike; the PBX hangs up (cause 16).
+    2. nina → 9999: rejected ("No such context/extension", cause 1)."""
+    call = _Iax2(c, MIKE, 6.0, 1)
+    fmt = struct.pack(">I", IAX2_ULAW)
+    call.full(6.0, MIKE, 6, 1, _iax2_ie(11, b"\x00\x02") + _iax2_ie(1, b"4001")
+              + _iax2_ie(2, b"3001") + _iax2_ie(4, b"Mike") + _iax2_ie(5, b"default")
+              + _iax2_ie(8, fmt) + _iax2_ie(9, fmt), first=True)  # fmt: skip
+    call.full(6.01, PBX, 6, 7, _iax2_ie(9, fmt))  # ACCEPT
+    call.full(6.011, MIKE, 6, 4)  # ACK
+    call.full(6.1, PBX, 4, 3)  # RINGING
+    call.full(6.9, PBX, 4, 4)  # ANSWER
+    call.full(6.901, MIKE, 6, 4)
+    call.voice(6.92, MIKE, RTP_TONES[0])
+    call.voice(6.921, PBX, RTP_TONES[1])
+    call.full(7.5, MIKE, 1, ord("7"))  # DTMF end
+    call.full(8.0, PBX, 6, 5, _iax2_ie(22, b"Normal Clearing") + _iax2_ie(42, b"\x10"))
+    call.full(8.01, MIKE, 6, 4)
+
+    call = _Iax2(c, NINA, 9.0, 2)
+    call.full(9.0, NINA, 6, 1, _iax2_ie(11, b"\x00\x02") + _iax2_ie(1, b"9999")
+              + _iax2_ie(2, b"3002") + _iax2_ie(9, fmt), first=True)  # fmt: skip
+    call.full(9.02, PBX, 6, 6, _iax2_ie(22, b"No such context/extension") + _iax2_ie(42, b"\x01"))
+    call.full(9.021, NINA, 6, 4)
+
+
+def _mgcp(c: _CallScript, time: float, src: str, dst: str, text: str) -> None:
+    sport, dport = (2727, 2427) if src == AGENT else (2427, 2727)
+    data = text.replace("\n", "\r\n").encode()
+    c.at(time, Ether() / IP(src=src, dst=dst) / UDP(sport=sport, dport=dport) / Raw(data))
+
+
+def _mgcp_sdp(addr: str, port: int) -> str:
+    return _sdp(addr, port, "8", "8 PCMA/8000")
+
+
+class _Mgcp:
+    """Transactions between the call agent and the gateways: a command (with
+    ``sdp``: the other side's), then its response 5 ms later (``code``,
+    ``reply`` lines and with ``local`` the gateway's own SDP)."""
+
+    def __init__(self, c: _CallScript) -> None:
+        self.c, self.gateway_id, self.agent_id = c, 1000, 2000
+
+    def notify(self, time: float, gw: str, endpoint: str, events: str) -> None:
+        self.gateway_id += 1
+        tid = self.gateway_id
+        _mgcp(self.c, time, gw, AGENT,
+              f"NTFY {tid} {endpoint} MGCP 1.0\nX: {tid:012X}\nO: {events}\n")  # fmt: skip
+        _mgcp(self.c, time + 0.005, AGENT, gw, f"200 {tid} OK\n")
+
+    def command(self, time: float, gw: str, verb: str, endpoint: str, params: str,
+                code: str = "200 OK", reply: str = "", sdp: str = "",
+                local: str = "") -> None:  # fmt: skip
+        self.agent_id += 1
+        tid = self.agent_id
+        body = f"\n{sdp}" if sdp else ""
+        _mgcp(self.c, time, AGENT, gw, f"{verb} {tid} {endpoint} MGCP 1.0\n{params}{body}")
+        status, _, text = code.partition(" ")
+        answer = f"\n{local}" if local else ""
+        _mgcp(self.c, time + 0.005, gw, AGENT, f"{status} {tid} {text}\n{reply}{answer}")
+
+
+def _mgcp_calls(c: _CallScript) -> None:
+    """1. aaln/1@gw1 dials 2002 → aaln/1@gw2: connections on both gateways
+       (CRCX with SDP answers), gw2 rings, answers (off-hook), G.711 A-law
+       both ways; gw1 hangs up and the agent deletes both connections.
+    2. aaln/1@gw2 dials 1001 → aaln/1@gw1, which refuses the connection (401
+       Phone off hook); gw2 gets a busy tone and hangs up.
+    Before them an audit (AUEP) that belongs to no call."""
+    m = _Mgcp(c)
+    ep1, ep2 = "aaln/1@gw1.example.net", "aaln/1@gw2.example.net"
+    m.command(9.5, GW1, "AUEP", ep1, "F: A\n", reply="A: a:PCMA, p:10-20\n")
+    cid = MGCP_CALLS[0]
+    m.notify(10.0, GW1, ep1, "L/hd")
+    m.command(10.05, GW1, "RQNT", ep1, "X: 0A1\nS: L/dl\nR: D/[0-9]\n")
+    m.notify(10.5, GW1, ep1, "D/2,D/0,D/0,D/2")
+    m.command(10.6, GW1, "CRCX", ep1, f"C: {cid}\nL: p:20, a:PCMA\nM: recvonly\n",
+              reply="I: FDE234C8\n", local=_mgcp_sdp(GW1, 3456))  # fmt: skip
+    m.command(10.7, GW2, "CRCX", ep2, f"C: {cid}\nL: p:20, a:PCMA\nM: sendrecv\n",
+              reply="I: 32F345E2\n", sdp=_mgcp_sdp(GW1, 3456),
+              local=_mgcp_sdp(GW2, 3460))  # fmt: skip
+    m.command(10.8, GW2, "RQNT", ep2, "X: 0A2\nS: L/rg\nR: L/hd\n")
+    m.command(10.81, GW1, "MDCX", ep1, f"C: {cid}\nI: FDE234C8\nM: recvonly\nS: L/rt\n",
+              sdp=_mgcp_sdp(GW2, 3460))  # fmt: skip
+    m.notify(12.0, GW2, ep2, "L/hd")
+    m.command(12.05, GW1, "MDCX", ep1, f"C: {cid}\nI: FDE234C8\nM: sendrecv\n")
+    for i in range(RTP_PACKETS):
+        c.at(
+            12.06 + 0.02 * i,
+            _rtp(
+                GW1,
+                GW2,
+                3456,
+                3460,
+                8,
+                300 + i,
+                160 * i,
+                0x6C6C0001,
+                _alaw_tone(RTP_TONES[0], 160 * i, 160),
+                int(i == 0),
+            ),
+        )
+        c.at(
+            12.061 + 0.02 * i,
+            _rtp(
+                GW2,
+                GW1,
+                3460,
+                3456,
+                8,
+                700 + i,
+                160 * i,
+                0x6C6C0002,
+                _alaw_tone(RTP_TONES[1], 160 * i, 160),
+                int(i == 0),
+            ),
+        )
+    m.notify(13.2, GW1, ep1, "L/hu")
+    m.command(13.25, GW1, "DLCX", ep1, f"C: {cid}\nI: FDE234C8\n", code="250 OK",
+              reply="P: PS=50, OS=8000, PR=50, OR=8000, PL=0, JI=0, LA=0\n")  # fmt: skip
+    m.command(13.26, GW2, "DLCX", ep2, f"C: {cid}\nI: 32F345E2\n", code="250 OK")
+
+    cid = MGCP_CALLS[1]
+    m.notify(14.0, GW2, ep2, "L/hd")
+    m.notify(14.3, GW2, ep2, "D/1,D/0,D/0,D/1")
+    m.command(14.4, GW2, "CRCX", ep2, f"C: {cid}\nM: recvonly\n", reply="I: 43A456F3\n",
+              local=_mgcp_sdp(GW2, 3470))  # fmt: skip
+    m.command(14.5, GW1, "CRCX", ep1, f"C: {cid}\nM: sendrecv\n", code="401 Phone off hook",
+              sdp=_mgcp_sdp(GW2, 3470))  # fmt: skip
+    m.command(14.55, GW2, "RQNT", ep2, "X: 0A3\nS: L/bz\nR: L/hu\n")
+    m.notify(15.0, GW2, ep2, "L/hu")
+    m.command(15.05, GW2, "DLCX", ep2, f"C: {cid}\nI: 43A456F3\n", code="250 OK")
+
+
+def voip_other_packets() -> list[Packet]:
+    """Calls over the other VoIP signalling protocols: _h323_calls,
+    _iax2_calls and _mgcp_calls."""
+    c = _CallScript()
+    _h323_calls(c)
+    _iax2_calls(c)
+    _mgcp_calls(c)
     return c.packets()
 
 
@@ -1483,6 +1809,7 @@ def main() -> None:
     wrpcap(str(HERE / "voip.pcap"), voip_packets())
     wrpcap(str(HERE / "voip-calls.pcap"), voip_calls_packets())
     wrpcap(str(HERE / "voip-media.pcap"), voip_media_packets())
+    wrpcap(str(HERE / "voip-other.pcap"), voip_other_packets())
     wrpcap(str(HERE / "services.pcap"), services_packets())
     wrpcap(str(HERE / "credentials.pcap"), credentials_packets())
     wrpcap(str(HERE / "wep.pcap"), wep_packets())

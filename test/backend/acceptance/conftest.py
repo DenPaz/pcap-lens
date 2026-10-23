@@ -1894,6 +1894,26 @@ def voip_counts(world: World, calls: str, streams: str) -> None:
     assert (len(result["calls"]), len(result["streams"])) == (int(calls), int(streams))
 
 
+@then(parsers.re(r"there are (?P<calls>\d+) calls and (?P<streams>\d+) media streams$"))
+def voip_all_counts(world: World, calls: str, streams: str) -> None:
+    voip_counts(world, calls, streams)
+
+
+@then(parsers.re(r"the calls use (?P<protocols>.+)$"))
+def call_protocols(world: World, protocols: str) -> None:
+    assert [c["protocol"] for c in _voip(world)["calls"]] == items(protocols)
+
+
+@then(parsers.re(r"call (?P<n>\d+) has (?P<count>\d+) media streams?$"))
+def call_stream_count(world: World, n: str, count: str) -> None:
+    assert len(_voip(world)["calls"][int(n) - 1]["streams"]) == int(count)
+
+
+@then(parsers.re(r"call (?P<n>\d+) dialled (?P<digits>[\d*#]+)$"))
+def call_dialled(world: World, n: str, digits: str) -> None:
+    assert _voip(world)["calls"][int(n) - 1]["dialed"] == digits
+
+
 @then(
     parsers.re(
         r'call (?P<n>\d+) goes from "(?P<frm>[^"]+)" to "(?P<to>[^"]+)" and is (?P<state>[\w ]+?)'

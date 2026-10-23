@@ -10,7 +10,7 @@ import type { PcapEditorSession } from "../pcapEditor";
 import { audioFileName, exportFileName } from "../settingsModel";
 import { panelHtml, webviewRoot } from "./panelHtml";
 
-/** An RTP stream as the backend's voip_calls lists it. */
+/** A media stream as the backend's voip_calls lists it: RTP, or an IAX2 call's voice frames. */
 export interface RtpStream {
   src: string;
   srcPort: number;
@@ -22,6 +22,8 @@ export interface RtpStream {
   lost: number;
   filter: string;
   heuristic?: boolean;
+  /** IAX2 voice: tshark's call identifier (the stream key then has SSRC 0). */
+  iax2?: number;
   /** The call's SDP rtpmap ({"96": "G726-32/8000"}): how to decode dynamic types. */
   rtpmap?: Record<string, string>;
 }
@@ -29,7 +31,7 @@ export interface RtpStream {
 /** A call's stream as call_audio takes it: 0 = the caller's (left), 1 = the callee's. */
 type CallStream = RtpStream & { channel: 0 | 1; start: number };
 
-/** A SIP call as the backend's voip_calls lists it (see voip.parse_sip_calls). */
+/** A call as the backend's voip_calls lists it (voip.py, voip_protocols.py). */
 export interface VoipCall extends VoipCallData {
   id: number;
   callId: string;
@@ -51,9 +53,9 @@ type FromPanel =
   | { type: "goto"; frame: number };
 
 /**
- * VoIP calls of one capture: the SIP calls (with their message flow, media,
- * timings, quality, DTMF and media problems; one can be saved alone), the
- * RTP streams (packets, loss, jitter, MOS), a stream's packet-by-packet
+ * VoIP calls of one capture: the SIP, H.323, MGCP and IAX2 calls (with their
+ * message flow, media, timings, quality, DTMF and media problems; one can be
+ * saved alone), the media streams (packets, loss, jitter, MOS), a stream's packet-by-packet
  * analysis, and its audio, played in the panel or saved as WAV. The backend
  * does the passes and the decoding; audio reaches the webview as a file in
  * this panel's own folder (never through postMessage).

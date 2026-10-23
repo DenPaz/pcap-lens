@@ -1,12 +1,12 @@
 // @ts-check
 /**
- * VoIP calls panel: the SIP calls of a capture with the selected call's
+ * VoIP calls panel: the calls of a capture (SIP, H.323, MGCP, IAX2) with the selected call's
  * timings, how it ended, its quality (E-model MOS), DTMF digits and media
- * problems, a sequence diagram of it, its RTP streams (packets, loss, jitter,
- * MOS, RTCP), the analysis of a
+ * problems, a sequence diagram of it, its media streams (RTP or IAX2 voice:
+ * packets, loss, jitter, MOS, RTCP), the analysis of a
  * stream packet by packet with a jitter graph, and its audio (played here
  * from a WAV file the host writes, or saved). Everything is built with
- * createElement/textContent: SIP URIs and payload names come from packets.
+ * createElement/textContent: party names and payload names come from packets.
  */
 (function () {
   "use strict";
@@ -77,7 +77,7 @@
     title,
     h("div", { class: "toolbar", role: "toolbar" }, [
       refresh,
-      h("label", { title: "Also find RTP that no SIP/SDP set up (tshark's RTP heuristic)" }, [
+      h("label", { title: "Also find RTP that no signalling set up (tshark's RTP heuristic)" }, [
         heuristic,
         "Find RTP without signalling",
       ]),
@@ -87,16 +87,16 @@
     notice,
   );
 
-  const callsTable = h("table", { class: "stats", id: "voip-calls", "aria-label": "SIP calls" });
+  const callsTable = h("table", { class: "stats", id: "voip-calls", "aria-label": "Calls" });
   const filterCall = button(
     "Filter Call",
     "voip-filter-call",
-    "Show the call's SIP messages and RTP in the capture",
+    "Show the call's signalling and media in the capture",
   );
   const saveCall = button(
     "Save Call…",
     "voip-save-call",
-    "Save the call's SIP messages and RTP as a new capture file",
+    "Save the call's signalling and media as a new capture file",
   );
   const playCall = button(
     "Play Call",
@@ -115,7 +115,7 @@
       class: "secondary hidden",
       id: "voip-ask",
       title:
-        "Ask Copilot about this call (sends its SIP message flow and stream statistics, never audio, message bodies or DTMF digits)",
+        "Ask Copilot about this call (sends its message flow and stream statistics, never audio, message bodies or DTMF digits)",
     },
     ["Ask Copilot…"],
   );
@@ -143,7 +143,7 @@
   });
   const flow = h("div", { class: "voip-flow", id: "voip-flow", "aria-label": "Call flow" });
   app.append(
-    h("h2", { class: "panel-subtitle-h" }, ["SIP Calls"]),
+    h("h2", { class: "panel-subtitle-h" }, ["Calls"]),
     callsTable,
     callTools,
     callAudioBox,
@@ -154,7 +154,7 @@
   const streamsTable = h("table", {
     class: "stats",
     id: "voip-streams",
-    "aria-label": "RTP streams",
+    "aria-label": "Media streams",
   });
   const analyse = button(
     "Analyse",
@@ -191,7 +191,7 @@
     "aria-label": "Stream analysis",
   });
   app.append(
-    h("h2", { class: "panel-subtitle-h" }, ["RTP Streams"]),
+    h("h2", { class: "panel-subtitle-h" }, ["Media Streams"]),
     streamsTable,
     streamTools,
     rtcpLine,
@@ -280,7 +280,7 @@
   function list() {
     state.listing = true;
     state.heuristic = heuristic.checked;
-    status.textContent = "Reading SIP calls and RTP streams…";
+    status.textContent = "Reading calls and media streams…";
     notice.classList.add("hidden");
     vscode.postMessage({ type: "list", heuristic: state.heuristic });
   }
@@ -436,6 +436,7 @@
   function renderCalls() {
     const rows = state.calls.map((c) => [
       num(c.start, 3),
+      c.protocol ?? "SIP",
       c.from,
       c.to,
       c.reason ? `${c.state} (${c.reason})` : c.state,
@@ -450,6 +451,7 @@
       callsTable,
       [
         "Start (s)",
+        "Protocol",
         "From",
         "To",
         "State",
@@ -466,7 +468,7 @@
       selectCall,
     );
     if (!state.calls.length) {
-      callsTable.append(h("caption", {}, ["No SIP calls in this capture."]));
+      callsTable.append(h("caption", {}, ["No calls in this capture."]));
     }
     filterCall.toggleAttribute("disabled", state.call === null);
     saveCall.toggleAttribute("disabled", state.call === null);
@@ -538,7 +540,7 @@
     const rows = state.streams.map((st) => [
       `${st.src}:${st.srcPort}`,
       `${st.dst}:${st.dstPort}`,
-      st.ssrc,
+      st.iax2 === undefined ? st.ssrc : "IAX2",
       st.payload,
       st.packets,
       st.lost > 0 ? `${st.lost} (${num(st.lostPercent, 1)}%)` : st.lost,
@@ -585,8 +587,8 @@
       streamsTable.append(
         h("caption", {}, [
           state.heuristic
-            ? "No RTP streams found."
-            : "No RTP streams set up by SIP/SDP. Try “Find RTP without signalling”.",
+            ? "No media streams found."
+            : "No media streams set up by the signalling. Try “Find RTP without signalling”.",
         ]),
       );
     }
@@ -848,7 +850,7 @@
         state.call = state.calls.length ? 0 : null;
         state.stream = null;
         state.analysis = null;
-        status.textContent = `${msg.calls.length} SIP call${msg.calls.length === 1 ? "" : "s"}, ${msg.streams.length} RTP stream${msg.streams.length === 1 ? "" : "s"}`;
+        status.textContent = `${msg.calls.length} call${msg.calls.length === 1 ? "" : "s"}, ${msg.streams.length} stream${msg.streams.length === 1 ? "" : "s"}`;
         renderCalls();
         renderCallDetails();
         renderStreams();

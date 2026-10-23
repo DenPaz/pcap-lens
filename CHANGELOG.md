@@ -7,6 +7,13 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- VoIP Calls lists H.323, MGCP and IAX2 calls next to SIP's, with their call
+  flow, media (RTP, or IAX2's voice frames), timings, release causes, DTMF
+  digits, quality and media problems; IAX2 voice can be analysed, played and
+  saved like RTP.
+
 ## 0.18.0 — 2026-10-21
 
 ### Added

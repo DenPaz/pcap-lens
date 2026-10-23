@@ -12,9 +12,10 @@
  * most `maxPoints` sampled packets as frame, time, direction, sequence
  * number, length, ack, window, RTT, retransmission and SYN flags, plus facts
  * computed from all of them (retransmission rate, RTT min/median/max,
- * zero-window events, bytes each way). For a VoIP call: its SIP message flow
- * (at most `maxCallMessages` message names with times and addresses; no
- * bodies), the parties' SIP URIs, timings and how it ended, its RTP streams'
+ * zero-window events, bytes each way). For a VoIP call (SIP, H.323, MGCP or
+ * IAX2): its message flow (at most `maxCallMessages` message names with
+ * times and addresses; no bodies), the parties' names or numbers, timings
+ * and how it ended, its media streams'
  * statistics (at most `maxCallStreams`: codec, packets, loss, jitter, MOS,
  * what RTCP reported) and the problems the panel found; DTMF only as a count
  * (digits can be PINs). Gated like the capture summary
@@ -479,6 +480,8 @@ export function framesFilter(rows: readonly ExpertRow[], maxFrames: number): str
 
 /** A call as the backend's voip_calls lists it (the fields used here). */
 export interface VoipCallData {
+  /** "SIP", "H.323", "MGCP" or "IAX2" (absent: SIP). */
+  protocol?: string;
   from: string;
   to: string;
   caller: string;
@@ -521,6 +524,7 @@ export interface VoipStreamData {
 
 /** What is sent about one call: no message bodies, no DTMF digits. */
 export interface CallSummary {
+  protocol: string;
   from: string;
   to: string;
   caller: string;
@@ -551,6 +555,7 @@ export function callSummary(
     .map((i, n) => (streams[i] ? { ...streams[i], side: call.sides?.[n] ?? "?" } : undefined))
     .filter((s): s is VoipStreamData & { side: string } => s !== undefined);
   return {
+    protocol: call.protocol ?? "SIP",
     from: call.from,
     to: call.to,
     caller: call.caller,
@@ -587,31 +592,34 @@ export function buildCallPrompt(
   const c = input.call;
   const cell = (v: string) => oneLine(v, limits.maxCell);
   const lines = [
-    "You are a VoIP and SIP expert helping someone read a packet capture.",
+    `You are a VoIP expert (SIP, H.323, MGCP, IAX2) helping someone read the ${c.protocol} call of a packet capture.`,
     "Explain this call: how its signalling went, why it failed or ended as it did, and whether its audio was likely",
     "good, and if not why (packet loss, jitter, one-way audio from NAT or firewall problems, a codec mismatch, an",
-    "SSRC change, silences). You get the SIP message flow (message names only, no bodies), the call's timings, its",
-    "RTP streams' statistics (MOS estimated with the ITU-T E-model) and the problems the viewer detected.",
+    `SSRC change, silences). You get the ${c.protocol} message flow (message names only, no bodies), the call's`,
+    "timings, its media streams' statistics (MOS estimated with the ITU-T E-model) and the problems the viewer detected.",
     "Refer to packets by frame number. Be concise: a short diagnosis, then bullets.",
     ...COMMON_RULES,
     "",
     `Question: ${oneLine(input.question, MAX_QUESTION) || "Explain this call."}`,
     "",
     "## Call",
+    `Protocol: ${c.protocol}`,
     `From ${cell(c.from)} (caller, ${cell(c.caller)}) to ${cell(c.to)} (callee, ${cell(c.callee)})`,
     `State: ${cell(c.state)}; final response: ${cell(c.final) || "-"}; ended by: ${c.endedBy ?? "-"}`,
     `Ringing after ${secs(c.ringing)}, answered after ${secs(c.setup)}, talk time ${secs(c.duration)}`,
-    ...(c.reasons.length ? [`Reason headers: ${c.reasons.map(cell).join("; ")}`] : []),
+    ...(c.reasons.length
+      ? [`${c.protocol === "SIP" ? "Reason headers" : "Causes"}: ${c.reasons.map(cell).join("; ")}`]
+      : []),
     ...(c.dtmfCount ? [`DTMF: ${c.dtmfCount} digit(s) sent (the digits are not included)`] : []),
     "",
-    "## SIP messages (frame | time s | from | to | message)",
+    `## ${c.protocol} messages (frame | time s | from | to | message)`,
     ...c.messages.map(
       ([frame, time, src, dst, label]) =>
         `${frame} | ${formatNumber(time)} | ${cell(src)} | ${cell(dst)} | ${cell(label)}`,
     ),
     ...(c.moreMessages ? [`[${c.moreMessages} more messages not included]`] : []),
     "",
-    "## RTP streams (sender | from | to | codec | packets | lost | max jitter | mean jitter | max delta | MOS | RTCP from the receiver)",
+    "## Media streams (sender | from | to | codec | packets | lost | max jitter | mean jitter | max delta | MOS | RTCP from the receiver)",
     ...(c.streams.length
       ? c.streams.map((s) => {
           const lost = `${s.lost} (${formatNumber(s.lostPercent ?? 0)}%)`;
@@ -634,7 +642,7 @@ export function buildCallPrompt(
             rtcp,
           ].join(" | ");
         })
-      : ["None: no RTP was linked to this call."]),
+      : ["None: no media was linked to this call."]),
     ...(c.moreStreams ? [`[${c.moreStreams} more streams not included]`] : []),
     "",
     "## Problems the viewer detected",
