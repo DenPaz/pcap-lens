@@ -1,7 +1,8 @@
 // @ts-check
 /** Context menus (packet list, detail tree) and their actions. */
 
-import { el, icon, lib, rpc, state, vscode } from "./core.js";
+import { el, lib, rpc, state, vscode } from "./core.js";
+import { commandKeys, showMenu, viewerKeys } from "./menu.js";
 import { visibleColumns } from "./columns.js";
 import { rowAt } from "./list.js";
 import { copyRows, focusIndex, selectAll, selectIndex, selectedFrames } from "./selection.js";
@@ -20,11 +21,25 @@ import {
 } from "./navigation.js";
 /** @import { NodeEntry } from "./detail.js" */
 
-// Packet list: follow the selected packet's stream.
-el.rows.addEventListener("contextmenu", (e) => {
-  const rowEl = /** @type {HTMLElement | null} */ (
-    /** @type {HTMLElement} */ (e.target).closest(".list-row")
-  );
+/** @import { MenuEntry } from "./menu.js" */
+
+/** @typedef {"tcp" | "udp" | "tls" | "http" | "http2" | "quic" | "websocket"} FollowKind */
+
+// The packet list's menu: right-click, Shift+F10 or the context menu key.
+el.viewport.addEventListener("contextmenu", (e) => {
+  const target = /** @type {HTMLElement} */ (e.target);
+  let rowEl = /** @type {HTMLElement | null} */ (target.closest(".list-row"));
+  let x = e.clientX;
+  let y = e.clientY;
+  // (From the keyboard the event comes to the focused grid, button 0: the selected row's menu.)
+  if (!rowEl && e.button !== 2 && state.selectedIndex !== null) {
+    rowEl = el.rows.querySelector(`.list-row[data-index="${state.selectedIndex}"]`);
+    if (rowEl) {
+      const rect = rowEl.getBoundingClientRect();
+      x = rect.left + 24;
+      y = rect.bottom;
+    }
+  }
   if (!rowEl || rowEl.dataset.index === undefined) {
     return;
   }
@@ -36,196 +51,303 @@ el.rows.addEventListener("contextmenu", (e) => {
   }
   if (state.selection.has(row.number)) {
     focusIndex(index); // right-click inside a multi-selection keeps it
-  } else {
+  } else if (state.selectedIndex !== index) {
     selectIndex(index);
   }
-  const multi = state.selection.size;
-  const protocol = (row.cells[4] || "").toUpperCase();
-  /** @param {"tcp" | "udp" | "tls" | "http" | "http2" | "quic" | "websocket"} proto */
-  const follow = (proto) => () => vscode.postMessage({ type: "follow", proto, frame: row.number });
-  /**
-   * A follow entry, or none when the packet isn't of that protocol.
-   * @param {string} label @param {Parameters<typeof follow>[0]} proto @param {boolean} offered
-   * @returns {[string, () => void][]}
-   */
-  const followIf = (label, proto, offered) => (offered ? [[label, follow(proto)]] : []);
   // The clicked cell: Apply as Filter on its value (validated when applied).
-  const cellEl = /** @type {HTMLElement | null} */ (
-    /** @type {HTMLElement} */ (e.target).closest(".list-row > div")
-  );
+  const cellEl = /** @type {HTMLElement | null} */ (target.closest(".list-row > div"));
   const vis = cellEl ? visibleColumns()[[...rowEl.children].indexOf(cellEl)] : undefined;
   // (A resolved name filters on its address.)
   const cellValue = vis ? (lib.cellAddress(vis.column, row) ?? row.cells[vis.index] ?? "") : "";
   const filter = vis ? lib.cellFilter(vis.column, cellValue) : null;
-  const current = state.appliedFilter;
-  /** @type {[string, (() => void) | null][]} */
-  const items = [
-    [
-      "Apply as Filter",
-      filter ? () => applyFromTree(lib.combineFilter(current, filter, "replace"), true) : null,
-    ],
-    ["Prepare as Filter", filter ? () => applyFromTree(filter, false) : null],
-    [
-      "…and Selected",
-      filter && current
-        ? () => applyFromTree(lib.combineFilter(current, filter, "and"), true)
-        : null,
-    ],
-    [
-      "…or Selected",
-      filter && current
-        ? () => applyFromTree(lib.combineFilter(current, filter, "or"), true)
-        : null,
-    ],
-    [
-      "…and not Selected",
-      filter ? () => applyFromTree(lib.combineFilter(current, filter, "not"), true) : null,
-    ],
-    // A second menu at the same spot: the packet's Ethernet/IP/TCP/UDP conversations.
-    [
-      "Conversation Filter…",
-      () => void conversationMenu(row.number, e.clientX, e.clientY, (f) => applyFromTree(f, true)),
-    ],
-    [
-      "Colorize Conversation…",
-      () =>
-        void conversationMenu(row.number, e.clientX, e.clientY, (f) =>
-          vscode.postMessage({ type: "colorizeConversation", filter: f }),
-        ),
-    ],
-    [
-      "Reset Colorization",
-      state.colorized
-        ? () => vscode.postMessage({ type: "runCommand", id: "pcapViewer.resetColorization" })
-        : null,
-    ],
-    ["-", null],
-    ["Follow TCP Stream", follow("tcp")],
-    ["Follow UDP Stream", follow("udp")],
-    ["Follow TLS Stream", /TLS|SSL/.test(protocol) ? follow("tls") : null],
-    ["Follow HTTP Stream", /HTTP/.test(protocol) ? follow("http") : null],
-    // Only offered on their own packets (the menu stays short).
-    ...followIf("Follow HTTP/2 Stream", "http2", /HTTP2/.test(protocol)),
-    ...followIf("Follow QUIC Stream", "quic", /QUIC|HTTP3/.test(protocol)),
-    ...followIf("Follow WebSocket Stream", "websocket", /WEBSOCKET/.test(protocol)),
-    ["TCP Stream Graph", () => vscode.postMessage({ type: "tcpGraph", frame: row.number })],
-    [
-      multi === 2 ? "Compare 2 Selected Packets" : "Compare with Packet…",
-      multi > 2
-        ? null
-        : () =>
-            vscode.postMessage({
-              type: "compare",
-              frames: multi === 2 ? selectedFrames().sort((a, b) => a - b) : [row.number],
-            }),
-    ],
-    [
-      "Show Packet in New Window",
-      () => vscode.postMessage({ type: "packetWindow", frame: row.number }),
-    ],
-    ["-", null],
-    // Sends packet data: the host asks for consent first (pcapViewer.ai.allowPacketData).
-    ...(state.ai.available
-      ? /** @type {[string, (() => void) | null][]} */ ([
-          [
-            multi
-              ? `Ask Copilot About ${multi.toLocaleString()} Selected Packets…`
-              : "Ask Copilot About This Packet…",
-            () =>
-              vscode.postMessage({
-                type: "askAboutPackets",
-                frames: selectedFrames().sort((a, b) => a - b),
-              }),
-          ],
-          ["-", null],
-        ])
-      : []),
-    ["Decode As…", () => vscode.postMessage({ type: "decodeAs", frame: row.number })],
-    ["Export Packet Bytes…", () => vscode.postMessage({ type: "exportBytes", frame: row.number })],
-    ["-", null],
-    [
-      multi
-        ? `Mark/Unmark ${multi.toLocaleString()} Selected Packets`
-        : row.marked
-          ? "Unmark Packet"
-          : "Mark Packet",
-      () => void toggleMark(),
-    ],
-    [
-      multi
-        ? `Ignore/Unignore ${multi.toLocaleString()} Selected Packets`
-        : row.ignored
-          ? "Unignore Packet"
-          : "Ignore Packet",
-      () => void toggleIgnore(),
-    ],
-    [
-      state.timeRef === row.number ? "Unset Time Reference" : "Set Time Reference",
-      () => toggleTimeReference(),
-    ],
-    [row.comment ? "Edit Packet Comment…" : "Add Packet Comment…", () => editComment()],
-    ["Delete Packet Comment", row.comment ? () => deleteComment(row.number) : null],
-    ["Select All", () => void selectAll()],
-    ["-", null],
-    ["Copy Value", cellValue ? () => copy(cellValue) : null],
-    ...(multi
-      ? /** @type {[string, (() => void) | null][]} */ ([
-          [`Copy ${multi.toLocaleString()} Rows`, () => void copyRows()],
-          [`Copy ${multi.toLocaleString()} Frame Numbers`, () => void copyFrameNumbers()],
-          [
-            `Export ${multi.toLocaleString()} Selected Packets…`,
-            () => vscode.postMessage({ type: "exportSelected" }),
-          ],
-        ])
-      : /** @type {[string, (() => void) | null][]} */ ([
-          ["Copy Summary", () => copy(row.cells.join("\t"))],
-          ["Copy Frame Number", () => copy(String(row.number))],
-        ])),
-  ];
-  showMenu(e.clientX, e.clientY, items);
+  showMenu(x, y, rowMenu(row, filter, cellValue));
 });
 
 /**
- * The conversations of packet `frame` as a menu; picking one calls `pick`
- * with its filter. Stream numbers need the exact detail (a quick view's are
- * the window's), which the backend has cached when the packet is shown.
- * @param {number} frame @param {number} x @param {number} y
- * @param {(filter: string) => void} pick
+ * @param {any} row the clicked row @param {string | null} filter its cell's filter
+ * @param {string} cellValue
+ * @returns {MenuEntry[]}
  */
-async function conversationMenu(frame, x, y, pick) {
-  let detail = state.detail?.number === frame && !state.detail.approximate ? state.detail : null;
-  if (!detail) {
-    showMenu(x, y, [[`Reading packet ${frame}…`, null]]);
-    try {
-      detail = await rpc("packet_detail", { number: frame }).promise;
-    } catch {
-      detail = null;
-    }
-    if (el.menu.classList.contains("hidden")) {
-      return; // closed meanwhile
-    }
+function rowMenu(row, filter, cellValue) {
+  const multi = state.selection.size;
+  const count = multi.toLocaleString();
+  const frame = row.number;
+  /** @type {MenuEntry[]} */
+  const entries = [
+    ...filterEntries(filter),
+    {
+      label: "Conversation Filter",
+      icon: "arrow-swap",
+      children: () => conversationItems(frame, (f) => applyFromTree(f, true)),
+    },
+    {
+      label: "Colorize Conversation",
+      icon: "symbol-color",
+      children: () =>
+        conversationItems(frame, (f) =>
+          vscode.postMessage({ type: "colorizeConversation", filter: f }),
+        ),
+    },
+  ];
+  if (state.colorized) {
+    entries.push({
+      label: "Reset Colorization",
+      icon: "discard",
+      action: () => vscode.postMessage({ type: "runCommand", id: "pcapViewer.resetColorization" }),
+    });
   }
-  const conversations = detail ? lib.conversationFilters(detail.tree) : [];
-  showMenu(
-    x,
-    y,
-    conversations.length
-      ? conversations.map(({ label, filter }) => [label, () => pick(filter)])
-      : [["No conversation for this packet", null]],
+  entries.push(
+    "-",
+    { label: "Follow", icon: "debug-step-over", children: () => followItems(row) },
+    {
+      label: multi === 2 ? "Compare 2 Selected Packets" : "Compare with Packet…",
+      icon: "diff",
+      action:
+        multi > 2
+          ? null
+          : () =>
+              vscode.postMessage({
+                type: "compare",
+                frames: multi === 2 ? selectedFrames().sort((a, b) => a - b) : [frame],
+              }),
+      title: multi > 2 ? "Select one or two packets to compare" : undefined,
+    },
+    {
+      label: "Show Packet in New Window",
+      icon: "multiple-windows",
+      action: () => vscode.postMessage({ type: "packetWindow", frame }),
+    },
   );
+  // Sends packet data: the host asks for consent first (pcapViewer.ai.allowPacketData).
+  if (state.ai.available) {
+    entries.push({
+      label: multi
+        ? `Ask Copilot About ${count} Selected Packets…`
+        : "Ask Copilot About This Packet…",
+      icon: "sparkle",
+      action: () =>
+        vscode.postMessage({
+          type: "askAboutPackets",
+          frames: selectedFrames().sort((a, b) => a - b),
+        }),
+    });
+  }
+  entries.push(
+    "-",
+    {
+      label: multi
+        ? `Mark/Unmark ${count} Selected Packets`
+        : row.marked
+          ? "Unmark Packet"
+          : "Mark Packet",
+      icon: "bookmark",
+      keys: commandKeys("pcapViewer.toggleMark"),
+      action: () => void toggleMark(),
+    },
+    {
+      label: multi
+        ? `Ignore/Unignore ${count} Selected Packets`
+        : row.ignored
+          ? "Unignore Packet"
+          : "Ignore Packet",
+      icon: "eye-closed",
+      keys: commandKeys("pcapViewer.toggleIgnore"),
+      action: () => void toggleIgnore(),
+    },
+    {
+      label: state.timeRef === frame ? "Unset Time Reference" : "Set Time Reference",
+      icon: "clock",
+      keys: commandKeys("pcapViewer.toggleTimeReference"),
+      action: () => toggleTimeReference(),
+    },
+    {
+      label: row.comment ? "Edit Packet Comment…" : "Add Packet Comment…",
+      icon: "comment",
+      keys: commandKeys("pcapViewer.editPacketComment"),
+      action: () => editComment(),
+    },
+  );
+  if (row.comment) {
+    entries.push({
+      label: "Delete Packet Comment",
+      icon: "trash",
+      action: () => deleteComment(frame),
+    });
+  }
+  entries.push(
+    "-",
+    {
+      label: "Decode As…",
+      icon: "symbol-namespace",
+      action: () => vscode.postMessage({ type: "decodeAs", frame }),
+    },
+    {
+      label: "Export Packet Bytes…",
+      icon: "file-binary",
+      action: () => vscode.postMessage({ type: "exportBytes", frame }),
+    },
+  );
+  if (multi) {
+    entries.push({
+      label: `Export ${count} Selected Packets…`,
+      icon: "export",
+      action: () => vscode.postMessage({ type: "exportSelected" }),
+    });
+  }
+  /** @type {MenuEntry[]} */
+  const copies = [];
+  if (cellValue) {
+    copies.push({ label: "Value", hint: cellValue, action: () => copy(cellValue) });
+  }
+  copies.push(
+    multi
+      ? { label: `${count} Rows`, keys: viewerKeys("ctrl+c"), action: () => void copyRows() }
+      : {
+          label: "Summary",
+          keys: viewerKeys("ctrl+c"),
+          action: () => copy(row.cells.join("\t")),
+        },
+    multi
+      ? { label: `${count} Frame Numbers`, action: () => void copyFrameNumbers() }
+      : { label: "Frame Number", hint: String(frame), action: () => copy(String(frame)) },
+  );
+  if (filter) {
+    copies.push({ label: "As Filter", hint: filter, action: () => copy(filter) });
+  }
+  entries.push(
+    "-",
+    { label: "Copy", icon: "copy", children: copies },
+    {
+      label: "Select All",
+      icon: "check-all",
+      keys: viewerKeys("ctrl+a"),
+      action: () => void selectAll(),
+    },
+  );
+  return entries;
 }
 
+/**
+ * Apply as Filter ▸ and Prepare as Filter ▸ for a field's filter (none when
+ * the field has no filter).
+ * @param {string | null} filter
+ * @returns {MenuEntry[]}
+ */
+function filterEntries(filter) {
+  if (!filter) {
+    return [];
+  }
+  /** @param {boolean} apply @returns {MenuEntry[]} */
+  const choices = (apply) =>
+    lib.filterChoices(state.appliedFilter, filter).map(({ label, expr }) => ({
+      label,
+      hint: expr,
+      title: expr,
+      action: () => applyFromTree(expr, apply),
+    }));
+  return [
+    {
+      label: "Apply as Filter",
+      icon: "filter",
+      children: choices(true),
+    },
+    { label: "Prepare as Filter", icon: "edit", children: choices(false) },
+  ];
+}
+
+/**
+ * Packet `frame`'s exact detail: the one shown, else fetched. Stream numbers
+ * need it (a quick view's are the window's), and the backend has it cached
+ * when the packet is shown.
+ * @param {number} frame
+ */
+async function exactDetail(frame) {
+  if (state.detail?.number === frame && !state.detail.approximate) {
+    return state.detail;
+  }
+  return rpc("packet_detail", { number: frame }).promise;
+}
+
+/**
+ * The conversations of packet `frame` as menu items; picking one calls
+ * `pick` with its filter.
+ * @param {number} frame @param {(filter: string) => void} pick
+ * @returns {Promise<MenuEntry[]>}
+ */
+async function conversationItems(frame, pick) {
+  const detail = await exactDetail(frame);
+  const conversations = detail ? lib.conversationFilters(detail.tree) : [];
+  return conversations.length
+    ? conversations.map(({ label, filter }) => ({
+        label,
+        hint: filter,
+        title: filter,
+        action: () => pick(filter),
+      }))
+    : [{ label: "No conversation for this packet", action: null }];
+}
+
+/**
+ * Follow ▸: the streams the packet is part of (from its detail tree), then
+ * its TCP stream graph.
+ * @param {any} row
+ * @returns {Promise<MenuEntry[]>}
+ */
+async function followItems(row) {
+  const frame = row.number;
+  /** @type {{label: string, proto: string}[]} */
+  let streams;
+  try {
+    const detail = await exactDetail(frame);
+    streams = lib.followOptions(detail?.tree ?? []);
+  } catch {
+    // (no detail: the transport protocols, as before)
+    streams = [
+      { label: "TCP Stream", proto: "tcp" },
+      { label: "UDP Stream", proto: "udp" },
+    ];
+  }
+  /** @type {MenuEntry[]} */
+  const entries = streams.map(({ label, proto }) => ({
+    label,
+    action: () =>
+      vscode.postMessage({ type: "follow", proto: /** @type {FollowKind} */ (proto), frame }),
+  }));
+  if (!entries.length) {
+    entries.push({ label: "No stream to follow", action: null });
+  }
+  if (streams.some((s) => s.proto === "tcp")) {
+    entries.push("-", {
+      label: "TCP Stream Graph",
+      icon: "graph-line",
+      action: () => vscode.postMessage({ type: "tcpGraph", frame }),
+    });
+  }
+  return entries;
+}
+
+// The detail tree's menu: right-click, Shift+F10 or the context menu key.
 el.tree.addEventListener("contextmenu", (e) => {
-  const row = /** @type {HTMLElement | null} */ (
+  let row = /** @type {HTMLElement | null} */ (
     /** @type {HTMLElement} */ (e.target).closest(".node-row")
   );
+  let x = e.clientX;
+  let y = e.clientY;
+  if (!row && e.button !== 2 && state.selectedNodeId !== null) {
+    row = el.tree.querySelector(`.node-row[data-id="${state.selectedNodeId}"]`);
+    if (row) {
+      const rect = row.getBoundingClientRect();
+      x = rect.left + 24;
+      y = rect.bottom;
+    }
+  }
   const entry = row && nodeIndex.get(Number(row.dataset.id));
   if (!entry) {
     return;
   }
   e.preventDefault();
   selectNode(entry.node.id, { scroll: false });
-  showTreeMenu(entry, e.clientX, e.clientY);
+  showTreeMenu(entry, x, y);
 });
 
 /**
@@ -236,85 +358,91 @@ export function showTreeMenu(entry, x, y) {
   const node = entry.node;
   const filter = lib.buildFieldFilter(node);
   const prefsProtocol = lib.prefsProtocol(entry.path);
-  const current = state.appliedFilter;
-  /** @type {[string, (() => void) | null][]} */
-  const items = [
-    [
-      "Apply as Filter",
-      filter ? () => applyFromTree(lib.combineFilter(current, filter, "replace"), true) : null,
-    ],
-    ["Prepare as Filter", filter ? () => applyFromTree(filter, false) : null],
-    [
-      "Build Filter from Field…",
-      filter && !node.proto
-        ? () => openFilterBuilder({ field: node.name, value: node.show ?? "", returnTo: el.tree })
-        : null,
-    ],
-    [
-      "…and Selected",
-      filter && current
-        ? () => applyFromTree(lib.combineFilter(current, filter, "and"), true)
-        : null,
-    ],
-    [
-      "…or Selected",
-      filter && current
-        ? () => applyFromTree(lib.combineFilter(current, filter, "or"), true)
-        : null,
-    ],
-    [
-      "…and not Selected",
-      filter ? () => applyFromTree(lib.combineFilter(current, filter, "not"), true) : null,
-    ],
-    [
-      "Colorize with Filter…",
-      filter ? () => vscode.postMessage({ type: "colorize", filter }) : null,
-    ],
-    ["Apply as Column", canBeColumn(node) ? () => applyColumn(node) : null],
-    prefsProtocol
-      ? [
-          `Protocol Preferences: ${prefsProtocol}…`,
-          () => vscode.postMessage({ type: "protocolPrefs", protocol: prefsProtocol }),
-        ]
-      : ["Protocol Preferences…", null],
-    prefsProtocol && prefsProtocol !== "frame"
-      ? [
-          `Disable Protocol: ${prefsProtocol}`,
-          () => vscode.postMessage({ type: "disableProtocol", protocol: prefsProtocol }),
-        ]
-      : ["Disable Protocol", null],
-    ...(frameLinkTarget(node) !== null
-      ? /** @type {[string, (() => void) | null][]} */ ([
-          [
-            `Go to Packet ${frameLinkTarget(node)}`,
-            () => void gotoFrame(/** @type {number} */ (frameLinkTarget(node))),
-          ],
-        ])
-      : []),
-    ["-", null],
-    ["Copy Value", node.show !== undefined ? () => copy(node.show) : null],
-    ["Copy Line", () => copy(node.label)],
-    ["Copy Field Name", node.name ? () => copy(node.name) : null],
-    ["Copy as Filter", filter ? () => copy(filter) : null],
-    ["Copy Bytes (hex)", node.pos !== undefined ? () => copy(fieldBytes(node)) : null],
-    [
-      "Show Packet Bytes…",
-      node.pos !== undefined && node.size > 0 && state.detail
-        ? () =>
-            vscode.postMessage({
-              type: "showPacketBytes",
-              frame: state.detail.number,
-              field: node.name ?? "",
-              label: node.label,
-              hex: fieldBytes(node),
-            })
-        : null,
-    ],
-    ["-", null],
-    ["Expand Subtrees", entry.children ? () => expandAll(entry, true) : null],
-    ["Collapse Subtrees", entry.children ? () => expandAll(entry, false) : null],
-  ];
-  showMenu(x, y, items);
+  const target = frameLinkTarget(node);
+  const hasBytes = node.pos !== undefined && node.size > 0;
+  /** @type {MenuEntry[]} */
+  const entries = [...filterEntries(filter)];
+  if (filter && !node.proto) {
+    entries.push({
+      label: "Build Filter from Field…",
+      icon: "filter-filled",
+      action: () =>
+        openFilterBuilder({ field: node.name, value: node.show ?? "", returnTo: el.tree }),
+    });
+  }
+  if (filter) {
+    entries.push({
+      label: "Colorize with Filter…",
+      icon: "symbol-color",
+      action: () => vscode.postMessage({ type: "colorize", filter }),
+    });
+  }
+  if (canBeColumn(node)) {
+    entries.push({
+      label: "Apply as Column",
+      icon: "split-horizontal",
+      action: () => applyColumn(node),
+    });
+  }
+  if (target !== null) {
+    entries.push({
+      label: `Go to Packet ${target}`,
+      icon: "go-to-file",
+      action: () => void gotoFrame(target),
+    });
+  }
+  if (prefsProtocol) {
+    entries.push("-", {
+      label: `Protocol Preferences: ${prefsProtocol}…`,
+      icon: "settings-gear",
+      action: () => vscode.postMessage({ type: "protocolPrefs", protocol: prefsProtocol }),
+    });
+    if (prefsProtocol !== "frame") {
+      entries.push({
+        label: `Disable Protocol: ${prefsProtocol}`,
+        icon: "circle-slash",
+        action: () => vscode.postMessage({ type: "disableProtocol", protocol: prefsProtocol }),
+      });
+    }
+  }
+  /** @type {MenuEntry[]} */
+  const copies = [];
+  if (node.show !== undefined) {
+    copies.push({ label: "Value", hint: node.show, action: () => copy(node.show) });
+  }
+  copies.push({ label: "Line", action: () => copy(node.label) });
+  if (node.name) {
+    copies.push({ label: "Field Name", hint: node.name, action: () => copy(node.name) });
+  }
+  if (filter) {
+    copies.push({ label: "As Filter", hint: filter, action: () => copy(filter) });
+  }
+  if (node.pos !== undefined) {
+    copies.push({ label: "Bytes (hex)", action: () => copy(fieldBytes(node)) });
+  }
+  entries.push("-", { label: "Copy", icon: "copy", children: copies });
+  if (hasBytes && state.detail) {
+    entries.push({
+      label: "Show Packet Bytes…",
+      icon: "file-binary",
+      action: () =>
+        vscode.postMessage({
+          type: "showPacketBytes",
+          frame: state.detail.number,
+          field: node.name ?? "",
+          label: node.label,
+          hex: fieldBytes(node),
+        }),
+    });
+  }
+  if (entry.children) {
+    entries.push(
+      "-",
+      { label: "Expand Subtrees", icon: "expand-all", action: () => expandAll(entry, true) },
+      { label: "Collapse Subtrees", icon: "collapse-all", action: () => expandAll(entry, false) },
+    );
+  }
+  showMenu(x, y, entries);
 }
 
 /** @param {any} node */
@@ -351,57 +479,3 @@ function applyFromTree(expr, apply) {
 export function copy(text) {
   vscode.postMessage({ type: "copy", text });
 }
-
-/**
- * Items are [label, action (null = disabled), checked]; "-" is a separator.
- * A boolean `checked` makes a checkbox item with a check mark.
- * @param {number} x @param {number} y @param {[string, (() => void) | null, boolean?][]} items
- */
-export function showMenu(x, y, items) {
-  el.menu.replaceChildren(
-    ...items.map(([label, action, checked]) => {
-      const item = document.createElement("div");
-      if (label === "-") {
-        item.className = "sep";
-        return item;
-      }
-      item.className = "item" + (action ? "" : " disabled");
-      item.setAttribute("role", "menuitem");
-      item.tabIndex = -1;
-      item.textContent = label;
-      if (checked !== undefined) {
-        item.setAttribute("role", "menuitemcheckbox");
-        item.setAttribute("aria-checked", String(checked));
-        item.classList.add("checkable");
-        item.prepend(icon(checked ? "check" : "blank"));
-      }
-      if (action) {
-        item.addEventListener("click", () => {
-          hideMenu();
-          action();
-        });
-      }
-      return item;
-    }),
-  );
-  el.menu.classList.remove("hidden");
-  const rect = el.menu.getBoundingClientRect();
-  el.menu.style.left = `${Math.min(x, window.innerWidth - rect.width - 4)}px`;
-  el.menu.style.top = `${Math.min(y, window.innerHeight - rect.height - 4)}px`;
-}
-
-export function hideMenu() {
-  el.menu.classList.add("hidden");
-}
-
-window.addEventListener("mousedown", (e) => {
-  if (!el.menu.contains(/** @type {Node} */ (e.target))) {
-    hideMenu();
-  }
-});
-window.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    hideMenu();
-  }
-});
-window.addEventListener("blur", hideMenu);

@@ -322,8 +322,19 @@ export function onFilterEvent(ev) {
   }
 }
 
-/** @param {string} field */
+/** Header clicks cycle ascending → descending → capture order. @param {string} field */
 function toggleSort(field) {
+  setSort(
+    !state.sort || state.sort.field !== field
+      ? { field, desc: false }
+      : !state.sort.desc
+        ? { field, desc: true }
+        : null,
+  );
+}
+
+/** Sort the list (null: capture order). @param {{field: string, desc: boolean} | null} sort */
+export function setSort(sort) {
   if (!state.ready) {
     return;
   }
@@ -338,13 +349,7 @@ function toggleSort(field) {
   if (state.filtering) {
     showNotice("The list is sorted when the filter finishes.");
   }
-  if (!state.sort || state.sort.field !== field) {
-    state.sort = { field, desc: false };
-  } else if (!state.sort.desc) {
-    state.sort = { field, desc: true };
-  } else {
-    state.sort = null;
-  }
+  state.sort = sort;
   rebuildColumns();
   resetView({ keepSelection: true });
 }

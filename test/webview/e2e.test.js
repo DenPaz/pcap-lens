@@ -365,7 +365,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
   test("apply-as-filter from the tree context menu", async () => {
     // Show Packet Bytes… sends the field's own bytes to the host (it opens the panel).
     await page.click("#detail-tree .node-row:has-text('Source Address')", { button: "right" });
-    await page.click("#context-menu .item:has-text('Show Packet Bytes…')");
+    await pickMenu("Show Packet Bytes…");
     await waitForHost((m) => m.type === "showPacketBytes");
     const shown = hostLog.findLast((m) => m.type === "showPacketBytes");
     assert.deepEqual(
@@ -374,7 +374,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     );
     assert.ok(Number.isInteger(shown.frame) && shown.frame > 0);
     await page.click("#detail-tree .node-row:has-text('Source Address')", { button: "right" });
-    await page.click("#context-menu .item:has-text('Apply as Filter')");
+    await pickMenu("Apply as Filter", "Selected");
     await page.waitForFunction(
       () => document.querySelector("#filter-input").value === "ip.src == 93.184.216.34",
     );
@@ -547,29 +547,30 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     });
     await rightClick(page.locator("#list-rows .list-row >> nth=3")); // frame 4 (HTTP GET)
     assert.ok(hostLog.some((m) => m.type === "selection" && m.frame === 4));
-    const items = await page.$$eval("#context-menu .item", (els) =>
-      els.map((e) => [e.textContent, !e.classList.contains("disabled")]),
-    );
-    // The clicked cell's Apply as Filter entries come first, then Follow.
-    assert.deepEqual(
-      items.slice(0, 2).map((i) => i[0]),
-      ["Apply as Filter", "Prepare as Filter"],
-    );
-    assert.deepEqual(items.slice(5, 8), [
-      ["Conversation Filter…", true],
-      ["Colorize Conversation…", true],
-      ["Reset Colorization", false],
+    // The clicked cell's filter entries come first; what can't apply isn't listed
+    // (nothing is colorized: no Reset Colorization; no comment: no Delete).
+    const items = await menuLabels();
+    assert.deepEqual(items.slice(0, 5), [
+      "Apply as Filter",
+      "Prepare as Filter",
+      "Conversation Filter",
+      "Colorize Conversation",
+      "Follow",
     ]);
-    assert.deepEqual(items.slice(8, 12), [
-      ["Follow TCP Stream", true],
-      ["Follow UDP Stream", true],
-      ["Follow TLS Stream", false],
-      ["Follow HTTP Stream", true],
-    ]);
-    await page.click("#context-menu .item:has-text('Follow HTTP Stream')");
+    assert.ok(!items.includes("Reset Colorization") && !items.includes("Delete Packet Comment"));
+    assert.equal(
+      await page.textContent("#context-menu .item:has-text('Mark Packet') .keys"),
+      "Ctrl+M",
+    );
+    // Follow ▸ offers the streams of the packet's own protocols.
+    await pickMenu("Follow");
+    await page.waitForSelector("#context-menu-1 .item .label:text-is('HTTP Stream')");
+    assert.deepEqual(await menuLabels(1), ["TCP Stream", "HTTP Stream", "TCP Stream Graph"]);
+    await pickMenu("HTTP Stream");
     await expectHostLast({ type: "follow", proto: "http", frame: 4 });
+    assert.ok(await page.isHidden("#context-menu-1"), "picking closes every menu");
     await rightClick(page.locator("#list-rows .list-row >> nth=3"));
-    await page.click("#context-menu .item:has-text('Decode As')");
+    await pickMenu("Decode As…");
     await expectHostLast({ type: "decodeAs", frame: 4 });
   });
 
@@ -577,21 +578,17 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await cleanView();
     const conversations = () => rightClick(rowEl(4));
     await conversations();
-    await page.click("#context-menu .item:has-text('Conversation Filter…')");
-    await page.waitForSelector("#context-menu .item:has-text('TCP')");
-    assert.deepEqual(
-      await page.$$eval("#context-menu .item", (els) => els.map((e) => e.textContent)),
-      ["Ethernet", "IPv4", "TCP"],
-    );
-    await page.click("#context-menu .item:has-text('TCP')");
+    await pickMenu("Conversation Filter");
+    await page.waitForSelector("#context-menu-1 .item .label:text-is('TCP')");
+    assert.deepEqual(await menuLabels(1), ["Ethernet", "IPv4", "TCP"]);
+    await pickMenu("TCP");
     await page.waitForFunction(() =>
       /Displayed: 11/.test(document.querySelector("#status-left").textContent),
     );
     assert.equal(await page.inputValue("#filter-input"), "tcp.stream eq 0");
 
     await conversations();
-    await page.click("#context-menu .item:has-text('Colorize Conversation…')");
-    await page.click("#context-menu .item:has-text('IPv4')");
+    await pickMenu("Colorize Conversation", "IPv4");
     await expectHostLast(
       {
         type: "colorizeConversation",
@@ -607,7 +604,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       rules: [{ name: "Conversation", foreground: "#12272e", background: "#ffc0c0" }],
     });
     await conversations();
-    await page.click("#context-menu .item:has-text('Reset Colorization')");
+    await pickMenu("Reset Colorization");
     await expectHostLast(
       { type: "runCommand", id: "pcapViewer.resetColorization" },
       { ofType: true },
@@ -621,11 +618,11 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
   test("Compare with Packet… and Compare 2 Selected Packets reach the host", async () => {
     await cleanView();
     await rightClick(rowEl(4));
-    await page.click("#context-menu .item:has-text('Compare with Packet…')");
+    await pickMenu("Compare with Packet…");
     await expectHostLast({ type: "compare", frames: [4] }, { ofType: true });
     await rowEl(7).click({ modifiers: ["ControlOrMeta"] });
     await rightClick(rowEl(7));
-    await page.click("#context-menu .item:has-text('Compare 2 Selected Packets')");
+    await pickMenu("Compare 2 Selected Packets");
     await expectHostLast({ type: "compare", frames: [4, 7] }, { ofType: true });
     await rowEl(4).click(); // (the next test starts on frame 4, alone)
     await waitSelected(4);
@@ -741,10 +738,10 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await drawnAs("full");
 
     await page.click("#detail-tree .node-row:has-text('Source Address')", { button: "right" });
-    await page.click("#context-menu .item:has-text('Colorize with Filter')");
+    await pickMenu("Colorize with Filter…");
     await expectHostLast({ type: "colorize", filter: "ip.src == 192.168.1.10" });
     await rightClick(page.locator("#list-rows .list-row >> nth=3"));
-    await page.click("#context-menu .item:has-text('Export Packet Bytes')");
+    await pickMenu("Export Packet Bytes…");
     await expectHostLast({ type: "exportBytes", frame: 4 });
 
     await post({ type: "coloring", coloringId: 0, rules: [] }); // coloring turned off
@@ -929,9 +926,34 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     }
   }
 
+  /** @param {string} text */
+  const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  /** The item labelled `label` in the open context menus (the deepest pane first). */
+  function menuItem(label) {
+    return page
+      .locator(".context-menu:not(.hidden):not(.command-menu) .item")
+      .filter({ has: page.locator(".label", { hasText: new RegExp(`^${escapeRe(label)}$`) }) })
+      .last();
+  }
+
+  /** Pick a path through the context menus: every label but the last opens a submenu. */
+  async function pickMenu(...path) {
+    for (const label of path) {
+      await menuItem(label).click();
+    }
+  }
+
+  /** The labels of the root menu (level 0) or of the submenu open at `level`. */
+  async function menuLabels(level = 0) {
+    const pane = level ? `#context-menu-${level}` : "#context-menu";
+    await page.waitForSelector(`${pane} .item .label`);
+    return page.$$eval(`${pane} .item .label`, (els) => els.map((e) => e.textContent));
+  }
+
   async function cleanView() {
     await post({ type: "aiAvailable", available: false });
-    if (await page.isVisible("#context-menu")) {
+    for (let i = 0; i < 4 && (await page.isVisible("#context-menu")); i++) {
       await page.keyboard.press("Escape"); // a failed menu test must not block the rest
     }
     for (const dialog of ["#shortcuts", "#builder"]) {
@@ -1162,7 +1184,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       await ipv4.locator(".twisty").click();
     }
     await page.click("#detail-tree .node-row:has-text('Source Address')", { button: "right" });
-    await page.click("#context-menu [role=menuitem]:has-text('Build Filter from Field')");
+    await pickMenu("Build Filter from Field…");
     await page.waitForSelector("#builder:not(.hidden)");
     await page.waitForFunction(
       () => document.querySelector("#builder-preview").textContent !== "—",
@@ -1356,7 +1378,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.waitForSelector("#status-expert:not(.hidden)");
 
     await rightClick(rowEl(2));
-    await page.click("#context-menu .item:has-text('Unignore Packet')");
+    await pickMenu("Unignore Packet");
     await page.waitForFunction(() => !document.querySelector("#list-rows .list-row.ignored"));
     assert.doesNotMatch(await status(), /Ignored/);
 
@@ -1462,7 +1484,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     const src = page.locator("#detail-tree .node-row:has-text('Source Address')").first();
     await src.waitFor();
     await rightClick(src);
-    await page.click("#context-menu .item:has-text('Protocol Preferences: ip…')");
+    await pickMenu("Protocol Preferences: ip…");
     await expectHostLast({ type: "protocolPrefs", protocol: "ip" }, { ofType: true });
   });
 
@@ -1473,7 +1495,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     const src = page.locator("#detail-tree .node-row:has-text('Source Address')").first();
     await src.waitFor();
     await rightClick(src);
-    await page.click("#context-menu .item:has-text('Disable Protocol: ip')");
+    await pickMenu("Disable Protocol: ip");
     await expectHostLast({ type: "disableProtocol", protocol: "ip" }, { ofType: true });
   });
 
@@ -1583,7 +1605,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     const src = page.locator("#detail-tree .node-row:has-text('Source Address')").first();
     await src.waitFor();
     await rightClick(src);
-    await page.click("#context-menu .item:has-text('Apply as Column')");
+    await pickMenu("Apply as Column");
     await expectHostLast(
       {
         type: "applyColumn",
@@ -1599,13 +1621,15 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     );
 
     await page.click("#list-header > div[data-id='time']", { button: "right" });
-    await page.click("#context-menu .item:has-text('Hide “Time”')");
+    await pickMenu("Hide “Time”");
     assert.ok(!(await headerIds()).includes("time"));
     assert.deepEqual(layout.hidden, ["time"]);
     await page.click("#list-header > div[data-id='number']", { button: "right" });
-    // The unchecked "Time" entry shows it again.
+    // Columns ▸: the unchecked "Time" entry shows it again.
+    await pickMenu("Columns");
+    await page.waitForSelector("#context-menu-1 .item.checkable");
     assert.deepEqual(
-      await page.$$eval("#context-menu .item.checkable", (items) =>
+      await page.$$eval("#context-menu-1 .item.checkable", (items) =>
         items
           .filter((i) => ["No.", "Time"].includes(i.textContent))
           .map((i) => [i.textContent, i.getAttribute("role"), i.getAttribute("aria-checked")]),
@@ -1615,7 +1639,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
         ["Time", "menuitemcheckbox", "false"],
       ],
     );
-    await page.click("#context-menu .item.checkable:text-is('Time')");
+    await pickMenu("Time");
     assert.ok((await headerIds()).includes("time"));
 
     await page.dragAndDrop(
@@ -1631,7 +1655,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     );
 
     await page.click("#list-header > div[data-id='custom:ip.src']", { button: "right" });
-    await page.click("#context-menu .item:has-text('Remove Column')");
+    await pickMenu("Remove Column");
     await page.waitForFunction(
       () =>
         ![...document.querySelectorAll("#list-header > div")].some(
@@ -1639,7 +1663,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
         ),
     );
     await page.click("#list-header > div[data-id='number']", { button: "right" });
-    await page.click("#context-menu .item:has-text('Reset Column Order and Visibility')");
+    await pickMenu("Reset Column Order and Visibility");
     assert.deepEqual((await headerIds()).slice(0, 2), ["number", "time"]);
   });
 
@@ -1652,7 +1676,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       return cells?.[0]?.textContent === "1" && cells[2]?.textContent === "192.168.1.10";
     });
     await rightClick(srcCell);
-    await page.click("#context-menu .item:text-is('Apply as Filter')");
+    await pickMenu("Apply as Filter", "Selected");
     await page.waitForFunction(
       () => document.querySelector("#filter-input").value === "ip.src == 192.168.1.10",
     );
@@ -1666,16 +1690,66 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
         document.querySelectorAll("#list-rows .list-row:not(.loading)")[2]?.children[0]
           ?.textContent === "4",
     );
+    // With a filter applied, the submenus also combine it; each entry shows its filter.
     await rightClick(rowEl(3).locator("div").nth(4));
-    await page.click("#context-menu .item:text-is('Prepare as Filter')");
+    await pickMenu("Prepare as Filter");
+    assert.deepEqual(await menuLabels(1), [
+      "Selected",
+      "Not Selected",
+      "…and Selected",
+      "…or Selected",
+      "…and not Selected",
+      "…or not Selected",
+    ]);
+    assert.equal(
+      await page.textContent("#context-menu-1 .item:has-text('…and Selected') .hint"),
+      "(ip.src == 192.168.1.10) && (http)",
+    );
+    await pickMenu("Selected");
     assert.equal(await page.inputValue("#filter-input"), "http");
     await rightClick(rowEl(1).locator("div").nth(6)); // Info: no filter
-    assert.ok(
-      await page.$eval("#context-menu .item:text-is('Apply as Filter')", (i) =>
-        i.classList.contains("disabled"),
-      ),
-    );
+    assert.ok(!(await menuLabels()).includes("Apply as Filter"));
     await page.keyboard.press("Escape");
+  });
+
+  test("context menus from the keyboard: Shift+F10, arrows, submenus, Esc", async () => {
+    await cleanView();
+    await rowEl(4).click();
+    await waitSelected(4);
+    await page.focus("#list-viewport");
+    await page.keyboard.press("Shift+F10"); // the selected row's menu
+    await page.waitForSelector("#context-menu:not(.hidden)");
+    const active = () =>
+      page.evaluate(() => document.activeElement?.querySelector(".label")?.textContent ?? null);
+    await page.keyboard.press("ArrowDown");
+    assert.equal(await active(), "Conversation Filter"); // no cell: no filter entries
+    // → opens the submenu (filled once the packet's detail is read) and focuses its first item.
+    await page.keyboard.press("ArrowRight");
+    await page.waitForSelector("#context-menu-1 .item .label:text-is('IPv4')");
+    await page.waitForFunction(() => document.activeElement?.closest("#context-menu-1"));
+    assert.equal(await active(), "Ethernet");
+    const parent = page.locator("#context-menu .item:has-text('Conversation Filter')");
+    assert.equal(await parent.getAttribute("aria-expanded"), "true");
+    assert.equal(await parent.getAttribute("aria-controls"), "context-menu-1");
+    // (Menus open: no WCAG violations either.)
+    assert.deepEqual(await axeViolations(page, { exclude: [["#bytes"]] }), []);
+    // ← closes it and goes back to its item; a letter jumps; Esc closes and refocuses the list.
+    await page.keyboard.press("ArrowLeft");
+    assert.ok(await page.isHidden("#context-menu-1"));
+    assert.equal(await active(), "Conversation Filter");
+    await page.keyboard.press("m");
+    assert.equal(await active(), "Mark Packet");
+    await page.keyboard.press("Escape");
+    assert.ok(await page.isHidden("#context-menu"));
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "list-viewport");
+    // Enter runs an item.
+    await page.keyboard.press("Shift+F10");
+    await page.waitForSelector("#context-menu:not(.hidden)");
+    await page.keyboard.press("d");
+    assert.equal(await active(), "Decode As…");
+    await page.keyboard.press("Enter");
+    await expectHostLast({ type: "decodeAs", frame: 4 }, { ofType: true });
+    assert.ok(await page.isHidden("#context-menu"));
   });
 
   test("time display format and time reference", async () => {
@@ -1772,7 +1846,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     // Right-click inside the selection keeps it; the menu acts on all of it.
     await rightClick(rowEl(4));
     assert.deepEqual(await selectedNumbers(), [2, 4, 5, 8]);
-    await page.click("#context-menu .item:has-text('Copy 4 Rows')");
+    await pickMenu("Copy", "4 Rows");
     await waitForHost((m) => m.type === "copy" && m.text.startsWith("No.\t"));
     const copied = hostLog
       .filter((m) => m.type === "copy")
@@ -1806,7 +1880,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.waitForFunction(() => !document.querySelector("#list-rows .list-row.marked"));
 
     await rightClick(rowEl(2));
-    await page.click("#context-menu .item:has-text('Export 4 Selected Packets')");
+    await pickMenu("Export 4 Selected Packets…");
     await waitForHost((m) => m.type === "exportSelected");
 
     await page.focus("#list-viewport");
@@ -1894,7 +1968,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
 
     await post({ type: "aiAvailable", available: true });
     await rightClick(rowEl(4));
-    await page.click("#context-menu .item:text-is('Ask Copilot About This Packet…')");
+    await pickMenu("Ask Copilot About This Packet…");
     await waitForHost((m) => m.type === "askAboutPackets");
     await expectHostLast(
       {
@@ -1907,7 +1981,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await rowEl(7).click({ modifiers: ["ControlOrMeta"] });
     await rowEl(2).click({ modifiers: ["ControlOrMeta"] });
     await rightClick(rowEl(7)); // inside the selection: keeps it
-    await page.click("#context-menu .item:text-is('Ask Copilot About 3 Selected Packets…')");
+    await pickMenu("Ask Copilot About 3 Selected Packets…");
     await waitForHost((m) => m.type === "askAboutPackets" && m.frames.length === 3);
     assert.deepEqual(
       hostLog.filter((m) => m.type === "askAboutPackets").at(-1).frames,
@@ -2768,12 +2842,12 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
         "an address: no tooltip",
       );
       await rightClick(source);
-      await page.click("#context-menu .item:text-is('Prepare as Filter')");
+      await pickMenu("Prepare as Filter", "Selected");
       assert.equal(await page.inputValue("#filter-input"), "ip.src == 93.184.216.34");
       const broadcast = rowEl(1).locator("div").nth(3);
       assert.equal(await broadcast.textContent(), "Broadcast");
       await rightClick(broadcast);
-      await page.click("#context-menu .item:text-is('Prepare as Filter')");
+      await pickMenu("Prepare as Filter", "Selected");
       assert.equal(await page.inputValue("#filter-input"), "eth.dst == ff:ff:ff:ff:ff:ff");
     } finally {
       await page.fill("#filter-input", "");
@@ -2826,7 +2900,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
 
       // Add one from the row menu; Esc cancels, Apply adds.
       await rightClick(rowEl(1));
-      await page.click("#context-menu .item:text-is('Add Packet Comment…')");
+      await pickMenu("Add Packet Comment…");
       await page.waitForFunction(() => document.activeElement?.id === "comment-input");
       await page.keyboard.press("Escape");
       assert.ok(await page.isHidden("#comment-editor"));

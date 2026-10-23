@@ -452,6 +452,17 @@ async function main() {
     await page.screenshot({ path: path.join(OUT, "diagram.png") });
     await page.click("#view-tree");
 
+    // 1c. The packet list's menu with its Follow ▸ submenu.
+    await page.click("#list-rows .list-row:has(div:text-is('HTTP')) >> nth=0 >> div >> nth=4", {
+      button: "right",
+    });
+    await page.hover("#context-menu .item:has-text('Follow')");
+    await page.waitForSelector("#context-menu-1 .item .label:text-is('HTTP Stream')");
+    await page.hover("#context-menu-1 .item:has-text('HTTP Stream')");
+    await page.screenshot({ path: path.join(OUT, "menus.png") });
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+
     // 2. Filter autocomplete from tshark's field list.
     await page.click("#filter-input");
     await page.keyboard.type("dns.flags.r", { delay: 20 });

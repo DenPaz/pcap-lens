@@ -261,6 +261,71 @@
     return rows;
   }
 
+  /** Follow ▸'s streams: [packet_detail protocol names, label, follow kind]. */
+  const FOLLOWS = /** @type {const} */ ([
+    [["tcp"], "TCP Stream", "tcp"],
+    [["udp"], "UDP Stream", "udp"],
+    [["tls", "ssl"], "TLS Stream", "tls"],
+    [["http"], "HTTP Stream", "http"],
+    [["http2"], "HTTP/2 Stream", "http2"],
+    [["quic", "http3"], "QUIC Stream", "quic"],
+    [["websocket"], "WebSocket Stream", "websocket"],
+  ]);
+
+  /**
+   * The streams a packet can be followed in, from the protocols of its
+   * detail tree (top-level protocol names, any depth: a tunnel's inner
+   * packet counts), in Follow ▸'s order.
+   * @param {any[]} tree packet_detail's tree
+   * @returns {{label: string, proto: string}[]}
+   */
+  function followOptions(tree) {
+    /** @type {Set<string>} */
+    const names = new Set();
+    /** @param {any[]} nodes */
+    const walk = (nodes) => {
+      for (const node of nodes) {
+        if (node.proto && node.name) {
+          names.add(String(node.name).toLowerCase());
+        }
+        if (node.proto && node.children) {
+          walk(node.children.filter((/** @type {any} */ c) => c.proto));
+        }
+      }
+    };
+    walk(tree);
+    return FOLLOWS.filter(([protos]) => protos.some((p) => names.has(p))).map(
+      ([, label, proto]) => ({
+        label,
+        proto,
+      }),
+    );
+  }
+
+  /**
+   * Apply/Prepare as Filter ▸'s choices for a field's filter, Wireshark's:
+   * Selected, Not Selected, and with a filter applied …and/…or (not)
+   * Selected, each with the expression it makes.
+   * @param {string} current the applied filter @param {string} term
+   * @returns {{label: string, expr: string}[]}
+   */
+  function filterChoices(current, term) {
+    const cur = current.trim();
+    const out = [
+      { label: "Selected", expr: term },
+      { label: "Not Selected", expr: `!(${term})` },
+    ];
+    if (cur) {
+      out.push(
+        { label: "…and Selected", expr: `(${cur}) && (${term})` },
+        { label: "…or Selected", expr: `(${cur}) || (${term})` },
+        { label: "…and not Selected", expr: `(${cur}) && !(${term})` },
+        { label: "…or not Selected", expr: `(${cur}) || !(${term})` },
+      );
+    }
+    return out;
+  }
+
   /** Conversation Filter's protocols: [label, address/stream fields, filter field]. */
   const CONVERSATIONS = /** @type {const} */ ([
     ["Ethernet", ["eth.src", "eth.dst"], "eth.addr"],
@@ -2838,6 +2903,8 @@
     expertStatus,
     relatedKind,
     conversationFilters,
+    followOptions,
+    filterChoices,
     comparePackets,
     relatedFrames,
     decodeBytes,

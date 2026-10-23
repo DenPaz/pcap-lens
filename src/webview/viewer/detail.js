@@ -3,7 +3,8 @@
 
 import { CANCELLED, cancelRpc, el, lib, rpc, state, vscode } from "./core.js";
 import { gotoFrame, showComment } from "./comments.js";
-import { copy, showMenu } from "./contextmenu.js";
+import { copy } from "./contextmenu.js";
+import { showMenu } from "./menu.js";
 import { applyDetailView, clearDiagram, markDiagramSelection } from "./diagram.js";
 import { decorateFrameLink, frameLinkTarget, loadFieldTypes } from "./navigation.js";
 import { scheduleRender } from "./list.js";
@@ -567,23 +568,26 @@ el.bytesView.addEventListener("contextmenu", (e) => {
     node && node.pos !== undefined && node.src === hex.src
       ? { bytes: all.subarray(node.pos, node.pos + node.size), offset: node.pos }
       : null;
-  /** @type {[string, (() => void) | null][]} */
+  /** @type {import("./menu.js").MenuEntry[]} */
   const items = [
-    ...BYTE_FORMATS.map(
-      ([label, kind]) =>
-        /** @type {[string, (() => void) | null]} */ ([
-          `Copy Bytes as ${label}`,
-          () => copy(lib.formatBytesAs(all, kind)),
-        ]),
-    ),
-    ["-", null],
-    ...BYTE_FORMATS.map(
-      ([label, kind]) =>
-        /** @type {[string, (() => void) | null]} */ ([
-          `Copy Field Bytes as ${label}`,
-          field ? () => copy(lib.formatBytesAs(field.bytes, kind, field.offset)) : null,
-        ]),
-    ),
+    {
+      label: "Copy Bytes as",
+      icon: "copy",
+      children: BYTE_FORMATS.map(([label, kind]) => ({
+        label,
+        action: () => copy(lib.formatBytesAs(all, kind)),
+      })),
+    },
   ];
+  if (field) {
+    items.push({
+      label: "Copy Field Bytes as",
+      icon: "symbol-field",
+      children: BYTE_FORMATS.map(([label, kind]) => ({
+        label,
+        action: () => copy(lib.formatBytesAs(field.bytes, kind, field.offset)),
+      })),
+    });
+  }
   showMenu(e.clientX, e.clientY, items);
 });

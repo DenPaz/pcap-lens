@@ -1,8 +1,8 @@
 // @ts-check
 /** The ☰ commands menu at the end of the filter bar. */
 
-import { el, icon, lib, state, vscode } from "./core.js";
-import { hideMenu } from "./contextmenu.js";
+import { el, icon, isMac, lib, state, vscode } from "./core.js";
+import { hideMenu } from "./menu.js";
 import { persist } from "./status.js";
 
 /**
@@ -38,7 +38,6 @@ const commandsMenu = (() => {
   document.body.append(root);
   return { root, filter, list, hint };
 })();
-const isMac = /Mac|iPhone|iPad/i.test(window.navigator.platform || window.navigator.userAgent);
 /** @type {{items: {group: string, command: any, node: HTMLElement, reason: string | null}[], active: number}} */
 const menuView = { items: [], active: -1 };
 

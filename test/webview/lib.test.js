@@ -136,6 +136,43 @@ suite("webview lib: filters", () => {
     assert.deepEqual(lib.comparePackets([], []), []);
   });
 
+  test("followOptions: the streams of a packet's protocols, in Follow's order", () => {
+    const proto = (name, children = []) => ({ name, proto: true, children });
+    assert.deepEqual(
+      lib.followOptions([
+        proto("frame"),
+        proto("eth"),
+        proto("ip"),
+        proto("tcp", [{ name: "tcp.srcport", show: "443" }]),
+        proto("tls"),
+        proto("http2"),
+      ]),
+      [
+        { label: "TCP Stream", proto: "tcp" },
+        { label: "TLS Stream", proto: "tls" },
+        { label: "HTTP/2 Stream", proto: "http2" },
+      ],
+    );
+    assert.deepEqual(lib.followOptions([proto("udp"), proto("quic", [proto("http3")])]), [
+      { label: "UDP Stream", proto: "udp" },
+      { label: "QUIC Stream", proto: "quic" },
+    ]);
+    // Fields named like a protocol don't count; neither do protocols nobody follows.
+    assert.deepEqual(lib.followOptions([proto("arp", [{ name: "tcp" }])]), []);
+    assert.deepEqual(lib.followOptions([]), []);
+  });
+
+  test("filterChoices: Selected and Not Selected, and/or with an applied filter", () => {
+    assert.deepEqual(lib.filterChoices("", "tcp.port == 80"), [
+      { label: "Selected", expr: "tcp.port == 80" },
+      { label: "Not Selected", expr: "!(tcp.port == 80)" },
+    ]);
+    assert.deepEqual(
+      lib.filterChoices(" ip ", "udp").map((c) => c.expr),
+      ["udp", "!(udp)", "(ip) && (udp)", "(ip) || (udp)", "(ip) && !(udp)", "(ip) || !(udp)"],
+    );
+  });
+
   test("conversationFilters: Ethernet, IP and stream conversations, innermost values", () => {
     const f = (name, show, children) => ({ name, show, ...(children ? { children } : {}) });
     const tree = [

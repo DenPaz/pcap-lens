@@ -36,6 +36,11 @@ export const DEFAULT_WIDTHS = {
 export const CUSTOM_WIDTH = 120;
 export const NUMERIC_IDS = new Set(["number", "time", "length"]);
 
+/** macOS (the webview's own machine, also in a remote window): ⌘ instead of Ctrl. */
+export const isMac = /Mac|iPhone|iPad/i.test(
+  window.navigator.platform || window.navigator.userAgent,
+);
+
 /** @param {string} id */
 export const $ = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
 
