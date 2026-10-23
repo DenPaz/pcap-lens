@@ -102,6 +102,7 @@ function renderEditorHtml(origin) {
     stylesUri: `${origin}/styles.css`,
     codiconsUri: `${origin}/codicons/codicon.css`,
     libUri: `${origin}/lib.js`,
+    menusUri: `${origin}/menus.js`,
     mainUri: `${origin}/main.js`,
   };
   return fs
@@ -123,6 +124,8 @@ function renderPanelHtml(origin, script, { media = false, scripts = [] } = {}) {
   </head><body class="panel"><div id="app"></div>
   ${stubScript(nonce)}
   <script nonce="${nonce}" src="${origin}/lib.js"></script>
+  <script nonce="${nonce}" src="${origin}/menus.js"></script>
+  <script nonce="${nonce}" src="${origin}/panelkit.js"></script>
   ${scripts.map((name) => `<script nonce="${nonce}" src="${origin}/${name}"></script>`).join("")}
   <script nonce="${nonce}" src="${origin}/${script}"></script>
   </body></html>`;

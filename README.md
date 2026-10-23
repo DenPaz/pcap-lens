@@ -138,7 +138,8 @@ registered under its name in lower case).
   _Conversation Filter ›_, _Colorize Conversation ›_, _Follow ›_ (the streams
   that packet is part of), _Copy ›_ and more, with icons and key bindings.
   What doesn't apply to the packet isn't listed. `Shift+F10` or the menu key
-  opens them from the keyboard.
+  opens them from the keyboard. The panels' tables (statistics, Export
+  Objects, VoIP calls and streams) have row menus too.
 
   ![The packet list's menu: Follow open on an HTTP packet, offering its TCP and HTTP streams and the TCP stream graph](media/screenshots/menus.png)
 
@@ -198,7 +199,9 @@ registered under its name in lower case).
 ### Statistics and graphs
 
 Each report opens in a panel beside the capture, can be limited to the current
-filter, and its rows apply or prepare the matching display filter.
+filter, and its rows apply or prepare the matching display filter: right-click
+a row for _Apply as Filter ›_ and _Prepare as Filter ›_ (alone or combined
+with the capture's filter), _Go to Packet_ and _Copy ›_.
 
 - Conversations, Endpoints, Protocol Hierarchy, I/O Graph, Expert Information,
   Capture File Properties. The status bar shows the capture's most severe

@@ -54,9 +54,24 @@
     return node;
   }
 
+  const kit = /** @type {any} */ (window).PcapPanel;
+  /** Codicons for the buttons, by label. @type {Record<string, string>} */
+  const BUTTON_ICONS = {
+    Refresh: "refresh",
+    "Filter Call": "filter",
+    "Save Call…": "save",
+    "Play Call": "play",
+    "Save Call Audio…": "file-media",
+    Analyse: "graph-line",
+    Play: "play",
+    "Save Audio…": "file-media",
+    "Filter Stream": "filter",
+  };
+
   /** @param {string} label @param {string} id @param {string} title */
   function button(label, id, title) {
-    return h("button", { type: "button", class: "secondary", id, title }, [label]);
+    const node = h("button", { type: "button", class: "secondary", id, title }, [label]);
+    return BUTTON_ICONS[label] ? kit.withIcon(node, BUTTON_ICONS[label]) : node;
   }
 
   /** @param {number | null | undefined} v @param {number} [digits] */
@@ -119,6 +134,7 @@
     },
     ["Ask Copilot…"],
   );
+  kit.withIcon(askCall, "sparkle");
   const callTools = h("div", { class: "toolbar", role: "toolbar" }, [
     filterCall,
     saveCall,
@@ -208,6 +224,58 @@
 
   refresh.addEventListener("click", () => list());
   heuristic.addEventListener("change", () => list());
+  /**
+   * A table's row menu: its toolbar's buttons that can act (the same actions),
+   * then Copy › Row.
+   * @param {HTMLElement} table @param {HTMLElement[]} buttons
+   * @param {(i: number) => void} select
+   */
+  function tableMenu(table, buttons, select) {
+    kit.rowMenu(table, {
+      rows: "tbody tr",
+      select: (/** @type {HTMLElement} */ tr) => {
+        const i = [...tr.parentElement.children].indexOf(tr);
+        if (!tr.classList.contains("selected")) {
+          select(i);
+        }
+      },
+      entries: (/** @type {HTMLElement} */ tr, /** @type {HTMLElement | null} */ cell) => {
+        /** @type {any[]} */
+        const entries = buttons
+          .filter((b) => !b.hasAttribute("disabled") && !b.classList.contains("hidden"))
+          .map((b) => {
+            const label = b.textContent ?? "";
+            return {
+              label,
+              icon: BUTTON_ICONS[label] ?? (b === askCall ? "sparkle" : undefined),
+              action: () => b.click(),
+            };
+          });
+        const value = cell?.textContent ?? "";
+        const copies = [
+          ...(value ? [{ label: "Value", hint: value, action: () => copy(value) }] : []),
+          {
+            label: "Row",
+            action: () => copy([...tr.children].map((td) => td.textContent).join("\t")),
+          },
+        ];
+        return [
+          ...entries,
+          ...(entries.length ? ["-"] : []),
+          { label: "Copy", icon: "copy", children: copies },
+        ];
+      },
+    });
+  }
+
+  /** @param {string} text */
+  const copy = (text) => vscode.postMessage({ type: "copy", text });
+
+  tableMenu(callsTable, [filterCall, saveCall, playCall, saveCallAudio, askCall], (i) =>
+    selectCall(i),
+  );
+  tableMenu(streamsTable, [analyse, play, save, filterStream], (i) => selectStream(i));
+
   filterCall.addEventListener("click", () => {
     const call = state.call !== null ? state.calls[state.call] : null;
     if (call) {

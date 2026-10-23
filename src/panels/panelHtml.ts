@@ -45,6 +45,8 @@ export function panelHtml(
 <body class="panel">
   <div id="app"></div>
   <script nonce="${nonce}" src="${uri("lib.js")}"></script>
+  <script nonce="${nonce}" src="${uri("menus.js")}"></script>
+  <script nonce="${nonce}" src="${uri("panelkit.js")}"></script>
 ${(options.scripts ?? []).map((name) => `  <script nonce="${nonce}" src="${uri(name)}"></script>\n`).join("")}  <script nonce="${nonce}" src="${uri(script)}"></script>
 </body>
 </html>`;

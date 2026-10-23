@@ -97,8 +97,15 @@
     return node;
   }
 
+  const kit = /** @type {any} */ (window).PcapPanel;
   /** A Codicons glyph (codicons/codicon.css), hidden from screen readers. @param {string} name */
-  const icon = (name) => h("span", { class: `codicon codicon-${name}`, "aria-hidden": "true" });
+  const icon = (/** @type {string} */ name) => kit.icon(name);
+  /** A button with a Codicon before its label. */
+  const iconButton = (
+    /** @type {string} */ name,
+    /** @type {string} */ label,
+    /** @type {Record<string, string>} */ attrs = {},
+  ) => kit.withIcon(h("button", { type: "button", ...attrs }, [label]), name);
 
   // ------------------------------------------------------------------ skeleton
 
@@ -125,36 +132,31 @@
     tableBox,
   );
 
-  const applyBtn = h("button", { type: "button", title: "Apply this row as the display filter" }, [
-    "Apply as Filter",
-  ]);
-  const prepareBtn = h(
-    "button",
-    { type: "button", class: "secondary", title: "Put this row's filter in the filter bar" },
-    ["Prepare as Filter"],
-  );
-  const gotoBtn = h(
-    "button",
-    { type: "button", class: "secondary", title: "Select the first packet of this row" },
-    ["Go to Packet"],
-  );
-  const copyBtn = h("button", { type: "button", class: "secondary" }, ["Copy as CSV"]);
-  const askBtn = h(
-    "button",
-    {
-      type: "button",
-      class: "secondary",
-      id: "ask-copilot",
-      title:
-        "Ask Copilot why the selected entry happens (no selection: the capture's errors and warnings). Sends expert information and conversation statistics, never packet contents.",
-    },
-    ["Ask Copilot…"],
-  );
+  const applyBtn = iconButton("filter", "Apply as Filter", {
+    title: "Apply this row as the display filter",
+  });
+  const prepareBtn = iconButton("edit", "Prepare as Filter", {
+    class: "secondary",
+    title: "Put this row's filter in the filter bar",
+  });
+  const gotoBtn = iconButton("go-to-file", "Go to Packet", {
+    class: "secondary",
+    title: "Select the first packet of this row",
+  });
+  const copyBtn = iconButton("copy", "Copy as CSV", { class: "secondary" });
+  const askBtn = iconButton("sparkle", "Ask Copilot…", {
+    class: "secondary",
+    id: "ask-copilot",
+    title:
+      "Ask Copilot why the selected entry happens (no selection: the capture's errors and warnings). Sends expert information and conversation statistics, never packet contents.",
+  });
   askBtn.addEventListener("click", () => askCopilot());
   applyBtn.addEventListener("click", () => rowFilter(true));
   prepareBtn.addEventListener("click", () => rowFilter(false));
   gotoBtn.addEventListener("click", () => rowGoto());
-  copyBtn.addEventListener("click", () => {
+  copyBtn.addEventListener("click", () => copyTable());
+
+  function copyTable() {
     if (state.table) {
       const shown = shownColumns();
       vscode.postMessage({
@@ -165,7 +167,82 @@
         ),
       });
     }
+  }
+
+  /** @param {string} text */
+  const copy = (text) => vscode.postMessage({ type: "copy", text });
+
+  /** The table rows' objects, by their <tr> (the row menu's). @type {WeakMap<Element, any>} */
+  const rowOf = new WeakMap();
+
+  // A row's menu: right-click, or Shift+F10 / the menu key for the selected row.
+  kit.rowMenu(tableBox, {
+    rows: "table.stats tbody tr",
+    select: (/** @type {HTMLElement} */ tr) => {
+      if (!tr.classList.contains("selected")) {
+        tr.click();
+      }
+    },
+    entries: (/** @type {HTMLElement} */ tr, /** @type {HTMLElement | null} */ cell) =>
+      rowEntries(rowOf.get(tr), cell),
   });
+
+  /**
+   * The row menu: the row's filter (Apply/Prepare as Filter ›, combined with
+   * the capture's filter like the viewer's), its packet, Ask Copilot for an
+   * expert entry, and copies.
+   * @param {any} row @param {HTMLElement | null} cell
+   */
+  function rowEntries(row, cell) {
+    if (!row) {
+      return null;
+    }
+    /** @type {any[]} */
+    const entries = [];
+    const expr = rowExpr(row);
+    if (expr) {
+      /** @param {boolean} apply */
+      const choices = (apply) =>
+        lib
+          .filterChoices(state.filter, expr)
+          .map((/** @type {{label: string, expr: string}} */ c) => ({
+            label: c.label,
+            hint: c.expr,
+            title: c.expr,
+            action: () => vscode.postMessage({ type: "filter", expr: c.expr, apply }),
+          }));
+      entries.push(
+        { label: "Apply as Filter", icon: "filter", children: choices(true) },
+        { label: "Prepare as Filter", icon: "edit", children: choices(false) },
+      );
+    }
+    if (row.frame) {
+      entries.push({ label: `Go to Packet ${row.frame}`, icon: "go-to-file", action: rowGoto });
+    }
+    if (state.kind === "expert" && state.ai) {
+      entries.push({ label: "Ask Copilot About This Entry…", icon: "sparkle", action: askCopilot });
+    }
+    const shown = shownColumns();
+    /** @type {any[]} */
+    const copies = [];
+    const value = cell ? (cell.textContent ?? "") : "";
+    if (value) {
+      copies.push({ label: "Value", hint: value, action: () => copy(value) });
+    }
+    copies.push({
+      label: "Row",
+      action: () => copy(shown.map((i) => lib.formatCell(row.cells[i])).join("\t")),
+    });
+    if (expr) {
+      copies.push({ label: "As Filter", hint: expr, action: () => copy(expr) });
+    }
+    copies.push({ label: "Table as CSV", action: () => copyTable() });
+    if (entries.length) {
+      entries.push("-");
+    }
+    entries.push({ label: "Copy", icon: "copy", children: copies });
+    return entries;
+  }
 
   function buildToolbar() {
     toolbar.replaceChildren();
@@ -228,7 +305,7 @@
       }
       toolbar.append(label);
     }
-    const refresh = h("button", { type: "button", class: "secondary" }, ["Refresh"]);
+    const refresh = iconButton("refresh", "Refresh", { class: "secondary" });
     refresh.addEventListener("click", () => query());
     toolbar.append(h("span", { class: "spacer" }), refresh);
     actions.replaceChildren(
@@ -493,6 +570,7 @@
         }
         tr.append(td);
       });
+      rowOf.set(tr, row);
       if (row === state.selected) {
         tr.classList.add("selected");
       }
@@ -523,17 +601,20 @@
     }
   }
 
-  /** @param {boolean} apply */
-  function rowFilter(apply) {
-    const row = state.selected;
-    if (!row) {
-      return;
-    }
-    const expr =
+  /** A row's filter: its own, or an expert entry's message. @param {any} row */
+  function rowExpr(row) {
+    return (
       row.filter ||
       (state.kind === "expert"
         ? `_ws.expert.message == ${lib.quoteFilterString(String(row.cells[1]))}`
-        : "");
+        : "")
+    );
+  }
+
+  /** @param {boolean} apply */
+  function rowFilter(apply) {
+    const row = state.selected;
+    const expr = row ? rowExpr(row) : "";
     if (expr) {
       vscode.postMessage({ type: "filter", expr, apply });
     }

@@ -282,6 +282,75 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     assert.equal(csv.length, 5);
   });
 
+  /** Pick a path through a page's context menus (menus.js): every label but the last opens a submenu. */
+  async function pickMenu(page, ...path) {
+    for (const label of path) {
+      await page
+        .locator(".context-menu:not(.hidden) .item")
+        .filter({ has: page.locator(".label", { hasText: new RegExp(`^${escapeRe(label)}$`) }) })
+        .last()
+        .click();
+    }
+  }
+  /** @param {string} text */
+  const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const menuLabels = (page, level = 0) =>
+    page.$$eval(`${level ? `#context-menu-${level}` : "#context-menu"} .item .label`, (els) =>
+      els.map((e) => e.textContent),
+    );
+
+  test("statistics row menu: filters with the capture's, go to packet, copies", async () => {
+    const { page, log } = await openStats("conversations", "http");
+    await waitRows(page, 1);
+    // Right-click a row: it is selected and its menu opens; Apply/Prepare as Filter
+    // combine the row's filter with the capture's, each showing the filter it makes.
+    await page.click("table.stats tbody tr >> nth=0 >> td >> nth=0", { button: "right" });
+    await page.waitForSelector("#context-menu:not(.hidden)");
+    assert.ok(await page.$eval("table.stats tbody tr", (tr) => tr.classList.contains("selected")));
+    assert.deepEqual(await menuLabels(page), ["Apply as Filter", "Prepare as Filter", "Copy"]);
+    await pickMenu(page, "Apply as Filter");
+    await page.waitForSelector("#context-menu-1 .item");
+    assert.deepEqual(await menuLabels(page, 1), [
+      "Selected",
+      "Not Selected",
+      "…and Selected",
+      "…or Selected",
+      "…and not Selected",
+      "…or not Selected",
+    ]);
+    await pickMenu(page, "…and Selected");
+    const filter = log.findLast((m) => m.type === "filter");
+    assert.equal(filter.apply, true);
+    assert.match(filter.expr, /^\(http\) && \(ip\.addr == 192\.168\.1\.10 && tcp\.port == 50000/);
+    assert.ok(await page.isHidden("#context-menu"));
+    // Copy › Value copies the clicked cell; Shift+F10 opens the selected row's menu.
+    await page.click("table.stats tbody tr >> nth=0 >> td >> nth=0", { button: "right" });
+    await pickMenu(page, "Copy", "Value");
+    assert.equal(log.findLast((m) => m.type === "copy").text, "192.168.1.10:50000");
+    await page.focus("button:has-text('Refresh')");
+    await page.keyboard.press("Shift+F10");
+    assert.ok(await page.isHidden("#context-menu"), "the focus isn't in the table");
+    // Expert rows go to their packet.
+    const expert = await openStats("expert");
+    await expert.page.waitForSelector("table.stats tbody tr");
+    await expert.page.click("table.stats tbody tr >> nth=0", { button: "right" });
+    const labels = await menuLabels(expert.page);
+    assert.ok(
+      labels.some((l) => /^Go to Packet \d+$/.test(l)),
+      labels.join(", "),
+    );
+    await pickMenu(
+      expert.page,
+      labels.find((l) => l.startsWith("Go to Packet")),
+    );
+    assert.equal(typeof expert.log.findLast((m) => m.type === "goto").frame, "number");
+    // Buttons carry an icon before their label.
+    assert.equal(
+      await page.$eval("button:has-text('Copy as CSV') .codicon", (i) => i.className),
+      "codicon codicon-copy",
+    );
+  });
+
   test("limit to the capture's display filter", async () => {
     const { page } = await openStats("conversations", "http");
     await waitRows(page, 1);
@@ -993,6 +1062,11 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       await page.click("#objects-save-all");
       const saveAll = await lastOfType(log, "saveAll");
       assert.deepEqual([...saveAll.ids].sort(), [0, 1, 2, 3, 4, 5, 6]);
+      // The row menu: right-click a row (it is selected): Go to Packet, Save…, Copy ›.
+      await page.click("table.stats tbody tr:has-text('logo.png')", { button: "right" });
+      assert.deepEqual(await menuLabels(page), ["Go to Packet 6", "Save…", "Copy"]);
+      await pickMenu(page, "Copy", "File Name");
+      await expectLast(log, { type: "copy", text: "logo.png" });
 
       await page.click("button:has-text('Refresh')");
       await page.waitForFunction(() =>
@@ -1396,6 +1470,19 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         /^Not answered · final response 486 Busy Here · ended by the callee \(10\.0\.0\.2\)$/,
       );
       assert.match(await page.textContent("#voip-call-details"), /Not answered: no media expected/);
+
+      // Row menus: the toolbar's actions that can act now, then Copy ›.
+      await page.click("#voip-calls tbody tr >> nth=0", { button: "right" });
+      await page.waitForSelector("#context-menu:not(.hidden)");
+      const callMenu = await menuLabels(page);
+      assert.deepEqual(callMenu.slice(0, 2), ["Filter Call", "Save Call…"]);
+      assert.equal(callMenu.at(-1), "Copy");
+      await pickMenu(page, "Filter Call");
+      assert.equal((await lastOfType(log, "filter")).type, "filter");
+      await page.click("#voip-streams tbody tr >> nth=0", { button: "right" });
+      assert.deepEqual((await menuLabels(page)).slice(0, 2), ["Analyse", "Play"]);
+      await pickMenu(page, "Copy", "Row");
+      assert.match((await lastOfType(log, "copy")).text, /^10\.0\.0\.1:40000\t/);
 
       await page.check("#voip-heuristic");
       assert.equal(
@@ -1806,6 +1893,21 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       /^Block 1: Section Header Block/,
     );
     assert.match(await page.textContent(".hex-row .hex-bytes"), /^0a 0d 0d 0a/);
+  });
+
+  // PCAP_SCREENSHOTS=<folder>: every panel as its test left it, in a VS Code theme
+  // (PCAP_SCREENSHOTS_THEME: dark, light or hc), for checking the styling.
+  test("screenshots of every panel (only with PCAP_SCREENSHOTS)", async function () {
+    if (!process.env.PCAP_SCREENSHOTS) {
+      this.skip();
+    }
+    const { applyTheme } = require("../../scripts/themes");
+    for (const [i, { page }] of pages.entries()) {
+      await applyTheme(page, process.env.PCAP_SCREENSHOTS_THEME || "dark");
+      const title = await page.evaluate(() => document.querySelector("h1, h2")?.textContent ?? "");
+      const name = `${String(i).padStart(2, "0")}-${title.replace(/[^A-Za-z0-9]+/g, "-")}.png`;
+      await page.screenshot({ path: path.join(process.env.PCAP_SCREENSHOTS, name) });
+    }
   });
 
   test("accessibility: no WCAG A/AA violations in any panel (axe-core)", async () => {

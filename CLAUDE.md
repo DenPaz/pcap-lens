@@ -182,13 +182,16 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
 - `src/webview/` plain JS/CSS/HTML (no build step). `lib.js` = pure helpers
   shared with Node tests (a classic script, `window.PcapLib`, like the panels'
   scripts and `worldmap.js`, the Endpoints map's land outline that
-  `scripts/world-map.mjs` generates from world-atlas); `main.js` = the editor's entry, an ES module (`<script
+  `scripts/world-map.mjs` generates from world-atlas); `menus.js` (classic,
+  `window.PcapMenus`: the context-menu engine, loaded by the editor and every
+  panel) and `panelkit.js` (classic, `window.PcapPanel`, panels only: icon
+  buttons, row menus); `main.js` = the editor's entry, an ES module (`<script
 type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   server allows the CORS fetch) that imports `viewer/*.js`, one module per
   part of the UI (`core` = shared state, constants, element lookups and
   rpc, and imports nothing, so it is evaluated first; `host`, `list`,
   `columns`, `selection`, `detail`, `diagram`, `filterbar`, `autocomplete`,
-  `navigation`, `menu` (the context-menu engine), `contextmenu`,
+  `navigation`, `menu` (menus.js plus key bindings), `contextmenu`,
   `commandmenu`, `toolbar`, `status`…). Function declarations make the cycles
   between modules safe; top-level code only touches `core` and its own
   module. Shared JSDoc types live in `globals.d.ts`. Type-checked via JSDoc +
@@ -246,7 +249,8 @@ plugins` and the plugin folders), `decryption.py` (decryption keys and
   `mixed.pcapng` fixture that `generate.py` writes), `walkthrough/*.md` (the
   walkthrough's pages) and `screenshots/` (README only, not packaged).
 - `scripts/` release helper (`release.mjs`, tests in `test/scripts`), icon and
-  screenshot renderers. Not packaged.
+  screenshot renderers, `themes.js` (VS Code's Dark Modern, Light Modern and
+  Dark High Contrast as CSS variables, for screenshots). Not packaged.
 - `test/backend` pytest; `test/backend/acceptance` pytest-bdd scenarios
   (`features/*.feature` = brief's acceptance criteria against the backend,
   steps in its `conftest.py`, feature tag `@tshark` → skip without tshark,
@@ -2017,8 +2021,12 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   ← on them has no heading to go to). The filter bar wraps (`flex-wrap`,
   `#filter-field` 14em minimum), so on a narrow editor ☰ goes to a second
   line instead of squeezing the field (e2e test at 320/480/800 px).
-- **Context menus** (`viewer/menu.js`; `contextmenu.js` builds the row and
-  tree menus, `header.js` the header's, `detail.js` the bytes pane's):
+- **Context menus** (the engine is `menus.js`, `window.PcapMenus {show,
+hide, isOpen}`, a classic script since 0.21.0 so the panels share it; its
+  styles are in base.css; `viewer/menu.js` wraps it and adds `commandKeys`/
+  `viewerKeys`; `contextmenu.js` builds the row and tree menus, `header.js`
+  the header's, `detail.js` the bytes pane's; the root `#context-menu` is
+  created when a page has none):
   `showMenu(x, y, entries)` with `MenuItem`s `{label, icon, hint, keys,
 action (null = disabled), checked, children, title}` and `"-"`
   separators (the old `[label, action, checked]` tuples still work). The
@@ -2045,7 +2053,20 @@ action (null = disabled), checked, children, title}` and `"-"`
   (button 0): the selected row's or node's menu opens below it. The
   header menu sorts (`setSort`), and its columns are a _Columns ›_
   submenu of checkboxes. e2e helpers: `pickMenu(...labels)` and
-  `menuLabels(level)`.
+  `menuLabels(level)` (the panel test has page-taking versions).
+  **Panels** (`panelkit.js`): `withIcon(button, codicon)` (class `with-icon`;
+  a label changed later must keep the icon: `replaceChildren(icon, text)`),
+  `rowMenu(container, {rows, select, entries})`: right-click selects the row
+  then opens `entries(row, cell)` (the row as drawn after selecting, since
+  VoIP redraws its tables), Shift+F10 / the menu key open the selected row's
+  (handled on keydown, the following native event ignored, as in the viewer).
+  Statistics rows: Apply/Prepare as Filter › (`lib.filterChoices` with the
+  panel's `state.filter`, the capture's filter when it opened), Go to Packet
+  N, Ask Copilot for expert rows, Copy › value/row/filter/table as CSV;
+  Export Objects: Go to Packet, Save…, Copy ›; VoIP calls and streams: their
+  toolbar's enabled buttons (`b.click()`), Copy ›. Their hosts handle `copy`.
+  `PCAP_SCREENSHOTS=<dir>` (and `PCAP_SCREENSHOTS_THEME`) makes the panel
+  e2e test write every panel as its test left it, themed.
 - **Editor title bar** (package.json `menus["editor/title"]`, `submenus`):
   Start Capture (Stop while `pcapViewer.capturing`), Find Packet, Follow
   Stream, the `pcapViewer.statisticsMenu` submenu (every PCAP Statistics
@@ -2228,3 +2249,4 @@ Files with ring buffers, saved capture filters and the capture report: 0.18.0.
 Then H.323, MGCP and IAX2 calls in the VoIP panel: 0.19.0.
 Then context menus with submenus, a reorganised ☰ menu, editor title bar
 actions, a filter field and toolbar, list density and status bar items: 0.20.0.
+Then the panels in the same style, with row menus, and column dividers: 0.21.0.

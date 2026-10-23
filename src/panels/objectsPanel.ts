@@ -23,7 +23,8 @@ type FromPanel =
   | { type: "cancel" }
   | { type: "save"; id: number }
   | { type: "saveAll"; ids: number[] }
-  | { type: "goto"; frame: number };
+  | { type: "goto"; frame: number }
+  | { type: "copy"; text: string };
 
 /**
  * Export Objects for one capture: the files carried by HTTP, SMB, TFTP, IMF,
@@ -106,6 +107,10 @@ export class ObjectsPanel {
       case "goto":
         this.session.goTo(msg.frame);
         this.session.reveal();
+        return;
+      case "copy":
+        await vscode.env.clipboard.writeText(msg.text);
+        vscode.window.setStatusBarMessage("Copied to clipboard", 2000);
         return;
     }
   }

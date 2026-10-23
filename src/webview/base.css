@@ -17,6 +17,7 @@
   /* Corners: controls like VS Code's buttons and inputs; toolbar icons like its action bars. */
   --radius: 2px;
   --radius-toolbar: 5px;
+  --radius-control: 4px; /* buttons, fields, selects */
   /* Type scale, relative to the theme's font size; --text-xs is for chart labels. */
   --text-xs: 11px;
   --text-sm: 0.9em;
@@ -62,8 +63,15 @@ button {
   background: var(--vscode-button-background);
   border: 1px solid var(--vscode-button-border, transparent);
   padding: var(--control-pad-y) var(--space-4);
-  border-radius: var(--radius);
+  border-radius: var(--radius-control);
   cursor: pointer;
+}
+
+/* A button with a Codicon before its label (panelkit.js withIcon). */
+button.with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 button:hover:not(:disabled) {
@@ -140,7 +148,7 @@ textarea {
   background: var(--vscode-input-background);
   border: 1px solid var(--vscode-input-border, transparent);
   padding: var(--control-pad-y) var(--space-3);
-  border-radius: var(--radius);
+  border-radius: var(--radius-control);
 }
 
 select {
@@ -161,6 +169,98 @@ select:focus-visible,
 textarea:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: -1px;
+}
+
+/* ------------------------------------------------------------------ context menus (menus.js) */
+
+.context-menu {
+  position: fixed;
+  z-index: 20;
+  min-width: 200px;
+  max-width: min(520px, calc(100vw - 8px));
+  padding: var(--space-2);
+  color: var(--vscode-menu-foreground);
+  background: var(--vscode-menu-background);
+  border: 1px solid var(--vscode-menu-border, var(--border));
+  border-radius: var(--radius-toolbar);
+  box-shadow: var(--shadow);
+}
+
+.context-menu:focus {
+  outline: none;
+}
+
+/* A submenu (viewer/menu.js) sits above its parent. */
+.context-menu.submenu {
+  z-index: 21;
+}
+
+/* Context menu items: [icon] label [hint …] [keys] [›] */
+.context-menu:not(.command-menu) .item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--control-pad-y) var(--space-4);
+  border-radius: var(--radius-toolbar);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.context-menu:not(.command-menu) .item.active,
+.context-menu:not(.command-menu) .item:focus {
+  color: var(--vscode-menu-selectionForeground);
+  background: var(--vscode-menu-selectionBackground);
+  outline: none;
+}
+
+.context-menu .menu-icon {
+  flex: none;
+  width: 16px;
+}
+
+.context-menu:not(.command-menu) .label {
+  flex: none;
+}
+
+/* The filter an entry applies, the value it copies: dimmed, cut with … */
+.context-menu .hint {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 28em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-sm);
+  opacity: 0.7;
+}
+
+.context-menu:not(.command-menu) .keys {
+  flex: none;
+  margin-left: auto;
+  padding-left: var(--space-6);
+  font-size: var(--text-sm);
+  opacity: 0.8;
+}
+
+.context-menu .submenu-chevron {
+  flex: none;
+  margin-left: auto;
+  padding-left: var(--space-5);
+}
+
+.context-menu .keys + .submenu-chevron {
+  padding-left: var(--space-3);
+  margin-left: 0;
+}
+
+.context-menu .item.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.context-menu .sep {
+  height: 1px;
+  margin: var(--space-2) var(--space-3);
+  background: var(--vscode-menu-separatorBackground, var(--border));
 }
 
 /* ------------------------------------------------------------------ high contrast */
@@ -187,4 +287,16 @@ body.vscode-high-contrast-light {
 :is(.vscode-high-contrast, .vscode-high-contrast-light) button.icon[aria-pressed="true"] {
   outline: 1px solid var(--hc-active);
   outline-offset: -1px;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light)
+  :is(.context-menu .item.active, .context-menu .item:focus) {
+  color: inherit;
+  background: transparent;
+  outline: 1px solid var(--vscode-menu-selectionBorder, var(--hc-active));
+  outline-offset: -1px;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) .context-menu {
+  border-color: var(--hc-border);
 }

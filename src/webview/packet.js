@@ -10,6 +10,7 @@
 (function () {
   "use strict";
 
+  const kit = /** @type {any} */ (window).PcapPanel;
   const vscode = acquireVsCodeApi();
   /** @type {any} */
   const lib = /** @type {any} */ (window).PcapLib;
@@ -51,12 +52,21 @@
   const title = h("h1", { class: "panel-title" });
   const note = h("div", { class: "notice hidden", role: "note" });
   const status = h("div", { class: "status", role: "status" });
-  const gotoBtn = h("button", { type: "button", class: "secondary hidden" }, ["Go to Packet"]);
-  const applyBtn = h("button", { type: "button", disabled: "" }, ["Apply as Filter"]);
+  const gotoBtn = kit.withIcon(
+    h("button", { type: "button", class: "secondary hidden" }, ["Go to Packet"]),
+    "go-to-file",
+  );
+  const applyBtn = kit.withIcon(
+    h("button", { type: "button", disabled: "" }, ["Apply as Filter"]),
+    "filter",
+  );
   const prepareBtn = h("button", { type: "button", class: "secondary", disabled: "" }, [
     "Prepare as Filter",
   ]);
-  const copyBtn = h("button", { type: "button", class: "secondary", disabled: "" }, ["Copy Value"]);
+  const copyBtn = kit.withIcon(
+    h("button", { type: "button", class: "secondary", disabled: "" }, ["Copy Value"]),
+    "copy",
+  );
   const expandBtn = h("button", { type: "button", class: "icon", "aria-label": "Expand all" }, [
     icon("expand-all"),
   ]);

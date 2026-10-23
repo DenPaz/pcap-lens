@@ -10,6 +10,7 @@
 (function () {
   "use strict";
 
+  const kit = /** @type {any} */ (window).PcapPanel;
   const vscode = acquireVsCodeApi();
   /** @type {any} */
   const lib = /** @type {any} */ (window).PcapLib;
@@ -116,23 +117,30 @@
   const endInput = /** @type {HTMLInputElement} */ (
     h("input", { type: "number", min: "0", id: "bytes-end", "aria-label": "End byte" })
   );
-  const gotoBtn = h(
-    "button",
-    { type: "button", class: "secondary", title: "Select this packet in the capture" },
-    ["Go to Packet"],
+  const gotoBtn = kit.withIcon(
+    h(
+      "button",
+      { type: "button", class: "secondary", title: "Select this packet in the capture" },
+      ["Go to Packet"],
+    ),
+    "go-to-file",
   );
   const copyBtn = h("button", { type: "button", class: "secondary", title: "Copy what is shown" }, [
     "Copy",
   ]);
-  const saveBtn = h(
-    "button",
-    { type: "button", class: "secondary", title: "Save what is shown (text views) " },
-    ["Save as…"],
+  const saveBtn = kit.withIcon(
+    h("button", { type: "button", class: "secondary", title: "Save what is shown (text views) " }, [
+      "Save as…",
+    ]),
+    "save",
   );
-  const saveRawBtn = h(
-    "button",
-    { type: "button", class: "secondary", title: "Save the decoded bytes from start to end" },
-    ["Save Raw…"],
+  const saveRawBtn = kit.withIcon(
+    h(
+      "button",
+      { type: "button", class: "secondary", title: "Save the decoded bytes from start to end" },
+      ["Save Raw…"],
+    ),
+    "file-binary",
   );
   toolbar.append(
     h("label", {}, ["Decode as ", decodeSelect]),

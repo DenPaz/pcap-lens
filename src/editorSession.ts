@@ -1529,6 +1529,7 @@ export class PcapEditorSession {
         .asWebviewUri(vscode.Uri.joinPath(root, "codicons", "codicon.css"))
         .toString(),
       libUri: webview.asWebviewUri(vscode.Uri.joinPath(root, "lib.js")).toString(),
+      menusUri: webview.asWebviewUri(vscode.Uri.joinPath(root, "menus.js")).toString(),
       mainUri: webview.asWebviewUri(vscode.Uri.joinPath(root, "main.js")).toString(),
     };
     return template.replace(/\{\{(\w+)\}\}/g, (_m, key: string) => values[key] ?? "");

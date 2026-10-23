@@ -2476,7 +2476,10 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await cleanView();
     await rowEl(1).click();
     await waitSelected(1);
-    await page.waitForSelector("#detail-tree .node-row");
+    // (Packet 1's own tree: the previous packet's stays until it arrives.)
+    await page.waitForFunction(() =>
+      document.querySelector("#detail-tree")?.textContent.startsWith("Frame 1:"),
+    );
     const height = () =>
       page.$eval("#list-rows .list-row", (r) => r.getBoundingClientRect().height);
     assert.equal(await height(), 22);
@@ -2484,10 +2487,9 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.waitForFunction(
       () => document.querySelector("#list-rows .list-row")?.getBoundingClientRect().height === 26,
     );
-    assert.equal(
-      await page.$eval("#detail-tree .node-row", (r) => r.getBoundingClientRect().height),
-      26,
-      "the details too",
+    // The details too.
+    await page.waitForFunction(
+      () => document.querySelector("#detail-tree .node-row")?.getBoundingClientRect().height === 26,
     );
     await post({ type: "listDensity", density: "compact" });
     await page.waitForFunction(

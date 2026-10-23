@@ -10,6 +10,7 @@
 (function () {
   "use strict";
 
+  const kit = /** @type {any} */ (window).PcapPanel;
   const vscode = acquireVsCodeApi();
   /** @type {any} */
   const lib = /** @type {any} */ (window).PcapLib;
@@ -63,7 +64,10 @@
 
   const title = h("h1", { class: "panel-title" }, ["Flow Graph"]);
   const statusText = h("span");
-  const refresh = h("button", { type: "button", class: "secondary" }, ["Refresh"]);
+  const refresh = kit.withIcon(
+    h("button", { type: "button", class: "secondary" }, ["Refresh"]),
+    "refresh",
+  );
   const toolbar = h("div", { class: "toolbar" }, [
     statusText,
     h("span", { class: "spacer" }),

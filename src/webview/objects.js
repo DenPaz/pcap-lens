@@ -9,6 +9,7 @@
 (function () {
   "use strict";
 
+  const kit = /** @type {any} */ (window).PcapPanel;
   const vscode = acquireVsCodeApi();
   /** @type {any} */
   const lib = /** @type {any} */ (window).PcapLib;
@@ -79,41 +80,51 @@
       "aria-label": "Text filter",
     })
   );
-  const refreshBtn = h("button", { type: "button", class: "secondary" }, ["Refresh"]);
+  const refreshBtn = kit.withIcon(
+    h("button", { type: "button", class: "secondary" }, ["Refresh"]),
+    "refresh",
+  );
   const toolbar = h("div", { class: "toolbar", role: "toolbar" }, [
     h("label", {}, ["Protocol ", protocolSelect]),
     textInput,
     h("span", { class: "spacer" }),
     refreshBtn,
   ]);
-  const saveBtn = h(
-    "button",
-    { type: "button", id: "objects-save", title: "Save the selected object" },
-    ["Save…"],
+  const saveBtn = kit.withIcon(
+    h("button", { type: "button", id: "objects-save", title: "Save the selected object" }, [
+      "Save…",
+    ]),
+    "save",
   );
   const saveAllBtn = h(
     "button",
     {
       type: "button",
       id: "objects-save-all",
-      class: "secondary",
+      class: "secondary with-icon",
       title: "Save every object shown into a folder",
     },
     ["Save All…"],
   );
-  const gotoBtn = h(
-    "button",
-    {
-      type: "button",
-      id: "objects-goto",
-      class: "secondary",
-      title: "Select the packet that carried the object",
-    },
-    ["Go to Packet"],
+  const gotoBtn = kit.withIcon(
+    h(
+      "button",
+      {
+        type: "button",
+        id: "objects-goto",
+        class: "secondary",
+        title: "Select the packet that carried the object",
+      },
+      ["Go to Packet"],
+    ),
+    "go-to-file",
   );
   const actions = h("div", { class: "toolbar" }, [saveBtn, saveAllBtn, gotoBtn]);
   const statusText = h("span");
-  const cancelBtn = h("button", { type: "button", class: "secondary hidden" }, ["Cancel"]);
+  const cancelBtn = kit.withIcon(
+    h("button", { type: "button", class: "secondary hidden" }, ["Cancel"]),
+    "debug-stop",
+  );
   const status = h("div", { class: "status", role: "status" }, [statusText, " ", cancelBtn]);
   const notice = h("div", { class: "notice error hidden", role: "alert" });
   const tableBox = h("div");
@@ -295,6 +306,37 @@
     updateActions();
   }
 
+  /** @param {string} text */
+  const copy = (text) => vscode.postMessage({ type: "copy", text });
+
+  // A row's menu: right-click, or Shift+F10 / the menu key for the selected row.
+  kit.rowMenu(tableBox, {
+    rows: "tbody tr",
+    select: (/** @type {HTMLElement} */ tr) => select(Number(tr.dataset.id)),
+    entries: (/** @type {HTMLElement} */ _tr, /** @type {HTMLElement | null} */ cell) => {
+      const o = selectedObject();
+      if (!o) {
+        return null;
+      }
+      const value = cell?.textContent ?? "";
+      return [
+        ...(o.frame
+          ? [{ label: `Go to Packet ${o.frame}`, icon: "go-to-file", action: () => gotoSelected() }]
+          : []),
+        { label: "Save…", icon: "save", action: () => saveBtn.click() },
+        "-",
+        {
+          label: "Copy",
+          icon: "copy",
+          children: [
+            ...(value ? [{ label: "Value", hint: value, action: () => copy(value) }] : []),
+            { label: "File Name", hint: o.name, action: () => copy(o.name) },
+          ],
+        },
+      ];
+    },
+  });
+
   /** @param {number} id */
   function select(id) {
     state.selected = id;
@@ -339,8 +381,10 @@
     gotoBtn.toggleAttribute("disabled", !o || !o.frame);
     const n = state.loading ? 0 : shown().length;
     saveAllBtn.toggleAttribute("disabled", !n);
-    saveAllBtn.textContent =
-      n && n !== (state.objects?.length ?? 0) ? `Save ${n} Shown…` : "Save All…";
+    saveAllBtn.replaceChildren(
+      kit.icon("save-all"),
+      n && n !== (state.objects?.length ?? 0) ? `Save ${n} Shown…` : "Save All…",
+    );
     refreshBtn.toggleAttribute("disabled", state.loading);
   }
 
