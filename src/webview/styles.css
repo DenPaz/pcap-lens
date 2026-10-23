@@ -459,8 +459,23 @@ body {
   cursor: col-resize;
 }
 
+/* A divider shows where to grab; the whole handle lights up on hover. */
+#list-header .resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 25%;
+  right: 2px;
+  width: 1px;
+  height: 50%;
+  background: var(--border);
+}
+
 #list-header .resize-handle:hover {
   background: var(--vscode-sash-hoverBorder, var(--vscode-focusBorder));
+}
+
+#list-header .resize-handle:hover::after {
+  background: transparent;
 }
 
 #list-body {
@@ -579,6 +594,7 @@ body {
 #list-rows .list-row.selected {
   color: var(--vscode-list-inactiveSelectionForeground, inherit);
   background: var(--vscode-list-inactiveSelectionBackground);
+  border-radius: var(--radius-control);
 }
 
 #list-viewport:focus .list-row.selected {
@@ -808,6 +824,7 @@ body {
 
 .node-row.selected {
   background-color: var(--vscode-list-inactiveSelectionBackground);
+  border-radius: var(--radius-control);
 }
 
 #detail-tree:focus .node-row.selected {
