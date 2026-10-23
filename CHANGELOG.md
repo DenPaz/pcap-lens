@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.20.0 — 2026-10-23
+
 ### Added
 
 - Context menus with submenus (_Apply as Filter ›_, _Prepare as Filter ›_,
