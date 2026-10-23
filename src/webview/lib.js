@@ -2588,11 +2588,12 @@
 
   /**
    * A call's sequence diagram: the endpoints (columns, in order of first
-   * appearance) and one row per SIP message and per RTP stream of the call
-   * (at the stream's start), in time order. A row's `from`/`to` are column
-   * indexes; RTP rows carry `stream` (index into `streams`) instead of a frame.
+   * appearance) and one row per signalling message (SIP, H.323, MGCP, IAX2)
+   * and per media stream of the call (at the stream's start), in time order.
+   * A row's `from`/`to` are column indexes; media rows carry `stream` (index
+   * into `streams`) instead of a frame.
    * @param {{messages: [number, number, string, string, string][], streams: number[]}} call
-   * @param {{src: string, dst: string, start: number, payload: string, packets: number, lost: number}[]} streams
+   * @param {{src: string, dst: string, start: number, payload: string, packets: number, lost: number, iax2?: number}[]} streams
    * @returns {{nodes: string[], rows: {time: number, from: number, to: number, label: string, frame?: number, stream?: number}[]}}
    */
   function callFlow(call, streams) {
@@ -2620,7 +2621,7 @@
           time: s.start,
           from: node(s.src),
           to: node(s.dst),
-          label: `RTP ${rtpStreamLabel(s)}`,
+          label: `${s.iax2 === undefined ? "RTP" : "IAX2 voice"} ${rtpStreamLabel(s)}`,
           stream: i,
         });
       }
@@ -2694,17 +2695,20 @@
   }
 
   /**
-   * A call's timings and how it ended, for the line above its flow: "Rang
-   * after 0.300 s", "answered after 1.500 s", "lasted 0:02", "final response
-   * 486 Busy Here", "ended by the callee (10.0.0.2)", "Reason: Q.850 cause
-   * 16: Normal call clearing".
+   * A call's timings and how it ended, for the line above its flow: "Dialled
+   * 2002" (MGCP), "rang after 0.300 s", "answered after 1.500 s", "lasted
+   * 0:02", "final response 486 Busy Here" (SIP), "ended by the callee
+   * (10.0.0.2)", "Reason: Q.850 cause 16: Normal call clearing".
    * @param {{ringing?: number | null, setup: number | null, duration: number | null,
    *   final?: string, endedBy?: string | null, caller: string, callee: string,
-   *   reasons?: string[]}} call
+   *   reasons?: string[], dialed?: string}} call
    * @returns {string[]}
    */
   function callFacts(call) {
     const facts = [];
+    if (call.dialed) {
+      facts.push(`dialled ${call.dialed}`);
+    }
     if (call.ringing !== null && call.ringing !== undefined) {
       facts.push(`rang after ${call.ringing.toFixed(3)} s`);
     }
@@ -2737,7 +2741,7 @@
    */
   function callQualityText(q, streams) {
     if (!q) {
-      return "No RTP to rate.";
+      return "No media to rate.";
     }
     const s = streams[q.stream];
     const where = s

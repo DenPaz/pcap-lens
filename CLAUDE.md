@@ -235,7 +235,8 @@ plugins` and the plugin folders), `decryption.py` (decryption keys and
   they are, their colorfilters/dfilter_buttons/dfilters/dfilter_macros/
   gui.column.format), `voip.py` (RTP
   stream report, SIP calls, RTP stream
-  analysis, G.711 decoding and WAV), `protocol.py` (error codes,
+  analysis, G.711 decoding and WAV), `voip_protocols.py` (H.323, MGCP and
+  IAX2 calls, IAX2 voice streams), `protocol.py` (error codes,
   request context), `cancellation.py`, `index_cache.py` (saved indexes),
   `procs.py` (stopping children, also
   when the kill is refused), `sandbox.py` (AppArmor/Snap detection and hints).
@@ -251,7 +252,8 @@ plugins` and the plugin folders), `decryption.py` (decryption keys and
   `@lua` → skip as root), `test/extension/unit` mocha (Node), `test/extension/suite`
   VS Code smoke test, `test/webview` mocha (lib + Chromium e2e), `test/fixtures`
   scapy-generated captures, `mmdb.py` (writes the GeoIP test databases in
-  `geoip/`) and `fake_dumpcap.py` (a stand-in dumpcap for
+  `geoip/`), `h323.py` (H.225.0/H.245 messages in aligned PER, by hand) and
+  `fake_dumpcap.py` (a stand-in dumpcap for
   capture tests: `PCAP_VIEWER_DUMPCAP` = JSON argv), `test/perf/bench.py`.
 
 ## Rules (from the brief — do not break)
@@ -1619,6 +1621,59 @@ style-src 'unsafe-inline'`: it holds untrusted packet text). Top 20 rows by
   G.726-32 (type 96) back, from the vectors, plus an RTCP SR each way
   (judy's reports 26/256 lost and a ~40 ms round trip), and ken → erin with
   L16/8000 (type 97), a 1 kHz tone one way.
+  **H.323, MGCP and IAX2** (`voip_protocols.py`, 0.19.0): the SIP pass became
+  one signalling pass (`_signalling_lines`, `-Y SIGNALLING_FILTER` = `sip ||
+h225 || h245 || mgcp || iax2`, `SIP_FIELDS` then `OTHER_FIELDS`; a field
+  tshark refuses is dropped from `OTHER_FIELDS` and the pass rerun, and the
+  parsers look columns up by name, `Columns`), so it still reads the file
+  once. Every call is a `voip._Call` with `protocol` (and `signalling`, the
+  display filter of its messages: SIP's Call-ID, else `frame.number in {…}`,
+  IAX2's `iax2.call == N`), so JSON, stream linking, timings, quality and
+  problems are shared; `voip_calls` sorts all calls by start and renumbers
+  `id`. H.323: Q.931 messages (`q931.message_type`) grouped by `h225.guid`,
+  messages without one by TCP connection (+ call reference), a Connect's
+  `h225.h245Ip/h245IpPort` names the separate H.245 connection; H.245
+  message names from `h245.pdu_type` and its alternative (several when
+  tunnelled), media from every `h245.ip4_network`/`tsapIdentifier` pair (an
+  OpenLogicalChannel's and its Ack's addresses are the sender's own:
+  side = sender, first announcement wins), codecs (`h245.audioData` → `offer`),
+  DTMF from UserInputIndication; Release Complete's Q.850 cause and
+  `h225.reason` (tshark 4.6: `h225.releaseCompleteReason`; both are asked
+  for, the refused one is remembered in `f.rejected`: tshark checks fields
+  before reading, so the retry is cheap) are the `reasons`. MGCP (`_MgcpCalls`): a call is a CallId
+  (`C:`); an endpoint's commands from its off-hook NTFY (`L/hd`) are kept
+  (with their responses, by `mgcp.reqframe`) and join the call its first CRCX
+  names; caller = the first endpoint, ringing = `S: rg` to the callee or `rt`
+  to the caller, answer = the callee's off-hook, `S: bz` = busy, on-hook =
+  hang up, an error response to a CRCX rejects; only responses' SDP (the
+  gateway's own) name media; `dialed` = the caller's NTFY digits before the
+  call. IAX2: a call is tshark's `iax2.call` (stable: every pass dissects the
+  whole file in order); ACK, PING, PONG, LAGRQ/LAGRP aren't listed; cause IE +
+  causecode are the reasons. IAX2 voice isn't RTP, so `iax2_streams` makes a
+  stream per call and direction (SSRC 0, `iax2`, `payloadTypes` from the
+  codec bits, `IAX2_CODECS`; jitter from the frames' ms timestamps, no loss:
+  mini frames have no sequence number); `StreamKey` carries `iax2`/`codec`,
+  its filter is `iax2.call == N && ip.src … && (iax2.packet_type == 0 ||
+iax2.type == 2)`, and `_rtp_pass` feeds `iax2_as_rtp` lines (counted
+  sequence numbers, timestamps × 8, the stream's payload type) to the stream
+  analysis and the audio decoders unchanged; `_linked` links an IAX2 call by
+  `iax2`, never by endpoints. The panel has a Protocol column, "IAX2" in the
+  SSRC cell, "IAX2 voice" flow rows, "Dialled …" in the facts; the AI call
+  prompt names the protocol. `voip-other.pcap`
+  (`generate.voip_other_packets`): H.323 alan → betty with H.245 tunnelled
+  in Facility messages (OLC + Ack each way, a UserInputIndication "5"), carl
+  → betty with a fast start proposal, then a separate H.245 connection (only
+  carl sends RTP), and a busy release (cause 17, inConf); IAX2 mike → 4001
+  (µ-law both ways, DTMF "7", the PBX hangs up) and nina → 9999 (REJECT);
+  MGCP aaln/1@gw1 → gw2 (dialled 2002, A-law both ways) and gw2 → gw1
+  refused (401 Phone off hook), after an AUEP that belongs to no call.
+  **tshark 4.2.2's H.245 bug**: `dissect_h245_DataType` restores its
+  recursion counter as `depth - 5` (unsigned), so a second DataType in one
+  packet fails the `recursion_depth <= 100` assertion: a fast start proposal
+  with a reverse channel, or two OLCs in one message, can't be read there.
+  The fixture keeps one DataType per packet; real captures lose those
+  messages' later fields on 4.2.2. H.323 client ports avoid 40000+ (tshark's
+  SAP dissector claims them before port 1720's H.225).
 - **Capture editing** (`editing.py`, `edit_capture {operation, …, dest | dir}`;
   `commands/editCapture.ts`): one editcap run over the whole file (not the
   view; comment edits not included) into `dest` via `atomic_output`, `-F
@@ -2108,3 +2163,4 @@ Then Export PDUs to File, Show Packet in New Window and the capture's
 file format view: 0.17.0.
 Then extcap capture helpers (SSH, Cisco, Android, UDP, randpkt), Capture to
 Files with ring buffers, saved capture filters and the capture report: 0.18.0.
+Then H.323, MGCP and IAX2 calls in the VoIP panel: 0.19.0.

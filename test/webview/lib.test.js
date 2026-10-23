@@ -1346,6 +1346,10 @@ suite("webview lib: navigation and customisation", () => {
       lib.rtpStreamLabel({ payload: "g711A", packets: 10, lost: -2 }),
       "g711A · 10 packets · 2 duplicated",
     );
+    const iax2 = lib.callFlow({ messages: [], streams: [0] }, [
+      { src: "a", dst: "b", start: 0, payload: "g711U", packets: 5, lost: 0, iax2: 1 },
+    ]);
+    assert.equal(iax2.rows[0].label, "IAX2 voice g711U · 5 packets");
   });
 
   test("rtpProblems lists sequence gaps, late packets and payload changes", () => {
@@ -1395,6 +1399,11 @@ suite("webview lib: navigation and customisation", () => {
       }),
       ["Not answered", "final response 480 Temporarily Unavailable", "ended by the callee (b)"],
     );
+    assert.deepEqual(
+      lib.callFacts({ ...call, final: "", reasons: [], dialed: "2002" }).slice(0, 2),
+      ["Dialled 2002", "rang after 0.300 s"],
+      "MGCP: the digits dialled before the call",
+    );
     const streams = [{ src: "10.0.0.1", srcPort: 40000, dst: "10.0.0.2", dstPort: 50000 }];
     const q = { mos: 4.23, r: 85.9, rating: "High", codec: "G.711", assumed: false, stream: 0 };
     assert.equal(lib.mosLabel(q), "4.23 (High)");
@@ -1407,7 +1416,7 @@ suite("webview lib: navigation and customisation", () => {
       lib.callQualityText({ ...q, assumed: true, stream: 5 }, streams),
       /^MOS 4\.23 \(High, R 85\.9\); codec not known to the E-model: rated as G\.711$/,
     );
-    assert.equal(lib.callQualityText(null, streams), "No RTP to rate.");
+    assert.equal(lib.callQualityText(null, streams), "No media to rate.");
     assert.equal(
       lib.dtmfLabel({ digit: "4", method: "RFC 4733", src: "10.0.1.1", duration: 80 }),
       "4 · RFC 4733 from 10.0.1.1, 80 ms",

@@ -7,6 +7,17 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.19.0 — 2026-10-23
+
+### Added
+
+- VoIP Calls lists H.323, MGCP and IAX2 calls next to SIP's, with their call
+  flow, media (RTP, or IAX2's voice frames), timings, release causes, DTMF
+  digits, quality and media problems; IAX2 voice can be analysed, played and
+  saved like RTP. [eb909ad]
+
+[eb909ad]: https://github.com/DenPaz/vsc_pcap_viewer/commit/eb909ad
+
 ## 0.18.0 — 2026-10-21
 
 ### Added

@@ -311,5 +311,32 @@ suite("AI anomaly explanations", () => {
     assert.match(prompt, /untrusted/);
     assert.doesNotMatch(prompt, /digit": |"1"|\b1, 2\b/);
     assert.ok(prompt.length <= ANOMALY_LIMITS.maxPromptChars);
+    assert.match(prompt, /^Protocol: SIP$/m, "a call without one is SIP");
+    assert.match(prompt, /^## SIP messages/m);
+  });
+
+  test("call prompt: the call's own protocol", () => {
+    const call = callSummary(
+      {
+        protocol: "H.323",
+        from: "alan <1001>",
+        to: "2002",
+        caller: "10.0.2.10",
+        callee: "10.0.2.20",
+        state: "Rejected",
+        reasons: ["Q.850 cause 17: User busy"],
+        setup: null,
+        duration: null,
+        messages: [[168, 5, "10.0.2.10", "10.0.2.20", "Setup"]],
+        streams: [],
+      },
+      [],
+    );
+    const prompt = buildCallPrompt({ question: "", call });
+    assert.match(prompt, /read the H\.323 call of a packet capture/);
+    assert.match(prompt, /^Protocol: H\.323$/m);
+    assert.match(prompt, /^## H\.323 messages/m);
+    assert.match(prompt, /^Causes: Q\.850 cause 17: User busy$/m);
+    assert.match(prompt, /None: no media was linked to this call\./);
   });
 });

@@ -1256,12 +1256,12 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         () => document.querySelectorAll("#voip-calls tbody tr").length === 2,
       );
       assert.equal(await page.textContent(".panel-title"), "VoIP Calls · voip.pcap");
-      assert.match(await page.textContent(".status"), /^2 SIP calls, 2 RTP streams$/);
+      assert.match(await page.textContent(".status"), /^2 calls, 2 streams$/);
       const [call, busy] = await cells("#voip-calls");
-      assert.deepEqual(call.slice(1, 4), ["alice@10.0.0.1", "bob@10.0.0.2", "Completed"]);
-      assert.equal(call[5], "0:01", "answered for about a second");
-      assert.deepEqual(busy.slice(3, 7), ["Rejected (486 Busy Here)", "", "", "0"]);
-      assert.deepEqual(call.slice(8), ["4.23 (High)", ""], "MOS of the worst stream, no problems");
+      assert.deepEqual(call.slice(1, 5), ["SIP", "alice@10.0.0.1", "bob@10.0.0.2", "Completed"]);
+      assert.equal(call[6], "0:01", "answered for about a second");
+      assert.deepEqual(busy.slice(4, 8), ["Rejected (486 Busy Here)", "", "", "0"]);
+      assert.deepEqual(call.slice(9), ["4.23 (High)", ""], "MOS of the worst stream, no problems");
 
       // The selected call's details: timings, how it ended, quality.
       assert.equal(
@@ -1438,7 +1438,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         () => document.querySelectorAll("#voip-calls tbody tr").length === 5,
       );
       const calls = await page.$$eval("#voip-calls tbody tr", (trs) =>
-        trs.map((tr) => [...tr.children].slice(8).map((td) => td.textContent)),
+        trs.map((tr) => [...tr.children].slice(9).map((td) => td.textContent)),
       );
       assert.deepEqual(calls, [
         ["4.40 (Best)", ""],
@@ -1488,7 +1488,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       await page.waitForFunction(() =>
         document.querySelector("#voip-call-problems")?.textContent?.includes("No RTP after"),
       );
-      assert.equal(await page.textContent("#voip-call-quality"), "No RTP to rate.");
+      assert.equal(await page.textContent("#voip-call-quality"), "No media to rate.");
 
       // Ask Copilot (AI help available) sends the selected call, by index.
       await page.click("#voip-ask");
@@ -1515,6 +1515,87 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       );
       await page.click("#voip-registrations tbody tr >> nth=1");
       assert.deepEqual(log.at(-1), { type: "goto", frame: 287 });
+    } finally {
+      await voip.dispose();
+    }
+  });
+
+  test("VoIP calls over H.323, MGCP and IAX2: their flows, media and details", async () => {
+    const voip = await startBackend(deps);
+    try {
+      await voip.request(
+        "open",
+        { path: path.join(FIXTURES, "voip-other.pcap") },
+        { timeoutMs: 0 },
+      );
+      const { page, problems, post } = await newPage(browser);
+      await page.exposeFunction("__toHost", async (raw) => {
+        const msg = JSON.parse(raw);
+        if (msg.type === "ready") {
+          await post({ type: "init", title: "VoIP Calls · voip-other.pcap" });
+        } else if (msg.type === "list") {
+          const r = await voip.request("voip_calls", { heuristic: false }, { timeoutMs: 0 });
+          await post({ type: "calls", ...r, heuristic: false });
+        }
+      });
+      await page.setContent(renderPanelHtml(origin, "voip.js", { media: true }), {
+        waitUntil: "load",
+      });
+      pages.push(problems);
+      await page.waitForFunction(
+        () => document.querySelectorAll("#voip-calls tbody tr").length === 7,
+      );
+      assert.match(await page.textContent(".status"), /^7 calls, 7 streams$/);
+      const calls = await page.$$eval("#voip-calls tbody tr", (trs) =>
+        trs.map((tr) => [...tr.children].slice(1, 5).map((td) => td.textContent)),
+      );
+      assert.deepEqual(calls, [
+        ["H.323", "alan <1001>", "2002", "Completed"],
+        ["H.323", "carl <3003>", "betty <2002>", "Completed"],
+        ["H.323", "alan <1001>", "2002", "Rejected (User busy)"],
+        ["IAX2", "Mike <3001>", "4001@default", "Completed"],
+        ["IAX2", "3002", "9999", "Rejected (No such context/extension)"],
+        ["MGCP", "aaln/1@gw1.example.net", "aaln/1@gw2.example.net", "Completed"],
+        [
+          "MGCP",
+          "aaln/1@gw2.example.net",
+          "aaln/1@gw1.example.net",
+          "Rejected (401 Phone off hook)",
+        ],
+      ]);
+      // The H.323 call: H.245 inside H.225 messages, an H.245 DTMF digit.
+      assert.equal((await page.$$("#voip-flow .flow-row.voip-rtp")).length, 2);
+      assert.equal(await page.textContent("#voip-call-details h3"), "DTMF: 5");
+
+      // The IAX2 call: its voice frames are streams of their own.
+      await page.click("#voip-calls tbody tr >> nth=3");
+      await page.waitForFunction(
+        () => document.querySelectorAll("#voip-flow .flow-row.voip-rtp").length === 2,
+      );
+      assert.deepEqual(
+        await page.$$eval("#voip-flow .flow-row.voip-rtp text.flow-label", (t) =>
+          t.map((l) => l.textContent),
+        ),
+        ["IAX2 voice g711U · 50 packets", "IAX2 voice g711U · 50 packets"],
+      );
+      const linked = await page.$$eval("#voip-streams tbody tr.linked", (trs) =>
+        trs.map((tr) => tr.children[2].textContent),
+      );
+      assert.deepEqual(linked, ["IAX2", "IAX2"], "no SSRC");
+      assert.match(
+        await page.textContent("#voip-call-facts"),
+        /ended by the callee \(10\.0\.3\.1\)/,
+      );
+
+      // The MGCP call: the digits dialled before it, the agent between the gateways.
+      await page.click("#voip-calls tbody tr >> nth=5");
+      await page.waitForFunction(() =>
+        document.querySelector("#voip-call-facts")?.textContent?.startsWith("Dialled 2002"),
+      );
+      assert.deepEqual(
+        await page.$$eval("#voip-flow .voip-node", (n) => n.map((t) => t.textContent)),
+        ["10.0.4.11", "10.0.4.1", "10.0.4.12"],
+      );
     } finally {
       await voip.dispose();
     }

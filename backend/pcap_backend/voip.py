@@ -188,25 +188,34 @@ _TAIL_KEYS = {
 
 @dataclass(frozen=True, slots=True)
 class StreamKey:
-    """One RTP stream: its 5-tuple and SSRC (as the rtp,streams report has it)."""
+    """One RTP stream: its 5-tuple and SSRC (as the rtp,streams report has
+    it). An IAX2 call's voice frames in one direction (``iax2``: tshark's
+    call identifier, ``iax2.call``) are a stream too, with SSRC 0 and the
+    ``codec`` as the payload type it maps to (voip_protocols.IAX2_CODECS)."""
 
     src: str
     src_port: int
     dst: str
     dst_port: int
     ssrc: int
+    iax2: int | None = None
+    codec: int | None = None
 
     @classmethod
     def from_json(cls, raw: Any) -> StreamKey:
         if not isinstance(raw, dict):
             raise InvalidParamsError("stream must be an object")
         try:
+            iax2 = raw.get("iax2")
+            types = raw.get("payloadTypes") or [None]
             key = cls(
                 str(raw["src"]),
                 int(raw["srcPort"]),
                 str(raw["dst"]),
                 int(raw["dstPort"]),
                 int(str(raw["ssrc"]), 0),
+                int(iax2) if iax2 is not None else None,
+                int(types[0]) if iax2 is not None and types[0] is not None else None,
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise InvalidParamsError(f"bad stream: {exc}") from exc
@@ -215,20 +224,30 @@ class StreamKey:
                 raise InvalidParamsError(f"bad address {addr!r}")
         if not (0 <= key.src_port < 65536 and 0 <= key.dst_port < 65536 and 0 <= key.ssrc < 2**32):
             raise InvalidParamsError("stream ports or SSRC out of range")
+        if not (0 <= (key.iax2 or 0) < 2**32 and 0 <= (key.codec or 0) < 128):
+            raise InvalidParamsError("IAX2 call or codec out of range")
         return key
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "src": self.src,
             "srcPort": self.src_port,
             "dst": self.dst,
             "dstPort": self.dst_port,
             "ssrc": f"0x{self.ssrc:08x}",
         }
+        if self.iax2 is not None:
+            out["iax2"] = self.iax2
+        return out
 
     def filter(self) -> str:
         """A display filter for the stream's packets."""
         ip = "ipv6" if ":" in self.src else "ip"
+        if self.iax2 is not None:
+            return (
+                f"iax2.call == {self.iax2} && {ip}.src == {self.src} && "
+                f"udp.srcport == {self.src_port} && (iax2.packet_type == 0 || iax2.type == 2)"
+            )
         return (
             f"rtp.ssrc == 0x{self.ssrc:08x} && {ip}.src == {self.src} && "
             f"udp.srcport == {self.src_port} && {ip}.dst == {self.dst} && "
@@ -487,6 +506,14 @@ class _Call:
     names: dict[int, str] = field(default_factory=dict)  # rtpmap: payload type → name
     rtpmap: dict[int, str] = field(default_factory=dict)  # payload type → "G726-32/8000"
     dtmf: list[dict[str, Any]] = field(default_factory=list)  # SIP INFO digits
+    # The other protocols (voip_protocols.py): "H.323", "MGCP" or "IAX2"; the
+    # signalling's display filter (else SIP's Call-ID); the IAX2 call whose
+    # voice streams are the call's (instead of media endpoints); digits
+    # dialled before the call was set up (MGCP).
+    protocol: str = "SIP"
+    signalling: str = ""
+    iax2: int | None = None
+    dialed: str = ""
 
 
 def _uri(user: str, host: str) -> str:
@@ -764,6 +791,7 @@ def _problems(
     silences (gaps in a stream)."""
     out: list[dict[str, Any]] = []
     linked = sorted(linked, key=lambda i: streams[i]["start"])
+    media = "IAX2 voice" if call.iax2 is not None else "RTP"
 
     def add(kind: str, text: str, frame: int | None, stream: int | None) -> None:
         if all(p["text"] != text for p in out):  # (one per path, not per SSRC)
@@ -771,14 +799,14 @@ def _problems(
 
     if call.answered is not None:
         if not linked:
-            add("no-rtp", "No RTP after the call was answered", call.answer_frame, None)
+            add("no-rtp", f"No {media} after the call was answered", call.answer_frame, None)
         else:
             sides = {_from_caller(call, streams[i]) for i in linked}
             if len(sides) == 1:
                 sender, silent = ("caller", "callee") if sides == {True} else ("callee", "caller")
                 add(
                     "one-way",
-                    f"One-way audio: only the {sender} sends RTP, the {silent} sends none",
+                    f"One-way audio: only the {sender} sends {media}, the {silent} sends none",
                     call.answer_frame,
                     linked[0],
                 )
@@ -816,27 +844,39 @@ def _problems(
         for frame, _time, seconds in s.get("gaps", []):
             add(
                 "gap",
-                f"No RTP from {_endpoint(s, True)} for {seconds:.2f} s before packet {frame}",
+                f"No {media} from {_endpoint(s, True)} for {seconds:.2f} s before packet {frame}",
                 frame,
                 i,
             )
     return out
 
 
-def _call_json(index: int, call: _Call, streams: list[dict[str, Any]]) -> dict[str, Any]:
-    linked = [
+def _linked(call: _Call, streams: list[dict[str, Any]]) -> list[int]:
+    """The streams of a call: an IAX2 call's voice streams, else the RTP
+    streams to or from an endpoint its signalling named."""
+    if call.iax2 is not None:
+        return [i for i, s in enumerate(streams) if s.get("iax2") == call.iax2]
+    return [
         i
         for i, s in enumerate(streams)
-        if (s["dst"], s["dstPort"]) in call.media or (s["src"], s["srcPort"]) in call.media
+        if "iax2" not in s
+        and ((s["dst"], s["dstPort"]) in call.media or (s["src"], s["srcPort"]) in call.media)
     ]
+
+
+def _call_json(index: int, call: _Call, streams: list[dict[str, Any]]) -> dict[str, Any]:
+    linked = _linked(call, streams)
     end = call.ended if call.ended is not None else call.last
     if linked:
         end = max(end, *(streams[i]["end"] for i in linked))
     quoted = call.call_id.replace("\\", "\\\\").replace('"', '\\"')
-    parts = [f'sip.Call-ID == "{quoted}"', *(f"({streams[i]['filter']})" for i in linked)]
+    signalling = call.signalling or f'sip.Call-ID == "{quoted}"'
+    parts = [signalling, *(f"({streams[i]['filter']})" for i in linked if call.iax2 is None)]
     # The streams' RTCP (on the RTP port + 1), once per sending endpoint.
     parts += dict.fromkeys(
-        f"({_rtcp_filter(streams[i]['src'], streams[i]['srcPort'])})" for i in linked
+        f"({_rtcp_filter(streams[i]['src'], streams[i]['srcPort'])})"
+        for i in linked
+        if call.iax2 is None
     )
     for i in linked:  # (how to decode the streams' dynamic payload types)
         streams[i].setdefault("rtpmap", {}).update({str(pt): e for pt, e in call.rtpmap.items()})
@@ -852,6 +892,7 @@ def _call_json(index: int, call: _Call, streams: list[dict[str, Any]]) -> dict[s
 
     return {
         "id": index,
+        "protocol": call.protocol,
         "callId": call.call_id,
         "from": call.from_uri,
         "to": call.to_uri,
@@ -873,6 +914,7 @@ def _call_json(index: int, call: _Call, streams: list[dict[str, Any]]) -> dict[s
         "quality": {**worst[0], "stream": worst[1]} if worst else None,
         "dtmf": dtmf,
         "problems": _problems(call, streams, linked),
+        "dialed": call.dialed,
         "filter": " || ".join(parts),
     }
 
