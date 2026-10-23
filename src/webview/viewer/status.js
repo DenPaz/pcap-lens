@@ -185,6 +185,7 @@ export function persist() {
     widths: state.widths,
     expanded: [...state.expanded].slice(-200),
     menuGroups: [...state.menuGroups],
+    recentCommands: state.recentCommands,
     detailView: state.detailView,
     diagramValues: state.diagramValues,
     listHeight: root.getPropertyValue("--list-height"),

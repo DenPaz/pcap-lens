@@ -61,6 +61,21 @@ suite("☰ commands menu (from package.json)", () => {
       assert.ok(COMMAND_GROUPS.includes(c.group), `${c.id}: ${c.group}`);
     }
     assert.equal(commandGroup("pcapViewer.brandNew", "PCAP Statistics"), "Statistics");
+    // Statistics are split by what they look at.
+    assert.equal(commandGroup("pcapViewer.followTcpStream", "PCAP"), "Streams");
+    assert.equal(
+      commandGroup("pcapViewer.statistics.tcpStreamGraph", "PCAP Statistics"),
+      "Streams",
+    );
+    assert.equal(
+      commandGroup("pcapViewer.statistics.ipv4", "PCAP Statistics"),
+      "Network Statistics",
+    );
+    assert.equal(
+      commandGroup("pcapViewer.statistics.dns", "PCAP Statistics"),
+      "Service Statistics",
+    );
+    assert.equal(commandGroup("pcapViewer.statistics.sip", "PCAP Statistics"), "Telephony");
     assert.equal(commandGroup("pcapViewer.brandNew", "PCAP"), "Other");
   });
 

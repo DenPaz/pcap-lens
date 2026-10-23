@@ -1340,10 +1340,18 @@ button.pd-cell:hover {
 }
 
 .command-menu .heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   padding: var(--space-3) var(--space-5) var(--space-1);
   font-size: var(--text-sm);
   font-weight: 600;
   color: var(--vscode-descriptionForeground);
+}
+
+.command-menu .group-icon {
+  flex: none;
+  width: 16px;
 }
 
 .command-menu .item {
@@ -1369,8 +1377,13 @@ button.pd-cell:hover {
   width: 16px;
 }
 
-/* Commands under an open heading are indented past its chevron. */
+/* Commands line up with their heading's title: past its chevron and icon (a
+   label heading, Recently Used or a search result's, has only the icon). */
 .command-menu .heading.item ~ .item {
+  padding-left: calc(var(--space-5) + 2 * (16px + var(--space-3)));
+}
+
+.command-menu .heading:not(.item) ~ .item {
   padding-left: calc(var(--space-5) + 16px + var(--space-3));
 }
 

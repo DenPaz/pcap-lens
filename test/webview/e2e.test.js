@@ -2055,7 +2055,11 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     const GROUPS = [
       "Filters",
       "Packets",
+      "Streams",
       "Statistics",
+      "Network Statistics",
+      "Service Statistics",
+      "Telephony",
       "Export",
       "Capture",
       "Editing",
@@ -2089,6 +2093,18 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       GROUPS,
     );
     assert.ok(hs.every((h) => h.expanded === "false"));
+    assert.deepEqual(
+      await page.$$eval("#commands-list .heading .group-icon", (icons) =>
+        icons.slice(0, 4).map((i) => i.className),
+      ),
+      [
+        "codicon codicon-filter group-icon",
+        "codicon codicon-list-flat group-icon",
+        "codicon codicon-debug-step-over group-icon",
+        "codicon codicon-graph group-icon",
+      ],
+      "each heading has its icon",
+    );
     assert.equal(
       hs.reduce((n, h) => n + h.count, 0),
       menuCommands.length,
@@ -2207,16 +2223,24 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     assert.equal(await menuOpen(), false);
     assert.equal((await button()).focused, true);
 
-    // Space opens it too, with the groups left open still open (Statistics was folded);
-    // ↓ goes from the Filters heading to Apply, ↓ to the disabled Clear (Enter sends nothing),
-    // ↓ again runs Save.
+    // Space opens it too: what ran comes first under Recently Used, and the groups left
+    // open are still open (Statistics was folded); ↓ goes from the recent entry to the
+    // Filters heading, ↓ to Apply, ↓ to the disabled Clear (Enter sends nothing), ↓ again
+    // runs Save.
     await page.keyboard.press(" ");
     assert.equal(await menuOpen(), true);
+    const recent = () =>
+      page.$$eval("#commands-list [role=group][aria-label='Recently Used'] [data-id]", (n) =>
+        n.map((x) => x.dataset.id),
+      );
+    assert.deepEqual(await recent(), ["pcapViewer.statistics.protocolHierarchy"]);
     assert.deepEqual(
       (await headings()).filter((h) => h.expanded === "false").map((h) => h.group),
       ["Statistics"],
       "open groups are remembered",
     );
+    assert.equal(await activeId(), "pcapViewer.statistics.protocolHierarchy");
+    await page.keyboard.press("ArrowDown");
     assert.equal(await activeGroup(), "Filters");
     await page.keyboard.press("ArrowDown");
     assert.equal(await activeId(), "pcapViewer.applyFilter");
@@ -2241,6 +2265,16 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.click("#commands-list [data-id='pcapViewer.toggleMark']");
     await waitForHost((m) => m.type === "runCommand" && m.id === "pcapViewer.toggleMark");
     assert.equal(runs(), 3);
+    await page.keyboard.press("Escape");
+    // The newest first; while searching, Recently Used isn't shown.
+    await page.click("#filter-menu");
+    assert.deepEqual(await recent(), [
+      "pcapViewer.toggleMark",
+      "pcapViewer.saveFilter",
+      "pcapViewer.statistics.protocolHierarchy",
+    ]);
+    await page.fill("#commands-filter", "mark");
+    assert.deepEqual(await recent(), []);
     await page.keyboard.press("Escape");
   });
 

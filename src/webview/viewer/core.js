@@ -278,6 +278,10 @@ export const state = {
   /** @type {Set<string>} */ menuGroups: new Set(
     Array.isArray(saved.menuGroups) ? saved.menuGroups : [],
   ),
+  /** The ids of the commands run from the ☰ menu lately, newest first (webview state). */
+  /** @type {string[]} */ recentCommands: Array.isArray(saved.recentCommands)
+    ? saved.recentCommands.filter((/** @type {unknown} */ id) => typeof id === "string")
+    : [],
   ai: {
     available: false,
     asking: false,

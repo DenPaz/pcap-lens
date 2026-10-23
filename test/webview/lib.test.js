@@ -1518,7 +1518,27 @@ suite("webview lib: navigation and customisation", () => {
       ],
     );
     assert.deepEqual(lib.groupCommands([]), []);
-    assert.deepEqual(lib.COMMAND_GROUP_ORDER.slice(0, 3), ["Filters", "Packets", "Statistics"]);
+    assert.deepEqual(lib.COMMAND_GROUP_ORDER.slice(0, 4), [
+      "Filters",
+      "Packets",
+      "Streams",
+      "Statistics",
+    ]);
+    for (const group of [...lib.COMMAND_GROUP_ORDER, lib.RECENT_COMMANDS]) {
+      assert.ok(lib.COMMAND_GROUP_ICONS[group], `${group} has an icon`);
+    }
+  });
+
+  test("rememberCommand: newest first, once, at most five", () => {
+    assert.deepEqual(lib.rememberCommand([], "a"), ["a"]);
+    assert.deepEqual(lib.rememberCommand(["a", "b", "c"], "b"), ["b", "a", "c"]);
+    assert.deepEqual(lib.rememberCommand(["a", "b", "c", "d", "e"], "f"), [
+      "f",
+      "a",
+      "b",
+      "c",
+      "d",
+    ]);
   });
 
   test("commandMenuRows: headings fold their commands, except while searching", () => {
@@ -1542,6 +1562,18 @@ suite("webview lib: navigation and customisation", () => {
     const searching = lib.commandMenuRows(groups, new Set(), true);
     assert.deepEqual(shape(searching), ["▾Filters(1)", "f1", "▾Statistics(2)", "s1", "s2"]);
     assert.ok(searching.filter((r) => r.kind === "group").every((r) => !r.foldable));
+    // Recently used commands come first under a label heading, not while searching.
+    const recent = [c("s2", "Statistics")];
+    const withRecent = lib.commandMenuRows(groups, new Set(), false, recent);
+    assert.deepEqual(shape(withRecent), [
+      "▾Recently Used(1)",
+      "s2",
+      "▸Filters(1)",
+      "▸Statistics(2)",
+    ]);
+    assert.equal(withRecent[0].foldable, false);
+    assert.equal(withRecent[1].group, "Recently Used");
+    assert.deepEqual(shape(lib.commandMenuRows(groups, new Set(), true, recent)), shape(searching));
   });
 
   test("filterCommands: every word, case-insensitive, in the title, heading or category", () => {

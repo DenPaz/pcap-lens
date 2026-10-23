@@ -2415,7 +2415,11 @@
   const COMMAND_GROUP_ORDER = [
     "Filters",
     "Packets",
+    "Streams",
     "Statistics",
+    "Network Statistics",
+    "Service Statistics",
+    "Telephony",
     "Export",
     "Capture",
     "Editing",
@@ -2423,6 +2427,37 @@
     "AI",
     "Other",
   ];
+
+  /** The commands run from the menu lately, above the headings. */
+  const RECENT_COMMANDS = "Recently Used";
+  const MAX_RECENT_COMMANDS = 5;
+
+  /** Each heading's Codicon. @type {Record<string, string>} */
+  const COMMAND_GROUP_ICONS = {
+    [RECENT_COMMANDS]: "history",
+    Filters: "filter",
+    Packets: "list-flat",
+    Streams: "debug-step-over",
+    Statistics: "graph",
+    "Network Statistics": "globe",
+    "Service Statistics": "server",
+    Telephony: "call-outgoing",
+    Export: "export",
+    Capture: "record",
+    Editing: "edit",
+    Dissectors: "symbol-namespace",
+    AI: "sparkle",
+    Other: "ellipsis",
+  };
+
+  /**
+   * The recently used list after running `id`: it goes first, once, and the
+   * list keeps MAX_RECENT_COMMANDS.
+   * @param {string[]} recent @param {string} id
+   */
+  function rememberCommand(recent, id) {
+    return [id, ...recent.filter((r) => r !== id)].slice(0, MAX_RECENT_COMMANDS);
+  }
 
   /**
    * @typedef {{id: string, title: string, category: string, group: string,
@@ -2451,12 +2486,27 @@
    * The ☰ menu's rows: a heading per group, then the commands of the groups
    * that are open. While searching every group with a match is open and its
    * heading is only a label (`foldable: false`), so results show at once.
+   * The recently used commands come first (not while searching), under a
+   * heading that is only a label.
    * @param {{group: string, commands: MenuCommand[]}[]} groups
    * @param {ReadonlySet<string>} openGroups @param {boolean} searching
+   * @param {MenuCommand[]} [recent]
    */
-  function commandMenuRows(groups, openGroups, searching) {
+  function commandMenuRows(groups, openGroups, searching, recent = []) {
     /** @type {({kind: "group", group: string, count: number, open: boolean, foldable: boolean} | {kind: "command", group: string, command: MenuCommand})[]} */
     const rows = [];
+    if (!searching && recent.length) {
+      rows.push({
+        kind: "group",
+        group: RECENT_COMMANDS,
+        count: recent.length,
+        open: true,
+        foldable: false,
+      });
+      for (const command of recent) {
+        rows.push({ kind: "command", group: RECENT_COMMANDS, command });
+      }
+    }
     for (const g of groups) {
       const open = searching || openGroups.has(g.group);
       rows.push({
@@ -2874,6 +2924,9 @@
 
   const api = {
     COMMAND_GROUP_ORDER,
+    COMMAND_GROUP_ICONS,
+    RECENT_COMMANDS,
+    rememberCommand,
     groupCommands,
     commandMenuRows,
     filterCommands,

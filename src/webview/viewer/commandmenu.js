@@ -8,8 +8,10 @@ import { persist } from "./status.js";
 /**
  * Every PCAP Lens command, grouped under foldable headings, filtered as
  * you type (lib.groupCommands/filterCommands/commandMenuRows). Groups start
- * folded and the open ones are remembered (`state.menuGroups`); typing
- * shows every match with its heading as a label. Focus stays in the filter
+ * folded and the open ones are remembered (`state.menuGroups`); the commands
+ * run from here lately come first, under "Recently Used"
+ * (`state.recentCommands`); typing shows every match with its heading as a
+ * label. Focus stays in the filter
  * box: ↑/↓, Home/End move the active entry (aria-activedescendant), Enter
  * runs it or toggles a heading, → opens a heading, ← goes back to it and
  * folds it, Esc or Tab closes. Entries that can't run now stay listed but
@@ -64,7 +66,15 @@ function menuSearching() {
 function renderCommandsMenu(keep) {
   const ctx = commandContext();
   const shown = lib.filterCommands(state.commands, commandsMenu.filter.value);
-  const rows = lib.commandMenuRows(lib.groupCommands(shown), state.menuGroups, menuSearching());
+  const recent = state.recentCommands
+    .map((id) => state.commands.find((/** @type {any} */ c) => c.id === id))
+    .filter(Boolean);
+  const rows = lib.commandMenuRows(
+    lib.groupCommands(shown),
+    state.menuGroups,
+    menuSearching(),
+    recent,
+  );
   menuView.items = [];
   /** @type {HTMLElement[]} */
   const groups = [];
@@ -79,9 +89,13 @@ function renderCommandsMenu(keep) {
       groups.push(group);
       const heading = document.createElement("div");
       heading.className = "heading";
+      const glyph = icon(lib.COMMAND_GROUP_ICONS[row.group] ?? "blank");
+      glyph.classList.add("group-icon");
       if (!row.foldable) {
         heading.setAttribute("aria-hidden", "true"); // (a label over search results)
-        heading.textContent = row.group;
+        const label = document.createElement("span");
+        label.textContent = row.group;
+        heading.append(glyph, label);
         group.append(heading);
         continue;
       }
@@ -98,7 +112,7 @@ function renderCommandsMenu(keep) {
       const count = document.createElement("span");
       count.className = "keys count";
       count.textContent = String(row.count);
-      heading.append(chevron, title, count);
+      heading.append(chevron, glyph, title, count);
       heading.addEventListener("mousemove", () => setActiveCommand(index));
       heading.addEventListener("mousedown", (e) => e.preventDefault()); // (keep focus in the box)
       heading.addEventListener("click", () => toggleMenuGroup(row.group));
@@ -217,6 +231,8 @@ function runMenuEntry(index) {
     return;
   }
   closeCommandsMenu(true);
+  state.recentCommands = lib.rememberCommand(state.recentCommands, item.command.id);
+  persist();
   vscode.postMessage({ type: "runCommand", id: item.command.id });
 }
 
@@ -274,7 +290,9 @@ commandsMenu.filter.addEventListener("keydown", (e) => {
           toggleMenuGroup(item.group);
         }
       } else if (item.command) {
-        setActiveCommand(heading);
+        if (heading >= 0) {
+          setActiveCommand(heading); // (Recently Used has no heading to go back to)
+        }
       } else if (open) {
         toggleMenuGroup(item.group);
       }
