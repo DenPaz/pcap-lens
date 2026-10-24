@@ -38,6 +38,7 @@ import { registerTlsCommands } from "./commands/tls";
 import { registerMergeCommands } from "./commands/merge";
 import { registerCommentCommands } from "./commands/comments";
 import { registerCaptureCommands } from "./commands/capture";
+import { registerMcp } from "./commands/mcp";
 import { registerEditCaptureCommands } from "./commands/editCapture";
 import { registerImportHexDumpCommand } from "./commands/importHexDump";
 import { registerSetupCommands } from "./commands/setup";
@@ -106,6 +107,7 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
   registerNavigationCommands(context, p);
   registerColoringCommands(context, p);
   registerAiCommands(context, p, log);
+  registerMcp(context, log);
   registerIndexCacheCommands(context);
   registerTlsCommands(context, p);
   registerMergeCommands(context, p, log);

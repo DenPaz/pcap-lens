@@ -48,7 +48,12 @@ export interface TriageCheck {
   last?: number | null;
   /** This tshark refused the check's filter. */
   error?: string;
+  /** Not run: a two-pass check on a capture too large for two passes. */
+  skipped?: string;
 }
+
+/** Whether the check was counted (not refused or skipped). */
+const counted = (c: TriageCheck): boolean => c.error === undefined && c.skipped === undefined;
 
 export interface TriageInput {
   question: string;
@@ -102,7 +107,7 @@ const INSTRUCTIONS = [
 function checkLines(checks: readonly TriageCheck[]): string[] {
   const lines = ["id | check | packets | first packet | last packet | display filter"];
   for (const c of checks) {
-    if (c.error !== undefined) {
+    if (!counted(c)) {
       continue;
     }
     lines.push(
@@ -114,6 +119,10 @@ function checkLines(checks: readonly TriageCheck[]): string[] {
   const refused = checks.filter((c) => c.error !== undefined).map((c) => c.id);
   if (refused.length) {
     lines.push(`[Not available with this tshark: ${refused.join(", ")}]`);
+  }
+  const skipped = checks.filter((c) => c.skipped !== undefined).map((c) => c.id);
+  if (skipped.length) {
+    lines.push(`[Not checked (needs two passes, too many packets): ${skipped.join(", ")}]`);
   }
   return lines;
 }
@@ -213,7 +222,7 @@ export function parseTriage(
   }
   const obj = raw as { summary?: unknown; findings?: unknown };
   const known = knownFrames(input);
-  const checks = new Map(input.checks.filter((c) => c.error === undefined).map((c) => [c.id, c]));
+  const checks = new Map(input.checks.filter(counted).map((c) => [c.id, c]));
   const findings: Finding[] = [];
   for (const f of Array.isArray(obj.findings) ? obj.findings : []) {
     if (!f || typeof f !== "object" || findings.length >= TRIAGE_LIMITS.maxFindings) {

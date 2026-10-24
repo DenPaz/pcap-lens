@@ -171,6 +171,8 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   builders/parsers; `src/ai.ts` (`FilterAssistant`) and
   `src/lmTools.ts` (the tools API, declared locally) talk to `vscode.lm`;
   `src/commands/ai.ts` holds commands, consent and the `@pcap` participant.
+  `src/mcpConfig.ts` the MCP server's command line and configuration
+  snippets (pure); `src/commands/mcp.ts` its VS Code registration.
   `src/captureModel.ts` pure capture/editing helpers (file names, durations,
   date-times as bigint ns); `src/tempCaptures.ts` unsaved captures;
   `src/commands/capture.ts` and `editCapture.ts` (start/stop, editing),
@@ -245,6 +247,7 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   of capture editing), `hexdump.py` (text2pcap options of Import from Hex
   Dump), `ber.py` (counting back-to-back BER records), `codecs.py` (G.722,
   G.726-32 and L16 decoders), `triage.py` (the AI triage's checks),
+  `mcp.py` (the MCP server) and `standins.py` (its address stand-ins),
   `filterhelp.py` (a filter's
   field names, case hints, value counts), `plugins.py` (`tshark -G
 plugins` and the plugin folders), `decryption.py` (decryption keys and
@@ -783,7 +786,8 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   `-Y field -T fields -E occurrence=a -e frame.number -e field` pass with
   progress (`phase: "values"`), a packet counting once per value, at most
   `filterhelp.MAX_DISTINCT` (10,000) distinct values counted (`more` for the
-  rest), the `MAX_VALUES` (200) most frequent returned, cached per field once
+  rest), the `MAX_VALUES` (200) most frequent returned, cached per field (and
+  `filter`, which narrows the pass to `(field) && (filter)`; validated) once
   indexed (`_field_values`). The value list is a listbox (arrows, Home/End);
   the preview combines the term with the bar's filter (`lib.combineFilter`:
   replace, and, or, and not; "and" by default when the bar has a filter) and
@@ -1829,6 +1833,10 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   192.168/16, 100.64/10, 169.254/16; `IP_PUBLIC_n`), IPv6 (`IP6_LOCAL_n` for
   fe80::/10 and fc00::/7, `IP6_PUBLIC_n`) and unicast MAC addresses
   (`MAC_n`, colon or dash form; `Vendor_12:34:56` too) in everything sent;
+  IPv4-mapped IPv6 (`::ffff:192.168.1.2`) keeps its prefix and takes the
+  IPv4's token (the IPv6 pattern tries the dotted form first and never stops
+  before `.<digit>`: `IP6_PUBLIC_1.168.1.2` leaked three octets; Codex
+  review; `standins.py` the same);
   0/8, 127/8, ≥ 224, `::`, `::1`, ff00::/8, group and all-zero MACs stay
   (they say something and identify no one). Host names come from
   `namesInRows` (cells vs `addresses`) and `namesInTree` (`*.src_host`… with
@@ -1875,12 +1883,20 @@ false` counts as accepted, like the box). The display-filter loop is shared
   with a note to review it.
 - **Triage** (`backend/pcap_backend/triage.py`, `triage {checks?}`;
   `src/aiTriage.ts` pure; `FilterAssistant.triage`; `@pcap /triage`,
-  _PCAP: Triage Capture with AI_): `triage.CHECKS` (30 display filters, no
+  _PCAP: Triage Capture with AI_): `triage.CHECKS` (33 display filters, no
   commas) counted in one `-z io,stat,0,<scope>,…` pass: per check a packets
   graph plus `MIN(frame.number)` and `MAX(frame.number)` of it (first and
   last packet; 0 = none), scope = without the ignored packets. Filters are
   validated as one OR, then one by one only if that fails; refused ones (a
   field this tshark lacks) come back with `error`. Needs a complete index.
+  Checks with `two_pass` (ICMP echoes, DNS queries and HTTP requests without
+  a response: `icmp.no_resp`, `!dns.response_in`, `!http.response_in` are
+  only set when tshark reads the capture twice) make the pass `-2` up to
+  `TWO_PASS_LIMIT` (200,000) packets (result `twoPass`); above it they come
+  back with `skipped` instead of a count, and the prompt lists them as not
+  checked (`aiTriage.ts` `counted`: neither refused nor skipped). Tests
+  compare those counts with a `tshark -2 -Y` run, the rest with
+  `count_matches`.
   The host adds capture_info, expert, phs and TCP/UDP conversations (top 10)
   and asks for JSON `{summary, findings: [{severity, title, detail, check,
 filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
@@ -1894,6 +1910,68 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   asks "With AI findings" only when a model is available (`findings` arg),
   under the statistics consent; `findingsBlocks` adds a Findings section
   after Properties, naming the model.
+- **MCP server** (`backend/pcap_backend/mcp.py`, `standins.py`;
+  `src/mcpConfig.ts` pure, `src/commands/mcp.ts`): `python -m
+pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
+  `initialize` with version negotiation (`PROTOCOL_VERSIONS`, else
+  `DEFAULT_PROTOCOL`), `tools/list`, `tools/call` in a pool with a
+  `CancelToken` per call, `ping`, `notifications/cancelled`, and
+  `notifications/progress` when the call has a `progressToken`). Tools read
+  captures by path (argument `capture`; `path` and `file` too, which models
+  sent: `_capture_arg`) (`Captures`: one `PcapService` per capture, opened
+  non-streaming with `names: {}` (`-n`) and the saved-index cache in the
+  user cache folder (`default_cache_dir`), `max_open` 3 LRU, reopened when
+  size or mtime change; every tool call runs in `Captures.pinned()` (entries
+  counted per call in a thread-local), so an entry evicted while another
+  call uses it is `retired` and shut down by its last user, not under it
+  (Codex review); one more service without a capture for
+  `validate_filter` and `search_fields`). Paths must resolve (symlinks too)
+  inside a `--root` (default the working folder): `ToolFailureError`, which
+  like every tshark/RPC error becomes an `isError` result, while an unknown
+  tool or bad params are JSON-RPC errors. Tools: list_captures (by
+  extension, depth 8, hidden and venv folders skipped), capture_info,
+  count_packets (`count_matches` got an `offset`), statistics (kinds mapped
+  to `stats`, tables cut to their top rows by bytes, default 25; tree
+  reports (`_TREE_KINDS`) in order, default 100: a cut DNS tree read as
+  missing data),
+  triage (found checks by count, each with a `next` hint from `_NEXT` by id
+  prefix: which statistics kind or field_values to try; `notAvailable`
+  `[{id, why}]` for refused and skipped checks), field_values (the service's
+  `field_values` with an optional filter; numeric, boolean and frame-number
+  fields (`_numeric`, from `field_types`) always, others are packet contents
+  and need `--allow-packet-data`; the refusal and the instructions say the
+  user chose this and not to read contents another way (`_CONTENTS_REFUSED`:
+  in a test Claude Code ran tshark through Bash after a plain "this server
+  doesn't return"), validate_filter, search_fields, and with
+  `--allow-packet-data`
+  only (not even listed otherwise) list_packets (`count_matches` frames →
+  `list_packets {frames, inView: false}`, so no view is touched),
+  packet_details (labels as indented lines, `layers` = the top-level
+  protocol names, `protocols` expands only those and leaves the other layers
+  one summary line each, since Frame and Ethernet filled a short `max_lines`
+  before the DNS part in a test; byte dumps "[N bytes not
+  shown]" unless `--allow-packet-bytes`) and follow_stream (printable text
+  per segment, `max_bytes`). All are `readOnlyHint`. `--stand-ins`:
+  `standins.AddressMasker` (a port of aiPrivacy.ts without host names: the
+  server runs `-n`) masks every result's text and restores tokens in the
+  arguments. VS Code: `contributes.mcpServerDefinitionProviders`
+  (`pcapViewer.mcp`) and, when `lm.registerMcpServerDefinitionProvider`
+  exists (1.101+, types declared locally), a `McpStdioServerDefinition`
+  over the workspace folders (else home), `cwd` the first, version =
+  extension version + a hash of the command line (VS Code restarts it when
+  the settings change: `mcp.*`, `ai.pseudonymizeAddresses` → `--stand-ins`,
+  pythonPath, tsharkPath, workspace folders). It runs Python on
+  `stableBackend()` with `-P` (`-m` would put the working folder, a
+  workspace, first on sys.path, and its own `pcap_backend` would run;
+  Codex review): `globalStorage/mcp/backend/pcap_backend`, copied (no
+  `__pycache__`) when `.pcap-lens-version` differs, always while developing,
+  so a configuration pasted into another assistant survives updates. _PCAP:
+  Copy MCP Server Configuration…_ (`MCP_TARGETS`: `claude mcp add pcap-lens
+--scope user --env PYTHONPATH=… -- …` with `shellQuote`; the name first, as
+  `--env` takes several values and swallowed it, an
+  `mcpServers` entry, a VS Code `servers` entry) copies to the clipboard;
+  Claude Code without workspace folders gets no `--root` (its working
+  folder). `{target, quiet: true}` returns the text (smoke test).
 - **Get Started walkthrough** (`contributes.walkthroughs` id `gettingStarted`,
   pages in `media/walkthrough/`): Python, TShark, open a capture, filter,
   analyze, AI. The setup steps complete on context keys
@@ -2358,3 +2436,5 @@ start: 0.21.2.
 Then AI help with a language model of your choice and address stand-ins,
 capture filters and Lua dissectors from a description, and one-click triage
 with findings in the capture report: 0.22.0.
+Then an MCP server for AI assistants (counts, statistics, triage, field
+values and, if allowed, packets) and triage of unanswered requests: 0.23.0.

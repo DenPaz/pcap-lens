@@ -33,6 +33,12 @@ const CHECKS: TriageCheck[] = [
     last: null,
   },
   { id: "kerberos_errors", title: "Kerberos errors", filter: "kerberos.error_code", error: "x" },
+  {
+    id: "dns_unanswered",
+    title: "DNS queries without a response",
+    filter: "dns.flags.response == 0 && !dns.response_in",
+    skipped: "needs two passes",
+  },
 ];
 
 const EXPERT: StatsTable = {
@@ -75,6 +81,8 @@ suite("aiTriage", () => {
     assert.match(prompt, /dns_errors \| DNS error responses \| 0 \| - \| - \|/);
     assert.match(prompt, /\[Not available with this tshark: kerberos_errors\]/);
     assert.ok(!/kerberos_errors \|/.test(prompt));
+    assert.match(prompt, /\[Not checked \(needs two passes, too many packets\): dns_unanswered\]/);
+    assert.ok(!/dns_unanswered \|/.test(prompt));
     assert.match(prompt, /Malformed Packet/);
     assert.match(prompt, /Not available \(could not be computed\): UDP conversations\./);
     assert.ok(prompt.length <= TRIAGE_LIMITS.maxPromptChars);
@@ -115,6 +123,7 @@ suite("aiTriage", () => {
             frames: ["900", 5],
           },
           { severity: "critical", title: "Odd", detail: "?", check: "kerberos_errors" },
+          { severity: "low", title: "Lost", detail: "?", check: "dns_unanswered" },
           { title: "" },
           "nonsense",
         ],
@@ -140,11 +149,12 @@ suite("aiTriage", () => {
           check: "tcp_resets",
         },
         { severity: "info", title: "Odd", detail: "?", frames: [] },
+        { severity: "low", title: "Lost", detail: "?", frames: [] },
       ],
     });
     assert.deepEqual(
       sortFindings(report?.findings ?? []).map((f) => f.severity),
-      ["high", "low", "info"],
+      ["high", "low", "low", "info"],
     );
     assert.equal(parseTriage("I can't.", INPUT), undefined);
     const many = { findings: Array.from({ length: 20 }, (_, i) => ({ title: `F${i}` })) };

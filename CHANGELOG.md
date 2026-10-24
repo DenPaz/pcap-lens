@@ -7,6 +7,35 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.23.0 — 2026-10-24
+
+### Added
+
+- PCAP Lens's MCP server lets AI assistants (Claude Code, Claude Desktop,
+  Cursor, VS Code's agent mode) read capture files with tshark: counts,
+  statistics, triage and, if allowed, packets. _PCAP: Copy MCP Server
+  Configuration…_ sets it up. [408a8c7]
+- The MCP server's `field_values` tool counts a field's values (DNS response
+  codes, ICMP types…), and its triage says where to look next. [1967f9c]
+- The MCP server's `packet_details` can expand only the protocols asked for,
+  keeping the other layers to one line each. [38cf37d]
+
+### Changed
+
+- Triage also counts ICMP, DNS and HTTP requests without a response, in
+  captures of up to 200,000 packets (read twice for that). [1967f9c]
+
+### Fixed
+
+- Address stand-ins left most of an IPv4-mapped IPv6 address readable
+  (`::ffff:192.168.1.2` became `IP6_PUBLIC_1.168.1.2`); it now becomes
+  `::ffff:IP_PRIVATE_1`, like the IPv4 address. [8848a61]
+
+[408a8c7]: https://github.com/DenPaz/vsc_pcap_viewer/commit/408a8c7
+[1967f9c]: https://github.com/DenPaz/vsc_pcap_viewer/commit/1967f9c
+[38cf37d]: https://github.com/DenPaz/vsc_pcap_viewer/commit/38cf37d
+[8848a61]: https://github.com/DenPaz/vsc_pcap_viewer/commit/8848a61
+
 ## 0.22.0 — 2026-10-24
 
 ### Added

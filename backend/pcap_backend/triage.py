@@ -7,6 +7,11 @@ findings; the counts themselves are what tshark says.
 io,stat separates its arguments with commas, so no filter here holds one.
 A filter the installed tshark refuses (a field it doesn't know) is reported
 as unavailable rather than failing the pass.
+
+Checks marked ``two_pass`` look for requests without a response: tshark only
+links requests to responses when it reads the capture twice (``-2``), so the
+pass is two-pass up to ``TWO_PASS_LIMIT`` packets (about twice the time) and
+those checks are skipped above it.
 """
 
 from __future__ import annotations
@@ -16,12 +21,16 @@ from dataclasses import dataclass
 
 from pcap_backend.stats import IoSeries, Table
 
+# Captures up to this many packets get the two-pass checks.
+TWO_PASS_LIMIT = 200_000
+
 
 @dataclass(frozen=True)
 class Check:
     id: str
     title: str
     filter: str
+    two_pass: bool = False
 
 
 CHECKS: tuple[Check, ...] = (
@@ -64,6 +73,12 @@ CHECKS: tuple[Check, ...] = (
         "ICMP destination unreachable",
         "icmp.type == 3 || icmpv6.type == 1",
     ),
+    Check(
+        "icmp_unanswered",
+        "ICMP echo requests without a reply",
+        "icmp.no_resp || icmpv6.no_resp",
+        two_pass=True,
+    ),
     Check("icmp_time_exceeded", "ICMP time exceeded", "icmp.type == 11 || icmpv6.type == 3"),
     Check("icmp_redirects", "ICMP redirects", "icmp.type == 5 || icmpv6.type == 137"),
     Check("dns_queries", "DNS queries", "dns.flags.response == 0"),
@@ -73,6 +88,12 @@ CHECKS: tuple[Check, ...] = (
         "DNS error responses (rcode not NoError)",
         "dns.flags.response == 1 && dns.flags.rcode != 0",
     ),
+    Check(
+        "dns_unanswered",
+        "DNS queries without a response",
+        "dns.flags.response == 0 && !dns.response_in",
+        two_pass=True,
+    ),
     Check("dns_retransmissions", "DNS retransmissions", "dns.retransmission"),
     Check(
         "http_client_errors",
@@ -80,6 +101,12 @@ CHECKS: tuple[Check, ...] = (
         "http.response.code >= 400 && http.response.code < 500",
     ),
     Check("http_server_errors", "HTTP 5xx responses", "http.response.code >= 500"),
+    Check(
+        "http_unanswered",
+        "HTTP requests without a response",
+        "http.request && !http.response_in",
+        two_pass=True,
+    ),
     Check("tls_alerts", "TLS alerts", "tls.alert_message"),
     Check(
         "tls_old_versions",
