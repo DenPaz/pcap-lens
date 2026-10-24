@@ -7,6 +7,7 @@ import {
   captureLimits,
   epochNs,
   formatDateTime,
+  isFrameRanges,
   nsToSeconds,
   parseCaptureTime,
   parseDateTime,
@@ -16,6 +17,19 @@ import {
 const S = 1_000_000_000n;
 
 suite("live capture and editing helpers", () => {
+  test("Keep Packets' packet ranges, without catastrophic backtracking", () => {
+    for (const ok of ["1", "1-100", "300-", "1-100, 250, 300-", " 1-100 250\t300- ", "1,,2"]) {
+      assert.ok(isFrameRanges(ok), ok);
+    }
+    for (const bad of ["", " , ", "a", "1-2-3", "-5", "1 x", "1.5"]) {
+      assert.ok(!isFrameRanges(bad), bad);
+    }
+    // The old regular expression took seconds here (doubling per range).
+    const start = Date.now();
+    assert.ok(!isFrameRanges("1  ".repeat(5000) + "x"));
+    assert.ok(Date.now() - start < 1000);
+  });
+
   test("stop conditions from the settings", () => {
     assert.deepEqual(captureLimits(0, 0, 0), {});
     assert.deepEqual(captureLimits(1000.4, 60, 1.5), {
