@@ -1939,7 +1939,10 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   `--allow-packet-data`
   only (not even listed otherwise) list_packets (`count_matches` frames →
   `list_packets {frames, inView: false}`, so no view is touched),
-  packet_details (labels as indented lines, byte dumps "[N bytes not
+  packet_details (labels as indented lines, `layers` = the top-level
+  protocol names, `protocols` expands only those and leaves the other layers
+  one summary line each, since Frame and Ethernet filled a short `max_lines`
+  before the DNS part in a test; byte dumps "[N bytes not
   shown]" unless `--allow-packet-bytes`) and follow_stream (printable text
   per segment, `max_bytes`). All are `readOnlyHint`. `--stand-ins`:
   `standins.AddressMasker` (a port of aiPrivacy.ts without host names: the

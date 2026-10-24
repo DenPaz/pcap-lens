@@ -15,6 +15,8 @@ commit) that made it. The format follows
   Configuration…_ sets it up. [408a8c7]
 - The MCP server's `field_values` tool counts a field's values (DNS response
   codes, ICMP types…), and its triage says where to look next. [1967f9c]
+- The MCP server's `packet_details` can expand only the protocols asked for,
+  keeping the other layers to one line each.
 
 ### Changed
 

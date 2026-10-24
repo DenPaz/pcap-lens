@@ -342,10 +342,14 @@ def _top_rows(table: dict[str, Any], limit: int) -> tuple[list[dict[str, Any]], 
 
 
 def _tree_lines(
-    nodes: list[dict[str, Any]], max_lines: int, include_bytes: bool
+    nodes: list[dict[str, Any]],
+    max_lines: int,
+    include_bytes: bool,
+    expand: set[str] | None = None,
 ) -> tuple[list[str], bool]:
     """A dissection tree as indented labels (no raw values), byte dumps left
-    out unless allowed."""
+    out unless allowed. With ``expand``, the other protocols show only their
+    summary line."""
     lines: list[str] = []
 
     def label(node: dict[str, Any]) -> str:
@@ -371,12 +375,30 @@ def _tree_lines(
             if len(lines) >= max_lines:
                 return False
             lines.append("  " * depth + label(node))
+            if depth == 0 and expand is not None and _layer(node) not in expand:
+                continue
             if depth < 16 and not walk(node.get("children") or [], depth + 1):
                 return False
         return True
 
     complete = walk(nodes, 0)
     return lines, not complete
+
+
+def _layer(node: dict[str, Any]) -> str:
+    return str(node.get("name") or "").lower()
+
+
+def _protocols_arg(args: Mapping[str, Any]) -> set[str] | None:
+    """``protocols`` as a set of lower-cased names (a list, or one string with
+    commas or spaces); None when not given."""
+    raw = args.get("protocols")
+    if not raw:
+        return None
+    items = raw.replace(",", " ").split() if isinstance(raw, str) else raw
+    if not isinstance(items, list) or not all(isinstance(x, str) for x in items):
+        raise ToolFailureError("'protocols' must be a list of protocol names, e.g. [\"dns\"]")
+    return {x.strip().lower() for x in items if x.strip()} or None
 
 
 def _printable(data: bytes) -> str:
@@ -548,11 +570,22 @@ class Toolbox:
                 "packet_details",
                 "Packet details",
                 "One packet's dissection tree as indented lines, as Wireshark's details pane shows "
-                "it (payload bytes left out unless the server allows them).",
+                "it (payload bytes left out unless the server allows them). Give 'protocols' to "
+                'expand only those layers (e.g. ["dns"]): the others show their one-line '
+                "summary, so the part you need fits. 'layers' in the result names the packet's "
+                "protocols.",
                 _schema(
                     {
                         "capture": _CAPTURE,
                         "packet": {"type": "integer", "minimum": 1, "description": "Packet number"},
+                        "protocols": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "Protocols to expand, by display filter name (dns, http, tcp, "
+                                "ip…); default all"
+                            ),
+                        },
                         "max_lines": {
                             "type": "integer",
                             "minimum": 20,
@@ -819,12 +852,23 @@ class Toolbox:
         if number < 1:
             raise ToolFailureError("'packet' must be a packet number (1 or more)")
         max_lines = _int(args, "max_lines", 250, 20, MAX_DETAIL_LINES)
+        expand = _protocols_arg(args)
         service = self.captures.get(path, ctx)
         detail = service.packet_detail({"number": number}, ctx)
-        lines, truncated = _tree_lines(
-            detail.get("tree") or [], max_lines, self.config.allow_packet_bytes
-        )
-        return {"packet": number, "tree": "\n".join(lines), "truncated": truncated}
+        tree: list[dict[str, Any]] = detail.get("tree") or []
+        layers = [_layer(n) for n in tree if _layer(n)]
+        if expand is not None and not expand & set(layers):
+            raise ToolFailureError(
+                f"packet {number} has none of {', '.join(sorted(expand))}; "
+                f"its layers are {', '.join(layers)}"
+            )
+        lines, truncated = _tree_lines(tree, max_lines, self.config.allow_packet_bytes, expand)
+        return {
+            "packet": number,
+            "layers": layers,
+            "tree": "\n".join(lines),
+            "truncated": truncated,
+        }
 
     def follow_stream(self, args: dict[str, Any], ctx: RequestContext) -> Any:
         path = self.captures.resolve(_capture_arg(args))

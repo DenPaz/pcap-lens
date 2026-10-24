@@ -301,6 +301,27 @@ def test_packet_tools(client_for: Any) -> None:
     text, failed = c.call("packet_details", capture="http.pcap", packet=10**6)
     assert failed and "out of range" in text
 
+    # Only the layers asked for are expanded; the others keep their summary line.
+    full, _ = c.call("packet_details", capture="services.pcap", packet=48)
+    assert full["layers"] == ["frame", "eth", "ip", "udp", "dns"]
+    dns, _ = c.call("packet_details", capture="services.pcap", packet=48, protocols=["DNS"])
+    lines = dns["tree"].split("\n")
+    tops = [line for line in lines if not line.startswith(" ")]
+    assert [t.split()[0] for t in tops] == ["Frame", "Ethernet", "Internet", "User", "Domain"]
+    assert lines[-1].startswith("  ") and "No such name" in dns["tree"]
+    assert lines.index(tops[-1]) == 4, "frame, eth, ip and udp are one line each"
+    assert not dns["truncated"] and len(lines) < len(full["tree"].split("\n"))
+    short, _ = c.call(
+        "packet_details", capture="services.pcap", packet=48, protocols="dns", max_lines=20
+    )
+    assert "Response: Message is a response" in short["tree"]
+    both, _ = c.call("packet_details", capture="services.pcap", packet=48, protocols="udp, dns")
+    assert "Source Port: 53" in both["tree"]
+    text, failed = c.call("packet_details", capture="services.pcap", packet=48, protocols=["http"])
+    assert failed and "frame, eth, ip, udp, dns" in text
+    text, failed = c.call("packet_details", capture="services.pcap", packet=48, protocols=[1])
+    assert failed and "protocols" in text
+
     stream, _ = c.call("follow_stream", capture="http.pcap", protocol="tcp", stream=0)
     joined = "".join(s["text"] for s in stream["segments"])
     assert "GET " in joined and "HTTP/1.1" in joined

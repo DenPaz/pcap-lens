@@ -482,16 +482,16 @@ tools' results.
   configuration file). It starts Python on a copy of the backend kept in VS
   Code's storage, so it keeps working after updates.
 
-| Tool                                                | What it returns                                                                   |
-| --------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `list_captures`                                     | Capture files in the allowed folders                                              |
-| `capture_info`                                      | Packets, times, size, link type, format                                           |
-| `count_packets`                                     | How many packets match a display filter, and the first ones' numbers              |
-| `statistics`                                        | Protocol hierarchy, conversations, endpoints, expert information, I/O, HTTP, DNS… |
-| `triage`                                            | The triage checks' counts with filters, first/last packets and where to look next |
-| `field_values` ²                                    | A field's values and how many packets hold each, optionally within a filter       |
-| `validate_filter`, `search_fields`                  | Display filter checks and field names                                             |
-| `list_packets`, `packet_details`, `follow_stream` ¹ | Packet rows, dissection trees, a stream's payload as text                         |
+| Tool                                                | What it returns                                                                    |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `list_captures`                                     | Capture files in the allowed folders                                               |
+| `capture_info`                                      | Packets, times, size, link type, format                                            |
+| `count_packets`                                     | How many packets match a display filter, and the first ones' numbers               |
+| `statistics`                                        | Protocol hierarchy, conversations, endpoints, expert information, I/O, HTTP, DNS…  |
+| `triage`                                            | The triage checks' counts with filters, first/last packets and where to look next  |
+| `field_values` ²                                    | A field's values and how many packets hold each, optionally within a filter        |
+| `validate_filter`, `search_fields`                  | Display filter checks and field names                                              |
+| `list_packets`, `packet_details`, `follow_stream` ¹ | Packet rows, dissection trees (all layers or the protocols named), stream payloads |
 
 ¹ Only with `pcapViewer.mcp.allowPacketData` (`--allow-packet-data`); payload
 bytes in the trees only with `--allow-packet-bytes`. ² Numbers, codes and
