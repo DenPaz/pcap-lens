@@ -7,6 +7,13 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- Compare two captures with AI: `@pcap /compare baseline.pcapng` or _PCAP:
+  Compare Captures with AI…_ explains what changed (check rates, new and gone
+  hosts, services and flows, protocol mix, expert messages) from statistics
+  tshark computes for both; the MCP server has the same as `compare_captures`.
+
 ### Changed
 
 - The repository is now

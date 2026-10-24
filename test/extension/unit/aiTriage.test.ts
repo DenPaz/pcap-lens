@@ -167,7 +167,7 @@ suite("aiTriage", () => {
   test("the chat query and the consent", () => {
     assert.equal(triageQuery(), "@pcap /triage");
     assert.equal(triageQuery(" dns\nonly "), "@pcap /triage dns only");
-    assert.match(STATISTICS_CONSENT, /triaging a capture/);
+    assert.match(STATISTICS_CONSENT, /triaging or comparing captures/);
     assert.match(STATISTICS_CONSENT, /first and last packet number/);
   });
 

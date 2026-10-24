@@ -165,7 +165,7 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   dump's layout (pure).
   `src/rotation.ts` recognises rotated capture pieces (pure).
   AI: `src/aiFilter.ts`, `aiCaptureFilter.ts`, `aiDissector.ts`,
-  `aiExplain.ts`, `aiSummary.ts`, `aiTriage.ts`, `aiAnomaly.ts`, `aiTools.ts`
+  `aiExplain.ts`, `aiSummary.ts`, `aiTriage.ts`, `aiCompare.ts`, `aiAnomaly.ts`, `aiTools.ts`
   (tool specs, `runTool`, `runToolLoop`), `aiModel.ts` (model choice),
   `aiPrivacy.ts` (address stand-ins) and `aiConsent.ts` are pure prompt
   builders/parsers; `src/ai.ts` (`FilterAssistant`) and
@@ -194,7 +194,8 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   `src/commands/recent.ts` its tree view and commands.
   `src/extcapModel.ts` extcap options' values, checks and labels (pure).
   `src/captureReport.ts` the capture report as Markdown or HTML (pure);
-  `src/commands/report.ts`.
+  `src/commands/report.ts`. `src/commands/compare.ts` the other capture of
+  a comparison (picking it, its profile).
 - `src/webview/` plain JS/CSS/HTML (no build step). `lib.js` = pure helpers
   shared with Node tests (a classic script, `window.PcapLib`, like the panels'
   scripts and `worldmap.js`, the Endpoints map's land outline that
@@ -232,7 +233,7 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   (follow, TCP graphs), `statistics` → `telephony` (VoIP), `colors`,
   `exporting`, `tools` (merge, hex import, probe, plugins, editing),
   `flow`, `exported_objects`, `filterhelp` (empty-filter hints, field
-  values); plus `state.py` (constants and the per-capture
+  values), `comparing` (capture profiles and their diff); plus `state.py` (constants and the per-capture
   dataclasses `_Open`, `_View`…), `indexing.py` (the index pass's
   module-level helpers) and `helpers.py`), `tshark.py` (discovery/argv/process helpers), `cache.py`
   (row store, frame index, LRU), `pdml.py` (PDML + hexdump parsing),
@@ -247,6 +248,7 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   of capture editing), `hexdump.py` (text2pcap options of Import from Hex
   Dump), `ber.py` (counting back-to-back BER records), `codecs.py` (G.722,
   G.726-32 and L16 decoders), `triage.py` (the AI triage's checks),
+  `compare.py` (capture profiles and diffs),
   `mcp.py` (the MCP server) and `standins.py` (its address stand-ins),
   `filterhelp.py` (a filter's
   field names, case hints, value counts), `plugins.py` (`tshark -G
@@ -1913,6 +1915,36 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   asks "With AI findings" only when a model is available (`findings` arg),
   under the statistics consent; `findingsBlocks` adds a Findings section
   after Properties, naming the model.
+- **Comparing captures** (`compare.py`, `service/comparing.py`,
+  `src/aiCompare.ts` pure, `FilterAssistant.compare`, `commands/compare.ts`;
+  `@pcap /compare`, _PCAP: Compare Captures with AI…_, MCP
+  `compare_captures`): `capture_profile` computes one capture's profile
+  (`PROFILE_VERSION`; seven parts in a pool of 4: capture_info, phs, TCP/UDP
+  conversations, IPv4/IPv6 endpoints, triage, expert; a part tshark refuses
+  is listed in `missing`), so the other capture needs no editor: its own
+  session's profile when loaded, else a short-lived backend opened with its
+  settings (`dissectionOptions`) and the saved-index cache. Flows are keyed
+  client → server:port (`flow_key`: the server is the end with the lower
+  port; IPv6 servers bracketed), with connections summed; at most
+  `MAX_PROFILE_ITEMS` (500) flows and endpoints by bytes. `compare_profiles
+{before, after, names}` (`compare.diff`) gives totals and rates, the checks
+  whose counts differ (per 1,000 packets, first packet in each), and per kind
+  (protocols, flows, endpoints, expert) what is `new`, `gone` or `changed`
+  by share (≥ `MIN_SHARE_CHANGE` 1 percentage point), `MAX_DIFF_ITEMS` (15)
+  each, plus `notes` (two-pass checks on one side only, missing parts,
+  different link types). The prompt (`buildComparePrompt`) says which
+  capture is open (its filters and packet numbers apply) and halves the
+  lists until it fits `COMPARE_LIMITS`; the open capture's backend checks
+  the answer's filters and its stand-ins mask both captures' addresses.
+  Chat: a path (quoted, or a word with a slash or an extension; relative to
+  the open capture's folder, then the workspace folders) is the baseline;
+  the command asks for the other file and which is the baseline, then opens
+  `@pcap /compare #N` (`compareSelections`, kept like expert rows) or
+  streams into an editor. Statistics consent. `office-before.pcap` and
+  `office-after.pcap` (`generate.office_packets`) are one office network
+  without and with problems: resets, refused connections, unanswered ICMP
+  and DNS, DNS errors, HTTP 5xx, a retransmission and 10.0.0.66 scanning
+  10.0.0.80's ports 22, 23, 445, 3389 and 5900.
 - **MCP server** (`backend/pcap_backend/mcp.py`, `standins.py`;
   `src/mcpConfig.ts` pure, `src/commands/mcp.ts`): `python -m
 pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
@@ -1945,7 +1977,9 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   and need `--allow-packet-data`; the refusal and the instructions say the
   user chose this and not to read contents another way (`_CONTENTS_REFUSED`:
   in a test Claude Code ran tshark through Bash after a plain "this server
-  doesn't return"), validate_filter, search_fields, and with
+  doesn't return"), compare_captures (`{before, after, limit}`: both
+  captures' `capture_profile`, then `compare.diff`; names relative to the
+  root), validate_filter, search_fields, and with
   `--allow-packet-data`
   only (not even listed otherwise) list_packets (`count_matches` frames →
   `list_packets {frames, inView: false}`, so no view is touched),

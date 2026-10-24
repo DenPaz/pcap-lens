@@ -368,6 +368,12 @@
         "icon": "$(checklist)"
       },
       {
+        "command": "pcapViewer.compareCaptures",
+        "title": "Compare Captures with AI…",
+        "category": "PCAP",
+        "icon": "$(diff)"
+      },
+      {
         "command": "pcapViewer.askAboutAnomaly",
         "title": "Ask Copilot About Expert Information",
         "category": "PCAP"
@@ -1162,6 +1168,10 @@
         },
         {
           "command": "pcapViewer.triageCapture",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
+        },
+        {
+          "command": "pcapViewer.compareCaptures",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
         },
         {
@@ -2024,6 +2034,10 @@
           {
             "name": "triage",
             "description": "Triage the open capture: ranked findings from checks counted by tshark, with filters and packets (sends statistics: pcapViewer.ai.allowCaptureStatistics)"
+          },
+          {
+            "name": "compare",
+            "description": "Compare the open capture with a baseline capture (name it, e.g. /compare baseline.pcapng): what changed (sends both captures' statistics: pcapViewer.ai.allowCaptureStatistics)"
           },
           {
             "name": "summary",

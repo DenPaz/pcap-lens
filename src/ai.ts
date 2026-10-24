@@ -44,6 +44,7 @@ import {
   ANOMALY_LIMITS,
 } from "./aiAnomaly";
 import { CaptureFacts, StatsTable, buildSummaryPrompt } from "./aiSummary";
+import { CaptureDiff, buildComparePrompt } from "./aiCompare";
 import { ToolConsent, TOOL_LIMITS, buildToolPrompt, runTool, runToolLoop } from "./aiTools";
 import { toolsRuntime } from "./lmTools";
 import { ModelInfo, modelLabel, modelSelector, unavailableMessage } from "./aiModel";
@@ -102,6 +103,8 @@ const TRIAGE_JUSTIFICATION =
   "PCAP Lens triages the open capture from check counts and statistics computed by tshark (no packet contents).";
 const EXPLAIN_JUSTIFICATION =
   "PCAP Lens explains the packets you picked. Their packet-list rows and dissection trees are sent.";
+const COMPARE_JUSTIFICATION =
+  "PCAP Lens compares two captures' statistics (totals, check counts, flows, endpoints, expert information) to explain what changed.";
 const SUMMARY_JUSTIFICATION =
   "PCAP Lens summarizes the open capture from statistics computed by tshark (no packet contents).";
 const ANOMALY_JUSTIFICATION =
@@ -803,6 +806,53 @@ export class FilterAssistant implements vscode.Disposable {
       return {
         frames: [],
         filters: await this.validFilters(backend, extractFilters(answer), "summary"),
+      };
+    } catch (err) {
+      return this.failed(err, token);
+    }
+  }
+
+  /**
+   * Explain what changed between two captures (aiCompare.ts) from their
+   * profiles (`capture_profile`), which the backend diffs (`compare_profiles`).
+   * `backend` is the capture open in the viewer: its stand-ins mask both
+   * captures' addresses, and its tshark checks the answer's filters. The
+   * caller has the statistics consent.
+   */
+  async compare(
+    backend: BackendClient,
+    req: {
+      before: unknown;
+      after: unknown;
+      names: [string, string];
+      open: "before" | "after";
+      question: string;
+    },
+    sink: ExplainSink,
+    token: vscode.CancellationToken,
+  ): Promise<ExplainOutcome> {
+    const model = await this.readyModel();
+    if (!("sendRequest" in model)) {
+      return model;
+    }
+    try {
+      const diff = await backend.request<CaptureDiff>("compare_profiles", {
+        before: req.before,
+        after: req.after,
+        names: req.names,
+      });
+      const prompt = buildComparePrompt({ question: req.question, diff, open: req.open });
+      const answer = await this.streamAnswer(
+        model,
+        prompt,
+        COMPARE_JUSTIFICATION,
+        sink,
+        token,
+        this.maskerFor(backend),
+      );
+      return {
+        frames: [],
+        filters: await this.validFilters(backend, extractFilters(answer), "comparison"),
       };
     } catch (err) {
       return this.failed(err, token);

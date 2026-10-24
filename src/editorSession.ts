@@ -115,6 +115,21 @@ function commandMenu(context: vscode.ExtensionContext): MenuCommand[] {
 
 let nextSessionId = 1;
 
+/** The `open` parameters that decide how a capture is dissected (its settings and keys). */
+export function dissectionOptions(settings: Settings): Record<string, unknown> {
+  return {
+    lua: settings.luaScripts,
+    decodeAs: settings.decodeAs,
+    prefs: settings.prefs,
+    names: settings.nameResolution,
+    profile: settings.wiresharkProfile || undefined,
+    protocols: settings.protocols,
+    heuristics: settings.heuristics,
+    keys: keyStore.all.length ? keyStore.all : undefined,
+    geoip: settings.geoipFolders.length ? settings.geoipFolders : undefined,
+  };
+}
+
 /** Where saved packet-list indexes live (the extension's own storage). */
 export function indexCacheDir(context: vscode.ExtensionContext): string {
   return path.join(context.globalStorageUri.fsPath, "index-cache");
@@ -650,15 +665,7 @@ export class PcapEditorSession {
       },
       async (progress) => {
         const common = {
-          lua: settings.luaScripts,
-          decodeAs: settings.decodeAs,
-          prefs: settings.prefs,
-          names: settings.nameResolution,
-          profile: settings.wiresharkProfile || undefined,
-          protocols: settings.protocols,
-          heuristics: settings.heuristics,
-          keys: keyStore.all.length ? keyStore.all : undefined,
-          geoip: settings.geoipFolders.length ? settings.geoipFolders : undefined,
+          ...dissectionOptions(settings),
           columns: settings.columns.map((c) => c.field),
           // Show the first rows while the rest is indexed.
           stream: true,
@@ -1305,6 +1312,45 @@ export class PcapEditorSession {
       return this.notLoaded();
     }
     return this.assistant.summarize(client, { question, currentFilter: this.filter }, sink, token);
+  }
+
+  /** The capture's profile for comparisons (`capture_profile`), undefined until it is loaded. */
+  async profile(token?: vscode.CancellationToken): Promise<unknown> {
+    const client = this.client;
+    if (!client?.running || !this.info || this.info.indexing || this.capturing) {
+      return undefined;
+    }
+    return client.request("capture_profile", {}, { timeoutMs: 0, cancellation: token });
+  }
+
+  /**
+   * What changed between this capture and another one (ai.ts, aiCompare.ts;
+   * the caller has the statistics consent): `other` is the other capture's
+   * profile, `is` its role.
+   */
+  async compare(
+    other: { profile: unknown; name: string; is: "before" | "after" },
+    question: string,
+    sink: ExplainSink,
+    token: vscode.CancellationToken,
+  ): Promise<ExplainOutcome> {
+    const client = this.client;
+    if (!client?.running || !this.info || this.info.indexing || this.capturing) {
+      return this.notLoaded();
+    }
+    sink.progress(`Computing ${path.basename(this.uri.fsPath)}'s statistics with tshark…`);
+    const mine = await this.profile(token);
+    const name = path.basename(this.uri.fsPath);
+    const [before, after, names]: [unknown, unknown, [string, string]] =
+      other.is === "before"
+        ? [other.profile, mine, [other.name, name]]
+        : [mine, other.profile, [name, other.name]];
+    return this.assistant.compare(
+      client,
+      { before, after, names, open: other.is === "before" ? "after" : "before", question },
+      sink,
+      token,
+    );
   }
 
   /** Triage the capture (ai.ts, aiTriage.ts; the caller has the statistics consent). */

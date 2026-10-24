@@ -326,4 +326,10 @@ async function closeEditorsOf(uri: vscode.Uri, attempts = 25): Promise<void> {
 
 // Moved out of this file; re-exported so importers keep using "./pcapEditor".
 export { CaptureRequest, PcapDocument } from "./pcapDocument";
-export { OPEN_AS_PACKETS, PcapEditorSession, describeError, indexCacheDir } from "./editorSession";
+export {
+  OPEN_AS_PACKETS,
+  PcapEditorSession,
+  describeError,
+  dissectionOptions,
+  indexCacheDir,
+} from "./editorSession";

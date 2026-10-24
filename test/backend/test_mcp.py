@@ -136,6 +136,7 @@ def test_handshake_tools_and_errors(client_for: Any) -> None:
         "count_packets",
         "statistics",
         "triage",
+        "compare_captures",
         "field_values",
         "validate_filter",
         "search_fields",
@@ -227,6 +228,29 @@ def test_statistics_tools(client_for: Any) -> None:
     assert invalid["valid"] is False and invalid["error"]
     fields, _ = c.call("search_fields", query="dns reply code", limit=5)
     assert any(f["name"] == "dns.flags.rcode" for f in fields["fields"])
+
+
+@pytest.mark.tshark
+def test_compare_captures(client_for: Any) -> None:
+    c = client_for(stand_ins=True)
+    d, failed = c.call(
+        "compare_captures", before="office-before.pcap", after="office-after.pcap", limit=3
+    )
+    assert not failed
+    assert (d["before"]["name"], d["after"]["name"]) == ("office-before.pcap", "office-after.pcap")
+    resets = next(x for x in d["checks"]["changed"] if x["id"] == "tcp_resets")
+    assert (resets["before"], resets["after"]) == (0, 5) and resets["firstPacketAfter"]
+    # The scanner's address has one stand-in, in the endpoints and in its flows.
+    [scanner] = d["endpoints"]["new"]
+    assert scanner["address"].startswith("IP_PRIVATE_")
+    assert all(f["flow"].startswith(f"tcp {scanner['address']} → ") for f in d["flows"]["new"])
+    assert len(d["flows"]["new"]) == 3 and d["flows"]["more"] == {"new": 2}
+    text, failed = c.call(
+        "compare_captures", before="office-after.pcap", after="./office-after.pcap"
+    )
+    assert failed and "same file" in text
+    text, failed = c.call("compare_captures", before="office-before.pcap")
+    assert failed and "'after' is missing" in text
 
 
 @pytest.mark.tshark

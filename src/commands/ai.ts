@@ -17,6 +17,7 @@ import {
   parseAnomalyArgs,
 } from "../aiAnomaly";
 import { STATISTICS_CONSENT } from "../aiConsent";
+import { compareQuery, parseCompareArgs } from "../aiCompare";
 import { modelItems } from "../aiModel";
 import { withStandInNote } from "../aiPrivacy";
 import { EXPLAIN_LIMITS, PACKET_DATA_CONSENT, explainQuery, parseExplainArgs } from "../aiExplain";
@@ -27,6 +28,7 @@ import { PCAP_TOOLS, ToolConsent, runTool } from "../aiTools";
 import { SECTION } from "../config";
 import { toolsRuntime } from "../lmTools";
 import type { PcapEditorProvider, PcapEditorSession } from "../pcapEditor";
+import { OtherCapture, captureProfile, pickOtherCapture, resolveCapturePath } from "./compare";
 import { requireSession } from "./filter";
 
 /** "PCAP: Suggest Display Filter…": describe the packets, pick a validated filter, it lands in the filter bar. */
@@ -391,6 +393,101 @@ function triageMarkdown(outcome: TriageOutcome): string {
   ).replace(/^/, "\n");
 }
 
+/**
+ * Compare the open capture with `other`: the other's profile (its editor's,
+ * else a short-lived backend's), then the session's diff and answer.
+ */
+async function runCompare(
+  provider: PcapEditorProvider,
+  context: vscode.ExtensionContext,
+  log: vscode.LogOutputChannel,
+  session: PcapEditorSession,
+  other: OtherCapture,
+  question: string,
+  sink: ExplainSink,
+  token: vscode.CancellationToken,
+): Promise<ExplainOutcome> {
+  const name = path.basename(other.uri.fsPath);
+  try {
+    sink.progress(`Computing ${name}'s statistics with tshark…`);
+    const profile = await captureProfile(provider, context, log, other.uri, token);
+    return await session.compare({ profile, name, is: other.is }, question, sink, token);
+  } catch (err) {
+    const message = token.isCancellationRequested
+      ? "Cancelled."
+      : `Couldn't compare with ${name}: ${(err as Error)?.message ?? err}`;
+    return { frames: [], filters: [], message };
+  }
+}
+
+/**
+ * `@pcap /compare <capture | #ref> [question]`: what changed between the open
+ * capture and another. A capture named in chat is the baseline; `#ref` is a
+ * comparison set up by the command (which asks for the baseline).
+ */
+async function compareInChat(
+  provider: PcapEditorProvider,
+  context: vscode.ExtensionContext,
+  log: vscode.LogOutputChannel,
+  prompt: string,
+  stream: vscode.ChatResponseStream,
+  token: vscode.CancellationToken,
+): Promise<void> {
+  const session = provider.activeSession;
+  if (!session?.openInfo) {
+    stream.markdown(
+      "Open a capture in PCAP Lens first, then compare it with a baseline, e.g. *@pcap /compare baseline.pcapng*.",
+    );
+    return;
+  }
+  const args = parseCompareArgs(prompt);
+  let other: OtherCapture | undefined;
+  if (args.ref !== undefined) {
+    other = compareSelections.get(args.ref);
+    if (!other) {
+      stream.markdown("That comparison is no longer available. Start it again:");
+    }
+  } else if (args.path) {
+    const uri = resolveCapturePath(args.path, session);
+    if (!uri) {
+      stream.markdown(
+        new vscode.MarkdownString().appendText(
+          `There is no file ${args.path} next to the open capture or in the workspace.`,
+        ),
+      );
+    } else if (uri.fsPath === session.uri.fsPath) {
+      stream.markdown("Name another capture than the open one.");
+    } else {
+      other = { uri, is: "before" };
+    }
+  } else {
+    stream.markdown(
+      "Which capture should I compare with? Name the baseline (*@pcap /compare baseline.pcapng*) or pick it:",
+    );
+  }
+  if (!other) {
+    stream.button({ command: "pcapViewer.compareCaptures", title: "Compare Captures…" });
+    return;
+  }
+  if (!(await statisticsConsent())) {
+    statisticsRefused(stream, "Comparing captures");
+    return;
+  }
+  finishInChat(
+    stream,
+    await runCompare(
+      provider,
+      context,
+      log,
+      session,
+      other,
+      args.question,
+      chatSink(stream),
+      token,
+    ),
+  );
+}
+
 /** Expert rows sent by the Expert Information panel, by reference (`@pcap /anomaly expert #N`). */
 const expertSelections = new Map<number, ExpertRow[]>();
 let nextSelection = 1;
@@ -411,6 +508,9 @@ function keep<T>(map: Map<number, T>, value: T): number {
   }
   return ref;
 }
+
+/** Comparisons started by _Compare Captures with AI…_, by reference (`@pcap /compare #N`). */
+const compareSelections = new Map<number, OtherCapture>();
 
 function keepSelection(rows: ExpertRow[]): number {
   return keep(expertSelections, rows);
@@ -575,6 +675,37 @@ export async function summarizeCapture(
   }
 }
 
+/** "PCAP: Compare Captures with AI…": pick the other capture and the baseline, then @pcap /compare #N (else an editor). */
+export async function compareCaptures(
+  context: vscode.ExtensionContext,
+  provider: PcapEditorProvider,
+  log: vscode.LogOutputChannel,
+): Promise<void> {
+  const session = requireSession(provider);
+  if (!session) {
+    return;
+  }
+  if (!aiEnabled()) {
+    void vscode.window.showInformationMessage("AI help is turned off (pcapViewer.ai.enabled).");
+    return;
+  }
+  const other = await pickOtherCapture(session);
+  if (!other) {
+    return;
+  }
+  if (await openChatWith(compareQuery(keep(compareSelections, other)), log)) {
+    return;
+  }
+  if (await statisticsConsent()) {
+    const [a, b] = [path.basename(other.uri.fsPath), path.basename(session.uri.fsPath)];
+    await answerInEditor(
+      other.is === "before" ? `Changes from ${a} to ${b}` : `Changes from ${b} to ${a}`,
+      "Comparing the captures…",
+      (sink, token) => runCompare(provider, context, log, session, other, "", sink, token),
+    );
+  }
+}
+
 /** "PCAP: Triage Capture with AI": @pcap /triage in the chat view, else findings in a Markdown editor. */
 export async function triageCapture(
   provider: PcapEditorProvider,
@@ -716,6 +847,10 @@ function registerChatParticipant(
         await summaryInChat(provider, request.prompt, stream, token);
         return;
       }
+      if (request.command === "compare") {
+        await compareInChat(provider, context, log, request.prompt, stream, token);
+        return;
+      }
       if (request.command === "anomaly") {
         await anomalyInChat(provider, request.prompt, stream, token);
         return;
@@ -786,6 +921,9 @@ export function registerAiCommands(
   );
   context.subscriptions.push(
     vscode.commands.registerCommand("pcapViewer.triageCapture", () => triageCapture(provider, log)),
+    vscode.commands.registerCommand("pcapViewer.compareCaptures", () =>
+      compareCaptures(context, provider, log),
+    ),
     vscode.commands.registerCommand("pcapViewer.summarizeCapture", () =>
       summarizeCapture(provider, log),
     ),

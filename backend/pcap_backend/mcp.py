@@ -39,6 +39,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Any
 
+from . import compare
 from .cancellation import CancelledError, CancelToken
 from .pcap_service import PcapService
 from .protocol import (
@@ -155,11 +156,12 @@ class Captures:
                 self._tools = self._new_service(ctx)
             return self._tools
 
-    def resolve(self, raw: object) -> Path:
-        """A capture path inside a root (relative paths: from the first root)."""
+    def resolve(self, raw: object, name: str = "capture") -> Path:
+        """A capture path inside a root (relative paths: from the first root);
+        ``name`` is the argument's, for the error."""
         if not isinstance(raw, str) or not raw.strip():
             raise ToolFailureError(
-                "'capture' is missing: give the path of a capture file (list_captures finds them)"
+                f"'{name}' is missing: give the path of a capture file (list_captures finds them)"
             )
         path = Path(raw.strip()).expanduser()
         if not path.is_absolute():
@@ -543,6 +545,29 @@ class Toolbox:
                 self.triage,
             ),
             Tool(
+                "compare_captures",
+                "Compare two captures",
+                "What changed between two captures of the same network (before and after a "
+                "change, a good day and a bad one): totals and rates, triage checks per 1,000 "
+                "packets, protocols, flows (client → server:port) and IP endpoints that are new, "
+                "gone or changed their share, and expert messages. Each check comes with its "
+                "display filter and first packet in either capture.",
+                _schema(
+                    {
+                        "before": {**_CAPTURE, "description": "The baseline capture's path"},
+                        "after": {**_CAPTURE, "description": "The capture to compare with it"},
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100,
+                            "description": "Items per list (default 15)",
+                        },
+                    },
+                    ["before", "after"],
+                ),
+                self.compare_captures,
+            ),
+            Tool(
                 "field_values",
                 "Values of a field",
                 "The values one field takes, most frequent first, with how many packets hold "
@@ -784,6 +809,23 @@ class Toolbox:
             "omittedRows": omitted,
             **extra,
         }
+
+    def compare_captures(self, args: dict[str, Any], ctx: RequestContext) -> Any:
+        before = self.captures.resolve(args.get("before"), "before")
+        after = self.captures.resolve(args.get("after"), "after")
+        if before == after:
+            raise ToolFailureError("before and after are the same file")
+        limit = _int(args, "limit", compare.MAX_DIFF_ITEMS, 1, 100)
+        profiles = [self.captures.get(p, ctx).capture_profile({}, ctx) for p in (before, after)]
+        names = (self._shown(before), self._shown(after))
+        return compare.diff(profiles[0], profiles[1], names, limit)
+
+    def _shown(self, path: Path) -> str:
+        """A capture's path as the assistant gave it: relative to a root."""
+        for root in self.config.roots:
+            if path.is_relative_to(root):
+                return str(path.relative_to(root))
+        return str(path)
 
     def triage(self, args: dict[str, Any], ctx: RequestContext) -> Any:
         path = self.captures.resolve(_capture_arg(args))

@@ -28,6 +28,7 @@ from .fields import parse_field_list
 from .protocol import RequestContext, RpcError
 from .service.capturing import CaptureMixin
 from .service.colors import ColoringMixin
+from .service.comparing import ComparingMixin
 from .service.dissection import parse_decode_as_choices, script_in_lua_message
 from .service.exported_objects import ObjectsMixin
 from .service.exporting import ExportMixin
@@ -54,6 +55,7 @@ class PcapService(
     ToolsMixin,
     ObjectsMixin,
     FilterHelpMixin,
+    ComparingMixin,
 ):
     """Every request handler; one instance serves one capture (see the module docstring)."""
 
@@ -88,6 +90,8 @@ def rpc_methods(service: PcapService) -> dict[str, Callable[[dict[str, Any], Req
         "protocol_prefs": service.protocol_prefs,
         "expert_summary": service.expert_summary,
         "triage": service.triage,
+        "capture_profile": service.capture_profile,
+        "compare_profiles": service.compare_profiles,
         "dissector_names": service.dissector_names,
         "enabled_protocols": service.enabled_protocols,
         "set_coloring": service.set_coloring,

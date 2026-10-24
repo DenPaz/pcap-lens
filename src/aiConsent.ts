@@ -1,18 +1,19 @@
 /**
  * The consent for the AI features that send statistics computed from the
- * capture (never packet contents): the capture summary and triage, anomaly
+ * capture (never packet contents): the capture summary, triage and comparison, anomaly
  * explanations and @pcap's tools. One setting, `pcapViewer.ai.allowCaptureStatistics`
  * (application-scoped), asked once with this text; allowing packet data
  * (`pcapViewer.ai.allowPacketData`) implies it. No `vscode` import: the text
  * is unit-tested against the limits it states.
  */
 import { ANOMALY_LIMITS } from "./aiAnomaly";
+import { COMPARE_LIMITS } from "./aiCompare";
 import { SUMMARY_LIMITS } from "./aiSummary";
 import { TOOL_LIMITS } from "./aiTools";
 
 /** Exactly what the statistics-based AI features send: shown in the consent prompt (and README). */
 export const STATISTICS_CONSENT =
-  "Summarizing or triaging a capture, explaining expert information, a TCP stream or a VoIP call, and answering @pcap questions with tools " +
+  "Summarizing, triaging or comparing captures, explaining expert information, a TCP stream or a VoIP call, and answering @pcap questions with tools " +
   "send statistics computed from the capture by tshark to the language model (GitHub Copilot, unless you chose another " +
   "with PCAP: Choose Language Model…), never packet contents " +
   "or bytes: the capture's properties (packets, duration, size, link type); its protocol hierarchy; its top " +
@@ -20,6 +21,9 @@ export const STATISTICS_CONSENT =
   "resolution is on, packet and byte counts); expert information counts and messages; packet and byte counts over " +
   `time in ${SUMMARY_LIMITS.ioBuckets} buckets; for a triage, the packet counts of fixed checks (retransmissions, ` +
   "resets, DNS and HTTP errors…) with each one's display filter and first and last packet number; " +
+  "for a comparison, the same for both captures as differences: totals and rates, the checks whose counts differ, " +
+  `and up to ${COMPARE_LIMITS.maxItems} protocols, flows (client address → server address and port), endpoints ` +
+  "and expert messages each that are new, gone or changed; " +
   "for an explanation, the selected expert entries (with up to " +
   `${ANOMALY_LIMITS.maxFramesPerRow} packet numbers each) and their conversation, or up to ` +
   `${ANOMALY_LIMITS.maxPoints} packets of a TCP stream as sequence numbers, lengths, windows, round-trip times and ` +
