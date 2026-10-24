@@ -29,11 +29,12 @@ commit) that made it. The format follows
 
 - Address stand-ins left most of an IPv4-mapped IPv6 address readable
   (`::ffff:192.168.1.2` became `IP6_PUBLIC_1.168.1.2`); it now becomes
-  `::ffff:IP_PRIVATE_1`, like the IPv4 address.
+  `::ffff:IP_PRIVATE_1`, like the IPv4 address. [8848a61]
 
 [408a8c7]: https://github.com/DenPaz/vsc_pcap_viewer/commit/408a8c7
 [1967f9c]: https://github.com/DenPaz/vsc_pcap_viewer/commit/1967f9c
 [38cf37d]: https://github.com/DenPaz/vsc_pcap_viewer/commit/38cf37d
+[8848a61]: https://github.com/DenPaz/vsc_pcap_viewer/commit/8848a61
 
 ## 0.22.0 — 2026-10-24
 
