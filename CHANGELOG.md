@@ -11,7 +11,9 @@ commit) that made it. The format follows
 
 - The repository is now
   [github.com/DenPaz/pcap-lens](https://github.com/DenPaz/pcap-lens) (the old
-  URL redirects).
+  URL redirects). [3a7f0de]
+
+[3a7f0de]: https://github.com/DenPaz/pcap-lens/commit/3a7f0de
 
 ## 0.23.0 — 2026-10-24
 
