@@ -10,7 +10,7 @@ CONTRIBUTING.md for building, testing and releasing (not packaged).
 | Task                      | Command                                                                                                                                                  |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Install dev deps          | `uv sync` and `pnpm install`                                                                                                                             |
-| Build extension           | `pnpm run compile` (tsc → `out/`)                                                                                                                        |
+| Build extension           | `pnpm run compile` (tsc → `out/`, then esbuild → `dist/extension.js`, what VS Code runs; `pnpm run watch:bundle` rebuilds it on save)                    |
 | Lint everything           | `pnpm run lint && pnpm run format:check && uv run ruff check && uv run ruff format --check && uv run mypy`                                               |
 | Format                    | `make format` (ruff --fix, ruff format, eslint --fix, Prettier)                                                                                          |
 | Backend tests             | `uv run pytest` (tshark tests skip if tshark is missing)                                                                                                 |
@@ -57,11 +57,23 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
 - **pnpm** (version pinned by `packageManager` in package.json; use
   `corepack enable pnpm`). pnpm refuses to install until every dependency with
   an install script is allowed or denied: `pnpm-workspace.yaml` denies
-  `keytar` and `@vscode/vsce-sign` (vsce's publishing/signing helpers, unused).
+  `keytar` and `@vscode/vsce-sign` (vsce's publishing/signing helpers, unused)
+  and allows `esbuild` (its postinstall checks the platform binary).
   `vsce package` runs with `--no-dependencies` because its dependency check
   runs `npm list`, which doesn't understand pnpm's layout (the extension has
   no runtime npm dependencies anyway). `.vscode/settings.json` makes VS Code's
   npm tasks use pnpm.
+- **Bundle**: VS Code runs `dist/extension.js` (`main`), one esbuild bundle of
+  the host code (`pnpm run bundle`, part of `compile`; CommonJS, Node 20,
+  `vscode` external, not minified so logged stack traces stay readable). vsce
+  warned about the 115 JavaScript files of the tsc output (over 100 means
+  "bundle your extension"); the package now holds the bundle and the webview's
+  own scripts (`src/webview/` stays unbundled: classic scripts and ES modules
+  under the CSP nonce), and `.vscodeignore` drops all of `out/`. tsc still
+  type-checks and builds `out/` for the unit tests and c8. The smoke test runs
+  against the bundle, so module instances differ from its own imports of
+  `out/src`: the panel classes (static `all`/`panels`) come from the
+  extension's API (`api.panels`), never from an import.
 - **Dependency updates**: `pnpm dlx npm-check-updates -u` reads `.ncurc.cjs`:
   `@types/vscode` is never bumped (it must not exceed `engines.vscode`, or vsce
   refuses to package; raise both together), `@types/node` stays on Node 20
@@ -2250,3 +2262,4 @@ Then H.323, MGCP and IAX2 calls in the VoIP panel: 0.19.0.
 Then context menus with submenus, a reorganised ☰ menu, editor title bar
 actions, a filter field and toolbar, list density and status bar items: 0.20.0.
 Then the panels in the same style, with row menus, and column dividers: 0.21.0.
+Then the extension bundled with esbuild and working Marketplace badges: 0.21.1.

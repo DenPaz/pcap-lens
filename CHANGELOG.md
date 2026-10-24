@@ -7,6 +7,21 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.21.1 — 2026-10-24
+
+### Changed
+
+- The extension's code ships as one bundled file, so it loads faster: the
+  package went from 197 files to 122 and from 785 KB to 680 KB. [8c24d7e]
+
+### Fixed
+
+- The VS Code Marketplace version and installs badges on the extension's page
+  showed "retired badge". [edd5b1e]
+
+[8c24d7e]: https://github.com/DenPaz/vsc_pcap_viewer/commit/8c24d7e
+[edd5b1e]: https://github.com/DenPaz/vsc_pcap_viewer/commit/edd5b1e
+
 ## 0.21.0 — 2026-10-23
 
 ### Added

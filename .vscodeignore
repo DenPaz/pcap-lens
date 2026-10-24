@@ -6,7 +6,8 @@
 **/__pycache__/**
 **/*.map
 node_modules/**
-out/test/**
+# (the compiled extension is the esbuild bundle, dist/extension.js)
+out/**
 src/**/*.ts
 !src/webview/**
 src/webview/**/*.d.ts

@@ -7,7 +7,7 @@
     "color": "#0b3a73",
     "theme": "dark"
   },
-  "version": "0.21.0",
+  "version": "0.21.1",
   "publisher": "denpaz",
   "license": "MIT",
   "repository": {
@@ -48,7 +48,7 @@
     "dns",
     "http"
   ],
-  "main": "./out/src/extension.js",
+  "main": "./dist/extension.js",
   "extensionKind": [
     "workspace"
   ],
@@ -2214,8 +2214,10 @@
   },
   "scripts": {
     "vscode:prepublish": "pnpm run compile",
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && pnpm run bundle",
+    "bundle": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --sourcemap --outfile=dist/extension.js",
     "watch": "tsc -watch -p ./",
+    "watch:bundle": "pnpm run bundle --watch=forever",
     "lint": "eslint src test scripts && tsc -p tsconfig.webview.json",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -2239,6 +2241,7 @@
     "@vscode/vsce": "^4.0.0",
     "axe-core": "^4.14.0",
     "c8": "^12.0.0",
+    "esbuild": "^0.28.2",
     "eslint": "^10.12.0",
     "eslint-config-prettier": "^10.1.8",
     "gifenc": "1.0.3",

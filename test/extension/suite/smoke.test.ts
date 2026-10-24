@@ -8,15 +8,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import type { PcapViewerApi } from "../../../src/extension";
-// Same module instances as the extension's (both load out/src/panels/*.js).
-import { FlowGraphPanel } from "../../../src/panels/flowGraphPanel";
-import { FOLLOW_COMMANDS, FollowPanel } from "../../../src/panels/followPanel";
-import { ObjectsPanel } from "../../../src/panels/objectsPanel";
-import { PacketPanel } from "../../../src/panels/packetPanel";
-import { StatsPanel } from "../../../src/panels/statsPanel";
-import { TcpGraphPanel } from "../../../src/panels/tcpGraphPanel";
-import { ComparePanel } from "../../../src/panels/comparePanel";
-import { VoipPanel } from "../../../src/panels/voipPanel";
+import { FOLLOW_COMMANDS } from "../../../src/panels/followPanel";
 import type { PluginsResult } from "../../../src/plugins";
 
 const FIXTURES = path.resolve(__dirname, "../../../../test/fixtures");
@@ -204,7 +196,7 @@ suite("PCAP Lens smoke test", () => {
 
     // Follow stream and statistics panels talk to the same backend.
     await vscode.commands.executeCommand("pcapViewer.followTcpStream", 4);
-    const follow = await waitFor(() => [...FollowPanel.panels][0]?.current);
+    const follow = await waitFor(() => [...api.panels.FollowPanel.panels][0]?.current);
     assert.equal(follow.stream, 0);
     assert.deepEqual(follow.bytes, [90, 491]);
     // Back to the capture from the panel beside it: in its own column, not
@@ -229,14 +221,14 @@ suite("PCAP Lens smoke test", () => {
     assert.deepEqual(captureColumns(), column);
     await vscode.commands.executeCommand("pcapViewer.statistics.conversations");
     const stats = await waitFor(() =>
-      StatsPanel.all.find((p) => p.kind === "conversations" && p.session === session),
+      api.panels.StatsPanel.all.find((p) => p.kind === "conversations" && p.session === session),
     );
 
     // Export Objects lists what the capture carried (tshark's --export-objects).
     session.reveal();
     await vscode.commands.executeCommand("pcapViewer.exportObjects");
     const objects = await waitFor(
-      () => ObjectsPanel.all.find((p) => p.session === session)?.objects,
+      () => api.panels.ObjectsPanel.all.find((p) => p.session === session)?.objects,
     );
     assert.deepEqual(
       objects.map((o) => [o.name, o.frame]),
@@ -302,14 +294,14 @@ suite("PCAP Lens smoke test", () => {
     // The flow graph and TCP stream graph panels talk to the same backend.
     await vscode.commands.executeCommand("pcapViewer.statistics.flowGraph");
     const flow = await waitFor(
-      () => FlowGraphPanel.all.find((p) => p.session === session)?.firstPage,
+      () => api.panels.FlowGraphPanel.all.find((p) => p.session === session)?.firstPage,
     );
     assert.equal(flow.total, 11);
     assert.deepEqual(flow.nodes, ["192.168.1.10", "93.184.216.34"]);
     session.reveal();
     await vscode.commands.executeCommand("pcapViewer.statistics.tcpStreamGraph", 4);
     const graph = await waitFor(
-      () => TcpGraphPanel.all.find((p) => p.session === session)?.current,
+      () => api.panels.TcpGraphPanel.all.find((p) => p.session === session)?.current,
     );
     assert.equal(graph.stream, 0);
     assert.equal(graph.points.length, 11);
@@ -317,7 +309,7 @@ suite("PCAP Lens smoke test", () => {
     session.reveal();
     await vscode.commands.executeCommand("pcapViewer.comparePackets", { frames: [4, 7] });
     const compared = await waitFor(
-      () => ComparePanel.all.find((p) => p.session === session)?.current,
+      () => api.panels.ComparePanel.all.find((p) => p.session === session)?.current,
     );
     assert.deepEqual(
       compared.map((p) => [p.number, p.twoPass]),
@@ -341,14 +333,16 @@ suite("PCAP Lens smoke test", () => {
     // VoIP Calls: this capture has neither SIP nor RTP.
     session.reveal();
     await vscode.commands.executeCommand("pcapViewer.statistics.voipCalls");
-    const voip = await waitFor(() => VoipPanel.all.find((p) => p.session === session)?.calls);
+    const voip = await waitFor(
+      () => api.panels.VoipPanel.all.find((p) => p.session === session)?.calls,
+    );
     assert.deepEqual(voip, { calls: [], streams: [], registrations: [], heuristic: false });
 
     // The ☰ menu: a listed command runs on this capture; anything else is ignored.
     assert.ok(session.menuCommands.some((c) => c.id === "pcapViewer.statistics.endpoints"));
     assert.equal(await session.runMenuCommand("pcapViewer.statistics.endpoints"), true);
     const endpoints = await waitFor(() =>
-      StatsPanel.all.find((p) => p.kind === "endpoints" && p.session === session),
+      api.panels.StatsPanel.all.find((p) => p.kind === "endpoints" && p.session === session),
     );
     assert.equal(endpoints.session, session);
     const editors = vscode.window.tabGroups.all.flatMap((g) => g.tabs).length;
@@ -362,7 +356,7 @@ suite("PCAP Lens smoke test", () => {
     );
     // Leave the window as the later tests expect it: just the capture editor.
     endpoints.panel.dispose();
-    await waitFor(() => (StatsPanel.all.includes(endpoints) ? undefined : true));
+    await waitFor(() => (api.panels.StatsPanel.all.includes(endpoints) ? undefined : true));
 
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
     await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
@@ -829,14 +823,17 @@ suite("PCAP Lens smoke test", () => {
       await vscode.commands.executeCommand("pcapViewer.showPacketInNewWindow", 1);
       const shown = await waitFor(
         () =>
-          PacketPanel.all.find((p) => p.session === session && p.view.kind === "packet")?.current,
+          api.panels.PacketPanel.all.find((p) => p.session === session && p.view.kind === "packet")
+            ?.current,
       );
       assert.equal(shown.title, "Packet 1");
       assert.ok(shown.tree.length > 0);
       session.reveal();
       await vscode.commands.executeCommand("pcapViewer.fileFormat");
       const file = await waitFor(
-        () => PacketPanel.all.find((p) => p.session === session && p.view.kind === "file")?.current,
+        () =>
+          api.panels.PacketPanel.all.find((p) => p.session === session && p.view.kind === "file")
+            ?.current,
       );
       assert.equal(file.title, "PCAP File Format");
 
