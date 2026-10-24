@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
+import type { FilterAssistant } from "../ai";
 import type { BackendClient } from "../backendClient";
 import { FILE_ARGS, captureFileName, captureLimits, fileCheck, fileParams } from "../captureModel";
 import { getSetting, readSettings, updateSetting } from "../config";
@@ -280,9 +281,11 @@ function savedCaptureFilters(): SavedFilter[] {
 async function askFilter(
   context: vscode.ExtensionContext,
   backend: BackendClient,
-  iface: string,
+  interfaces: readonly CaptureInterface[],
   title: string,
+  assistant?: FilterAssistant,
 ): Promise<string | undefined> {
+  const iface = interfaces[0]?.name ?? "";
   const box = vscode.window.createInputBox();
   box.title = `${title}: capture filter`;
   box.prompt = "Only packets matching this capture (BPF) filter are captured. Empty: every packet.";
@@ -296,7 +299,16 @@ async function askFilter(
     iconPath: new vscode.ThemeIcon("save"),
     tooltip: "Save This Capture Filter",
   };
+  const aiButton = {
+    iconPath: new vscode.ThemeIcon("sparkle"),
+    tooltip: "Describe the Capture Filter (AI)",
+  };
   box.buttons = [savedButton, saveButton];
+  void assistant?.isAvailable().then((yes) => {
+    if (yes) {
+      box.buttons = [aiButton, savedButton, saveButton];
+    }
+  });
   let seq = 0;
   const check = async (text: string) => {
     const mine = ++seq;
@@ -361,6 +373,12 @@ async function askFilter(
             box.value = pick.f.filter;
             void check(box.value);
           }
+        } else if (button === aiButton && assistant) {
+          const filter = await describeFilter(assistant, backend, interfaces, box.value.trim());
+          if (filter !== undefined) {
+            box.value = filter;
+            void check(box.value);
+          }
         } else if (button === saveButton && box.value.trim()) {
           const name = await vscode.window.showInputBox({
             title: "Save This Capture Filter",
@@ -386,11 +404,65 @@ async function askFilter(
   });
 }
 
+/**
+ * ✨ in the capture filter box: a description becomes capture filters that
+ * dumpcap compiled (`FilterAssistant.suggestCaptureFilters`), one picked
+ * (undefined: none). Only the description, the current filter and the
+ * interface names are sent.
+ */
+async function describeFilter(
+  assistant: FilterAssistant,
+  backend: BackendClient,
+  interfaces: readonly CaptureInterface[],
+  current: string,
+): Promise<string | undefined> {
+  const request = await vscode.window.showInputBox({
+    title: "Describe the Capture Filter",
+    prompt: current
+      ? `What to capture (refines ${current}). Only this text and the interface names are sent to the language model.`
+      : "What to capture. Only this text and the interface names are sent to the language model.",
+    placeHolder: "e.g. only HTTPS to 10.0.0.5, no SSH or ARP",
+    ignoreFocusOut: true,
+  });
+  if (!request?.trim()) {
+    return undefined;
+  }
+  const outcome = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "Asking the language model for capture filters…",
+      cancellable: true,
+    },
+    (_progress, token) =>
+      assistant.suggestCaptureFilters(
+        backend,
+        request.trim(),
+        current,
+        interfaces.map((i) => ({ name: i.name, loopback: i.loopback })),
+        token,
+      ),
+  );
+  if (!outcome.suggestions.length) {
+    void vscode.window.showWarningMessage(outcome.message ?? "No capture filter came back.");
+    return undefined;
+  }
+  const pick = await vscode.window.showQuickPick(
+    outcome.suggestions.map((s) => ({ label: s.filter, detail: s.explanation, s })),
+    {
+      title: "Capture Filters (checked by dumpcap)",
+      placeHolder: "Put one in the capture filter box",
+      ignoreFocusOut: true,
+    },
+  );
+  return pick?.s.filter;
+}
+
 /** Interfaces, extcap options and the capture filter, asked in turn (undefined: cancelled). */
 async function askCapture(
   context: vscode.ExtensionContext,
   backend: BackendClient,
   title: string,
+  assistant?: FilterAssistant,
 ): Promise<CaptureChoice | undefined> {
   const res = await backend.request<{ interfaces: CaptureInterface[] }>(
     "list_interfaces",
@@ -418,7 +490,7 @@ async function askCapture(
   const local = picked.filter((i) => !i.extcap);
   let filter = "";
   if (local.length) {
-    const asked = await askFilter(context, backend, local[0].name, title);
+    const asked = await askFilter(context, backend, local, title, assistant);
     if (asked === undefined) {
       return undefined;
     }
@@ -475,12 +547,13 @@ export async function startCapture(
   context: vscode.ExtensionContext,
   log: vscode.LogOutputChannel,
   options?: Record<string, unknown>,
+  assistant?: FilterAssistant,
 ): Promise<vscode.Uri | undefined> {
   let choice: CaptureChoice | undefined = givenCapture(options);
   if (!choice) {
     try {
       choice = await withBackend(provider, context, log, (backend) =>
-        askCapture(context, backend, "Start Capture"),
+        askCapture(context, backend, "Start Capture", assistant),
       );
     } catch (err) {
       showError(log, err);
@@ -535,6 +608,7 @@ async function captureToFiles(
   context: vscode.ExtensionContext,
   log: vscode.LogOutputChannel,
   options?: Record<string, unknown>,
+  assistant?: FilterAssistant,
 ): Promise<FileCaptureResult | undefined> {
   const given = givenCapture(options);
   let result: FileCaptureResult | undefined;
@@ -545,7 +619,7 @@ async function captureToFiles(
       context,
       log,
       async (backend) => {
-        const choice = given ?? (await askCapture(context, backend, "Capture to Files"));
+        const choice = given ?? (await askCapture(context, backend, "Capture to Files", assistant));
         if (!choice) {
           return undefined;
         }
@@ -675,15 +749,16 @@ export function registerCaptureCommands(
   context: vscode.ExtensionContext,
   provider: PcapEditorProvider,
   log: vscode.LogOutputChannel,
+  assistant?: FilterAssistant,
 ): void {
   const asOptions = (options: unknown) =>
     options && typeof options === "object" ? (options as Record<string, unknown>) : undefined;
   context.subscriptions.push(
     vscode.commands.registerCommand("pcapViewer.startCapture", (options?: unknown) =>
-      startCapture(provider, context, log, asOptions(options)),
+      startCapture(provider, context, log, asOptions(options), assistant),
     ),
     vscode.commands.registerCommand("pcapViewer.captureToFiles", (options?: unknown) =>
-      captureToFiles(provider, context, log, asOptions(options)),
+      captureToFiles(provider, context, log, asOptions(options), assistant),
     ),
     vscode.commands.registerCommand("pcapViewer.stopCapture", async () => {
       const session = requireSession(provider);

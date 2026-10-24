@@ -1,6 +1,13 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { ExplainOutcome, ExplainSink, aiEnabled } from "../ai";
+import {
+  ExplainOutcome,
+  ExplainSink,
+  TriageOutcome,
+  aiEnabled,
+  listModels,
+  modelSetting,
+} from "../ai";
 import {
   AnomalyTarget,
   CallSummary,
@@ -10,8 +17,12 @@ import {
   parseAnomalyArgs,
 } from "../aiAnomaly";
 import { STATISTICS_CONSENT } from "../aiConsent";
+import { modelItems } from "../aiModel";
+import { withStandInNote } from "../aiPrivacy";
 import { EXPLAIN_LIMITS, PACKET_DATA_CONSENT, explainQuery, parseExplainArgs } from "../aiExplain";
-import { summaryQuery } from "../aiSummary";
+import { formatNumber, summaryQuery } from "../aiSummary";
+import { SEVERITY_LABELS, TriageCheck, sortFindings, triageQuery } from "../aiTriage";
+import { findingsBlocks, markdown as reportMarkdown } from "../captureReport";
 import { PCAP_TOOLS, ToolConsent, runTool } from "../aiTools";
 import { SECTION } from "../config";
 import { toolsRuntime } from "../lmTools";
@@ -67,6 +78,38 @@ export async function suggestDisplayFilter(
   session.reveal();
   session.prepareFilter(pick.label);
   return pick.label;
+}
+
+/**
+ * "PCAP: Choose Language Model…": every chat model VS Code offers (Copilot's,
+ * other extensions', local ones), saved in pcapViewer.ai.model (user
+ * settings). `{id}` skips the picker ("" = automatic). Returns the setting.
+ */
+export async function chooseLanguageModel(args?: { id?: unknown }): Promise<string | undefined> {
+  let id: string | undefined = typeof args?.id === "string" ? args.id : undefined;
+  if (id === undefined) {
+    const current = modelSetting();
+    const items = modelItems(await listModels(), current).map((m) =>
+      m.separator
+        ? { label: m.label, kind: vscode.QuickPickItemKind.Separator, id: undefined }
+        : { label: m.label, description: m.description, detail: m.detail, id: m.id },
+    );
+    const pick = await vscode.window.showQuickPick(items, {
+      title: "Language Model for PCAP Lens",
+      placeHolder:
+        "The AI features use only this model; a model running on your machine keeps what they send there",
+      matchOnDescription: true,
+      matchOnDetail: true,
+    });
+    if (pick?.id === undefined) {
+      return undefined;
+    }
+    id = pick.id;
+  }
+  await vscode.workspace
+    .getConfiguration(SECTION)
+    .update("ai.model", id, vscode.ConfigurationTarget.Global);
+  return id;
 }
 
 // ---------------------------------------------------------------------- explaining packets
@@ -260,6 +303,94 @@ async function summaryInChat(
   finishInChat(stream, await session.summarize(prompt.trim(), chatSink(stream), token));
 }
 
+const SEVERITY_ICONS = { high: "error", medium: "warning", low: "info", info: "circle-outline" };
+
+/** What tshark counted for a finding's check ("tshark counted 1,234 packets"). */
+function checkNote(checks: readonly TriageCheck[] | undefined, id: string | undefined): string {
+  const check = id ? checks?.find((c) => c.id === id) : undefined;
+  return check?.count !== undefined
+    ? `tshark counted ${formatNumber(check.count)} packet${check.count === 1 ? "" : "s"} (${check.title}).`
+    : "";
+}
+
+/** `@pcap /triage [focus]`: ranked findings, each with Apply filter and Go to packet buttons. */
+async function triageInChat(
+  provider: PcapEditorProvider,
+  prompt: string,
+  stream: vscode.ChatResponseStream,
+  token: vscode.CancellationToken,
+): Promise<void> {
+  const session = provider.activeSession;
+  if (!session?.openInfo) {
+    stream.markdown("Open a capture in PCAP Lens first, then triage it with *@pcap /triage*.");
+    return;
+  }
+  if (!(await statisticsConsent())) {
+    statisticsRefused(stream, "Triaging a capture");
+    return;
+  }
+  const outcome = await session.triage(prompt.trim(), chatSink(stream), token);
+  const report = outcome.report;
+  if (!report) {
+    finishInChat(stream, { ...outcome, frames: [], filters: [] });
+    return;
+  }
+  const md = (build: (m: vscode.MarkdownString) => void) => {
+    const m = new vscode.MarkdownString(undefined, true);
+    build(m);
+    stream.markdown(m);
+  };
+  if (report.summary) {
+    md((m) => m.appendText(report.summary).appendMarkdown("\n\n"));
+  }
+  if (!report.findings.length) {
+    md((m) => m.appendText("No findings."));
+  }
+  for (const f of sortFindings(report.findings)) {
+    md((m) => {
+      m.appendMarkdown(`$(${SEVERITY_ICONS[f.severity]}) **${SEVERITY_LABELS[f.severity]}**: `)
+        .appendText(f.title)
+        .appendMarkdown("\n\n")
+        .appendText(f.detail);
+      const note = checkNote(outcome.checks, f.check);
+      if (note) {
+        m.appendMarkdown("\n\n*").appendText(note).appendMarkdown("*");
+      }
+      m.appendMarkdown("\n\n");
+    });
+    if (f.filter) {
+      stream.button({
+        command: "pcapViewer.applyFilter",
+        title: `Apply filter: ${shorten(f.filter)}`,
+        arguments: [f.filter],
+      });
+    }
+    for (const frame of f.frames.slice(0, 3)) {
+      stream.button({
+        command: "pcapViewer.goToPacket",
+        title: `Go to packet ${frame}`,
+        arguments: [frame],
+      });
+    }
+  }
+  md((m) =>
+    m.appendMarkdown(
+      `\n*Written by ${outcome.model ?? "the language model"} from tshark's counts: check the findings against the packets.*`,
+    ),
+  );
+}
+
+/** A triage as Markdown, for the editor fallback. */
+function triageMarkdown(outcome: TriageOutcome): string {
+  if (!outcome.report) {
+    return "";
+  }
+  // (Without the "Findings" heading: the document has its own.)
+  return reportMarkdown(
+    findingsBlocks(outcome.report, outcome.model ?? "language model").slice(1),
+  ).replace(/^/, "\n");
+}
+
 /** Expert rows sent by the Expert Information panel, by reference (`@pcap /anomaly expert #N`). */
 const expertSelections = new Map<number, ExpertRow[]>();
 let nextSelection = 1;
@@ -444,6 +575,35 @@ export async function summarizeCapture(
   }
 }
 
+/** "PCAP: Triage Capture with AI": @pcap /triage in the chat view, else findings in a Markdown editor. */
+export async function triageCapture(
+  provider: PcapEditorProvider,
+  log: vscode.LogOutputChannel,
+): Promise<void> {
+  const session = requireSession(provider);
+  if (!session) {
+    return;
+  }
+  if (!aiEnabled()) {
+    void vscode.window.showInformationMessage("AI help is turned off (pcapViewer.ai.enabled).");
+    return;
+  }
+  if (await openChatWith(triageQuery(), log)) {
+    return;
+  }
+  if (await statisticsConsent()) {
+    await answerInEditor(
+      `Triage of ${path.basename(session.uri.fsPath)}`,
+      "Triaging the capture…",
+      async (sink, token) => {
+        const outcome = await session.triage("", sink, token);
+        sink.markdown(triageMarkdown(outcome));
+        return outcome;
+      },
+    );
+  }
+}
+
 /** What the Expert Information, TCP Stream Graph and VoIP Calls panels ask about (their "Ask Copilot…" buttons). */
 export type AnomalyAsk =
   | { kind: "expert"; rows: ExpertRow[]; question?: string; sessionId?: number }
@@ -548,6 +708,10 @@ function registerChatParticipant(
         await explainInChat(provider, request.prompt, stream, token);
         return;
       }
+      if (request.command === "triage") {
+        await triageInChat(provider, request.prompt, stream, token);
+        return;
+      }
       if (request.command === "summary") {
         await summaryInChat(provider, request.prompt, stream, token);
         return;
@@ -613,11 +777,15 @@ export function registerAiCommands(
     vscode.commands.registerCommand("pcapViewer.suggestFilter", () =>
       suggestDisplayFilter(provider),
     ),
+    vscode.commands.registerCommand("pcapViewer.chooseLanguageModel", (args?: { id?: unknown }) =>
+      chooseLanguageModel(args),
+    ),
     vscode.commands.registerCommand("pcapViewer.askAboutPackets", (frames?: unknown) =>
       askAboutPackets(provider, log, frames),
     ),
   );
   context.subscriptions.push(
+    vscode.commands.registerCommand("pcapViewer.triageCapture", () => triageCapture(provider, log)),
     vscode.commands.registerCommand("pcapViewer.summarizeCapture", () =>
       summarizeCapture(provider, log),
     ),
@@ -656,8 +824,14 @@ function registerLanguageModelTools(
             if (!session?.openInfo || !backend?.running) {
               return runtime.result("No capture is open in PCAP Lens.");
             }
-            const result = await runTool(spec.name, options.input, backend, toolConsent());
-            return runtime.result(result.text);
+            // The same stand-ins as @pcap's: the calling model sees them, the tool the real values.
+            const masker = session.aiMasker();
+            const input = masker ? masker.restoreDeep(options.input) : options.input;
+            const result = await runTool(spec.name, input, backend, toolConsent());
+            masker?.learnNames(result.names ?? []);
+            return runtime.result(
+              masker ? withStandInNote(masker, masker.mask(result.text)) : result.text,
+            );
           },
         }),
       );

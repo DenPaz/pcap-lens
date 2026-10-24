@@ -197,12 +197,26 @@ export interface SuggestDeps {
 }
 
 /** Ask, parse, validate; if nothing valid came back, ask once more with tshark's errors. */
-export async function suggestFilters(
+export function suggestFilters(
   deps: SuggestDeps,
   input: PromptInput,
   options: { retry?: boolean } = {},
 ): Promise<{ suggestions: FilterSuggestion[]; rejected: Rejected[] }> {
-  const turns: ChatTurn[] = [{ role: "user", content: buildFilterPrompt(input) }];
+  return suggestWith(deps, buildFilterPrompt(input), buildRetryPrompt, options);
+}
+
+/**
+ * The loop behind display and capture filter help: ask with `prompt`, keep
+ * the suggestions `deps.validate` accepts, and when none is valid ask once
+ * more with `retryPrompt` (the rejections and their errors).
+ */
+export async function suggestWith(
+  deps: SuggestDeps,
+  prompt: string,
+  retryPrompt: (rejected: readonly Rejected[]) => string,
+  options: { retry?: boolean } = {},
+): Promise<{ suggestions: FilterSuggestion[]; rejected: Rejected[] }> {
+  const turns: ChatTurn[] = [{ role: "user", content: prompt }];
   const answer = await deps.ask(turns);
   const first = await validateSuggestions(parseSuggestions(answer), deps.validate);
   if (first.valid.length || options.retry === false) {
@@ -210,7 +224,7 @@ export async function suggestFilters(
   }
   turns.push(
     { role: "assistant", content: answer },
-    { role: "user", content: buildRetryPrompt(first.rejected) },
+    { role: "user", content: retryPrompt(first.rejected) },
   );
   const second = await validateSuggestions(parseSuggestions(await deps.ask(turns)), deps.validate);
   return { suggestions: second.valid, rejected: [...first.rejected, ...second.rejected] };

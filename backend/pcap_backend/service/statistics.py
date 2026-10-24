@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from pcap_backend import stats
+from pcap_backend import stats, triage
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, param
 from pcap_backend.stats import IoSeries, Table
 from pcap_backend.tshark import ToolError, run
@@ -145,6 +145,57 @@ class StatisticsMixin(ServiceBase):
             # (A field without numbers for SUM etc.: tshark says so and exits 0.)
             raise f.tshark.error(res.stderr, res.returncode, "tshark -z io,stat failed")
         return stats.parse_io_stat(text, interval, series)
+
+    def triage(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """The triage checks (``triage.CHECKS``) counted in one ``-z io,stat``
+        pass over the whole capture without the ignored packets: each check's
+        ``count`` and ``first``/``last`` packet, or ``error`` when this tshark
+        refuses its filter (a field it doesn't know). ``checks`` (ids) picks
+        some. Needs the capture completely indexed."""
+        self._require_indexed()
+        f = self._require_file()
+        wanted = params.get("checks")
+        checks = list(triage.CHECKS)
+        if wanted is not None:
+            if not isinstance(wanted, list) or not all(isinstance(w, str) for w in wanted):
+                raise InvalidParamsError("checks must be a list of check ids")
+            known = {c.id for c in checks}
+            unknown = [w for w in wanted if w not in known]
+            if unknown:
+                raise InvalidParamsError(f"unknown triage checks: {', '.join(unknown)}")
+            checks = [c for c in checks if c.id in wanted]
+        ctx.progress({"phase": "stats", "fraction": None})
+        # One validation for all of them; only when it fails, one per check.
+        refused: dict[str, str] = {}
+        if checks and f.tshark.validate_filter(" || ".join(f"({c.filter})" for c in checks)):
+            for c in checks:
+                error = f.tshark.validate_filter(c.filter, ctx.token)
+                if error:
+                    refused[c.id] = error
+        usable = [c for c in checks if c.id not in refused]
+        counted = self._without_ignored("")
+        found: dict[str, dict[str, object]] = {}
+        if usable:
+            series = triage.series(usable)
+            # (Interval 0: the whole capture in one row.)
+            spec = ",".join(
+                ["io,stat,0", counted or "frame", *(s.tap_arg(counted) for s in series)]
+            )
+            res = run(f.tshark.argv("-q", "-n", "-z", spec, capture=str(f.path)), ctx.token)
+            text = res.stdout.decode("utf-8", "replace")
+            if "Interval" not in text:
+                raise f.tshark.error(res.stderr, res.returncode, "tshark -z io,stat failed")
+            table = stats.parse_io_stat(text, 0.0, series)
+            found = {str(r["id"]): r for r in triage.results(usable, table)}
+        return {
+            "total": f.info.frames,
+            "ignored": bool(counted),
+            "checks": [
+                found.get(c.id)
+                or {"id": c.id, "title": c.title, "filter": c.filter, "error": refused[c.id]}
+                for c in checks
+            ],
+        }
 
     def _rows_matching(
         self, f: _Open, rows: list[dict[str, Any]], flt: str, ctx: RequestContext

@@ -4,7 +4,14 @@ import * as vscode from "vscode";
 import { revealFile } from "./reveal";
 import { SECTION, getSetting, readSettings, updateSetting } from "../config";
 import { setLuaChoice } from "../luaChoice";
-import { luaDissectorTemplate, validatePort, validateProtocolName } from "../luaTemplate";
+import { DissectorOutcome, FilterAssistant, modelSetting } from "../ai";
+import { unavailableMessage } from "../aiModel";
+import {
+  LuaDissectorSpec,
+  luaDissectorTemplate,
+  validatePort,
+  validateProtocolName,
+} from "../luaTemplate";
 import type { PcapEditorProvider, PcapEditorSession } from "../pcapEditor";
 import {
   DecodeAsRule,
@@ -13,6 +20,7 @@ import {
   upsertDecodeAsRule,
 } from "../settingsModel";
 import { requireSession } from "./filter";
+import { withBackend } from "./withBackend";
 
 interface Choice {
   name: string;
@@ -249,14 +257,14 @@ async function chooseDissectorsFolder(): Promise<string | undefined> {
   return dir;
 }
 
-/** "PCAP: New Lua Dissector": scaffold a dissector in the dissectors folder and open it. */
-export async function newLuaDissector(): Promise<vscode.Uri | undefined> {
-  const folder = dissectorsFolder() ?? (await chooseDissectorsFolder());
-  if (!folder) {
-    return undefined;
-  }
+/** The new dissector's name, tree label, transport and port (steps 1–4 of `steps`). */
+async function askSpec(
+  folder: string,
+  title: string,
+  steps: number,
+): Promise<LuaDissectorSpec | undefined> {
   const name = await vscode.window.showInputBox({
-    title: "New Lua Dissector (1/4)",
+    title: `${title} (1/${steps})`,
     prompt: "Protocol short name (used as the display-filter prefix)",
     placeHolder: "myproto",
     validateInput: (v) =>
@@ -269,7 +277,7 @@ export async function newLuaDissector(): Promise<vscode.Uri | undefined> {
     return undefined;
   }
   const description = await vscode.window.showInputBox({
-    title: "New Lua Dissector (2/4)",
+    title: `${title} (2/${steps})`,
     prompt: "Protocol name shown in the tree",
     value: `${name.toUpperCase()} Protocol`,
   });
@@ -281,40 +289,154 @@ export async function newLuaDissector(): Promise<vscode.Uri | undefined> {
       { label: "UDP", value: "udp" as const },
       { label: "TCP", value: "tcp" as const },
     ],
-    { title: "New Lua Dissector (3/4)", placeHolder: "Transport the protocol runs over" },
+    { title: `${title} (3/${steps})`, placeHolder: "Transport the protocol runs over" },
   );
   if (!transport) {
     return undefined;
   }
   const port = await vscode.window.showInputBox({
-    title: "New Lua Dissector (4/4)",
+    title: `${title} (4/${steps})`,
     prompt: `${transport.label} port to register on`,
     validateInput: validatePort,
   });
   if (!port) {
     return undefined;
   }
+  return {
+    name: name.trim(),
+    description: description.trim() || name.trim(),
+    transport: transport.value,
+    port: Number(port),
+  };
+}
+
+/** Save a new dissector in `folder`, open it and offer to reload the dissectors. */
+async function saveDissector(folder: string, name: string, source: string, note: string) {
   fs.mkdirSync(folder, { recursive: true });
-  const file = path.join(folder, `${name.trim()}.lua`);
-  fs.writeFileSync(
-    file,
-    luaDissectorTemplate({
-      name: name.trim(),
-      description: description.trim() || name,
-      transport: transport.value,
-      port: Number(port),
-    }),
-    { flag: "wx" },
-  );
+  const file = path.join(folder, `${name}.lua`);
+  fs.writeFileSync(file, source, { flag: "wx" });
   const uri = vscode.Uri.file(file);
   await vscode.window.showTextDocument(uri);
   void vscode.window
     .showInformationMessage(
-      `Created ${path.basename(file)}. It is used after "PCAP: Reload Dissectors".`,
+      `Created ${path.basename(file)}${note}. It is used after "PCAP: Reload Dissectors".`,
       "Reload Dissectors",
     )
     .then((choice) => choice && vscode.commands.executeCommand("pcapViewer.reloadDissectors"));
   return uri;
+}
+
+/** "PCAP: New Lua Dissector": scaffold a dissector in the dissectors folder and open it. */
+export async function newLuaDissector(): Promise<vscode.Uri | undefined> {
+  const folder = dissectorsFolder() ?? (await chooseDissectorsFolder());
+  if (!folder) {
+    return undefined;
+  }
+  const spec = await askSpec(folder, "New Lua Dissector", 4);
+  return spec && saveDissector(folder, spec.name, luaDissectorTemplate(spec), "");
+}
+
+/**
+ * "PCAP: New Lua Dissector from Description…": the template's questions plus
+ * a description of the messages; the language model writes the dissector,
+ * which is screened and loaded by tshark until it loads without errors
+ * (`FilterAssistant.generateDissector`), then saved like a new one. A script
+ * that still fails opens unsaved, so a broken one never lands in the folder.
+ */
+export async function describeLuaDissector(
+  provider: PcapEditorProvider,
+  context: vscode.ExtensionContext,
+  log: vscode.LogOutputChannel,
+  assistant: FilterAssistant,
+): Promise<vscode.Uri | undefined> {
+  if (!(await assistant.isAvailable())) {
+    void vscode.window.showWarningMessage(unavailableMessage(modelSetting(), false));
+    return undefined;
+  }
+  const title = "New Lua Dissector from Description";
+  const folder = dissectorsFolder() ?? (await chooseDissectorsFolder());
+  if (!folder) {
+    return undefined;
+  }
+  const spec = await askSpec(folder, title, 5);
+  if (!spec) {
+    return undefined;
+  }
+  const layout = await vscode.window.showInputBox({
+    title: `${title} (5/5)`,
+    prompt:
+      "Describe the messages: fields in order, sizes, byte order, values. Only this and the template are sent to the language model.",
+    placeHolder:
+      "e.g. 2-byte magic 0xCAFE, 1-byte version, 1-byte type (1 Hello, 2 Data, 3 Bye), 4-byte big-endian length, then the payload",
+    ignoreFocusOut: true,
+    validateInput: (v) => (v.trim() ? undefined : "Describe the protocol's messages"),
+  });
+  if (!layout?.trim()) {
+    return undefined;
+  }
+  let outcome: DissectorOutcome;
+  try {
+    outcome = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Writing the ${spec.name} dissector…`,
+        cancellable: true,
+      },
+      (progress, token) =>
+        withBackend(provider, context, log, (backend) =>
+          assistant.generateDissector(
+            backend,
+            { ...spec, layout },
+            luaDissectorTemplate(spec),
+            token,
+            (round, problems) =>
+              round > 1 &&
+              progress.report({
+                message: `attempt ${round}: fixing ${problems.length} problem${problems.length === 1 ? "" : "s"}`,
+              }),
+          ),
+        ),
+    );
+  } catch (err) {
+    void vscode.window.showErrorMessage(`Couldn't check the dissector: ${(err as Error).message}`);
+    return undefined;
+  }
+  if (!outcome.source) {
+    void vscode.window.showWarningMessage(
+      outcome.message ??
+        "The language model didn't write a dissector. Try describing it differently.",
+    );
+    return undefined;
+  }
+  if (!outcome.ok) {
+    for (const p of outcome.problems) {
+      log.warn(`AI Lua dissector ${spec.name}: ${p}`);
+    }
+    const doc = await vscode.workspace.openTextDocument({
+      language: "lua",
+      content: outcome.source,
+    });
+    await vscode.window.showTextDocument(doc);
+    void vscode.window
+      .showWarningMessage(
+        `The ${spec.name} dissector still has problems after ${outcome.rounds} attempts, so it wasn't saved: ` +
+          `${outcome.problems[0].split("\n")[0]}`,
+        "Show Log",
+      )
+      .then((choice) => choice && log.show());
+    return undefined;
+  }
+  if (outcome.unchecked) {
+    log.warn(`AI Lua dissector ${spec.name} not loaded to check it: ${outcome.unchecked}`);
+  }
+  return saveDissector(
+    folder,
+    spec.name,
+    outcome.source,
+    outcome.unchecked
+      ? " (written by the language model; tshark couldn't load it to check it: review it)"
+      : ` (written by the language model and loaded by tshark without errors${outcome.rounds > 1 ? ` after ${outcome.rounds} attempts` : ""}; review it)`,
+  );
 }
 
 /** "PCAP: Open Dissectors Folder": reveal it (creating/configuring it if needed). */
@@ -533,6 +655,7 @@ export function registerDissectorCommands(
   context: vscode.ExtensionContext,
   provider: PcapEditorProvider,
   log: vscode.LogOutputChannel,
+  assistant: FilterAssistant,
 ): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("pcapViewer.reloadDissectors", () =>
@@ -542,6 +665,9 @@ export function registerDissectorCommands(
       chooseLuaDissectors(provider, args),
     ),
     vscode.commands.registerCommand("pcapViewer.newLuaDissector", () => newLuaDissector()),
+    vscode.commands.registerCommand("pcapViewer.describeLuaDissector", () =>
+      describeLuaDissector(provider, context, log, assistant),
+    ),
     vscode.commands.registerCommand("pcapViewer.openDissectorsFolder", () =>
       openDissectorsFolder(),
     ),

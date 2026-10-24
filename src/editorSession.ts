@@ -28,8 +28,10 @@ import type {
   ExplainSink,
   FilterAssistant,
   SuggestOutcome,
+  TriageOutcome,
 } from "./ai";
 import type { ToolConsent } from "./aiTools";
+import type { AddressMasker } from "./aiPrivacy";
 import {
   CaptureEvent,
   ColoringResult,
@@ -1277,6 +1279,12 @@ export class PcapEditorSession {
     return !!this.info && (await this.assistant.isAvailable());
   }
 
+  /** The capture's address stand-ins for AI requests (undefined before a backend runs). */
+  aiMasker(): AddressMasker | undefined {
+    const client = this.client;
+    return client ? this.assistant.maskerFor(client) : undefined;
+  }
+
   /** Whether @pcap can answer with language model tools in this VS Code. */
   get toolsAvailable(): boolean {
     return this.assistant.toolsAvailable();
@@ -1297,6 +1305,19 @@ export class PcapEditorSession {
       return this.notLoaded();
     }
     return this.assistant.summarize(client, { question, currentFilter: this.filter }, sink, token);
+  }
+
+  /** Triage the capture (ai.ts, aiTriage.ts; the caller has the statistics consent). */
+  async triage(
+    question: string,
+    sink: Pick<ExplainSink, "progress">,
+    token: vscode.CancellationToken,
+  ): Promise<TriageOutcome> {
+    const client = this.client;
+    if (!client?.running || !this.info || this.info.indexing || this.capturing) {
+      return this.notLoaded();
+    }
+    return this.assistant.triage(client, question, sink, token);
   }
 
   /** Explain expert information or a TCP stream (ai.ts; the caller has the statistics consent). */

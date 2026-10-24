@@ -328,11 +328,29 @@ and never overwrite the open capture.
 
 ### AI help (optional)
 
-Through VS Code's Language Model API (GitHub Copilot). Everything that sends
-capture data asks first; see [Security](#security) for exactly what is sent.
+Through VS Code's Language Model API: GitHub Copilot by default, or any model
+an extension provides, local ones included (_PCAP: Choose Language Model…_;
+a chosen model that is missing is never replaced by another). Everything that
+sends capture data asks first, and addresses and host names are replaced by
+stand-ins such as `IP_PRIVATE_1` before anything is sent (and put back in the
+answer); see [Security](#security) for exactly what is sent.
 
 - **Filter suggestions**: ✨ in the filter bar or `@pcap` in chat. Suggestions
   are checked with tshark; no packet data is sent.
+- **Capture filters**: ✨ in _Start Capture_'s filter box turns a description
+  into capture (BPF) filters that dumpcap compiles before you pick one.
+- **Lua dissectors**: _PCAP: New Lua Dissector from Description…_ writes one
+  from the template and your description of the messages. tshark loads it
+  (its errors go back to the model, three tries at most) before it is saved
+  in the dissectors folder. Only Lua's string, table and math functions and
+  Wireshark's dissection API may be used: a script reaching for anything else
+  (`os`, `io`, `require`, `Dumper`…) is refused without being loaded. Review
+  it like any script.
+- **Triage**: `@pcap /triage` or _PCAP: Triage Capture with AI_ ranks findings
+  from checks tshark counts (retransmissions, resets, unanswered connection
+  attempts, DNS/HTTP/TLS errors, clear-text credentials…), each with what
+  tshark counted, a filter and packet links. The capture report can add them
+  as a Findings section.
 - **Explain packets**: right-click _Ask Copilot About This Packet…_ or
   `@pcap /explain 12 15-17`.
 - **Summaries and anomalies**: `@pcap /summary`, and _Ask Copilot_ in the Expert
@@ -391,6 +409,8 @@ be set in user settings.
 | `quickDetail.after`, `quickDetail.window`                                   | Quick view from packet 20,000, of 300 packets (`0`: never)                  |
 | `maxCachedFrames`, `requestTimeoutSeconds`                                  | Backend cache budget; timeout of quick requests                             |
 | `ai.enabled`                                                                | Offer AI help when a model is available (on)                                |
+| `ai.model`‡                                                                 | The language model's id (empty: GitHub Copilot's)                           |
+| `ai.pseudonymizeAddresses`‡                                                 | Send stand-ins for addresses and host names (on)                            |
 | `ai.allowPacketData`‡, `ai.allowCaptureStatistics`‡, `ai.allowPacketBytes`‡ | What AI features may send (off; asked once)                                 |
 
 ## Live capture
@@ -490,21 +510,31 @@ _PCAP: Show Log_ shows backend and tshark messages.
   WireGuard, Kerberos) where that matters. The same goes for capture helpers'
   options (an SSH password, for instance).
 - **AI requests** go through VS Code's Language Model API, so VS Code asks for
-  consent and your Copilot policies apply. `"pcapViewer.ai.enabled": false`
-  turns it all off. The `allow*` settings are user-only, so a workspace can't
-  enable them, and prompts tell the model the data is untrusted.
+  consent and your Copilot policies apply (or those of the model you chose
+  with `ai.model`: a local model keeps everything on your machine).
+  `"pcapViewer.ai.enabled": false` turns it all off. The `allow*` settings
+  are user-only, so a workspace can't enable them, and prompts tell the model
+  the data is untrusted. With `ai.pseudonymizeAddresses` (on by default)
+  IPv4, IPv6 and MAC addresses and resolved host names become stand-ins
+  (`IP_PRIVATE_1`, `IP6_PUBLIC_2`, `MAC_3`, `HOST_4`) in everything sent,
+  the same address always the same stand-in for one capture; answers and
+  tool calls get the real values back. Packet bytes are then not sent at
+  all, since addresses inside them can't be replaced.
 
-| Feature                                      | What is sent                                                                                                                              | Needs                    |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
-| Filter help (✨, _Suggest Display Filter…_)  | Your description, the current filter, protocol names in the capture, matching field names and descriptions                                | `ai.enabled`             |
-| _Ask Copilot About This Packet…_, `/explain` | Up to 8 packets: row and dissection tree (250 lines each), your question, the filter; bytes only with `allowPacketBytes` (256 per packet) | `allowPacketData`        |
-| _Summarize Capture_, `/summary`              | Capture properties, protocol hierarchy (40 rows), top 15 conversations and endpoints, expert counts, traffic in 12 buckets                | `allowCaptureStatistics` |
-| Expert _Ask Copilot…_, `/anomaly`            | Up to 10 expert entries (5 packet numbers each) and up to 5 conversation rows                                                             | `allowCaptureStatistics` |
-| TCP Stream Graph _Ask Copilot_, `/anomaly`   | Endpoints, derived facts (bytes, retransmissions, RTT, zero windows), up to 200 packets as numbers and flags                              | `allowCaptureStatistics` |
-| VoIP Calls _Ask Copilot…_, `/anomaly`        | The call's message names (60) with times and addresses, parties' names, timings, stream statistics and problems; no bodies or DTMF digits | `allowCaptureStatistics` |
-| `@pcap` tools: count, stats, capture info    | Filters and their counts, statistics tables (25 rows), capture properties                                                                 | `allowCaptureStatistics` |
-| `@pcap` tool: field search                   | Field names and descriptions (nothing from the capture)                                                                                   | `ai.enabled`             |
-| `@pcap` tool: list packets                   | Up to 20 packet-list rows for a filter                                                                                                    | `allowPacketData`        |
+| Feature                                      | What is sent                                                                                                                                  | Needs                    |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| Filter help (✨, _Suggest Display Filter…_)  | Your description, the current filter, protocol names in the capture, matching field names and descriptions                                    | `ai.enabled`             |
+| Capture filter help (✨ in _Start Capture_)  | Your description, the current capture filter, the chosen interfaces' names                                                                    | `ai.enabled`             |
+| _New Lua Dissector from Description…_        | Your description, the protocol's name, port and the dissector template; tshark's Lua errors on retries                                        | `ai.enabled`             |
+| _Triage Capture with AI_, `/triage`          | Capture properties, 30 check counts with their filters and first/last packet numbers, expert counts, protocol hierarchy, top 10 conversations | `allowCaptureStatistics` |
+| _Ask Copilot About This Packet…_, `/explain` | Up to 8 packets: row and dissection tree (250 lines each), your question, the filter; bytes only with `allowPacketBytes` (256 per packet)     | `allowPacketData`        |
+| _Summarize Capture_, `/summary`              | Capture properties, protocol hierarchy (40 rows), top 15 conversations and endpoints, expert counts, traffic in 12 buckets                    | `allowCaptureStatistics` |
+| Expert _Ask Copilot…_, `/anomaly`            | Up to 10 expert entries (5 packet numbers each) and up to 5 conversation rows                                                                 | `allowCaptureStatistics` |
+| TCP Stream Graph _Ask Copilot_, `/anomaly`   | Endpoints, derived facts (bytes, retransmissions, RTT, zero windows), up to 200 packets as numbers and flags                                  | `allowCaptureStatistics` |
+| VoIP Calls _Ask Copilot…_, `/anomaly`        | The call's message names (60) with times and addresses, parties' names, timings, stream statistics and problems; no bodies or DTMF digits     | `allowCaptureStatistics` |
+| `@pcap` tools: count, stats, capture info    | Filters and their counts, statistics tables (25 rows), capture properties                                                                     | `allowCaptureStatistics` |
+| `@pcap` tool: field search                   | Field names and descriptions (nothing from the capture)                                                                                       | `ai.enabled`             |
+| `@pcap` tool: list packets                   | Up to 20 packet-list rows for a filter                                                                                                        | `allowPacketData`        |
 
 `allowPacketData` implies `allowCaptureStatistics`. Payload fields become
 "[N bytes not sent]" unless `allowPacketBytes` is on.

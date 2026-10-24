@@ -404,6 +404,21 @@ suite("PCAP Lens smoke test", () => {
     removeDir(dir);
   });
 
+  test('Choose Language Model saves the model id, and "" is automatic again', async () => {
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    await ext!.activate();
+    const setting = () => vscode.workspace.getConfiguration("pcapViewer").get<string>("ai.model");
+    assert.equal(
+      await vscode.commands.executeCommand("pcapViewer.chooseLanguageModel", {
+        id: "no-such-model",
+      }),
+      "no-such-model",
+    );
+    assert.equal(setting(), "no-such-model");
+    await vscode.commands.executeCommand("pcapViewer.chooseLanguageModel", { id: "" });
+    assert.equal(setting(), "");
+  });
+
   test("language model tools: registered, and answering, where VS Code has the API", async function () {
     const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
     const api = (await ext!.activate()) as PcapViewerApi;

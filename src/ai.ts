@@ -5,6 +5,9 @@
  *
  * - Display filters (aiFilter.ts): only the request, the current filter,
  *   protocol names and field names/descriptions are sent, never packet data.
+ * - Capture filters (aiCaptureFilter.ts) and Lua dissectors (aiDissector.ts):
+ *   only the description, the current capture filter and interface names, or
+ *   the dissector template; dumpcap and tshark check what comes back.
  * - Explaining packets (aiExplain.ts, `@pcap /explain`): sends the packets'
  *   rows and dissection trees, so callers first get the user's consent
  *   (`pcapViewer.ai.allowPacketData`, see commands/ai.ts). Raw bytes only
@@ -14,6 +17,9 @@
  *   statistics computed by tshark, never packet contents; callers first get
  *   the consent of `pcapViewer.ai.allowCaptureStatistics` (aiConsent.ts).
  */
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import * as vscode from "vscode";
 import type { BackendClient } from "./backendClient";
 import { SECTION } from "./config";
@@ -40,6 +46,14 @@ import {
 import { CaptureFacts, StatsTable, buildSummaryPrompt } from "./aiSummary";
 import { ToolConsent, TOOL_LIMITS, buildToolPrompt, runTool, runToolLoop } from "./aiTools";
 import { toolsRuntime } from "./lmTools";
+import { ModelInfo, modelLabel, modelSelector, unavailableMessage } from "./aiModel";
+import {
+  AddressMasker,
+  maskedLoopModel,
+  namesInRows,
+  namesInTree,
+  withStandInNote,
+} from "./aiPrivacy";
 import type { QuickDetail } from "./settingsModel";
 import {
   ChatTurn,
@@ -49,6 +63,25 @@ import {
   extractKeywords,
   suggestFilters,
 } from "./aiFilter";
+import { suggestCaptureFilters } from "./aiCaptureFilter";
+import { DissectorRequest, DissectorResult, generateDissector } from "./aiDissector";
+import { TriageCheck, TriageInput, TriageReport, buildTriagePrompt, parseTriage } from "./aiTriage";
+
+/** A triage: the findings (filters validated, packets from the data), and the checks they came from. */
+export interface TriageOutcome extends ExplainOutcome {
+  report?: TriageReport;
+  checks?: TriageCheck[];
+  /** The model that wrote it ("GPT-4o (GitHub Copilot)"). */
+  model?: string;
+}
+
+export interface DissectorOutcome extends DissectorResult {
+  /** Short user-facing note when there is no script (or it couldn't be loaded). */
+  message?: string;
+  unavailable?: boolean;
+  /** Why tshark couldn't load the script to check it (Lua off as root). */
+  unchecked?: string;
+}
 
 export interface SuggestOutcome {
   suggestions: FilterSuggestion[];
@@ -59,9 +92,14 @@ export interface SuggestOutcome {
   unavailable?: boolean;
 }
 
-const MODEL_SELECTOR: vscode.LanguageModelChatSelector = { vendor: "copilot" };
 const JUSTIFICATION =
   "PCAP Lens turns your description into a Wireshark display filter. Only your request, the current filter and protocol/field names are sent.";
+const CAPTURE_FILTER_JUSTIFICATION =
+  "PCAP Lens turns your description into a capture filter. Only your request, the current capture filter and the interface names are sent.";
+const DISSECTOR_JUSTIFICATION =
+  "PCAP Lens writes a Lua dissector from your description. Only your description and its dissector template are sent.";
+const TRIAGE_JUSTIFICATION =
+  "PCAP Lens triages the open capture from check counts and statistics computed by tshark (no packet contents).";
 const EXPLAIN_JUSTIFICATION =
   "PCAP Lens explains the packets you picked. Their packet-list rows and dissection trees are sent.";
 const SUMMARY_JUSTIFICATION =
@@ -120,6 +158,32 @@ function lmApi(): typeof vscode.lm | undefined {
   return typeof vscode.lm?.selectChatModels === "function" ? vscode.lm : undefined;
 }
 
+/**
+ * One filter-help request: the turns go out with stand-ins for addresses
+ * (the note on the first turn) and the answer comes back with them restored.
+ */
+function askFor(
+  model: vscode.LanguageModelChat,
+  masker: AddressMasker,
+  justification: string,
+  token: vscode.CancellationToken,
+): (turns: ChatTurn[]) => Promise<string> {
+  return async (turns) => {
+    const messages = turns.map((t, i) => {
+      const content = masker.mask(t.content);
+      return t.role === "user"
+        ? vscode.LanguageModelChatMessage.User(i === 0 ? withStandInNote(masker, content) : content)
+        : vscode.LanguageModelChatMessage.Assistant(content);
+    });
+    const response = await model.sendRequest(messages, { justification }, token);
+    let text = "";
+    for await (const part of response.text) {
+      text += part;
+    }
+    return masker.restore(text);
+  };
+}
+
 /** `promise`, or a CancellationError as soon as `token` is cancelled. */
 function untilCancelled<T>(promise: Promise<T>, token: vscode.CancellationToken): Promise<T> {
   if (token.isCancellationRequested) {
@@ -167,6 +231,35 @@ export function aiEnabled(): boolean {
   return vscode.workspace.getConfiguration(SECTION).get<boolean>("ai.enabled", true);
 }
 
+/** `pcapViewer.ai.model`: a model id, or "" for automatic (application-scoped). */
+export function modelSetting(): string {
+  return vscode.workspace.getConfiguration(SECTION).get<string>("ai.model", "") ?? "";
+}
+
+/** `pcapViewer.ai.pseudonymizeAddresses` (application-scoped, on by default). */
+export function pseudonymizing(): boolean {
+  return vscode.workspace.getConfiguration(SECTION).get<boolean>("ai.pseudonymizeAddresses", true);
+}
+
+/** Every chat model VS Code offers now (for PCAP: Choose Language Model…). */
+export async function listModels(): Promise<ModelInfo[]> {
+  const lm = lmApi();
+  if (!lm) {
+    return [];
+  }
+  try {
+    return (await lm.selectChatModels()).map((m) => ({
+      id: m.id,
+      name: m.name,
+      vendor: m.vendor,
+      family: m.family,
+      maxInputTokens: m.maxInputTokens,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export class FilterAssistant implements vscode.Disposable {
   /** Set when the user denied (or policy blocked) access; cleared when models or settings change. */
   private blocked = false;
@@ -174,6 +267,8 @@ export class FilterAssistant implements vscode.Disposable {
   /** Fires when AI help may have become (un)available; re-check with isAvailable(). */
   readonly onDidChangeAvailability = this.availability.event;
   private readonly disposables: vscode.Disposable[] = [this.availability];
+  /** Stand-ins per capture: a token means the same address in every request about it. */
+  private readonly maskers = new WeakMap<BackendClient, AddressMasker>();
   /** Protocol names per backend (one protocol-hierarchy pass per capture). */
   private readonly protocols = new WeakMap<BackendClient, Promise<string[]>>();
 
@@ -184,7 +279,10 @@ export class FilterAssistant implements vscode.Disposable {
     }
     this.disposables.push(
       vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration(`${SECTION}.ai.enabled`)) {
+        if (
+          e.affectsConfiguration(`${SECTION}.ai.enabled`) ||
+          e.affectsConfiguration(`${SECTION}.ai.model`)
+        ) {
           this.changed();
         }
       }),
@@ -194,6 +292,17 @@ export class FilterAssistant implements vscode.Disposable {
   private changed(): void {
     this.blocked = false;
     this.availability.fire();
+  }
+
+  /** The capture's stand-ins (a new set when pcapViewer.ai.pseudonymizeAddresses changed). */
+  maskerFor(backend: BackendClient): AddressMasker {
+    const on = pseudonymizing();
+    let masker = this.maskers.get(backend);
+    if (!masker || masker.enabled !== on) {
+      masker = new AddressMasker(on);
+      this.maskers.set(backend, masker);
+    }
+    return masker;
   }
 
   async isAvailable(): Promise<boolean> {
@@ -206,10 +315,31 @@ export class FilterAssistant implements vscode.Disposable {
       return undefined;
     }
     try {
-      return (await lm.selectChatModels(MODEL_SELECTOR))[0];
+      // (The chosen model only: never another vendor's instead.)
+      return (await lm.selectChatModels(modelSelector(modelSetting())))[0];
     } catch {
       return undefined;
     }
+  }
+
+  /** The model to suggest filters with, or why there is none. */
+  private async suggestModel(): Promise<vscode.LanguageModelChat | SuggestOutcome> {
+    if (!aiEnabled()) {
+      return {
+        suggestions: [],
+        rejected: [],
+        unavailable: true,
+        message: "AI help is turned off (pcapViewer.ai.enabled).",
+      };
+    }
+    return (
+      (await this.model()) ?? {
+        suggestions: [],
+        rejected: [],
+        unavailable: true,
+        message: unavailableMessage(modelSetting(), this.blocked),
+      }
+    );
   }
 
   /** Suggest validated display filters for `request` on the capture served by `backend`. */
@@ -219,24 +349,9 @@ export class FilterAssistant implements vscode.Disposable {
     currentFilter: string,
     token: vscode.CancellationToken,
   ): Promise<SuggestOutcome> {
-    if (!aiEnabled()) {
-      return {
-        suggestions: [],
-        rejected: [],
-        unavailable: true,
-        message: "AI help is turned off (pcapViewer.ai.enabled).",
-      };
-    }
-    const model = await this.model();
-    if (!model) {
-      return {
-        suggestions: [],
-        rejected: [],
-        unavailable: true,
-        message: this.blocked
-          ? "AI help was not allowed to use the language model."
-          : "No language model is available. Install and sign in to GitHub Copilot to use AI help.",
-      };
+    const model = await this.suggestModel();
+    if ("suggestions" in model) {
+      return model;
     }
     try {
       // The first protocol-hierarchy pass can take a while on a big capture: don't make a cancel wait for it.
@@ -244,19 +359,7 @@ export class FilterAssistant implements vscode.Disposable {
         Promise.all([this.protocolNames(backend), this.candidateFields(backend, request)]),
         token,
       );
-      const ask = async (turns: ChatTurn[]): Promise<string> => {
-        const messages = turns.map((t) =>
-          t.role === "user"
-            ? vscode.LanguageModelChatMessage.User(t.content)
-            : vscode.LanguageModelChatMessage.Assistant(t.content),
-        );
-        const response = await model.sendRequest(messages, { justification: JUSTIFICATION }, token);
-        let text = "";
-        for await (const part of response.text) {
-          text += part;
-        }
-        return text;
-      };
+      const ask = askFor(model, this.maskerFor(backend), JUSTIFICATION, token);
       const validate = async (filter: string): Promise<string | undefined> => {
         try {
           const res = await backend.request<{ valid: boolean; error?: string }>("validate_filter", {
@@ -283,6 +386,105 @@ export class FilterAssistant implements vscode.Disposable {
           };
     } catch (err) {
       return this.failure(err, token);
+    }
+  }
+
+  /**
+   * Suggest capture (BPF) filters for `request`, each compiled by dumpcap for
+   * `interfaces[0]` (`validate_capture_filter`). Only the request, the
+   * current capture filter and the interface names are sent.
+   */
+  async suggestCaptureFilters(
+    backend: BackendClient,
+    request: string,
+    currentFilter: string,
+    interfaces: readonly { name: string; loopback?: boolean }[],
+    token: vscode.CancellationToken,
+  ): Promise<SuggestOutcome> {
+    const model = await this.suggestModel();
+    if ("suggestions" in model) {
+      return model;
+    }
+    try {
+      const ask = askFor(model, this.maskerFor(backend), CAPTURE_FILTER_JUSTIFICATION, token);
+      const validate = async (filter: string): Promise<string | undefined> => {
+        try {
+          const res = await backend.request<{
+            valid: boolean;
+            checked?: boolean;
+            error?: string;
+            message?: string;
+          }>("validate_capture_filter", { filter, interface: interfaces[0]?.name ?? "" });
+          // dumpcap couldn't check it (no permission): accepted, as the input box does.
+          return res.valid || res.checked === false
+            ? undefined
+            : (res.error ?? res.message ?? "invalid capture filter");
+        } catch (err) {
+          return `could not validate: ${(err as Error).message}`;
+        }
+      };
+      const result = await suggestCaptureFilters(
+        { ask, validate },
+        { request, currentFilter, interfaces },
+      );
+      for (const r of result.rejected) {
+        this.log.info(`AI capture filter suggestion rejected by dumpcap: ${r.filter} (${r.error})`);
+      }
+      return result.suggestions.length
+        ? result
+        : {
+            ...result,
+            message:
+              "The language model didn't come up with a valid capture filter. Try describing it differently.",
+          };
+    } catch (err) {
+      return this.failure(err, token);
+    }
+  }
+
+  /**
+   * A Lua dissector for `req` from the model, screened and then loaded by
+   * tshark (`check_dissectors`, from a temporary copy) until it loads or the
+   * rounds run out. Only the description and the template are sent.
+   */
+  async generateDissector(
+    backend: BackendClient,
+    req: DissectorRequest,
+    template: string,
+    token: vscode.CancellationToken,
+    progress?: (round: number, problems: readonly string[]) => void,
+  ): Promise<DissectorOutcome> {
+    const model = await this.suggestModel();
+    if ("suggestions" in model) {
+      return { ok: false, problems: [], rounds: 0, ...model };
+    }
+    let unchecked: string | undefined;
+    const check = async (source: string): Promise<string[]> => {
+      // tshark's AppArmor profile lets it read the temp folder.
+      const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pcap-lens-lua-"));
+      const file = path.join(dir, `${req.name}.lua`);
+      try {
+        await fs.promises.writeFile(file, source);
+        const res = await backend.request<{
+          errors: { message: string }[];
+          warnings: string[];
+        }>("check_dissectors", { lua: [file] }, { timeoutMs: 60_000 });
+        unchecked = res.warnings.find((w) => /root/i.test(w));
+        return res.errors.map((e) => e.message.split(file).join(`${req.name}.lua`));
+      } finally {
+        await fs.promises.rm(dir, { recursive: true, force: true });
+      }
+    };
+    try {
+      const ask = askFor(model, this.maskerFor(backend), DISSECTOR_JUSTIFICATION, token);
+      const result = await generateDissector({ ask, check }, req, template, progress);
+      for (const p of result.problems) {
+        this.log.info(`AI Lua dissector (round ${result.rounds}): ${p}`);
+      }
+      return { ...result, unchecked };
+    } catch (err) {
+      const f = this.failure(err, token);
+      return { ok: false, problems: [], rounds: 0, message: f.message, unavailable: f.unavailable };
     }
   }
 
@@ -349,15 +551,16 @@ export class FilterAssistant implements vscode.Disposable {
       return {
         ...none,
         unavailable: true,
-        message: this.blocked
-          ? "AI help was not allowed to use the language model."
-          : "No language model is available. Install and sign in to GitHub Copilot to use AI help.",
+        message: unavailableMessage(modelSetting(), this.blocked),
       };
     }
     const included = req.frames.slice(0, EXPLAIN_LIMITS.maxPackets);
     try {
       sink.progress(`Reading packet${included.length === 1 ? "" : "s"} ${included.join(", ")}…`);
-      type Rows = { rows: { number: number; cells: string[] }[]; columns: string[] };
+      type Rows = {
+        rows: { number: number; cells: string[]; addresses?: string[] }[];
+        columns: string[];
+      };
       type Detail = {
         tree: TreeNode[];
         sources: { name: string; hex: string }[];
@@ -392,6 +595,10 @@ export class FilterAssistant implements vscode.Disposable {
         ]),
         token,
       );
+      const masker = this.maskerFor(backend);
+      // (Bytes hold the addresses too, and they can't be replaced there.)
+      const includeBytes = req.includeBytes && !masker.enabled;
+      masker.learnNames(namesInRows(rows.rows));
       const packets: ExplainPacket[] = [];
       included.forEach((number, i) => {
         const detail = details[i];
@@ -401,7 +608,7 @@ export class FilterAssistant implements vscode.Disposable {
             number,
             cells: row.cells,
             tree: detail.tree,
-            hex: req.includeBytes ? detail.sources[0]?.hex : undefined,
+            hex: includeBytes ? detail.sources[0]?.hex : undefined,
             approximateFrom: detail.approximate && detail.window ? detail.window[0] : undefined,
           });
         }
@@ -409,23 +616,39 @@ export class FilterAssistant implements vscode.Disposable {
       if (!packets.length) {
         return { ...none, message: `The capture has no packet ${req.frames.join(", ")}.` };
       }
+      for (const p of packets) {
+        masker.learnNames(namesInTree(p.tree));
+      }
       const prompt = buildExplainPrompt({
         question: req.question,
         currentFilter: req.currentFilter,
         titles: rows.columns.map((f) => req.titleOf[f] ?? f),
         packets,
         omitted: req.frames.length - packets.length,
-        includeBytes: req.includeBytes,
+        includeBytes,
       });
-      const answer = await this.streamAnswer(model, prompt, EXPLAIN_JUSTIFICATION, sink, token);
+      const answer = await this.streamAnswer(
+        model,
+        prompt,
+        EXPLAIN_JUSTIFICATION,
+        sink,
+        token,
+        masker,
+      );
       const filters = await this.validFilters(backend, extractFilters(answer), "explain");
       const skipped = req.frames.length - packets.length;
+      const notes = [
+        skipped
+          ? `${skipped} of the ${req.frames.length} packets were not included (at most ${EXPLAIN_LIMITS.maxPackets} at a time).`
+          : "",
+        req.includeBytes && !includeBytes
+          ? "Raw bytes were not sent: the addresses in them can't be replaced by stand-ins (pcapViewer.ai.pseudonymizeAddresses)."
+          : "",
+      ].filter(Boolean);
       return {
         frames: packets.map((p) => p.number),
         filters,
-        message: skipped
-          ? `${skipped} of the ${req.frames.length} packets were not included (at most ${EXPLAIN_LIMITS.maxPackets} at a time).`
-          : undefined,
+        message: notes.length ? notes.join(" ") : undefined,
       };
     } catch (err) {
       const failed = this.failure(err, token);
@@ -448,32 +671,41 @@ export class FilterAssistant implements vscode.Disposable {
       model ?? {
         ...none,
         unavailable: true,
-        message: this.blocked
-          ? "AI help was not allowed to use the language model."
-          : "No language model is available. Install and sign in to GitHub Copilot to use AI help.",
+        message: unavailableMessage(modelSetting(), this.blocked),
       }
     );
   }
 
-  /** Send one prompt and stream the answer into `sink`; returns the whole answer. */
+  /**
+   * Send one prompt (addresses replaced by `masker`'s stand-ins) and stream
+   * the answer, real values restored, into `sink`; returns the whole answer.
+   */
   private async streamAnswer(
     model: vscode.LanguageModelChat,
     prompt: string,
     justification: string,
     sink: ExplainSink,
     token: vscode.CancellationToken,
+    masker: AddressMasker,
   ): Promise<string> {
-    sink.progress("Asking the language model…");
+    sink.progress(`Asking ${modelLabel(model)}…`);
     const response = await model.sendRequest(
-      [vscode.LanguageModelChatMessage.User(prompt)],
+      [vscode.LanguageModelChatMessage.User(withStandInNote(masker, masker.mask(prompt)))],
       { justification },
       token,
     );
+    const restorer = masker.restorer();
     let answer = "";
+    const emit = (text: string) => {
+      if (text) {
+        answer += text;
+        sink.markdown(text);
+      }
+    };
     for await (const part of response.text) {
-      answer += part;
-      sink.markdown(part);
+      emit(restorer.push(part));
     }
+    emit(restorer.end());
     return answer;
   }
 
@@ -560,10 +792,123 @@ export class FilterAssistant implements vscode.Disposable {
         io,
         missing,
       });
-      const answer = await this.streamAnswer(model, prompt, SUMMARY_JUSTIFICATION, sink, token);
+      const answer = await this.streamAnswer(
+        model,
+        prompt,
+        SUMMARY_JUSTIFICATION,
+        sink,
+        token,
+        this.maskerFor(backend),
+      );
       return {
         frames: [],
         filters: await this.validFilters(backend, extractFilters(answer), "summary"),
+      };
+    } catch (err) {
+      return this.failed(err, token);
+    }
+  }
+
+  /**
+   * Triage the capture (aiTriage.ts): tshark counts the fixed checks
+   * (`triage`), the model ranks findings from them, the expert information,
+   * the protocol hierarchy and the top conversations. Its filters are
+   * validated (an invalid one is dropped from its finding); one retry when
+   * the answer isn't the JSON asked for. The caller has the statistics consent.
+   */
+  async triage(
+    backend: BackendClient,
+    question: string,
+    sink: Pick<ExplainSink, "progress">,
+    token: vscode.CancellationToken,
+  ): Promise<TriageOutcome> {
+    const model = await this.readyModel();
+    if (!("sendRequest" in model)) {
+      return model;
+    }
+    try {
+      sink.progress("Counting the checks with tshark…");
+      const stats = (params: Record<string, unknown>) =>
+        backend.request<StatsTable>("stats", params, { timeoutMs: 0 }).catch((err: unknown) => {
+          this.log.info(
+            `AI triage: ${String(params.kind)} statistics failed: ${(err as Error).message}`,
+          );
+          return undefined;
+        });
+      const [info, triage, expert, protocols, tcp, udp] = await untilCancelled(
+        Promise.all([
+          backend.request<CaptureFacts>("capture_info", {}),
+          backend.request<{ checks: TriageCheck[]; ignored: boolean }>(
+            "triage",
+            {},
+            { timeoutMs: 0 },
+          ),
+          stats({ kind: "expert" }),
+          stats({ kind: "phs" }),
+          stats({ kind: "conversations", type: "tcp" }),
+          stats({ kind: "conversations", type: "udp" }),
+        ]),
+        token,
+      );
+      const input: TriageInput = {
+        question,
+        info,
+        checks: triage.checks,
+        ignored: triage.ignored,
+        expert,
+        protocols,
+        conversations: [tcp, udp].filter((t): t is StatsTable => !!t),
+        missing: Object.entries({
+          "expert information": expert,
+          "protocol hierarchy": protocols,
+          "TCP conversations": tcp,
+          "UDP conversations": udp,
+        })
+          .filter(([, t]) => !t)
+          .map(([name]) => name),
+      };
+      sink.progress("Asking the language model…");
+      const ask = askFor(model, this.maskerFor(backend), TRIAGE_JUSTIFICATION, token);
+      const turns: ChatTurn[] = [{ role: "user", content: buildTriagePrompt(input) }];
+      let answer = await ask(turns);
+      let report = parseTriage(answer, input);
+      if (!report) {
+        turns.push(
+          { role: "assistant", content: answer },
+          {
+            role: "user",
+            content:
+              'That was not the JSON object asked for. Reply with JSON only: {"summary": "...", "findings": [...]}',
+          },
+        );
+        answer = await ask(turns);
+        report = parseTriage(answer, input);
+      }
+      if (!report) {
+        return {
+          frames: [],
+          filters: [],
+          checks: input.checks,
+          message: "The language model's answer couldn't be read as findings. Try again.",
+        };
+      }
+      sink.progress("Checking the filters with tshark…");
+      const valid = new Set(
+        await this.validFilters(
+          backend,
+          [...new Set(report.findings.flatMap((f) => (f.filter ? [f.filter] : [])))],
+          "triage",
+        ),
+      );
+      report.findings = report.findings.map((f) =>
+        f.filter && !valid.has(f.filter) ? { ...f, filter: undefined } : f,
+      );
+      return {
+        report,
+        checks: input.checks,
+        model: modelLabel(model),
+        frames: [...new Set(report.findings.flatMap((f) => f.frames.slice(0, 1)))],
+        filters: [...valid],
       };
     } catch (err) {
       return this.failed(err, token);
@@ -597,6 +942,8 @@ export class FilterAssistant implements vscode.Disposable {
               "That call is no longer available: use Ask Copilot… in the VoIP Calls panel again.",
           };
         }
+        // (The parties' SIP URIs name people and hosts: stand-ins for them too.)
+        this.maskerFor(backend).learnNames([{ name: req.call.from }, { name: req.call.to }]);
         prompt = buildCallPrompt({ question: req.question, call: req.call });
         frames = [
           ...new Set([
@@ -656,7 +1003,14 @@ export class FilterAssistant implements vscode.Disposable {
         });
         frames = [...new Set(rows.flatMap((r) => r.frames.slice(0, 1)))].slice(0, 3);
       }
-      const answer = await this.streamAnswer(model, prompt, ANOMALY_JUSTIFICATION, sink, token);
+      const answer = await this.streamAnswer(
+        model,
+        prompt,
+        ANOMALY_JUSTIFICATION,
+        sink,
+        token,
+        this.maskerFor(backend),
+      );
       return {
         frames,
         filters: await this.validFilters(backend, extractFilters(answer), "anomaly"),
@@ -746,13 +1100,20 @@ export class FilterAssistant implements vscode.Disposable {
     try {
       sink.progress("Looking into the capture…");
       const outcome = await runToolLoop(
-        runtime.loopModel(model, TOOLS_JUSTIFICATION, deadline.token),
+        maskedLoopModel(
+          runtime.loopModel(model, TOOLS_JUSTIFICATION, deadline.token),
+          this.maskerFor(backend),
+        ),
         buildToolPrompt(req.question, req.currentFilter),
         {
           cancelled: () => deadline.token.isCancellationRequested,
           onText: (t) => sink.markdown(t),
           onToolCall: (name, input) => sink.progress(describeToolCall(name, input)),
-          runTool: (name, input) => runTool(name, input, backend, req.consent),
+          runTool: async (name, input) => {
+            const result = await runTool(name, input, backend, req.consent);
+            this.maskerFor(backend).learnNames(result.names ?? []);
+            return result;
+          },
         },
       );
       for (const call of outcome.calls) {
