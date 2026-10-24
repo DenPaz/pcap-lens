@@ -14,14 +14,15 @@ commit) that made it. The format follows
   statistics, triage and, if allowed, packets. _PCAP: Copy MCP Server
   Configuration…_ sets it up. [408a8c7]
 - The MCP server's `field_values` tool counts a field's values (DNS response
-  codes, ICMP types…), and its triage says where to look next.
+  codes, ICMP types…), and its triage says where to look next. [1967f9c]
 
 ### Changed
 
 - Triage also counts ICMP, DNS and HTTP requests without a response, in
-  captures of up to 200,000 packets (read twice for that).
+  captures of up to 200,000 packets (read twice for that). [1967f9c]
 
 [408a8c7]: https://github.com/DenPaz/vsc_pcap_viewer/commit/408a8c7
+[1967f9c]: https://github.com/DenPaz/vsc_pcap_viewer/commit/1967f9c
 
 ## 0.22.0 — 2026-10-24
 
