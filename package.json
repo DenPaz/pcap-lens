@@ -334,6 +334,12 @@
         "category": "PCAP"
       },
       {
+        "command": "pcapViewer.chooseLanguageModel",
+        "title": "Choose Language Model…",
+        "category": "PCAP",
+        "icon": "$(sparkle)"
+      },
+      {
         "command": "pcapViewer.askAboutPackets",
         "title": "Ask Copilot About Selected Packets…",
         "category": "PCAP"
@@ -1923,7 +1929,13 @@
         "pcapViewer.ai.enabled": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Offer AI help through VS Code's Language Model API (GitHub Copilot): display filters (the filter bar's ✨ action, *PCAP: Suggest Display Filter…* and `@pcap` in chat), where only your request, the current filter and protocol/field names are sent and suggestions are checked with tshark; the capture summary (`@pcap /summary`), anomaly explanations (*Ask Copilot…* in the Expert Information and TCP Stream Graph panels, `@pcap /anomaly`) and `@pcap` questions answered with tools, which send statistics only if `#pcapViewer.ai.allowCaptureStatistics#` allows it; and explaining packets (*Ask Copilot About This Packet…*, `@pcap /explain`), which sends packet data only if `#pcapViewer.ai.allowPacketData#` allows it."
+          "markdownDescription": "Offer AI help through VS Code's Language Model API (GitHub Copilot, or the model chosen in `#pcapViewer.ai.model#`): display filters (the filter bar's ✨ action, *PCAP: Suggest Display Filter…* and `@pcap` in chat), where only your request, the current filter and protocol/field names are sent and suggestions are checked with tshark; the capture summary (`@pcap /summary`), anomaly explanations (*Ask Copilot…* in the Expert Information and TCP Stream Graph panels, `@pcap /anomaly`) and `@pcap` questions answered with tools, which send statistics only if `#pcapViewer.ai.allowCaptureStatistics#` allows it; and explaining packets (*Ask Copilot About This Packet…*, `@pcap /explain`), which sends packet data only if `#pcapViewer.ai.allowPacketData#` allows it."
+        },
+        "pcapViewer.ai.model": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "markdownDescription": "The language model the AI features use, by id: empty is automatic (GitHub Copilot's model). Pick one with *PCAP: Choose Language Model…*: any chat model VS Code offers, including those other extensions provide, such as models running on your machine, which keep what the AI features send there. When the chosen model isn't available, AI help says so instead of using another one. User settings only."
         },
         "pcapViewer.ai.allowPacketData": {
           "type": "boolean",

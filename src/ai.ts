@@ -40,6 +40,7 @@ import {
 import { CaptureFacts, StatsTable, buildSummaryPrompt } from "./aiSummary";
 import { ToolConsent, TOOL_LIMITS, buildToolPrompt, runTool, runToolLoop } from "./aiTools";
 import { toolsRuntime } from "./lmTools";
+import { ModelInfo, modelLabel, modelSelector, unavailableMessage } from "./aiModel";
 import type { QuickDetail } from "./settingsModel";
 import {
   ChatTurn,
@@ -59,7 +60,6 @@ export interface SuggestOutcome {
   unavailable?: boolean;
 }
 
-const MODEL_SELECTOR: vscode.LanguageModelChatSelector = { vendor: "copilot" };
 const JUSTIFICATION =
   "PCAP Lens turns your description into a Wireshark display filter. Only your request, the current filter and protocol/field names are sent.";
 const EXPLAIN_JUSTIFICATION =
@@ -167,6 +167,30 @@ export function aiEnabled(): boolean {
   return vscode.workspace.getConfiguration(SECTION).get<boolean>("ai.enabled", true);
 }
 
+/** `pcapViewer.ai.model`: a model id, or "" for automatic (application-scoped). */
+export function modelSetting(): string {
+  return vscode.workspace.getConfiguration(SECTION).get<string>("ai.model", "") ?? "";
+}
+
+/** Every chat model VS Code offers now (for PCAP: Choose Language Model…). */
+export async function listModels(): Promise<ModelInfo[]> {
+  const lm = lmApi();
+  if (!lm) {
+    return [];
+  }
+  try {
+    return (await lm.selectChatModels()).map((m) => ({
+      id: m.id,
+      name: m.name,
+      vendor: m.vendor,
+      family: m.family,
+      maxInputTokens: m.maxInputTokens,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export class FilterAssistant implements vscode.Disposable {
   /** Set when the user denied (or policy blocked) access; cleared when models or settings change. */
   private blocked = false;
@@ -184,7 +208,10 @@ export class FilterAssistant implements vscode.Disposable {
     }
     this.disposables.push(
       vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration(`${SECTION}.ai.enabled`)) {
+        if (
+          e.affectsConfiguration(`${SECTION}.ai.enabled`) ||
+          e.affectsConfiguration(`${SECTION}.ai.model`)
+        ) {
           this.changed();
         }
       }),
@@ -206,7 +233,8 @@ export class FilterAssistant implements vscode.Disposable {
       return undefined;
     }
     try {
-      return (await lm.selectChatModels(MODEL_SELECTOR))[0];
+      // (The chosen model only: never another vendor's instead.)
+      return (await lm.selectChatModels(modelSelector(modelSetting())))[0];
     } catch {
       return undefined;
     }
@@ -233,9 +261,7 @@ export class FilterAssistant implements vscode.Disposable {
         suggestions: [],
         rejected: [],
         unavailable: true,
-        message: this.blocked
-          ? "AI help was not allowed to use the language model."
-          : "No language model is available. Install and sign in to GitHub Copilot to use AI help.",
+        message: unavailableMessage(modelSetting(), this.blocked),
       };
     }
     try {
@@ -349,9 +375,7 @@ export class FilterAssistant implements vscode.Disposable {
       return {
         ...none,
         unavailable: true,
-        message: this.blocked
-          ? "AI help was not allowed to use the language model."
-          : "No language model is available. Install and sign in to GitHub Copilot to use AI help.",
+        message: unavailableMessage(modelSetting(), this.blocked),
       };
     }
     const included = req.frames.slice(0, EXPLAIN_LIMITS.maxPackets);
@@ -448,9 +472,7 @@ export class FilterAssistant implements vscode.Disposable {
       model ?? {
         ...none,
         unavailable: true,
-        message: this.blocked
-          ? "AI help was not allowed to use the language model."
-          : "No language model is available. Install and sign in to GitHub Copilot to use AI help.",
+        message: unavailableMessage(modelSetting(), this.blocked),
       }
     );
   }
@@ -463,7 +485,7 @@ export class FilterAssistant implements vscode.Disposable {
     sink: ExplainSink,
     token: vscode.CancellationToken,
   ): Promise<string> {
-    sink.progress("Asking the language model…");
+    sink.progress(`Asking ${modelLabel(model)}…`);
     const response = await model.sendRequest(
       [vscode.LanguageModelChatMessage.User(prompt)],
       { justification },

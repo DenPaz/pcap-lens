@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { ExplainOutcome, ExplainSink, aiEnabled } from "../ai";
+import { ExplainOutcome, ExplainSink, aiEnabled, listModels, modelSetting } from "../ai";
 import {
   AnomalyTarget,
   CallSummary,
@@ -10,6 +10,7 @@ import {
   parseAnomalyArgs,
 } from "../aiAnomaly";
 import { STATISTICS_CONSENT } from "../aiConsent";
+import { modelItems } from "../aiModel";
 import { EXPLAIN_LIMITS, PACKET_DATA_CONSENT, explainQuery, parseExplainArgs } from "../aiExplain";
 import { summaryQuery } from "../aiSummary";
 import { PCAP_TOOLS, ToolConsent, runTool } from "../aiTools";
@@ -67,6 +68,38 @@ export async function suggestDisplayFilter(
   session.reveal();
   session.prepareFilter(pick.label);
   return pick.label;
+}
+
+/**
+ * "PCAP: Choose Language Model…": every chat model VS Code offers (Copilot's,
+ * other extensions', local ones), saved in pcapViewer.ai.model (user
+ * settings). `{id}` skips the picker ("" = automatic). Returns the setting.
+ */
+export async function chooseLanguageModel(args?: { id?: unknown }): Promise<string | undefined> {
+  let id: string | undefined = typeof args?.id === "string" ? args.id : undefined;
+  if (id === undefined) {
+    const current = modelSetting();
+    const items = modelItems(await listModels(), current).map((m) =>
+      m.separator
+        ? { label: m.label, kind: vscode.QuickPickItemKind.Separator, id: undefined }
+        : { label: m.label, description: m.description, detail: m.detail, id: m.id },
+    );
+    const pick = await vscode.window.showQuickPick(items, {
+      title: "Language Model for PCAP Lens",
+      placeHolder:
+        "The AI features use only this model; a model running on your machine keeps what they send there",
+      matchOnDescription: true,
+      matchOnDetail: true,
+    });
+    if (pick?.id === undefined) {
+      return undefined;
+    }
+    id = pick.id;
+  }
+  await vscode.workspace
+    .getConfiguration(SECTION)
+    .update("ai.model", id, vscode.ConfigurationTarget.Global);
+  return id;
 }
 
 // ---------------------------------------------------------------------- explaining packets
@@ -612,6 +645,9 @@ export function registerAiCommands(
   context.subscriptions.push(
     vscode.commands.registerCommand("pcapViewer.suggestFilter", () =>
       suggestDisplayFilter(provider),
+    ),
+    vscode.commands.registerCommand("pcapViewer.chooseLanguageModel", (args?: { id?: unknown }) =>
+      chooseLanguageModel(args),
     ),
     vscode.commands.registerCommand("pcapViewer.askAboutPackets", (frames?: unknown) =>
       askAboutPackets(provider, log, frames),

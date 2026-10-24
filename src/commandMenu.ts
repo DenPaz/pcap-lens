@@ -159,6 +159,7 @@ const GROUP_OF: Readonly<Record<string, CommandGroup>> = {
   "pcapViewer.wiresharkProfile": "Dissectors",
   "pcapViewer.importWiresharkProfile": "Other",
   "pcapViewer.suggestFilter": "AI",
+  "pcapViewer.chooseLanguageModel": "AI",
   "pcapViewer.askAboutPackets": "AI",
   "pcapViewer.summarizeCapture": "AI",
   "pcapViewer.askAboutAnomaly": "AI",

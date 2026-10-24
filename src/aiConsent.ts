@@ -13,7 +13,8 @@ import { TOOL_LIMITS } from "./aiTools";
 /** Exactly what the statistics-based AI features send: shown in the consent prompt (and README). */
 export const STATISTICS_CONSENT =
   "Summarizing a capture, explaining expert information, a TCP stream or a VoIP call, and answering @pcap questions with tools " +
-  "send statistics computed from the capture by tshark to the language model (GitHub Copilot), never packet contents " +
+  "send statistics computed from the capture by tshark to the language model (GitHub Copilot, unless you chose another " +
+  "with PCAP: Choose Language Model…), never packet contents " +
   "or bytes: the capture's properties (packets, duration, size, link type); its protocol hierarchy; its top " +
   `${SUMMARY_LIMITS.maxRows} conversations and endpoints by bytes (IP addresses, ports, host names when name ` +
   "resolution is on, packet and byte counts); expert information counts and messages; packet and byte counts over " +
