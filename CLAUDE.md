@@ -2427,3 +2427,5 @@ start: 0.21.2.
 Then AI help with a language model of your choice and address stand-ins,
 capture filters and Lua dissectors from a description, and one-click triage
 with findings in the capture report: 0.22.0.
+Then an MCP server for AI assistants (counts, statistics, triage, field
+values and, if allowed, packets) and triage of unanswered requests: 0.23.0.

@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.23.0 — 2026-10-24
+
 ### Added
 
 - PCAP Lens's MCP server lets AI assistants (Claude Code, Claude Desktop,
