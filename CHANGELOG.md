@@ -26,10 +26,11 @@ commit) that made it. The format follows
 - The MCP server's results name the capture they are about (an assistant
   comparing two captures by hand swapped their statistics), a capture can be
   named without its folder, and `statistics` takes other spellings of a kind
-  ("Protocol Hierarchy", `phs`).
+  ("Protocol Hierarchy", `phs`). [f7a5283]
 
 [3a7f0de]: https://github.com/DenPaz/pcap-lens/commit/3a7f0de
 [ae3cc3c]: https://github.com/DenPaz/pcap-lens/commit/ae3cc3c
+[f7a5283]: https://github.com/DenPaz/pcap-lens/commit/f7a5283
 
 ## 0.23.0 — 2026-10-24
 
