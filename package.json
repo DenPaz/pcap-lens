@@ -2230,7 +2230,7 @@
           {
             "id": "ai",
             "title": "Ask Copilot (optional)",
-            "description": "With GitHub Copilot, get display filters from a description, summaries of a capture and explanations of anomalies. Nothing from your capture is sent until you allow it.\n[Review AI Settings](command:workbench.action.openSettings?%5B%22pcapViewer.ai%22%5D)",
+            "description": "With GitHub Copilot or another language model, get display and capture filters from a description, Lua dissectors, a triage of a capture and explanations of anomalies. Nothing from your capture is sent until you allow it.\n[Choose Language Model](command:pcapViewer.chooseLanguageModel)\n[Review AI Settings](command:workbench.action.openSettings?%5B%22pcapViewer.ai%22%5D)",
             "media": {
               "markdown": "media/walkthrough/ai.md"
             },

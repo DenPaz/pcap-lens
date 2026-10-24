@@ -164,9 +164,11 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   `src/luaChoice.ts` per-capture Lua choices. `src/hexDump.ts` guesses a hex
   dump's layout (pure).
   `src/rotation.ts` recognises rotated capture pieces (pure).
-  AI: `src/aiFilter.ts`, `aiExplain.ts`, `aiSummary.ts`, `aiAnomaly.ts`,
-  `aiTools.ts` (tool specs, `runTool`, `runToolLoop`) and `aiConsent.ts` are
-  pure prompt builders/parsers; `src/ai.ts` (`FilterAssistant`) and
+  AI: `src/aiFilter.ts`, `aiCaptureFilter.ts`, `aiDissector.ts`,
+  `aiExplain.ts`, `aiSummary.ts`, `aiTriage.ts`, `aiAnomaly.ts`, `aiTools.ts`
+  (tool specs, `runTool`, `runToolLoop`), `aiModel.ts` (model choice),
+  `aiPrivacy.ts` (address stand-ins) and `aiConsent.ts` are pure prompt
+  builders/parsers; `src/ai.ts` (`FilterAssistant`) and
   `src/lmTools.ts` (the tools API, declared locally) talk to `vscode.lm`;
   `src/commands/ai.ts` holds commands, consent and the `@pcap` participant.
   `src/captureModel.ts` pure capture/editing helpers (file names, durations,
@@ -242,7 +244,8 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   (extcap helpers: their folders, interfaces and options), `editing.py` (editcap options
   of capture editing), `hexdump.py` (text2pcap options of Import from Hex
   Dump), `ber.py` (counting back-to-back BER records), `codecs.py` (G.722,
-  G.726-32 and L16 decoders), `filterhelp.py` (a filter's
+  G.726-32 and L16 decoders), `triage.py` (the AI triage's checks),
+  `filterhelp.py` (a filter's
   field names, case hints, value counts), `plugins.py` (`tshark -G
 plugins` and the plugin folders), `decryption.py` (decryption keys and
   GeoIP folders as `-o` options), `protocols.py` (Enabled Protocols'
@@ -1812,6 +1815,80 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   default `@pcap` route uses the loop when tools exist and statistics are
   allowed (asking once); tools invoked by other participants use the active
   capture's backend.
+- **Language model choice** (`src/aiModel.ts` pure, `pcapViewer.ai.model`,
+  application scope; _PCAP: Choose Language Model…_): `modelSelector("")` =
+  `{vendor: "copilot"}` (as before), an id = `{id}` only. No fallback to
+  another model when the chosen one is missing (someone who picked a local
+  model must not have captures sent to a cloud one): `unavailableMessage`
+  says so. The picker (`modelItems`): Automatic, then `lm.selectChatModels()`
+  by vendor (Copilot first), the one in use marked, a missing chosen id kept
+  under "Not available now". The setting change re-checks availability.
+- **Address stand-ins** (`src/aiPrivacy.ts` pure,
+  `pcapViewer.ai.pseudonymizeAddresses`, application scope, on):
+  `AddressMasker` replaces IPv4 (`IP_PRIVATE_n` for 10/8, 172.16/12,
+  192.168/16, 100.64/10, 169.254/16; `IP_PUBLIC_n`), IPv6 (`IP6_LOCAL_n` for
+  fe80::/10 and fc00::/7, `IP6_PUBLIC_n`) and unicast MAC addresses
+  (`MAC_n`, colon or dash form; `Vendor_12:34:56` too) in everything sent;
+  0/8, 127/8, ≥ 224, `::`, `::1`, ff00::/8, group and all-zero MACs stay
+  (they say something and identify no one). Host names come from
+  `namesInRows` (cells vs `addresses`) and `namesInTree` (`*.src_host`… with
+  their address), plus a call's parties: a name with a known address takes
+  its token, else `HOST_n`. Regexes split on separators and test each part
+  (CodeQL's ReDoS alert). One masker per backend (`FilterAssistant.maskerFor`,
+  a WeakMap; renewed when the setting flips), so a capture keeps its
+  stand-ins across requests. The first user turn gets `STAND_IN_NOTE`
+  (`withStandInNote`); answers are restored (`restore`, and `restorer()` for
+  streams: it holds back a possible token prefix between chunks); the tool
+  loop goes through `maskedLoopModel` (messages masked, tool inputs restored
+  before running, results masked); LM tools invoked by other participants do
+  the same with `session.aiMasker()`. Explaining packets sends no bytes
+  while it is on (bytes can't be masked).
+- **Capture filter help** (`src/aiCaptureFilter.ts` pure,
+  `FilterAssistant.suggestCaptureFilters`): ✨ in `askFilter`'s input box
+  (Start Capture and Capture to Files; shown once `isAvailable()`) asks a
+  description, then a QuickPick of the suggestions dumpcap compiled
+  (`validate_capture_filter` for the first chosen interface; `checked:
+false` counts as accepted, like the box). The display-filter loop is shared
+  (`aiFilter.suggestWith(deps, prompt, retryPrompt)`: one retry with the
+  errors when none is valid). Sends the description, the current capture
+  filter and interface names (with stand-ins).
+- **Lua dissector assistant** (`src/aiDissector.ts` pure,
+  `FilterAssistant.generateDissector`, `describeLuaDissector` in
+  `commands/dissectors.ts`): the New Lua Dissector questions (`askSpec`) plus
+  a description; the prompt holds `luaDissectorTemplate(spec)`. Each answer's
+  ```lua block (`extractLua`) is screened first (`luaProblems` over
+  `luaCode`, the source without comments and with strings emptied: it must
+  hold `Proto("<name>"` and `DissectorTable.get(`, and no value use of os, io,
+  require, load*, dofile, package, debug, Dir, _G, _ENV, raw\*/metatable
+  functions, FileHandler, Listener, browser_* or `string.dump`): loading runs
+  a script's top-level code, so only a screened one is loaded, with
+  `check_dissectors {lua: [tmp]}` from a `mkdtemp` copy (AppArmor lets
+  tshark read /tmp). Problems or tshark's Lua errors (temp path replaced by
+  the file name) go back, `DISSECTOR_LIMITS.rounds` (3) answers at most. A
+  script that loads is saved (`wx`) and opened with the Reload offer; one
+  that doesn't opens unsaved. As root tshark skips Lua: `unchecked`, saved
+  with a note to review it.
+- **Triage** (`backend/pcap_backend/triage.py`, `triage {checks?}`;
+  `src/aiTriage.ts` pure; `FilterAssistant.triage`; `@pcap /triage`,
+  _PCAP: Triage Capture with AI_): `triage.CHECKS` (30 display filters, no
+  commas) counted in one `-z io,stat,0,<scope>,…` pass: per check a packets
+  graph plus `MIN(frame.number)` and `MAX(frame.number)` of it (first and
+  last packet; 0 = none), scope = without the ignored packets. Filters are
+  validated as one OR, then one by one only if that fails; refused ones (a
+  field this tshark lacks) come back with `error`. Needs a complete index.
+  The host adds capture_info, expert, phs and TCP/UDP conversations (top 10)
+  and asks for JSON `{summary, findings: [{severity, title, detail, check,
+filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
+  severities → info, a known `check` replaces the finding's filter with the
+  check's own and adds its first packet, frames only those the data named
+  (`knownFrames`: checks' first/last, expert rows), at most 8 findings;
+  other filters are validated (invalid ones dropped from their finding).
+  Chat shows each finding (`MarkdownString.appendText` for model text) with
+  "tshark counted N packets", Apply filter and Go to packet buttons; the
+  editor fallback writes `findingsBlocks` as Markdown. The capture report
+  asks "With AI findings" only when a model is available (`findings` arg),
+  under the statistics consent; `findingsBlocks` adds a Findings section
+  after Properties, naming the model.
 - **Get Started walkthrough** (`contributes.walkthroughs` id `gettingStarted`,
   pages in `media/walkthrough/`): Python, TShark, open a capture, filter,
   analyze, AI. The setup steps complete on context keys

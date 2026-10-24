@@ -7,6 +7,29 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- _PCAP: Choose Language Model…_ picks the model AI help uses: Copilot's, any
+  other an extension provides, or a local one (`pcapViewer.ai.model`). A
+  chosen model that is missing is never replaced by another. [b6e5da3]
+- Addresses and host names are replaced by stand-ins such as `IP_PRIVATE_1`
+  before anything goes to the language model, and put back in its answers
+  (`pcapViewer.ai.pseudonymizeAddresses`, on). [6e2bb0b]
+- ✨ in _Start Capture_'s filter box turns a description into capture filters
+  that dumpcap compiles before you pick one. [668f418]
+- _PCAP: New Lua Dissector from Description…_ writes a dissector from the
+  template and your description; tshark loads it, and its errors go back to
+  the model, before it is saved. [e528baa]
+- `@pcap /triage` and _PCAP: Triage Capture with AI_: ranked findings from 30
+  checks tshark counts, each with a filter and packet links; the capture
+  report can add them as a Findings section. [daf8400]
+
+[b6e5da3]: https://github.com/DenPaz/vsc_pcap_viewer/commit/b6e5da3
+[6e2bb0b]: https://github.com/DenPaz/vsc_pcap_viewer/commit/6e2bb0b
+[668f418]: https://github.com/DenPaz/vsc_pcap_viewer/commit/668f418
+[e528baa]: https://github.com/DenPaz/vsc_pcap_viewer/commit/e528baa
+[daf8400]: https://github.com/DenPaz/vsc_pcap_viewer/commit/daf8400
+
 ## 0.21.2 — 2026-10-24
 
 ### Fixed
