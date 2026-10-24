@@ -349,8 +349,9 @@ answer); see [Security](#security) for exactly what is sent.
 - **Triage**: `@pcap /triage` or _PCAP: Triage Capture with AI_ ranks findings
   from checks tshark counts (retransmissions, resets, unanswered connection
   attempts, DNS/HTTP/TLS errors, clear-text credentials…), each with what
-  tshark counted, a filter and packet links. The capture report can add them
-  as a Findings section.
+  tshark counted, a filter and packet links. Captures of up to 200,000 packets
+  are read twice, so ICMP, DNS and HTTP requests without a response are
+  counted too. The capture report can add them as a Findings section.
 - **Explain packets**: right-click _Ask Copilot About This Packet…_ or
   `@pcap /explain 12 15-17`.
 - **Summaries and anomalies**: `@pcap /summary`, and _Ask Copilot_ in the Expert
@@ -487,12 +488,15 @@ tools' results.
 | `capture_info`                                      | Packets, times, size, link type, format                                           |
 | `count_packets`                                     | How many packets match a display filter, and the first ones' numbers              |
 | `statistics`                                        | Protocol hierarchy, conversations, endpoints, expert information, I/O, HTTP, DNS… |
-| `triage`                                            | The triage checks' counts with filters and first/last packets                     |
+| `triage`                                            | The triage checks' counts with filters, first/last packets and where to look next |
+| `field_values` ²                                    | A field's values and how many packets hold each, optionally within a filter       |
 | `validate_filter`, `search_fields`                  | Display filter checks and field names                                             |
 | `list_packets`, `packet_details`, `follow_stream` ¹ | Packet rows, dissection trees, a stream's payload as text                         |
 
 ¹ Only with `pcapViewer.mcp.allowPacketData` (`--allow-packet-data`); payload
-bytes in the trees only with `--allow-packet-bytes`. Every tool only reads,
+bytes in the trees only with `--allow-packet-bytes`. ² Numbers, codes and
+flags (`dns.flags.rcode`, `tcp.flags`) always; text fields (`dns.qry.name`)
+only with packet data allowed. Every tool only reads,
 and only files inside the allowed folders: the workspace folders, or the
 `--root` folders of the command line (default: the assistant's working
 folder). With `pcapViewer.ai.pseudonymizeAddresses` (`--stand-ins`) addresses
@@ -575,7 +579,7 @@ _PCAP: Show Log_ shows backend and tshark messages.
 | Filter help (✨, _Suggest Display Filter…_)  | Your description, the current filter, protocol names in the capture, matching field names and descriptions                                    | `ai.enabled`             |
 | Capture filter help (✨ in _Start Capture_)  | Your description, the current capture filter, the chosen interfaces' names                                                                    | `ai.enabled`             |
 | _New Lua Dissector from Description…_        | Your description, the protocol's name, port and the dissector template; tshark's Lua errors on retries                                        | `ai.enabled`             |
-| _Triage Capture with AI_, `/triage`          | Capture properties, 30 check counts with their filters and first/last packet numbers, expert counts, protocol hierarchy, top 10 conversations | `allowCaptureStatistics` |
+| _Triage Capture with AI_, `/triage`          | Capture properties, 33 check counts with their filters and first/last packet numbers, expert counts, protocol hierarchy, top 10 conversations | `allowCaptureStatistics` |
 | _Ask Copilot About This Packet…_, `/explain` | Up to 8 packets: row and dissection tree (250 lines each), your question, the filter; bytes only with `allowPacketBytes` (256 per packet)     | `allowPacketData`        |
 | _Summarize Capture_, `/summary`              | Capture properties, protocol hierarchy (40 rows), top 15 conversations and endpoints, expert counts, traffic in 12 buckets                    | `allowCaptureStatistics` |
 | Expert _Ask Copilot…_, `/anomaly`            | Up to 10 expert entries (5 packet numbers each) and up to 5 conversation rows                                                                 | `allowCaptureStatistics` |

@@ -90,28 +90,38 @@ class FilterHelpMixin(DissectionMixin):
         most ``limit``, default and cap MAX_VALUES): ``values: [{value,
         count}]`` (packets holding it; a packet counts once per value),
         ``packets`` (packets with the field), ``distinct`` and ``more``
-        (values beyond the distinct cap). One ``-Y field`` fields pass with
-        progress; cached per field once the capture is complete."""
+        (values beyond the distinct cap). ``filter`` (a display filter) counts
+        only the packets matching it. One ``-Y field`` fields pass with
+        progress; cached per field and filter once the capture is complete."""
         name = param(params, "field", str).strip()
         limit = max(1, min(param(params, "limit", int, MAX_VALUES), MAX_VALUES))
-        self._require_file()
+        flt = param(params, "filter", str, "").strip()
+        f = self._require_file()
         catalog = self._catalog(ctx)
         entry = catalog.lookup(name)
         if entry is None:
             raise InvalidParamsError(f"{name} is not a field tshark knows")
-        cached = self._field_values.get(name)
+        if flt:
+            error = f.tshark.validate_filter(flt, ctx.token)
+            if error:
+                raise FilterError(error, {"expr": flt})
+        key = f"{name}\0{flt}"
+        cached = self._field_values.get(key)
         if cached is None:
-            cached = self._count_field_values(name, ctx)
+            cached = self._count_field_values(name, flt, ctx)
             if self._indexing is None:
-                self._field_values.put(name, cached)
-        return {**cached, "values": cached["values"][:limit], "type": entry.get("type", "")}
+                self._field_values.put(key, cached)
+        result = {**cached, "values": cached["values"][:limit], "type": entry.get("type", "")}
+        if flt:
+            result["filter"] = flt
+        return result
 
-    def _count_field_values(self, name: str, ctx: RequestContext) -> dict[str, Any]:
+    def _count_field_values(self, name: str, flt: str, ctx: RequestContext) -> dict[str, Any]:
         f = self._require_file()
         total = max(f.frame_count(), 1)
         argv = f.tshark.argv(
             "-Y",
-            name,
+            f"({name}) && ({flt})" if flt else name,
             "-T",
             "fields",
             "-E",

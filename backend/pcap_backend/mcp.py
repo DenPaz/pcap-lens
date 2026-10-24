@@ -152,7 +152,9 @@ class Captures:
     def resolve(self, raw: object) -> Path:
         """A capture path inside a root (relative paths: from the first root)."""
         if not isinstance(raw, str) or not raw.strip():
-            raise ToolFailureError("'capture' must be the path of a capture file")
+            raise ToolFailureError(
+                "'capture' is missing: give the path of a capture file (list_captures finds them)"
+            )
         path = Path(raw.strip()).expanduser()
         if not path.is_absolute():
             path = self.config.roots[0] / path
@@ -267,6 +269,45 @@ def _str(args: Mapping[str, Any], name: str, default: str = "") -> str:
     if not isinstance(value, str):
         raise ToolFailureError(f"'{name}' must be a string")
     return value.strip()
+
+
+def _capture_arg(args: Mapping[str, Any]) -> object:
+    """The capture's path (models sometimes call it ``path`` or ``file``)."""
+    for key in ("capture", "path", "file"):
+        if args.get(key) not in (None, ""):
+            return args[key]
+    return None
+
+
+# Where to look next after a triage check found packets.
+_NEXT: tuple[tuple[str, str], ...] = (
+    ("dns_", "statistics kind=dns (rcodes, query types); field_values dns.flags.rcode"),
+    (
+        "http_",
+        "statistics kind=http (status codes, methods, hosts); field_values http.response.code",
+    ),
+    ("sip_", "statistics kind=sip (responses by code, methods)"),
+    ("tcp_connection", "statistics kind=conversations type=tcp; count_packets with the filter"),
+    (
+        "tcp_",
+        "statistics kind=expert (with packet numbers); statistics kind=conversations type=tcp",
+    ),
+    ("icmp_", "statistics kind=expert; field_values icmp.type, icmp.code"),
+    ("tls_", "field_values tls.alert_message.desc or tls.handshake.version with the filter"),
+    ("malformed", "statistics kind=expert (which protocol, with packet numbers)"),
+)
+
+# Field types whose values are codes, counts and numbers (no payload): what
+# field_values shows without --allow-packet-data.
+_NUMERIC_TYPES = {"FT_BOOLEAN", "FT_FRAMENUM", "FT_FLOAT", "FT_DOUBLE", "FT_RELATIVE_TIME"}
+
+
+def _numeric(ftype: str) -> bool:
+    return ftype.startswith(("FT_UINT", "FT_INT")) or ftype in _NUMERIC_TYPES
+
+
+def _next_step(check_id: str) -> str | None:
+    return next((hint for prefix, hint in _NEXT if check_id.startswith(prefix)), None)
 
 
 def _iso(seconds: float | None) -> str | None:
@@ -411,7 +452,9 @@ class Toolbox:
                             "type": "integer",
                             "minimum": 1,
                             "maximum": MAX_ROWS,
-                            "description": "Rows to return (default 25)",
+                            "description": (
+                                "Rows to return (default 25 for tables, 100 for reports)"
+                            ),
                         },
                     },
                     ["capture", "kind"],
@@ -422,12 +465,35 @@ class Toolbox:
                 "triage",
                 "Triage checks",
                 "Count about 30 fixed checks in one pass: TCP retransmissions, lost segments, "
-                "resets, unanswered connection attempts, ICMP errors, DNS, HTTP, SIP and Kerberos "
-                "errors, old TLS, clear-text credentials, duplicate addresses, fragments, "
-                "malformed packets… Each with its display filter and first and last packet. A "
-                "good first step to find what is wrong in a capture.",
+                "resets, unanswered connection attempts and requests (ICMP, DNS, HTTP), ICMP "
+                "errors, DNS, HTTP, SIP and Kerberos errors, old TLS, clear-text credentials, "
+                "duplicate addresses, fragments, malformed packets… Each with its display filter, "
+                "first and last packet, and where to look next (statistics or field_values give "
+                "the codes behind a count). A good first step to find what is wrong.",
                 _schema({"capture": _CAPTURE}, ["capture"]),
                 self.triage,
+            ),
+            Tool(
+                "field_values",
+                "Values of a field",
+                "The values one field takes, most frequent first, with how many packets hold "
+                "each, optionally only in the packets matching a display filter: which DNS rcodes "
+                "(dns.flags.rcode), HTTP status codes (http.response.code), ports, ICMP types, "
+                "transaction ids… Numeric fields, codes and flags always; text fields only when "
+                "the server allows packet contents.",
+                _schema(
+                    {
+                        "capture": _CAPTURE,
+                        "field": {
+                            "type": "string",
+                            "description": "A field name, e.g. tcp.dstport",
+                        },
+                        "filter": _FILTER,
+                        "limit": {"type": "integer", "minimum": 1, "maximum": MAX_ROWS},
+                    },
+                    ["capture", "field"],
+                ),
+                self.field_values,
             ),
             Tool(
                 "validate_filter",
@@ -568,7 +634,7 @@ class Toolbox:
         return {"folders": [str(r) for r in roots], "captures": found, "more": more}
 
     def capture_info(self, args: dict[str, Any], ctx: RequestContext) -> Any:
-        path = self.captures.resolve(args.get("capture"))
+        path = self.captures.resolve(_capture_arg(args))
         service = self.captures.get(path, ctx)
         info = service.capture_info({}, ctx)
         start, end = info.get("startTime"), info.get("endTime")
@@ -588,7 +654,7 @@ class Toolbox:
         }
 
     def count_packets(self, args: dict[str, Any], ctx: RequestContext) -> Any:
-        path = self.captures.resolve(args.get("capture"))
+        path = self.captures.resolve(_capture_arg(args))
         flt = _str(args, "filter")
         examples = _int(args, "examples", 10, 0, MAX_PACKETS)
         service = self.captures.get(path, ctx)
@@ -601,7 +667,7 @@ class Toolbox:
         }
 
     def statistics(self, args: dict[str, Any], ctx: RequestContext) -> Any:
-        path = self.captures.resolve(args.get("capture"))
+        path = self.captures.resolve(_capture_arg(args))
         kind = _str(args, "kind")
         if kind not in STATS_KINDS:
             raise ToolFailureError(f"'kind' must be one of {', '.join(STATS_KINDS)}")
@@ -611,7 +677,8 @@ class Toolbox:
             params["type"] = typ
         elif kind in ("conversations", "endpoints"):
             params["type"] = "ip"
-        limit = _int(args, "limit", 25, 1, MAX_ROWS)
+        tree = STATS_KINDS[kind] in _TREE_KINDS
+        limit = _int(args, "limit", 100 if tree else 25, 1, MAX_ROWS)
         service = self.captures.get(path, ctx)
         table = service.stats(params, ctx)
         rows, omitted = _top_rows(table, limit)
@@ -639,28 +706,68 @@ class Toolbox:
         }
 
     def triage(self, args: dict[str, Any], ctx: RequestContext) -> Any:
-        path = self.captures.resolve(args.get("capture"))
+        path = self.captures.resolve(_capture_arg(args))
         service = self.captures.get(path, ctx)
         res = service.triage({}, ctx)
         checks = res["checks"]
         found = sorted(
             (c for c in checks if c.get("count")), key=lambda c: c["count"], reverse=True
         )
+        rows: list[dict[str, Any]] = []
+        for c in found:
+            row = {
+                "id": c["id"],
+                "check": c["title"],
+                "packets": c["count"],
+                "firstPacket": c["first"],
+                "lastPacket": c["last"],
+                "filter": c["filter"],
+            }
+            hint = _next_step(c["id"])
+            if hint:
+                row["next"] = hint
+            rows.append(row)
         return {
             "packets": res["total"],
-            "found": [
-                {
-                    "id": c["id"],
-                    "check": c["title"],
-                    "packets": c["count"],
-                    "firstPacket": c["first"],
-                    "lastPacket": c["last"],
-                    "filter": c["filter"],
-                }
-                for c in found
+            "twoPass": res.get("twoPass", False),
+            "found": rows,
+            "none": [
+                c["id"]
+                for c in checks
+                if "error" not in c and "skipped" not in c and not c.get("count")
             ],
-            "none": [c["id"] for c in checks if "error" not in c and not c.get("count")],
-            "notAvailable": [c["id"] for c in checks if "error" in c],
+            "notAvailable": [
+                {"id": c["id"], "why": c.get("skipped") or c.get("error")}
+                for c in checks
+                if "error" in c or "skipped" in c
+            ],
+        }
+
+    def field_values(self, args: dict[str, Any], ctx: RequestContext) -> Any:
+        path = self.captures.resolve(_capture_arg(args))
+        name = _str(args, "field")
+        if not name:
+            raise ToolFailureError("'field' must name a field, e.g. dns.flags.rcode")
+        flt = _str(args, "filter")
+        limit = _int(args, "limit", 20, 1, MAX_ROWS)
+        service = self.captures.get(path, ctx)
+        ftype = service.field_types({"names": [name]}, ctx)["types"].get(name, {}).get("type", "")
+        if not ftype:
+            raise ToolFailureError(f"{name} is not a field tshark knows (search_fields finds them)")
+        if not self.config.allow_packet_data and not _numeric(ftype):
+            raise ToolFailureError(
+                f"{name} is {ftype}: its values are packet contents, which this server doesn't "
+                "return (numeric fields, codes and flags are fine)"
+            )
+        res = service.field_values({"field": name, "filter": flt, "limit": limit}, ctx)
+        return {
+            "field": name,
+            "type": ftype,
+            "filter": flt,
+            "packets": res["packets"],
+            "distinct": res["distinct"],
+            "values": res["values"],
+            "more": res["more"] or res["distinct"] > len(res["values"]),
         }
 
     def validate_filter(self, args: dict[str, Any], ctx: RequestContext) -> Any:
@@ -676,7 +783,7 @@ class Toolbox:
         return {"fields": res.get("fields", [])}
 
     def list_packets(self, args: dict[str, Any], ctx: RequestContext) -> Any:
-        path = self.captures.resolve(args.get("capture"))
+        path = self.captures.resolve(_capture_arg(args))
         flt = _str(args, "filter")
         offset = _int(args, "offset", 0, 0, 1 << 40)
         limit = _int(args, "limit", 20, 1, MAX_PACKETS)
@@ -698,7 +805,7 @@ class Toolbox:
         }
 
     def packet_details(self, args: dict[str, Any], ctx: RequestContext) -> Any:
-        path = self.captures.resolve(args.get("capture"))
+        path = self.captures.resolve(_capture_arg(args))
         number = _int(args, "packet", 0, 0, 1 << 40)
         if number < 1:
             raise ToolFailureError("'packet' must be a packet number (1 or more)")
@@ -711,7 +818,7 @@ class Toolbox:
         return {"packet": number, "tree": "\n".join(lines), "truncated": truncated}
 
     def follow_stream(self, args: dict[str, Any], ctx: RequestContext) -> Any:
-        path = self.captures.resolve(args.get("capture"))
+        path = self.captures.resolve(_capture_arg(args))
         params: dict[str, Any] = {"proto": _str(args, "protocol").lower()}
         if args.get("stream") is not None:
             params["stream"] = _int(args, "stream", 0, 0, 1 << 40)
@@ -758,8 +865,10 @@ def _instructions(config: McpConfig) -> str:
             "PCAP Lens reads packet captures with tshark (Wireshark's engine). Find files with "
             "list_captures, then start with capture_info and triage; check ideas with "
             "count_packets and statistics (display filters as in Wireshark; search_fields finds "
-            "field names, validate_filter checks a filter). The first call on a capture indexes "
-            "it, which can take a while for big files; later calls are fast."
+            "field names, validate_filter checks a filter). To see what is behind a count (which "
+            "DNS rcodes, HTTP status codes, ports…) use statistics (dns, http, sip, expert) or "
+            "field_values with the count's filter. The first call on a capture indexes it, which "
+            "can take a while for big files; later calls are fast."
         ),
         "Allowed folders: " + ", ".join(str(r) for r in config.roots) + ".",
     ]

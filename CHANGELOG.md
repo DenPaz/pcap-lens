@@ -13,6 +13,13 @@ commit) that made it. The format follows
   Cursor, VS Code's agent mode) read capture files with tshark: counts,
   statistics, triage and, if allowed, packets. _PCAP: Copy MCP Server
   Configuration…_ sets it up. [408a8c7]
+- The MCP server's `field_values` tool counts a field's values (DNS response
+  codes, ICMP types…), and its triage says where to look next.
+
+### Changed
+
+- Triage also counts ICMP, DNS and HTTP requests without a response, in
+  captures of up to 200,000 packets (read twice for that).
 
 [408a8c7]: https://github.com/DenPaz/vsc_pcap_viewer/commit/408a8c7
 

@@ -16,6 +16,7 @@ from typing import Any, BinaryIO
 import pytest
 
 from pcap_backend import mcp
+from pcap_backend import triage as triage_checks
 from pcap_backend.mcp import Captures, McpConfig, McpServer, Toolbox
 from pcap_backend.protocol import RequestContext
 from pcap_backend.standins import AddressMasker
@@ -134,6 +135,7 @@ def test_handshake_tools_and_errors(client_for: Any) -> None:
         "count_packets",
         "statistics",
         "triage",
+        "field_values",
         "validate_filter",
         "search_fields",
     }, "no packet contents without --allow-packet-data"
@@ -171,7 +173,11 @@ def test_list_captures_and_roots(client_for: Any, tmp_path: Path) -> None:
     text, failed = c.call("capture_info", capture="nope.pcap")
     assert failed and "no such file" in text
     text, failed = c.call("capture_info", capture="")
-    assert failed
+    assert failed and "'capture' is missing" in text
+    by_path, failed = c.call("capture_info", path="http.pcap")  # what models sometimes send
+    assert not failed and by_path["packets"] > 0
+    by_file, failed = c.call("capture_info", file="http.pcap")
+    assert not failed and by_file == by_path
 
 
 @pytest.mark.tshark
@@ -205,6 +211,14 @@ def test_statistics_tools(client_for: Any) -> None:
     counts = [f["packets"] for f in triage["found"]]
     assert counts == sorted(counts, reverse=True)
     assert "malformed" in triage["none"]
+    assert triage["twoPass"] and not triage["notAvailable"]
+    by_id = {f["id"]: f for f in triage["found"]}
+    assert by_id["icmp_unanswered"]["firstPacket"] == 61  # found with two passes only
+    assert "statistics kind=dns" in by_id["dns_queries"]["next"]
+    assert "statistics kind=http" in by_id["http_client_errors"]["next"]
+
+    dns, _ = c.call("statistics", capture="services.pcap", kind="dns")
+    assert dns["omittedRows"] == 0, "tree reports default to 100 rows"
 
     valid, _ = c.call("validate_filter", filter="tcp.port == 80")
     assert valid == {"valid": True}
@@ -212,6 +226,57 @@ def test_statistics_tools(client_for: Any) -> None:
     assert invalid["valid"] is False and invalid["error"]
     fields, _ = c.call("search_fields", query="dns reply code", limit=5)
     assert any(f["name"] == "dns.flags.rcode" for f in fields["fields"])
+
+
+@pytest.mark.tshark
+def test_triage_skips_two_pass_checks_on_big_captures(
+    client_for: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(triage_checks, "TWO_PASS_LIMIT", 10)
+    c = client_for()
+    res, _ = c.call("triage", capture="services.pcap")
+    assert not res["twoPass"]
+    skipped = {x["id"]: x["why"] for x in res["notAvailable"]}
+    assert set(skipped) == {x.id for x in triage_checks.CHECKS if x.two_pass}
+    assert all("two passes" in why for why in skipped.values())
+    assert not set(skipped) & set(res["none"])
+
+
+@pytest.mark.tshark
+def test_field_values(client_for: Any) -> None:
+    c = client_for()
+    rcodes, failed = c.call(
+        "field_values",
+        capture="services.pcap",
+        field="dns.flags.rcode",
+        filter="dns.flags.response == 1",
+    )
+    assert not failed
+    assert rcodes["type"] == "FT_UINT16" and rcodes["filter"] == "dns.flags.response == 1"
+    values = {v["value"]: v["count"] for v in rcodes["values"]}
+    assert set(values) >= {"0", "3"} and sum(values.values()) == rcodes["packets"]
+    responses, _ = c.call(
+        "count_packets", capture="services.pcap", filter="dns.flags.response == 1"
+    )
+    assert rcodes["packets"] == responses["count"]
+    every, _ = c.call("field_values", capture="services.pcap", field="dns.flags.rcode")
+    assert every["filter"] == "" and every["values"] == rcodes["values"], "only responses have one"
+
+    text, failed = c.call("field_values", capture="services.pcap", field="dns.qry.name")
+    assert failed and "packet contents" in text
+    text, failed = c.call("field_values", capture="services.pcap", field="no.such.field")
+    assert failed and "search_fields" in text
+    text, failed = c.call(
+        "field_values", capture="services.pcap", field="dns.flags.rcode", filter="dns =="
+    )
+    assert failed
+
+    names, failed = client_for(allow_packet_data=True).call(
+        "field_values", capture="services.pcap", field="dns.qry.name", limit=1
+    )
+    assert (
+        not failed and names["values"] == [{"value": "example.com", "count": 6}] and names["more"]
+    )
 
 
 @pytest.mark.tshark

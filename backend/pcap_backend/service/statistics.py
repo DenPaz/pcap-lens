@@ -150,8 +150,9 @@ class StatisticsMixin(ServiceBase):
         """The triage checks (``triage.CHECKS``) counted in one ``-z io,stat``
         pass over the whole capture without the ignored packets: each check's
         ``count`` and ``first``/``last`` packet, or ``error`` when this tshark
-        refuses its filter (a field it doesn't know). ``checks`` (ids) picks
-        some. Needs the capture completely indexed."""
+        refuses its filter (a field it doesn't know), or ``skipped`` (a
+        two-pass check on a capture over ``triage.TWO_PASS_LIMIT`` packets).
+        ``checks`` (ids) picks some. Needs the capture completely indexed."""
         self._require_indexed()
         f = self._require_file()
         wanted = params.get("checks")
@@ -165,14 +166,19 @@ class StatisticsMixin(ServiceBase):
                 raise InvalidParamsError(f"unknown triage checks: {', '.join(unknown)}")
             checks = [c for c in checks if c.id in wanted]
         ctx.progress({"phase": "stats", "fraction": None})
+        two_pass = f.info.frames <= triage.TWO_PASS_LIMIT
+        skipped = {c.id for c in checks if c.two_pass and not two_pass}
+        checks_run = [c for c in checks if c.id not in skipped]
         # One validation for all of them; only when it fails, one per check.
         refused: dict[str, str] = {}
-        if checks and f.tshark.validate_filter(" || ".join(f"({c.filter})" for c in checks)):
-            for c in checks:
+        if checks_run and f.tshark.validate_filter(
+            " || ".join(f"({c.filter})" for c in checks_run)
+        ):
+            for c in checks_run:
                 error = f.tshark.validate_filter(c.filter, ctx.token)
                 if error:
                     refused[c.id] = error
-        usable = [c for c in checks if c.id not in refused]
+        usable = [c for c in checks_run if c.id not in refused]
         counted = self._without_ignored("")
         found: dict[str, dict[str, object]] = {}
         if usable:
@@ -181,20 +187,27 @@ class StatisticsMixin(ServiceBase):
             spec = ",".join(
                 ["io,stat,0", counted or "frame", *(s.tap_arg(counted) for s in series)]
             )
-            res = run(f.tshark.argv("-q", "-n", "-z", spec, capture=str(f.path)), ctx.token)
+            # (-2: requests are linked to their responses only on a second pass.)
+            passes = ["-2"] if two_pass else []
+            argv = f.tshark.argv(*passes, "-q", "-n", "-z", spec, capture=str(f.path))
+            res = run(argv, ctx.token)
             text = res.stdout.decode("utf-8", "replace")
             if "Interval" not in text:
                 raise f.tshark.error(res.stderr, res.returncode, "tshark -z io,stat failed")
             table = stats.parse_io_stat(text, 0.0, series)
             found = {str(r["id"]): r for r in triage.results(usable, table)}
+
+        def missing(c: triage.Check) -> dict[str, Any]:
+            if c.id in skipped:
+                why = f"needs two passes, done up to {triage.TWO_PASS_LIMIT:,} packets"
+                return {"id": c.id, "title": c.title, "filter": c.filter, "skipped": why}
+            return {"id": c.id, "title": c.title, "filter": c.filter, "error": refused[c.id]}
+
         return {
             "total": f.info.frames,
             "ignored": bool(counted),
-            "checks": [
-                found.get(c.id)
-                or {"id": c.id, "title": c.title, "filter": c.filter, "error": refused[c.id]}
-                for c in checks
-            ],
+            "twoPass": two_pass,
+            "checks": [found.get(c.id) or missing(c) for c in checks],
         }
 
     def _rows_matching(
