@@ -97,6 +97,9 @@ def test_permission_hints() -> None:
     assert "ChmodBPF" in (capture.permission_hint("(BIOCSETIF) failed", "darwin") or "")
     assert "Npcap" in (capture.permission_hint("wpcap.dll not found", "win32") or "")
     assert capture.permission_hint('There is no device named "x"', "linux") is None
+    # tshark capturing for an extcap helper, outside the wireshark group:
+    tshark = "tshark: Couldn't run dumpcap in child process: Permission denied"
+    assert "usermod -aG wireshark" in (capture.permission_hint(tshark, "linux") or "")
 
 
 # --------------------------------------------------------------------------- with the fake
@@ -264,6 +267,33 @@ def test_capture_failures(service: PcapService, fake: Callable[..., None], tmp_p
         _start(service, tmp_path, interfaces=[])
     with pytest.raises(InvalidParamsError):
         service.capture_start({"dest": "relative.pcapng", "interfaces": ["x"]}, RequestContext())
+    assert len(PROCESSES) == 0
+
+
+@pytest.mark.tshark
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no execute permission bits")
+def test_a_dumpcap_this_user_cannot_run(
+    service: PcapService, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Debian and Ubuntu install dumpcap as root:wireshark 0754: outside the
+    group it can't even start (EACCES). Each request says how to allow it
+    rather than failing with an internal error."""
+    dumpcap = tmp_path / "dumpcap"
+    dumpcap.write_text("#!/bin/sh\n")
+    dumpcap.chmod(0o644)  # (no execute bit: refused for root too)
+    monkeypatch.setenv(capture.DUMPCAP_ENV, json.dumps([str(dumpcap)]))
+    hint = capture.permission_hint("Permission denied") or ""
+    with pytest.raises(ToolError, match=r"could not run .*dumpcap: Permission denied") as info:
+        service.list_interfaces({"extcap": False}, RequestContext())
+    assert hint and hint in str(info.value)
+    checked = service.validate_capture_filter({"interface": "x", "filter": "tcp"}, RequestContext())
+    assert checked["checked"] is False and hint in checked["message"]
+    with pytest.raises(ToolError, match="Permission denied") as info:
+        _start(service, tmp_path)
+    assert hint in str(info.value)
+    with pytest.raises(ToolError, match="Permission denied") as info:
+        _to_files(service, tmp_path)
+    assert hint in str(info.value)
     assert len(PROCESSES) == 0
 
 

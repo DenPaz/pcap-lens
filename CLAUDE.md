@@ -1402,7 +1402,12 @@ limits: {packets, seconds, bytes}, promiscuous, snaplen}` + the open
   `-e` fields before reading) and does its rejected-field retries there
   (`_pass_lines`). `capture_start` = `_open(live=…)`: returns once dumpcap
   wrote its first bytes (interfaces open) or failed (`capture_error`: its
-  message plus `permission_hint` per OS), with `indexing: true` and
+  message plus `permission_hint` per OS; `start_error` for a dumpcap that
+  can't even start: Debian and Ubuntu install it root:wireshark 0754, so a
+  user outside the group gets EACCES from `Popen` in `list_interfaces`,
+  `validate_capture_filter` (`checked: false`), live capture and capture to
+  files, and tshark's "Couldn't run dumpcap … Permission denied" for extcap;
+  the hint's words match without case), with `indexing: true` and
   `capture` (`describe()`); `on_rows` is called at once (`_PassProgress.ready`:
   a quiet interface has no rows). "capture" notifications: `stats` (packets,
   bytes, seconds, about every second, POSIX only when idle) and `stopped`
@@ -1468,7 +1473,8 @@ folders`, personal first, left out as root) for `--extcap-interfaces` (in
   (`test/fixtures/fake_extcap.py`, installed with a shebang into the
   personal extcap folder by the `fake_extcap` fixture as a shell script that
   answers `--extcap-interfaces` and runs the Python for the rest; skipped as
-  root, on Windows and where `tshark -D` doesn't list it: macOS CI's
+  root, on Windows, where this user can't run dumpcap (tshark captures
+  through it) and where `tshark -D` doesn't list it: macOS CI's
   Homebrew tshark loads no extcap helper at all, not even an instant shell
   one), randpkt where installed (Linux CI), and `{interfaces, extcap}`
   arguments in the smoke test.
