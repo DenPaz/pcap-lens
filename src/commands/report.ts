@@ -9,19 +9,24 @@ import {
   reportFileName,
 } from "../captureReport";
 import { PcapEditorProvider, describeError } from "../pcapEditor";
+import { statisticsConsent } from "./ai";
 import { requireSession } from "./filter";
 
 interface ReportArgs {
   format?: ReportFormat;
   packets?: boolean;
+  /** Add the AI triage's findings (asked only when a language model is available). */
+  findings?: boolean;
   dest?: string;
 }
 
 /**
  * "PCAP: Capture Report…": the capture's properties, protocol hierarchy, top
  * conversations and endpoints, expert information and, if asked, the
- * displayed packets, as a Markdown or HTML file (no AI, nothing leaves the
- * machine). `{format, packets, dest}` skip the questions (smoke test).
+ * displayed packets, as a Markdown or HTML file. Nothing leaves the machine
+ * unless the AI triage's findings are asked for (statistics consent, like
+ * PCAP: Triage Capture with AI). `{format, packets, findings, dest}` skip the
+ * questions (smoke test).
  */
 async function captureReport(
   provider: PcapEditorProvider,
@@ -75,6 +80,32 @@ async function captureReport(
     }
     withPackets = pick.packets;
   }
+  let withFindings = args?.findings;
+  if (withFindings === undefined) {
+    withFindings = false;
+    if (await session.aiAvailable()) {
+      const pick = await vscode.window.showQuickPick(
+        [
+          { label: "Without AI findings", findings: false },
+          {
+            label: "With AI findings",
+            description: "a Findings section from PCAP: Triage Capture with AI",
+            detail:
+              "Sends checks counted by tshark and statistics (no packet contents) to the language model",
+            findings: true,
+          },
+        ],
+        { title: "Capture Report", placeHolder: "Add the AI triage's findings?" },
+      );
+      if (!pick) {
+        return undefined;
+      }
+      withFindings = pick.findings;
+    }
+  }
+  if (withFindings && !(await statisticsConsent())) {
+    withFindings = false;
+  }
   let dest = args?.dest;
   if (!dest) {
     const capture = session.uri.fsPath;
@@ -95,37 +126,47 @@ async function captureReport(
       {
         location: vscode.ProgressLocation.Notification,
         title: "Capture report: computing statistics with tshark…",
-        cancellable: false,
+        cancellable: withFindings,
       },
-      async () => {
+      async (progress, token) => {
         const missing: string[] = [];
+        const triage = withFindings
+          ? session.triage("", { progress: (m) => progress.report({ message: m }) }, token)
+          : Promise.resolve(undefined);
         const stats = (name: string, params: Record<string, unknown>) =>
           backend.request<StatsTable>("stats", params, { timeoutMs: 0 }).catch((err: unknown) => {
             log.info(`capture report: ${name} failed: ${describeError(err)}`);
             missing.push(name);
             return undefined;
           });
-        const [info, protocols, tcp, udp, endpoints, expert, packets] = await Promise.all([
-          backend.request<CaptureFacts>("capture_info", {}),
-          stats("protocol hierarchy", { kind: "phs" }),
-          stats("TCP conversations", { kind: "conversations", type: "tcp" }),
-          stats("UDP conversations", { kind: "conversations", type: "udp" }),
-          stats("endpoints", { kind: "endpoints", type: "ip" }),
-          stats("expert information", { kind: "expert" }),
-          withPackets
-            ? backend
-                .request<ReportPackets>(
-                  "list_packets",
-                  { offset: 0, limit: REPORT_LIMITS.packets, timeFormat: "relative" },
-                  { timeoutMs: 0 },
-                )
-                .catch((err: unknown) => {
-                  log.info(`capture report: packets failed: ${describeError(err)}`);
-                  missing.push("packet list");
-                  return undefined;
-                })
-            : Promise.resolve(undefined),
-        ]);
+        const [info, protocols, tcp, udp, endpoints, expert, packets, findings] = await Promise.all(
+          [
+            backend.request<CaptureFacts>("capture_info", {}),
+            stats("protocol hierarchy", { kind: "phs" }),
+            stats("TCP conversations", { kind: "conversations", type: "tcp" }),
+            stats("UDP conversations", { kind: "conversations", type: "udp" }),
+            stats("endpoints", { kind: "endpoints", type: "ip" }),
+            stats("expert information", { kind: "expert" }),
+            withPackets
+              ? backend
+                  .request<ReportPackets>(
+                    "list_packets",
+                    { offset: 0, limit: REPORT_LIMITS.packets, timeFormat: "relative" },
+                    { timeoutMs: 0 },
+                  )
+                  .catch((err: unknown) => {
+                    log.info(`capture report: packets failed: ${describeError(err)}`);
+                    missing.push("packet list");
+                    return undefined;
+                  })
+              : Promise.resolve(undefined),
+            triage,
+          ],
+        );
+        if (findings && !findings.report) {
+          log.info(`capture report: AI findings: ${findings.message ?? "none"}`);
+          missing.push(`AI findings (${findings.message ?? "no answer"})`);
+        }
         return buildReport(
           {
             name: path.basename(session.uri.fsPath),
@@ -141,6 +182,9 @@ async function captureReport(
             endpoints: endpoints ? [{ title: "IPv4 endpoints", table: endpoints }] : [],
             expert,
             packets,
+            findings: findings?.report
+              ? { report: findings.report, model: findings.model ?? "language model" }
+              : undefined,
             missing,
           },
           format,

@@ -356,6 +356,12 @@
         "category": "PCAP"
       },
       {
+        "command": "pcapViewer.triageCapture",
+        "title": "Triage Capture with AI",
+        "category": "PCAP",
+        "icon": "$(checklist)"
+      },
+      {
         "command": "pcapViewer.askAboutAnomaly",
         "title": "Ask Copilot About Expert Information",
         "category": "PCAP"
@@ -1147,6 +1153,10 @@
         {
           "command": "pcapViewer.summarizeCapture",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow || activeWebviewPanelId == pcapViewer.tcpGraph"
+        },
+        {
+          "command": "pcapViewer.triageCapture",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
         },
         {
           "command": "pcapViewer.askAboutAnomaly",
@@ -1986,6 +1996,10 @@
           {
             "name": "explain",
             "description": "Explain packets of the open capture, e.g. /explain 12 15-17 why the reset? (sends packet data: pcapViewer.ai.allowPacketData)"
+          },
+          {
+            "name": "triage",
+            "description": "Triage the open capture: ranked findings from checks counted by tshark, with filters and packets (sends statistics: pcapViewer.ai.allowCaptureStatistics)"
           },
           {
             "name": "summary",

@@ -65,6 +65,15 @@ import {
 } from "./aiFilter";
 import { suggestCaptureFilters } from "./aiCaptureFilter";
 import { DissectorRequest, DissectorResult, generateDissector } from "./aiDissector";
+import { TriageCheck, TriageInput, TriageReport, buildTriagePrompt, parseTriage } from "./aiTriage";
+
+/** A triage: the findings (filters validated, packets from the data), and the checks they came from. */
+export interface TriageOutcome extends ExplainOutcome {
+  report?: TriageReport;
+  checks?: TriageCheck[];
+  /** The model that wrote it ("GPT-4o (GitHub Copilot)"). */
+  model?: string;
+}
 
 export interface DissectorOutcome extends DissectorResult {
   /** Short user-facing note when there is no script (or it couldn't be loaded). */
@@ -89,6 +98,8 @@ const CAPTURE_FILTER_JUSTIFICATION =
   "PCAP Lens turns your description into a capture filter. Only your request, the current capture filter and the interface names are sent.";
 const DISSECTOR_JUSTIFICATION =
   "PCAP Lens writes a Lua dissector from your description. Only your description and its dissector template are sent.";
+const TRIAGE_JUSTIFICATION =
+  "PCAP Lens triages the open capture from check counts and statistics computed by tshark (no packet contents).";
 const EXPLAIN_JUSTIFICATION =
   "PCAP Lens explains the packets you picked. Their packet-list rows and dissection trees are sent.";
 const SUMMARY_JUSTIFICATION =
@@ -792,6 +803,112 @@ export class FilterAssistant implements vscode.Disposable {
       return {
         frames: [],
         filters: await this.validFilters(backend, extractFilters(answer), "summary"),
+      };
+    } catch (err) {
+      return this.failed(err, token);
+    }
+  }
+
+  /**
+   * Triage the capture (aiTriage.ts): tshark counts the fixed checks
+   * (`triage`), the model ranks findings from them, the expert information,
+   * the protocol hierarchy and the top conversations. Its filters are
+   * validated (an invalid one is dropped from its finding); one retry when
+   * the answer isn't the JSON asked for. The caller has the statistics consent.
+   */
+  async triage(
+    backend: BackendClient,
+    question: string,
+    sink: Pick<ExplainSink, "progress">,
+    token: vscode.CancellationToken,
+  ): Promise<TriageOutcome> {
+    const model = await this.readyModel();
+    if (!("sendRequest" in model)) {
+      return model;
+    }
+    try {
+      sink.progress("Counting the checks with tshark…");
+      const stats = (params: Record<string, unknown>) =>
+        backend.request<StatsTable>("stats", params, { timeoutMs: 0 }).catch((err: unknown) => {
+          this.log.info(
+            `AI triage: ${String(params.kind)} statistics failed: ${(err as Error).message}`,
+          );
+          return undefined;
+        });
+      const [info, triage, expert, protocols, tcp, udp] = await untilCancelled(
+        Promise.all([
+          backend.request<CaptureFacts>("capture_info", {}),
+          backend.request<{ checks: TriageCheck[]; ignored: boolean }>(
+            "triage",
+            {},
+            { timeoutMs: 0 },
+          ),
+          stats({ kind: "expert" }),
+          stats({ kind: "phs" }),
+          stats({ kind: "conversations", type: "tcp" }),
+          stats({ kind: "conversations", type: "udp" }),
+        ]),
+        token,
+      );
+      const input: TriageInput = {
+        question,
+        info,
+        checks: triage.checks,
+        ignored: triage.ignored,
+        expert,
+        protocols,
+        conversations: [tcp, udp].filter((t): t is StatsTable => !!t),
+        missing: Object.entries({
+          "expert information": expert,
+          "protocol hierarchy": protocols,
+          "TCP conversations": tcp,
+          "UDP conversations": udp,
+        })
+          .filter(([, t]) => !t)
+          .map(([name]) => name),
+      };
+      sink.progress("Asking the language model…");
+      const ask = askFor(model, this.maskerFor(backend), TRIAGE_JUSTIFICATION, token);
+      const turns: ChatTurn[] = [{ role: "user", content: buildTriagePrompt(input) }];
+      let answer = await ask(turns);
+      let report = parseTriage(answer, input);
+      if (!report) {
+        turns.push(
+          { role: "assistant", content: answer },
+          {
+            role: "user",
+            content:
+              'That was not the JSON object asked for. Reply with JSON only: {"summary": "...", "findings": [...]}',
+          },
+        );
+        answer = await ask(turns);
+        report = parseTriage(answer, input);
+      }
+      if (!report) {
+        return {
+          frames: [],
+          filters: [],
+          checks: input.checks,
+          message: "The language model's answer couldn't be read as findings. Try again.",
+        };
+      }
+      sink.progress("Checking the filters with tshark…");
+      const valid = new Set(
+        await this.validFilters(
+          backend,
+          [...new Set(report.findings.flatMap((f) => (f.filter ? [f.filter] : [])))],
+          "triage",
+        ),
+      );
+      report.findings = report.findings.map((f) =>
+        f.filter && !valid.has(f.filter) ? { ...f, filter: undefined } : f,
+      );
+      return {
+        report,
+        checks: input.checks,
+        model: modelLabel(model),
+        frames: [...new Set(report.findings.flatMap((f) => f.frames.slice(0, 1)))],
+        filters: [...valid],
       };
     } catch (err) {
       return this.failed(err, token);

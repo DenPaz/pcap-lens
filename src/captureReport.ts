@@ -15,6 +15,7 @@ import {
   formatSeconds,
   topRows,
 } from "./aiSummary";
+import { SEVERITY_LABELS, TriageReport, sortFindings } from "./aiTriage";
 
 export interface ReportPackets {
   columns: string[];
@@ -36,6 +37,8 @@ export interface ReportInput {
   endpoints?: { title: string; table: StatsTable }[];
   expert?: StatsTable;
   packets?: ReportPackets;
+  /** The AI triage's findings, and the model that wrote them. */
+  findings?: { report: TriageReport; model: string };
   /** Sections that could not be computed. */
   missing?: string[];
 }
@@ -45,7 +48,7 @@ export const REPORT_LIMITS = { topRows: 20, expertMessages: 25, maxCell: 200, pa
 export type ReportFormat = "markdown" | "html";
 
 /** One block of the report, rendered by either format. */
-type Block =
+export type Block =
   | { kind: "heading"; text: string }
   | { kind: "paragraph"; text: string }
   | { kind: "table"; head: string[]; rows: string[][]; numeric?: boolean[] }
@@ -116,6 +119,36 @@ function protocolBlock(table: StatsTable): Block {
   };
 }
 
+/** The AI triage's findings: a summary and one row per finding, marked as the model's. */
+export function findingsBlocks(report: TriageReport, model: string): Block[] {
+  const blocks: Block[] = [
+    { kind: "heading", text: "Findings" },
+    {
+      kind: "note",
+      text: `Written by a language model (${cell(model)}) from counts and statistics computed by tshark. Check them against the packets.`,
+    },
+  ];
+  if (report.summary) {
+    blocks.push({ kind: "paragraph", text: cell(report.summary, 1000) });
+  }
+  blocks.push(
+    report.findings.length
+      ? {
+          kind: "table",
+          head: ["Severity", "Finding", "Details", "Display filter", "Packets"],
+          rows: sortFindings(report.findings).map((f) => [
+            SEVERITY_LABELS[f.severity],
+            cell(f.title),
+            cell(f.detail, 1000),
+            cell(f.filter ?? "", 500),
+            f.frames.join(", "),
+          ]),
+        }
+      : { kind: "paragraph", text: "No findings." },
+  );
+  return blocks;
+}
+
 /** The report's blocks, in order. */
 export function reportBlocks(input: ReportInput): Block[] {
   const blocks: Block[] = [
@@ -127,6 +160,9 @@ export function reportBlocks(input: ReportInput): Block[] {
     { kind: "heading", text: "Properties" },
     { kind: "table", head: ["Property", "Value"], rows: propertyRows(input) },
   ];
+  if (input.findings) {
+    blocks.push(...findingsBlocks(input.findings.report, input.findings.model));
+  }
   if (input.protocols?.rows.length) {
     blocks.push({ kind: "heading", text: "Protocol hierarchy" }, protocolBlock(input.protocols));
   }
@@ -214,7 +250,7 @@ export function markdownEscape(text: string): string {
   return text.replace(/([\\`*_{}[\]<>|#])/g, "\\$1");
 }
 
-function markdown(blocks: Block[]): string {
+export function markdown(blocks: Block[]): string {
   const out: string[] = [];
   let first = true;
   for (const b of blocks) {
