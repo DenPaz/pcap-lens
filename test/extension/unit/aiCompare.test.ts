@@ -5,6 +5,7 @@ import {
   buildComparePrompt,
   compareQuery,
   parseCompareArgs,
+  scanLines,
   shrinkDiff,
 } from "../../../src/aiCompare";
 import { STATISTICS_CONSENT } from "../../../src/aiConsent";
@@ -42,7 +43,16 @@ function officeDiff(flows = 5): CaptureDiff {
     endpoints: { new: [{ address: "10.0.0.66" }], gone: [], changed: [] },
     expert: { new: [{ summary: "Connection reset (RST)", after: 5 }], gone: [] },
     scans: {
-      new: [{ kind: "port scan", client: "10.0.0.66", server: "10.0.0.80", ports: [22, 23] }],
+      new: [
+        {
+          kind: "port scan",
+          protocol: "tcp",
+          client: "10.0.0.66",
+          server: "10.0.0.80",
+          ports: [22, 23],
+          packets: 4,
+        },
+      ],
       gone: [],
       both: [],
     },
@@ -64,6 +74,10 @@ suite("aiCompare", () => {
     assert.match(prompt, /untrusted/);
     assert.match(prompt, /never packet\s+contents/);
     assert.match(prompt, /call them scans/);
+    assert.match(
+      prompt,
+      /## Scans tshark's numbers show[^\n]*\n- Port scan, only in the after capture: 10\.0\.0\.66 reached 2 TCP ports of 10\.0\.0\.80 \(22, 23\), 4 packets/,
+    );
     assert.match(prompt, /"scans":\{"new":\[\{"kind":"port scan"/);
     const json = JSON.parse(prompt.slice(prompt.indexOf("## Differences (JSON)\n") + 22));
     assert.equal(json.checks.changed[0].id, "tcp_resets");
@@ -72,6 +86,48 @@ suite("aiCompare", () => {
     const plain = buildComparePrompt({ question: "", diff: officeDiff(), open: "before" });
     assert.match(plain, /Question: what changed/);
     assert.match(plain, /the before capture \(office-before\.pcap\)/);
+  });
+
+  test("scans in words: sweeps, gone and both, long lists cut, none = no section", () => {
+    const servers = Array.from({ length: 10 }, (_, i) => `10.0.1.${i + 1}`);
+    const lines = scanLines({
+      ...officeDiff(),
+      scans: {
+        new: [],
+        gone: [
+          {
+            kind: "host sweep",
+            protocol: "udp",
+            client: "10.0.0.9",
+            port: 161,
+            servers,
+            packets: 20,
+          },
+        ],
+        both: [
+          {
+            kind: "port scan",
+            protocol: "tcp",
+            client: "a",
+            server: "b",
+            ports: [1, 2, 3, 4],
+            packets: 8,
+          },
+        ],
+      },
+    });
+    assert.deepEqual(lines, [
+      "- Host sweep, only in the before capture: 10.0.0.9 reached UDP port 161 on 10 servers" +
+        " (10.0.1.1, 10.0.1.2, 10.0.1.3, 10.0.1.4, 10.0.1.5, 10.0.1.6, 10.0.1.7, 10.0.1.8, …)," +
+        " 20 packets, a few per connection.",
+      "- Port scan, in both captures: a reached 4 TCP ports of b (1, 2, 3, 4), 8 packets, a few per connection.",
+    ]);
+    const noScans: CaptureDiff = { ...officeDiff(), scans: undefined };
+    assert.deepEqual(scanLines(noScans), []);
+    assert.doesNotMatch(
+      buildComparePrompt({ question: "", diff: noScans, open: "after" }),
+      /## Scans/,
+    );
   });
 
   test("lists are cut to maxItems, and halved until the prompt fits", () => {
@@ -93,9 +149,9 @@ suite("aiCompare", () => {
     );
     const small = buildComparePrompt(
       { question: "", diff: officeDiff(40), open: "after" },
-      { maxItems: 15, maxPromptChars: 2600 },
+      { maxItems: 15, maxPromptChars: 3000 },
     );
-    assert.ok(small.length <= 2600);
+    assert.ok(small.length <= 3000);
     const n = JSON.parse(small.slice(small.indexOf("{"))).flows.new.length;
     assert.ok(n < 15 && n >= 1, `${n} flows`);
     // Nothing fits: a hard cut that says so.

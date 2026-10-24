@@ -81,12 +81,58 @@ export function shrinkDiff(diff: CaptureDiff, n: number): CaptureDiff {
   return out;
 }
 
+interface Scan {
+  kind?: string;
+  protocol?: string;
+  client?: string;
+  server?: string;
+  port?: number;
+  ports?: number[];
+  servers?: string[];
+  packets?: number;
+}
+
+/**
+ * The diff's scans as sentences: a model that skimmed the JSON called a port
+ * scan's flows "new services being accessed", so they also come first, in words.
+ */
+export function scanLines(diff: CaptureDiff): string[] {
+  const scans = (diff.scans ?? {}) as Record<string, unknown>;
+  const when: Record<string, string> = {
+    new: "only in the after capture",
+    gone: "only in the before capture",
+    both: "in both captures",
+  };
+  const lines: string[] = [];
+  for (const [key, label] of Object.entries(when)) {
+    const list = scans[key];
+    if (!Array.isArray(list)) {
+      continue;
+    }
+    for (const s of list as Scan[]) {
+      const proto = (s.protocol ?? "").toUpperCase();
+      const what =
+        s.kind === "host sweep"
+          ? `${s.client} reached ${proto} port ${s.port} on ${s.servers?.length ?? 0} servers` +
+            ` (${(s.servers ?? []).slice(0, 8).join(", ")}${(s.servers?.length ?? 0) > 8 ? ", …" : ""})`
+          : `${s.client} reached ${s.ports?.length ?? 0} ${proto} ports of ${s.server}` +
+            ` (${(s.ports ?? []).slice(0, 20).join(", ")}${(s.ports?.length ?? 0) > 20 ? ", …" : ""})`;
+      lines.push(
+        `- ${s.kind === "host sweep" ? "Host sweep" : "Port scan"}, ${label}: ${what},` +
+          ` ${s.packets ?? "?"} packets, a few per connection.`,
+      );
+    }
+  }
+  return lines;
+}
+
 /** The prompt (one user turn: VS Code 1.90's LM API has no system role). */
 export function buildComparePrompt(
   input: CompareInput,
   limits: CompareLimits = COMPARE_LIMITS,
 ): string {
   const { before, after } = input.diff;
+  const scans = scanLines(input.diff);
   const head = [
     ...INSTRUCTIONS,
     `Packet numbers and filters are for the capture open in the viewer, the ${input.open} capture` +
@@ -101,6 +147,13 @@ export function buildComparePrompt(
     `## Before: ${before.name}`,
     `## After: ${after.name}`,
     "",
+    ...(scans.length
+      ? [
+          "## Scans tshark's numbers show (report each as a scan, not as new services)",
+          ...scans,
+          "",
+        ]
+      : []),
     "## Differences (JSON)",
   ].join("\n");
   let n = limits.maxItems;

@@ -1951,7 +1951,8 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   `MIN_SWEEP_HOSTS` (8) servers, at most `SCAN_PACKETS` (4) packets per
   connection; `new`/`gone`/`both`: a Copilot answer called the office scan's
   five two-packet flows "new services being accessed", so the backend names
-  the pattern and the prompt says to call it a scan; the office-compare eval
+  the pattern, and the prompt lists the scans as sentences before the JSON
+  (`scanLines`: a retest still said "new services") and says to call them scans; the office-compare eval
   no longer accepts plain "ports" and forbids "new services"), plus `notes`
   (two-pass checks on one side only, missing parts, different link
   types). The prompt (`buildComparePrompt`) says which
