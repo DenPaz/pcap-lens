@@ -96,6 +96,31 @@ STATS_KINDS = {
     "ipv6": "ipv6",
 }
 _TREE_KINDS = {"phs", "http", "dns", "plen", "sip", "ipv4", "ipv6", "io"}
+# Other names assistants use for the kinds (also tshark's own -z names).
+_KIND_ALIASES = {
+    "phs": "protocol_hierarchy",
+    "protocols": "protocol_hierarchy",
+    "hierarchy": "protocol_hierarchy",
+    "conv": "conversations",
+    "conversation": "conversations",
+    "endpoint": "endpoints",
+    "hosts": "endpoints",
+    "expert_info": "expert",
+    "expert_information": "expert",
+    "io_graph": "io",
+    "io_stat": "io",
+    "plen": "packet_lengths",
+    "srt": "service_response_time",
+    "ip": "ipv4",
+}
+
+
+def _stats_kind(raw: str) -> str | None:
+    """The statistics kind for ``raw``, accepting other spellings (``"Protocol
+    Hierarchy"``, ``phs``, ``conversation``…); None when there is none."""
+    key = re.sub(r"[\s-]+", "_", raw.strip().lower())
+    key = _KIND_ALIASES.get(key, key)
+    return key if key in STATS_KINDS else None
 
 
 class ToolFailureError(Exception):
@@ -169,7 +194,7 @@ class Captures:
         try:
             path = path.resolve(strict=True)
         except OSError as exc:
-            raise ToolFailureError(f"{raw}: no such file") from exc
+            path = self._by_name(raw.strip(), exc)
         if not path.is_file():
             raise ToolFailureError(f"{raw}: not a file")
         if not any(path.is_relative_to(root) for root in self.config.roots):
@@ -178,6 +203,27 @@ class Captures:
                 + ", ".join(str(r) for r in self.config.roots)
             )
         return path
+
+    def _by_name(self, raw: str, exc: OSError) -> Path:
+        """A bare file name that isn't in the first root: the one file of that
+        name anywhere under the roots (assistants pass the name list_captures
+        showed without its folder)."""
+        if Path(raw).name != raw:
+            raise ToolFailureError(f"{raw}: no such file") from exc
+        found = [
+            Path(dirpath) / raw
+            for root in self.config.roots
+            for dirpath, filenames in _walk(root)
+            if raw in filenames
+        ]
+        if len(found) == 1:
+            return found[0].resolve()
+        if found:
+            raise ToolFailureError(
+                f"{raw}: several files have this name, give one of these paths: "
+                + ", ".join(str(f) for f in found[:10])
+            ) from exc
+        raise ToolFailureError(f"{raw}: no such file (list_captures lists the captures)") from exc
 
     @contextmanager
     def pinned(self) -> Iterator[None]:
@@ -310,6 +356,17 @@ def _str(args: Mapping[str, Any], name: str, default: str = "") -> str:
     if not isinstance(value, str):
         raise ToolFailureError(f"'{name}' must be a string")
     return value.strip()
+
+
+def _walk(root: Path) -> Iterator[tuple[str, list[str]]]:
+    """The folders under ``root`` that list_captures looks in (no hidden or
+    virtual-environment folders, depth 8), with their sorted file names."""
+    for dirpath, dirnames, filenames in os.walk(root):
+        depth = len(Path(dirpath).relative_to(root).parts)
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and d not in _SKIP_DIRS)
+        if depth >= 8:
+            dirnames[:] = []
+        yield dirpath, sorted(filenames)
 
 
 def _capture_arg(args: Mapping[str, Any]) -> object:
@@ -707,14 +764,8 @@ class Toolbox:
         found: list[dict[str, Any]] = []
         more = False
         for root in roots:
-            for dirpath, dirnames, filenames in os.walk(root):
-                depth = len(Path(dirpath).relative_to(root).parts)
-                dirnames[:] = sorted(
-                    d for d in dirnames if not d.startswith(".") and d not in _SKIP_DIRS
-                )
-                if depth >= 8:
-                    dirnames[:] = []
-                for name in sorted(filenames):
+            for dirpath, filenames in _walk(root):
+                for name in filenames:
                     if not _CAPTURE_NAME.search(name):
                         continue
                     if len(found) >= limit:
@@ -773,9 +824,10 @@ class Toolbox:
 
     def statistics(self, args: dict[str, Any], ctx: RequestContext) -> Any:
         path = self.captures.resolve(_capture_arg(args))
-        kind = _str(args, "kind")
-        if kind not in STATS_KINDS:
-            raise ToolFailureError(f"'kind' must be one of {', '.join(STATS_KINDS)}")
+        given = _str(args, "kind")
+        kind = _stats_kind(given)
+        if kind is None:
+            raise ToolFailureError(f"'kind' {given!r} is not one of {', '.join(STATS_KINDS)}")
         params: dict[str, Any] = {"kind": STATS_KINDS[kind], "filter": _str(args, "filter")}
         typ = _str(args, "type")
         if typ:
@@ -819,6 +871,18 @@ class Toolbox:
         profiles = [self.captures.get(p, ctx).capture_profile({}, ctx) for p in (before, after)]
         names = (self._shown(before), self._shown(after))
         return compare.diff(profiles[0], profiles[1], names, limit)
+
+    def labelled(self, args: dict[str, Any], result: Any) -> Any:
+        """``result`` with the capture it is about first (``capture``, as
+        shown by _shown): an assistant running tools on two captures at once
+        mixed up which statistics came from which without it."""
+        raw = _capture_arg(args)
+        if not isinstance(result, dict) or raw is None or "capture" in result:
+            return result
+        try:
+            return {"capture": self._shown(self.captures.resolve(raw)), **result}
+        except ToolFailureError:
+            return result
 
     def _shown(self, path: Path) -> str:
         """A capture's path as the assistant gave it: relative to a root."""
@@ -1166,7 +1230,8 @@ class McpServer:
             ctx = RequestContext(token=token, progress=progress)
             try:
                 with self.toolbox.captures.pinned():
-                    result = tool.run(self.masker.restore_deep(args), ctx)
+                    restored = self.masker.restore_deep(args)
+                    result = self.toolbox.labelled(restored, tool.run(restored, ctx))
                 token.raise_if_cancelled()
                 text = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
                 self._respond(req_id, self._content(text, error=False))

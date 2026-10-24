@@ -21,6 +21,13 @@ commit) that made it. The format follows
   [github.com/DenPaz/pcap-lens](https://github.com/DenPaz/pcap-lens) (the old
   URL redirects). [3a7f0de]
 
+### Fixed
+
+- The MCP server's results name the capture they are about (an assistant
+  comparing two captures by hand swapped their statistics), a capture can be
+  named without its folder, and `statistics` takes other spellings of a kind
+  ("Protocol Hierarchy", `phs`).
+
 [3a7f0de]: https://github.com/DenPaz/pcap-lens/commit/3a7f0de
 [ae3cc3c]: https://github.com/DenPaz/pcap-lens/commit/ae3cc3c
 

@@ -231,6 +231,33 @@ def test_statistics_tools(client_for: Any) -> None:
 
 
 @pytest.mark.tshark
+def test_bare_names_labels_and_kind_spellings(client_for: Any, tmp_path: Path) -> None:
+    for where in ("a/b/one.pcap", "x/two.pcap", "y/two.pcap"):
+        (tmp_path / where).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(FIXTURES / "http.pcap", tmp_path / where)
+    c = client_for(roots=[tmp_path])
+    # A name list_captures showed, without its folder: the one file of that name.
+    stats, failed = c.call("statistics", capture="one.pcap", kind="Protocol Hierarchy")
+    assert not failed
+    # Every result names its capture first (an assistant running two at once
+    # mixed up which conversations came from which).
+    assert next(iter(stats)) == "capture" and stats["capture"] == str(Path("a/b/one.pcap"))
+    triaged, _ = c.call("triage", capture="a/b/one.pcap")
+    assert triaged["capture"] == str(Path("a/b/one.pcap"))
+    text, failed = c.call("capture_info", capture="two.pcap")
+    assert failed and "several files" in text and "two.pcap" in text
+    text, failed = c.call("capture_info", capture="three.pcap")
+    assert failed and "no such file" in text and "list_captures" in text
+    text, failed = c.call("capture_info", capture="a/one.pcap")  # a folder given: no search
+    assert failed and "no such file" in text
+    for kind in ("phs", "conversation", "Expert Information", "packet-lengths"):
+        _, failed = c.call("statistics", capture="one.pcap", kind=kind)
+        assert not failed, kind
+    text, failed = c.call("statistics", capture="one.pcap", kind="nope")
+    assert failed and "'nope'" in text and "protocol_hierarchy" in text
+
+
+@pytest.mark.tshark
 def test_compare_captures(client_for: Any) -> None:
     c = client_for(stand_ins=True)
     d, failed = c.call(

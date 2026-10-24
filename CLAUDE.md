@@ -1982,7 +1982,12 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   `CancelToken` per call, `ping`, `notifications/cancelled`, and
   `notifications/progress` when the call has a `progressToken`). Tools read
   captures by path (argument `capture`; `path` and `file` too, which models
-  sent: `_capture_arg`) (`Captures`: one `PcapService` per capture, opened
+  sent: `_capture_arg`; a bare name not in the first root is the one file of
+  that name under the roots, `_by_name` over list_captures' `_walk`, several
+  are an error listing them; every result then starts with `capture`, its
+  path from the root (`labelled`): an assistant running statistics on two
+  captures at once swapped which result was which) (`Captures`: one
+  `PcapService` per capture, opened
   non-streaming with `names: {}` (`-n`) and the saved-index cache in the
   user cache folder (`default_cache_dir`), `max_open` 3 LRU, reopened when
   size or mtime change; every tool call runs in `Captures.pinned()` (entries
@@ -1995,7 +2000,8 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   tool or bad params are JSON-RPC errors. Tools: list_captures (by
   extension, depth 8, hidden and venv folders skipped), capture_info,
   count_packets (`count_matches` got an `offset`), statistics (kinds mapped
-  to `stats`, tables cut to their top rows by bytes, default 25; tree
+  to `stats`, other spellings through `_stats_kind`: "Protocol Hierarchy",
+  `phs`, `conversation`…, tables cut to their top rows by bytes, default 25; tree
   reports (`_TREE_KINDS`) in order, default 100: a cut DNS tree read as
   missing data),
   triage (found checks by count, each with a `next` hint from `_NEXT` by id
