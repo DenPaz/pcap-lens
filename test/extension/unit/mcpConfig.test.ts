@@ -57,6 +57,9 @@ suite("mcpConfig", () => {
     assert.equal(shellQuote("/usr/bin/python3", false), "/usr/bin/python3");
     assert.equal(shellQuote("it's here", false), "'it'\\''s here'");
     assert.equal(shellQuote("C:\\Program Files\\x", true), '"C:\\Program Files\\x"');
+    // The C runtime's rules: backslashes double only before a quote.
+    assert.equal(shellQuote("C:\\My Dir\\", true), '"C:\\My Dir\\\\"');
+    assert.equal(shellQuote('say \\"hi"', true), '"say \\\\\\"hi\\""');
     assert.equal(
       claudeCodeCommand(LAUNCH, false),
       "claude mcp add pcap-lens --scope user --env PYTHONPATH=/home/ann/.config/Code/User/globalStorage/denpaz.pcap-viewer/mcp/backend " +

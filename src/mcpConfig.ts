@@ -46,12 +46,21 @@ export function serverEnv(l: McpLaunch): Record<string, string> {
   return { PYTHONPATH: l.backendDir };
 }
 
-/** One argument for a shell: POSIX single quotes, or Windows (PowerShell/cmd) double quotes. */
+/**
+ * One argument for a shell: POSIX single quotes, or Windows (PowerShell/cmd)
+ * double quotes. A Windows program splits its command line by the C runtime's
+ * rules: backslashes are literal unless a quote follows, so those before a
+ * quote, and before the closing one (`C:\dir\`), are doubled.
+ */
 export function shellQuote(arg: string, windows: boolean): string {
   if (/^[\w@%+=:,./\\-]+$/.test(arg)) {
     return arg;
   }
-  return windows ? `"${arg.replace(/"/g, '\\"')}"` : `'${arg.replace(/'/g, "'\\''")}'`;
+  if (!windows) {
+    return `'${arg.replace(/'/g, "'\\''")}'`;
+  }
+  const escaped = arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1");
+  return `"${escaped}"`;
 }
 
 /**
