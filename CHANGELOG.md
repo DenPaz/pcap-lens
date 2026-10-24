@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.21.1 — 2026-10-24
+
 ### Changed
 
 - The extension's code ships as one bundled file, so it loads faster: the
