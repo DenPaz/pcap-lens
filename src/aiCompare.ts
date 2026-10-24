@@ -81,7 +81,7 @@ export function shrinkDiff(diff: CaptureDiff, n: number): CaptureDiff {
   return out;
 }
 
-interface Scan {
+export interface Scan {
   kind?: string;
   protocol?: string;
   client?: string;
@@ -124,6 +124,51 @@ export function scanLines(diff: CaptureDiff): string[] {
     }
   }
   return lines;
+}
+
+/** A display filter for a scan's packets (the client's packets to its targets). */
+export function scanFilter(scan: Scan): string | undefined {
+  const { client, protocol } = scan;
+  if (!client || (protocol !== "tcp" && protocol !== "udp")) {
+    return undefined;
+  }
+  const ip = client.includes(":") ? "ipv6" : "ip";
+  if (scan.kind === "host sweep") {
+    return scan.port === undefined
+      ? undefined
+      : `${ip}.src == ${client} && ${protocol}.dstport == ${scan.port}`;
+  }
+  if (!scan.server) {
+    return undefined;
+  }
+  const ports = scan.ports ?? [];
+  // (tshark 4.2 refuses space-separated sets; a long list adds nothing to the filter.)
+  const portPart =
+    ports.length && ports.length <= 50 ? ` && ${protocol}.dstport in {${ports.join(",")}}` : "";
+  return `${ip}.src == ${client} && ${ip}.dst == ${scan.server}${portPart}`;
+}
+
+/**
+ * What the chat shows above the model's answer: the scans tshark's numbers
+ * show, whatever the model makes of them (a model still called them "new
+ * connection attempts" with the sentences in its prompt), and their filters.
+ */
+export function scanNote(diff: CaptureDiff): { markdown: string; filters: string[] } {
+  const lines = scanLines(diff);
+  if (!lines.length) {
+    return { markdown: "", filters: [] };
+  }
+  const scans = (diff.scans ?? {}) as Record<string, unknown>;
+  const filters = ["new", "both", "gone"].flatMap((key) =>
+    Array.isArray(scans[key])
+      ? (scans[key] as Scan[]).flatMap((x) => {
+          const f = scanFilter(x);
+          return f ? [f] : [];
+        })
+      : [],
+  );
+  const escaped = lines.map((l) => l.replace(/([\\`*_[\]<>])/g, "\\$1"));
+  return { markdown: `**Found by tshark**\n\n${escaped.join("\n")}\n\n`, filters };
 }
 
 /** The prompt (one user turn: VS Code 1.90's LM API has no system role). */

@@ -1952,7 +1952,11 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   connection; `new`/`gone`/`both`: a Copilot answer called the office scan's
   five two-packet flows "new services being accessed", so the backend names
   the pattern, and the prompt lists the scans as sentences before the JSON
-  (`scanLines`: a retest still said "new services") and says to call them scans; the office-compare eval
+  (`scanLines`: a retest still said "new services") and says to call them scans,
+  and the chat (or editor) shows them itself above the answer as "Found by
+  tshark" (`scanNote`, escaped) with an Apply filter each (`scanFilter`:
+  client → server and its ports, or client → port; validated): another
+  retest still wrote "new connection attempts"; the office-compare eval
   no longer accepts plain "ports" and forbids "new services"), plus `notes`
   (two-pass checks on one side only, missing parts, different link
   types). The prompt (`buildComparePrompt`) says which

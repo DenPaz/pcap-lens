@@ -44,7 +44,7 @@ import {
   ANOMALY_LIMITS,
 } from "./aiAnomaly";
 import { Requester, StatsTable, buildSummaryPrompt, gatherSummary } from "./aiSummary";
-import { CaptureDiff, buildComparePrompt } from "./aiCompare";
+import { CaptureDiff, buildComparePrompt, scanNote } from "./aiCompare";
 import { ToolConsent, TOOL_LIMITS, buildToolPrompt, runTool, runToolLoop } from "./aiTools";
 import { toolsRuntime } from "./lmTools";
 import {
@@ -875,7 +875,13 @@ export class FilterAssistant implements vscode.Disposable {
         names: req.names,
       });
       const prompt = buildComparePrompt({ question: req.question, diff, open: req.open });
-      this.log.info(`AI compare: ${prompt.length} characters to ${modelLabel(model)}`);
+      const scans = scanNote(diff);
+      this.log.info(
+        `AI compare: ${prompt.length} characters, ${scans.filters.length} scan(s), to ${modelLabel(model)}`,
+      );
+      if (scans.markdown) {
+        sink.markdown(scans.markdown);
+      }
       const answer = await this.streamAnswer(
         model,
         prompt,
@@ -886,7 +892,11 @@ export class FilterAssistant implements vscode.Disposable {
       );
       return {
         frames: [],
-        filters: await this.validFilters(backend, extractFilters(answer), "comparison"),
+        filters: await this.validFilters(
+          backend,
+          [...new Set([...scans.filters, ...extractFilters(answer)])],
+          "comparison",
+        ),
       };
     } catch (err) {
       return this.failed(err, token);

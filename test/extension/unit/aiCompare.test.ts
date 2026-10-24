@@ -5,7 +5,9 @@ import {
   buildComparePrompt,
   compareQuery,
   parseCompareArgs,
+  scanFilter,
   scanLines,
+  scanNote,
   shrinkDiff,
 } from "../../../src/aiCompare";
 import { STATISTICS_CONSENT } from "../../../src/aiConsent";
@@ -128,6 +130,44 @@ suite("aiCompare", () => {
       buildComparePrompt({ question: "", diff: noScans, open: "after" }),
       /## Scans/,
     );
+  });
+
+  test("the scan note shown above the answer, and its filters", () => {
+    const note = scanNote(officeDiff());
+    assert.equal(
+      note.markdown,
+      "**Found by tshark**\n\n- Port scan, only in the after capture: 10.0.0.66 reached 2 TCP ports" +
+        " of 10.0.0.80 (22, 23), 4 packets, a few per connection.\n\n",
+    );
+    assert.deepEqual(note.filters, [
+      "ip.src == 10.0.0.66 && ip.dst == 10.0.0.80 && tcp.dstport in {22,23}",
+    ]);
+    assert.deepEqual(scanNote({ ...officeDiff(), scans: undefined }), {
+      markdown: "",
+      filters: [],
+    });
+    // Markdown in an address can't format the note.
+    const odd = scanNote({
+      ...officeDiff(),
+      scans: {
+        new: [{ kind: "port scan", protocol: "tcp", client: "*a*", server: "b_c", ports: [1] }],
+      },
+    });
+    assert.match(odd.markdown, /\\\*a\\\* reached 1 TCP ports of b\\_c/);
+    assert.equal(
+      scanFilter({ kind: "host sweep", protocol: "udp", client: "2001:db8::9", port: 161 }),
+      "ipv6.src == 2001:db8::9 && udp.dstport == 161",
+    );
+    const many = Array.from({ length: 51 }, (_, i) => i + 1);
+    assert.equal(
+      scanFilter({ kind: "port scan", protocol: "tcp", client: "a", server: "b", ports: many }),
+      "ip.src == a && ip.dst == b",
+    );
+    assert.equal(
+      scanFilter({ kind: "port scan", protocol: "sctp", client: "a", server: "b" }),
+      undefined,
+    );
+    assert.equal(scanFilter({ kind: "host sweep", protocol: "tcp", client: "a" }), undefined);
   });
 
   test("lists are cut to maxItems, and halved until the prompt fits", () => {
