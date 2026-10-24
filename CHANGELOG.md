@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.22.0 — 2026-10-24
+
 ### Added
 
 - _PCAP: Choose Language Model…_ picks the model AI help uses: Copilot's, any

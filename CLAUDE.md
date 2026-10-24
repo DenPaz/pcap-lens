@@ -2350,3 +2350,6 @@ Then the panels in the same style, with row menus, and column dividers: 0.21.0.
 Then the extension bundled with esbuild and working Marketplace badges: 0.21.1.
 Then a Keep Packets freeze fixed, and capture's advice when dumpcap can't
 start: 0.21.2.
+Then AI help with a language model of your choice and address stand-ins,
+capture filters and Lua dissectors from a description, and one-click triage
+with findings in the capture report: 0.22.0.
