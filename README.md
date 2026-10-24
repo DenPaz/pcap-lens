@@ -502,7 +502,15 @@ and only files inside the allowed folders: the workspace folders, or the
 folder). With `pcapViewer.ai.pseudonymizeAddresses` (`--stand-ins`) addresses
 become stand-ins such as `IP_PRIVATE_1` in every result, and filters naming
 them are turned back before tshark runs. The first call on a capture indexes
-it (saved like the viewer's indexes), so later ones are quick. By hand:
+it (saved like the viewer's indexes), so later ones are quick.
+
+These settings decide what the server returns, not what the assistant can do
+otherwise: the server tells it not to read packet contents another way, but an
+assistant that can run commands (Claude Code, agent mode) could still run
+tshark on the file. To rule that out, deny it the command too, e.g. in Claude
+Code's `settings.json`: `"permissions": {"deny": ["Bash(tshark:*)"]}`.
+
+By hand:
 
 ```sh
 PYTHONPATH=<extension>/backend python3 -m pcap_backend.mcp --root ~/captures

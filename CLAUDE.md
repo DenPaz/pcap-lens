@@ -1932,7 +1932,10 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   `[{id, why}]` for refused and skipped checks), field_values (the service's
   `field_values` with an optional filter; numeric, boolean and frame-number
   fields (`_numeric`, from `field_types`) always, others are packet contents
-  and need `--allow-packet-data`), validate_filter, search_fields, and with
+  and need `--allow-packet-data`; the refusal and the instructions say the
+  user chose this and not to read contents another way (`_CONTENTS_REFUSED`:
+  in a test Claude Code ran tshark through Bash after a plain "this server
+  doesn't return"), validate_filter, search_fields, and with
   `--allow-packet-data`
   only (not even listed otherwise) list_packets (`count_matches` frames →
   `list_packets {frames, inView: false}`, so no view is touched),

@@ -124,6 +124,7 @@ def test_handshake_tools_and_errors(client_for: Any) -> None:
     assert init["result"]["capabilities"] == {"tools": {"listChanged": False}}
     assert str(FIXTURES) in init["result"]["instructions"]
     assert "not available" in init["result"]["instructions"]
+    assert "running tshark" in init["result"]["instructions"]
     unknown = c.request("initialize", {"protocolVersion": "1999-01-01"})
     assert unknown["result"]["protocolVersion"] == mcp.DEFAULT_PROTOCOL
     c.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
@@ -263,7 +264,7 @@ def test_field_values(client_for: Any) -> None:
     assert every["filter"] == "" and every["values"] == rcodes["values"], "only responses have one"
 
     text, failed = c.call("field_values", capture="services.pcap", field="dns.qry.name")
-    assert failed and "packet contents" in text
+    assert failed and "packet contents" in text and "--allow-packet-data" in text
     text, failed = c.call("field_values", capture="services.pcap", field="no.such.field")
     assert failed and "search_fields" in text
     text, failed = c.call(

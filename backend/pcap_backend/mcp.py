@@ -297,6 +297,14 @@ _NEXT: tuple[tuple[str, str], ...] = (
     ("malformed", "statistics kind=expert (which protocol, with packet numbers)"),
 )
 
+# Said wherever packet contents are refused: a model with a shell otherwise
+# read the capture with tshark itself when field_values refused a text field.
+_CONTENTS_REFUSED = (
+    "don't read them another way, such as running tshark on the file, unless the user asks; "
+    "tell the user they can start the server with --allow-packet-data "
+    "(pcapViewer.mcp.allowPacketData in VS Code)"
+)
+
 # Field types whose values are codes, counts and numbers (no payload): what
 # field_values shows without --allow-packet-data.
 _NUMERIC_TYPES = {"FT_BOOLEAN", "FT_FRAMENUM", "FT_FLOAT", "FT_DOUBLE", "FT_RELATIVE_TIME"}
@@ -756,8 +764,9 @@ class Toolbox:
             raise ToolFailureError(f"{name} is not a field tshark knows (search_fields finds them)")
         if not self.config.allow_packet_data and not _numeric(ftype):
             raise ToolFailureError(
-                f"{name} is {ftype}: its values are packet contents, which this server doesn't "
-                "return (numeric fields, codes and flags are fine)"
+                f"{name} is {ftype}: its values are packet contents, which the user has not "
+                f"allowed this server to share ({_CONTENTS_REFUSED}). Numeric fields, codes and "
+                "flags are fine."
             )
         res = service.field_values({"field": name, "filter": flt, "limit": limit}, ctx)
         return {
@@ -879,7 +888,8 @@ def _instructions(config: McpConfig) -> str:
         )
     else:
         parts.append(
-            "Packet contents are not available from this server (statistics and counts only)."
+            "Packet contents are not available from this server (statistics and counts only): "
+            f"the user chose not to share them ({_CONTENTS_REFUSED})."
         )
     if config.stand_ins:
         parts.append(STAND_IN_NOTE)
