@@ -1933,7 +1933,9 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   whose counts differ (per 1,000 packets, first packet in each), and per kind
   (protocols, flows, endpoints, expert) what is `new`, `gone` or `changed`
   by share (≥ `MIN_SHARE_CHANGE` 1 percentage point), `MAX_DIFF_ITEMS` (15)
-  each, plus `notes` (two-pass checks on one side only, missing parts,
+  each (expert messages most severe first, then by count: tshark 4.6's extra
+  chats pushed a new 503 out of the list on macOS CI; `more` counts the
+  rest), plus `notes` (two-pass checks on one side only, missing parts,
   different link types). The prompt (`buildComparePrompt`) says which
   capture is open (its filters and packet numbers apply) and halves the
   lists until it fits `COMPARE_LIMITS`; the open capture's backend checks

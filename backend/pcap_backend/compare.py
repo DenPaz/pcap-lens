@@ -293,6 +293,15 @@ def _checks(before: Mapping[str, Any], after: Mapping[str, Any]) -> dict[str, An
     return out
 
 
+# Most severe first: a list cut at the limit keeps the errors and warnings
+# (tshark 4.6 adds chat messages that outnumbered a new 503 on macOS CI).
+_SEVERITY_RANK = {"error": 0, "warning": 1, "note": 2, "chat": 3, "comment": 4}
+
+
+def _severity_rank(severity: str) -> int:
+    return _SEVERITY_RANK.get(severity.lower(), len(_SEVERITY_RANK))
+
+
 def _expert(before: Mapping[str, Any], after: Mapping[str, Any], limit: int) -> dict[str, Any]:
     def row(key: str, count: float) -> dict[str, Any]:
         severity, group, protocol, summary = key.split("|", 3)
@@ -305,8 +314,12 @@ def _expert(before: Mapping[str, Any], after: Mapping[str, Any], limit: int) -> 
         }
 
     b, a = before["expert"], after["expert"]
-    new = sorted((row(k, v) for k, v in a.items() if k not in b), key=lambda r: -r["count"])
-    gone = sorted((row(k, v) for k, v in b.items() if k not in a), key=lambda r: -r["count"])
+
+    def order(r: dict[str, Any]) -> tuple[int, int]:
+        return _severity_rank(r["severity"]), -r["count"]
+
+    new = sorted((row(k, v) for k, v in a.items() if k not in b), key=order)
+    gone = sorted((row(k, v) for k, v in b.items() if k not in a), key=order)
     changed = []
     for key in b.keys() & a.keys():
         b1000, a1000 = (
@@ -325,8 +338,15 @@ def _expert(before: Mapping[str, Any], after: Mapping[str, Any], limit: int) -> 
                     "afterPer1000": a1000,
                 }
             )
-    changed.sort(key=lambda r: abs(r["afterPer1000"] - r["beforePer1000"]), reverse=True)
+    changed.sort(
+        key=lambda r: (_severity_rank(r["severity"]), -abs(r["afterPer1000"] - r["beforePer1000"]))
+    )
     sev = sorted(before["severities"].keys() | after["severities"].keys())
+    more = {
+        k: n - limit
+        for k, n in (("new", len(new)), ("gone", len(gone)), ("changed", len(changed)))
+        if n > limit
+    }
     return {
         "severities": {
             s: {
@@ -338,6 +358,7 @@ def _expert(before: Mapping[str, Any], after: Mapping[str, Any], limit: int) -> 
         "new": new[:limit],
         "gone": gone[:limit],
         "changed": changed[:limit],
+        **({"more": more} if more else {}),
     }
 
 

@@ -166,6 +166,12 @@ def test_diff_limits_and_notes() -> None:
     assert d["checks"]["notCompared"] == ["dns_unanswered"]
     assert any("two-pass" in n for n in d["notes"])
     assert "Not available for before: expert information." in d["notes"]
+    # Expert lists keep the most severe messages when cut, and say how many more.
+    chats = [["Chat", f"SYN to port {p}", "Sequence", "TCP", 9] for p in range(5)]
+    noisy = _profile(100, conv, {}, expert=[*chats, ["Warning", "Reset", "Sequence", "TCP", 1]])
+    e = compare.diff(before, noisy, limit=2)["expert"]
+    assert [x["summary"] for x in e["new"]] == ["Reset", "SYN to port 0"]
+    assert e["more"] == {"new": 4}
     with pytest.raises(ValueError, match="profile version"):
         compare.diff({**before, "version": 0}, after)
 
@@ -199,7 +205,13 @@ def test_office_before_and_after(ctx: RequestContext) -> None:
         assert not d["flows"]["gone"] and not d["endpoints"]["gone"]
         summaries = {e["summary"] for e in d["expert"]["new"]}
         assert "Connection reset (RST)" in summaries
-        assert "HTTP/1.1 503 Service Unavailable" in summaries
+        # Every message only the after capture has is new (tshark versions word
+        # and group them differently: 4.6 added chats such as Karn's ACK).
+        wide = compare.diff(before, after, limit=1000)
+        assert {
+            "|".join((e["severity"], e["group"], e["protocol"], e["summary"]))
+            for e in wide["expert"]["new"]
+        } == set(after["expert"]) - set(before["expert"])
         # A capture against itself: nothing changed.
         same = services[0].compare_profiles({"before": before, "after": before}, ctx)
         assert not same["checks"]["changed"] and not same["flows"]["new"]
