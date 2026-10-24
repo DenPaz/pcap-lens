@@ -2036,8 +2036,11 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   `stableBackend()` with `-P` (`-m` would put the working folder, a
   workspace, first on sys.path, and its own `pcap_backend` would run;
   Codex review): `globalStorage/mcp/backend/pcap_backend`, copied (no
-  `__pycache__`) when `.pcap-lens-version` differs, always while developing,
-  so a configuration pasted into another assistant survives updates. _PCAP:
+  `__pycache__`) when `.pcap-lens-version` differs (always while developing),
+  at activation (`registerMcp`) and whenever VS Code starts a server, so a
+  configuration pasted into another assistant survives updates (refreshing
+  only when VS Code started a server left Claude Code on the old code after
+  an update or an F5). _PCAP:
   Copy MCP Server Configuration…_ (`MCP_TARGETS`: `claude mcp add pcap-lens
 --scope user --env PYTHONPATH=… -- …` with `shellQuote`; the name first, as
   `--env` takes several values and swallowed it, an

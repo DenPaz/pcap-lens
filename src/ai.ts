@@ -823,6 +823,7 @@ export class FilterAssistant implements vscode.Disposable {
         names: req.names,
       });
       const prompt = buildComparePrompt({ question: req.question, diff, open: req.open });
+      this.log.info(`AI compare: ${prompt.length} characters to ${modelLabel(model)}`);
       const answer = await this.streamAnswer(
         model,
         prompt,
@@ -831,6 +832,14 @@ export class FilterAssistant implements vscode.Disposable {
         token,
         this.maskerFor(backend),
       );
+      if (!answer.trim() && !token.isCancellationRequested) {
+        this.log.warn(`AI compare: ${modelLabel(model)} sent an empty answer`);
+        return {
+          frames: [],
+          filters: [],
+          message: `${modelLabel(model)} sent an empty answer. Try again, or pick another model with PCAP: Choose Language Model….`,
+        };
+      }
       return {
         frames: [],
         filters: await this.validFilters(backend, extractFilters(answer), "comparison"),

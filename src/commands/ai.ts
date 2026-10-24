@@ -408,14 +408,21 @@ async function runCompare(
   token: vscode.CancellationToken,
 ): Promise<ExplainOutcome> {
   const name = path.basename(other.uri.fsPath);
+  const started = Date.now();
+  const elapsed = () => `${((Date.now() - started) / 1000).toFixed(1)} s`;
+  log.info(`compare: ${path.basename(session.uri.fsPath)} with ${other.uri.fsPath} (${other.is})`);
   try {
     sink.progress(`Computing ${name}'s statistics with tshark…`);
     const profile = await captureProfile(provider, context, log, other.uri, token);
-    return await session.compare({ profile, name, is: other.is }, question, sink, token);
+    log.info(`compare: ${name}'s profile after ${elapsed()}`);
+    const outcome = await session.compare({ profile, name, is: other.is }, question, sink, token);
+    log.info(`compare: done after ${elapsed()}${outcome.message ? `: ${outcome.message}` : ""}`);
+    return outcome;
   } catch (err) {
     const message = token.isCancellationRequested
       ? "Cancelled."
       : `Couldn't compare with ${name}: ${(err as Error)?.message ?? err}`;
+    log.warn(`compare: ${message} (after ${elapsed()})`);
     return { frames: [], filters: [], message };
   }
 }
