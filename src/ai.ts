@@ -57,6 +57,7 @@ import {
   extractKeywords,
   suggestFilters,
 } from "./aiFilter";
+import { suggestCaptureFilters } from "./aiCaptureFilter";
 
 export interface SuggestOutcome {
   suggestions: FilterSuggestion[];
@@ -69,6 +70,8 @@ export interface SuggestOutcome {
 
 const JUSTIFICATION =
   "PCAP Lens turns your description into a Wireshark display filter. Only your request, the current filter and protocol/field names are sent.";
+const CAPTURE_FILTER_JUSTIFICATION =
+  "PCAP Lens turns your description into a capture filter. Only your request, the current capture filter and the interface names are sent.";
 const EXPLAIN_JUSTIFICATION =
   "PCAP Lens explains the packets you picked. Their packet-list rows and dissection trees are sent.";
 const SUMMARY_JUSTIFICATION =
@@ -125,6 +128,32 @@ const FIELDS_PER_KEYWORD = 12;
 function lmApi(): typeof vscode.lm | undefined {
   // Guard against hosts that ship without the API (it is stable in 1.90, our minimum).
   return typeof vscode.lm?.selectChatModels === "function" ? vscode.lm : undefined;
+}
+
+/**
+ * One filter-help request: the turns go out with stand-ins for addresses
+ * (the note on the first turn) and the answer comes back with them restored.
+ */
+function askFor(
+  model: vscode.LanguageModelChat,
+  masker: AddressMasker,
+  justification: string,
+  token: vscode.CancellationToken,
+): (turns: ChatTurn[]) => Promise<string> {
+  return async (turns) => {
+    const messages = turns.map((t, i) => {
+      const content = masker.mask(t.content);
+      return t.role === "user"
+        ? vscode.LanguageModelChatMessage.User(i === 0 ? withStandInNote(masker, content) : content)
+        : vscode.LanguageModelChatMessage.Assistant(content);
+    });
+    const response = await model.sendRequest(messages, { justification }, token);
+    let text = "";
+    for await (const part of response.text) {
+      text += part;
+    }
+    return masker.restore(text);
+  };
 }
 
 /** `promise`, or a CancellationError as soon as `token` is cancelled. */
@@ -265,13 +294,8 @@ export class FilterAssistant implements vscode.Disposable {
     }
   }
 
-  /** Suggest validated display filters for `request` on the capture served by `backend`. */
-  async suggest(
-    backend: BackendClient,
-    request: string,
-    currentFilter: string,
-    token: vscode.CancellationToken,
-  ): Promise<SuggestOutcome> {
+  /** The model to suggest filters with, or why there is none. */
+  private async suggestModel(): Promise<vscode.LanguageModelChat | SuggestOutcome> {
     if (!aiEnabled()) {
       return {
         suggestions: [],
@@ -280,14 +304,26 @@ export class FilterAssistant implements vscode.Disposable {
         message: "AI help is turned off (pcapViewer.ai.enabled).",
       };
     }
-    const model = await this.model();
-    if (!model) {
-      return {
+    return (
+      (await this.model()) ?? {
         suggestions: [],
         rejected: [],
         unavailable: true,
         message: unavailableMessage(modelSetting(), this.blocked),
-      };
+      }
+    );
+  }
+
+  /** Suggest validated display filters for `request` on the capture served by `backend`. */
+  async suggest(
+    backend: BackendClient,
+    request: string,
+    currentFilter: string,
+    token: vscode.CancellationToken,
+  ): Promise<SuggestOutcome> {
+    const model = await this.suggestModel();
+    if ("suggestions" in model) {
+      return model;
     }
     try {
       // The first protocol-hierarchy pass can take a while on a big capture: don't make a cancel wait for it.
@@ -295,23 +331,7 @@ export class FilterAssistant implements vscode.Disposable {
         Promise.all([this.protocolNames(backend), this.candidateFields(backend, request)]),
         token,
       );
-      const masker = this.maskerFor(backend);
-      const ask = async (turns: ChatTurn[]): Promise<string> => {
-        const messages = turns.map((t, i) => {
-          const content = masker.mask(t.content);
-          return t.role === "user"
-            ? vscode.LanguageModelChatMessage.User(
-                i === 0 ? withStandInNote(masker, content) : content,
-              )
-            : vscode.LanguageModelChatMessage.Assistant(content);
-        });
-        const response = await model.sendRequest(messages, { justification: JUSTIFICATION }, token);
-        let text = "";
-        for await (const part of response.text) {
-          text += part;
-        }
-        return masker.restore(text);
-      };
+      const ask = askFor(model, this.maskerFor(backend), JUSTIFICATION, token);
       const validate = async (filter: string): Promise<string | undefined> => {
         try {
           const res = await backend.request<{ valid: boolean; error?: string }>("validate_filter", {
@@ -335,6 +355,59 @@ export class FilterAssistant implements vscode.Disposable {
             ...result,
             message:
               "The language model didn't come up with a valid display filter. Try describing it differently.",
+          };
+    } catch (err) {
+      return this.failure(err, token);
+    }
+  }
+
+  /**
+   * Suggest capture (BPF) filters for `request`, each compiled by dumpcap for
+   * `interfaces[0]` (`validate_capture_filter`). Only the request, the
+   * current capture filter and the interface names are sent.
+   */
+  async suggestCaptureFilters(
+    backend: BackendClient,
+    request: string,
+    currentFilter: string,
+    interfaces: readonly { name: string; loopback?: boolean }[],
+    token: vscode.CancellationToken,
+  ): Promise<SuggestOutcome> {
+    const model = await this.suggestModel();
+    if ("suggestions" in model) {
+      return model;
+    }
+    try {
+      const ask = askFor(model, this.maskerFor(backend), CAPTURE_FILTER_JUSTIFICATION, token);
+      const validate = async (filter: string): Promise<string | undefined> => {
+        try {
+          const res = await backend.request<{
+            valid: boolean;
+            checked?: boolean;
+            error?: string;
+            message?: string;
+          }>("validate_capture_filter", { filter, interface: interfaces[0]?.name ?? "" });
+          // dumpcap couldn't check it (no permission): accepted, as the input box does.
+          return res.valid || res.checked === false
+            ? undefined
+            : (res.error ?? res.message ?? "invalid capture filter");
+        } catch (err) {
+          return `could not validate: ${(err as Error).message}`;
+        }
+      };
+      const result = await suggestCaptureFilters(
+        { ask, validate },
+        { request, currentFilter, interfaces },
+      );
+      for (const r of result.rejected) {
+        this.log.info(`AI capture filter suggestion rejected by dumpcap: ${r.filter} (${r.error})`);
+      }
+      return result.suggestions.length
+        ? result
+        : {
+            ...result,
+            message:
+              "The language model didn't come up with a valid capture filter. Try describing it differently.",
           };
     } catch (err) {
       return this.failure(err, token);

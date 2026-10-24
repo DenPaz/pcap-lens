@@ -110,7 +110,7 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
   registerTlsCommands(context, p);
   registerMergeCommands(context, p, log);
   registerCommentCommands(context, p);
-  registerCaptureCommands(context, p, log);
+  registerCaptureCommands(context, p, log, assistant);
   registerEditCaptureCommands(context, p, log);
   registerImportHexDumpCommand(context, p, log);
   registerOpenFileCommand(context, p, log);
