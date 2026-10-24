@@ -29,11 +29,12 @@ commit) that made it. The format follows
   ("Protocol Hierarchy", `phs`). [f7a5283]
 - An assistant that runs the MCP server from a pasted configuration gets the
   new version's server once VS Code has started PCAP Lens after an update;
-  before, only VS Code starting a server of its own refreshed it.
+  before, only VS Code starting a server of its own refreshed it. [0bc33a7]
 
 [3a7f0de]: https://github.com/DenPaz/pcap-lens/commit/3a7f0de
 [ae3cc3c]: https://github.com/DenPaz/pcap-lens/commit/ae3cc3c
 [f7a5283]: https://github.com/DenPaz/pcap-lens/commit/f7a5283
+[0bc33a7]: https://github.com/DenPaz/pcap-lens/commit/0bc33a7
 
 ## 0.23.0 — 2026-10-24
 
