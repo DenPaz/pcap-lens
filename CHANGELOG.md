@@ -16,7 +16,7 @@ commit) that made it. The format follows
 - The MCP server's `field_values` tool counts a field's values (DNS response
   codes, ICMP types…), and its triage says where to look next. [1967f9c]
 - The MCP server's `packet_details` can expand only the protocols asked for,
-  keeping the other layers to one line each.
+  keeping the other layers to one line each. [38cf37d]
 
 ### Changed
 
@@ -25,6 +25,7 @@ commit) that made it. The format follows
 
 [408a8c7]: https://github.com/DenPaz/vsc_pcap_viewer/commit/408a8c7
 [1967f9c]: https://github.com/DenPaz/vsc_pcap_viewer/commit/1967f9c
+[38cf37d]: https://github.com/DenPaz/vsc_pcap_viewer/commit/38cf37d
 
 ## 0.22.0 — 2026-10-24
 
