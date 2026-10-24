@@ -59,8 +59,8 @@ suite("mcpConfig", () => {
     assert.equal(shellQuote("C:\\Program Files\\x", true), '"C:\\Program Files\\x"');
     assert.equal(
       claudeCodeCommand(LAUNCH, false),
-      "claude mcp add --scope user --env PYTHONPATH=/home/ann/.config/Code/User/globalStorage/denpaz.pcap-viewer/mcp/backend " +
-        "pcap-lens -- /usr/bin/python3.14 -m pcap_backend.mcp --root /home/ann/captures --root '/srv/it'\\''s here' --stand-ins",
+      "claude mcp add pcap-lens --scope user --env PYTHONPATH=/home/ann/.config/Code/User/globalStorage/denpaz.pcap-viewer/mcp/backend " +
+        "-- /usr/bin/python3.14 -m pcap_backend.mcp --root /home/ann/captures --root '/srv/it'\\''s here' --stand-ins",
     );
   });
 

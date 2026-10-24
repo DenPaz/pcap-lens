@@ -54,14 +54,17 @@ export function shellQuote(arg: string, windows: boolean): string {
   return windows ? `"${arg.replace(/"/g, '\\"')}"` : `'${arg.replace(/'/g, "'\\''")}'`;
 }
 
-/** `claude mcp add …`: registers the server with Claude Code (user scope). */
+/**
+ * `claude mcp add …`: registers the server with Claude Code (user scope).
+ * The name comes first: `--env` takes several values and would swallow it;
+ * `--` ends them before the command.
+ */
 export function claudeCodeCommand(l: McpLaunch, windows: boolean): string {
   const { command, args } = serverCommand(l);
   const q = (a: string) => shellQuote(a, windows);
   return [
-    "claude mcp add --scope user",
+    `claude mcp add ${SERVER_ID} --scope user`,
     ...Object.entries(serverEnv(l)).map(([k, v]) => `--env ${q(`${k}=${v}`)}`),
-    SERVER_ID,
     "--",
     q(command),
     ...args.map(q),

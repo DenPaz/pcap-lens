@@ -432,7 +432,10 @@ suite("PCAP Lens smoke test", () => {
     // (The tests' user data, and so global storage, sit inside the repository.)
     assert.ok(copy.endsWith(path.join("mcp", "backend")), copy);
     assert.notEqual(path.resolve(copy), path.resolve(ext!.extensionPath, "backend"));
-    assert.match((await text("claude-code")) ?? "", /^claude mcp add --scope user --env /);
+    assert.match(
+      (await text("claude-code")) ?? "",
+      /^claude mcp add pcap-lens --scope user --env PYTHONPATH=\S+ -- /,
+    );
     assert.ok(JSON.parse((await text("vscode")) ?? "{}").servers["pcap-lens"]);
   });
 
