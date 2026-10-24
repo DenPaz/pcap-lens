@@ -13,7 +13,7 @@ PERF_ARGS ?= --no-tcp-analysis
 
 .DEFAULT_GOAL := help
 .PHONY: help install update outdated compile watch lint format test test-backend \
-	test-acceptance test-unit test-extension coverage check fixtures large-fixture perf package \
+	test-acceptance test-unit test-extension coverage check fixtures large-fixture perf evals package \
 	release-prepare icon screenshots clean
 
 help: ## List the targets
@@ -93,6 +93,9 @@ large-fixture: ## Generate a large synthetic capture (PACKETS=1000000, LARGE=pat
 perf: ## Benchmark the backend on the large capture (made if missing; PERF_ARGS=...)
 	@test -f $(LARGE) || $(MAKE) --no-print-directory large-fixture
 	$(UV) run python -u test/perf/bench.py $(LARGE) $(PERF_ARGS)
+
+evals: compile ## Ask a model the AI cases in test/evals and grade the answers (costs API calls; EVAL_ARGS=...)
+	node scripts/evals/run.mjs $(EVAL_ARGS)
 
 package: ## Build the .vsix (vsce package)
 	$(PNPM) run package

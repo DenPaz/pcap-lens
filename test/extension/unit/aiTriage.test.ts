@@ -1,11 +1,12 @@
 import * as assert from "node:assert/strict";
 import { STATISTICS_CONSENT } from "../../../src/aiConsent";
-import type { StatsTable } from "../../../src/aiSummary";
+import { Requester, StatsTable, gatherSummary } from "../../../src/aiSummary";
 import {
   TRIAGE_LIMITS,
   TriageCheck,
   TriageInput,
   buildTriagePrompt,
+  gatherTriage,
   knownFrames,
   parseTriage,
   sortFindings,
@@ -220,5 +221,55 @@ suite("aiTriage", () => {
       "html",
     );
     assert.match(html, /No findings\./);
+  });
+  test("gathering: the backend's answers become the input, failed tables are named", async () => {
+    const asked: string[] = [];
+    const failed: string[] = [];
+    const table: StatsTable = { columns: [col("protocol", "Protocol")], rows: [] };
+    const request: Requester = async <T>(method: string, params: Record<string, unknown>) => {
+      const what = (
+        method === "stats" ? `stats ${String(params.kind)} ${String(params.type ?? "")}` : method
+      ).trim();
+      asked.push(what);
+      if (what === "stats conversations udp" || what === "stats io") {
+        throw new Error("tshark refused");
+      }
+      if (method === "capture_info") {
+        return { frames: 10 } as T;
+      }
+      if (method === "triage") {
+        return { checks: CHECKS, ignored: true } as T;
+      }
+      return table as T;
+    };
+    const input = await gatherTriage(request, "why?", (kind, message) =>
+      failed.push(`${kind}: ${message}`),
+    );
+    assert.deepEqual(asked.sort(), [
+      "capture_info",
+      "stats conversations tcp",
+      "stats conversations udp",
+      "stats expert",
+      "stats phs",
+      "triage",
+    ]);
+    assert.deepEqual(failed, ["conversations: tshark refused"]);
+    assert.equal(input.question, "why?");
+    assert.equal(input.ignored, true);
+    assert.equal(input.checks, CHECKS);
+    assert.deepEqual(input.conversations, [table]);
+    assert.deepEqual(input.missing, ["UDP conversations"]);
+
+    asked.length = 0;
+    const summary = await gatherSummary(request, { question: "q", currentFilter: "dns" });
+    assert.equal(asked.length, 7);
+    assert.deepEqual(summary.missing, ["UDP conversations", "traffic over time"]);
+    assert.deepEqual(summary.endpoints, [table]);
+    assert.equal(summary.currentFilter, "dns");
+    // capture_info failing fails the whole gathering (there is nothing to say without it).
+    const broken: Requester = async (method) => {
+      throw new Error(`${method} failed`);
+    };
+    await assert.rejects(gatherTriage(broken, ""), /capture_info failed|triage failed/);
   });
 });

@@ -1,0 +1,274 @@
+{
+  "$comment": "Answer-quality cases for the AI features (scripts/evals). facts = what tshark computes for the capture, checked by test/backend/test_evals.py; expect = findings a good answer names (regexes, case-insensitive, all of `all` and one of `any` in one finding or paragraph; or a triage finding whose check is one of `check`); forbid = claims the data doesn't support (a match in a sentence without a negation). Graded by scripts/evals/grade.mjs.",
+  "version": 1,
+  "cases": [
+    {
+      "id": "office-after-triage",
+      "kind": "triage",
+      "capture": "office-after.pcap",
+      "about": "An office network with problems: refused connections, HTTP 503s, DNS errors and an unanswered query, unanswered pings, a retransmission, and 10.0.0.66 probing 10.0.0.80's ports.",
+      "facts": {
+        "checks": {
+          "tcp_resets": 5,
+          "tcp_connection_attempts": 13,
+          "tcp_connection_accepts": 8,
+          "http_server_errors": 4,
+          "dns_errors": 3,
+          "dns_unanswered": 1,
+          "icmp_unanswered": 3,
+          "tcp_retransmissions": 1,
+          "cleartext_credentials": 0
+        }
+      },
+      "expect": [
+        {
+          "id": "scan",
+          "label": "10.0.0.66 probes 10.0.0.80's ports (a scan)",
+          "all": ["10\\.0\\.0\\.66"],
+          "any": ["scan", "prob(e|es|ing)", "sweep", "reconnaissance", "many (different )?ports"],
+          "severity": ["high", "medium"]
+        },
+        {
+          "id": "resets",
+          "label": "refused connections (resets)",
+          "check": ["tcp_resets"],
+          "any": ["\\breset", "\\bRST\\b", "refused", "rejected"]
+        },
+        {
+          "id": "http5xx",
+          "label": "HTTP server errors (503)",
+          "check": ["http_server_errors"],
+          "any": ["\\b5\\d\\d\\b", "5xx", "server errors?", "service unavailable"]
+        },
+        {
+          "id": "dns",
+          "label": "DNS errors or an unanswered query",
+          "check": ["dns_errors", "dns_unanswered"],
+          "any": ["\\bDNS\\b", "NXDOMAIN", "SERVFAIL"]
+        },
+        {
+          "id": "icmp",
+          "label": "unanswered pings",
+          "check": ["icmp_unanswered"],
+          "any": ["ICMP", "\\bping", "echo request"]
+        }
+      ],
+      "forbid": [
+        {
+          "id": "credentials",
+          "label": "claims clear-text credentials",
+          "any": ["credential", "password", "clear-?text (login|auth)"]
+        },
+        { "id": "tls", "label": "claims TLS problems", "any": ["\\bTLS\\b", "certificate"] }
+      ],
+      "minScore": 0.8
+    },
+    {
+      "id": "office-before-triage",
+      "kind": "triage",
+      "capture": "office-before.pcap",
+      "about": "The same office network on a good day: every connection accepted, every DNS query answered.",
+      "facts": {
+        "checks": {
+          "tcp_resets": 0,
+          "tcp_connection_attempts": 8,
+          "tcp_connection_accepts": 8,
+          "http_server_errors": 0,
+          "dns_errors": 0,
+          "dns_unanswered": 0,
+          "icmp_unanswered": 0,
+          "tcp_retransmissions": 0
+        }
+      },
+      "expect": [
+        {
+          "id": "healthy",
+          "label": "says nothing serious was found",
+          "any": [
+            "no (significant|major|notable|serious|obvious|clear) (problems?|issues?|errors?|anomal)",
+            "healthy",
+            "looks (normal|clean|fine)",
+            "nothing (abnormal|unusual|wrong|of concern)",
+            "no problems",
+            "no issues",
+            "all \\w+ (succeeded|were answered|completed)"
+          ]
+        }
+      ],
+      "forbid": [
+        { "id": "resets", "label": "claims resets", "any": ["\\breset", "\\bRST\\b", "refused"] },
+        { "id": "scan", "label": "claims a scan", "any": ["\\bscan", "port sweep"] },
+        {
+          "id": "errors",
+          "label": "claims DNS or HTTP errors",
+          "any": ["NXDOMAIN", "SERVFAIL", "\\b5\\d\\d\\b"]
+        },
+        { "id": "retransmissions", "label": "claims retransmissions", "any": ["retransmi"] }
+      ],
+      "maxSeverity": "low",
+      "minScore": 1
+    },
+    {
+      "id": "services-triage",
+      "kind": "triage",
+      "capture": "services.pcap",
+      "about": "HTTP, DNS, SNMP and ICMP services: an HTTP 404, a DNS error answer and one ping without a reply.",
+      "facts": {
+        "checks": {
+          "http_client_errors": 1,
+          "dns_errors": 1,
+          "icmp_unanswered": 1,
+          "tcp_resets": 0
+        }
+      },
+      "expect": [
+        {
+          "id": "http4xx",
+          "label": "an HTTP client error (404)",
+          "check": ["http_client_errors"],
+          "any": ["\\b4\\d\\d\\b", "4xx", "not found", "client error"]
+        },
+        {
+          "id": "dns",
+          "label": "a DNS error answer",
+          "check": ["dns_errors"],
+          "any": ["\\bDNS\\b", "NXDOMAIN", "SERVFAIL"]
+        },
+        {
+          "id": "icmp",
+          "label": "an unanswered ping",
+          "check": ["icmp_unanswered"],
+          "any": ["ICMP", "\\bping", "echo"]
+        }
+      ],
+      "forbid": [
+        { "id": "scan", "label": "claims a scan", "any": ["\\bscan", "port sweep"] },
+        { "id": "credentials", "label": "claims credentials", "any": ["credential", "password"] },
+        { "id": "resets", "label": "claims resets", "any": ["\\breset", "\\bRST\\b"] }
+      ],
+      "maxSeverity": "medium",
+      "minScore": 1
+    },
+    {
+      "id": "credentials-triage",
+      "kind": "triage",
+      "capture": "credentials.pcap",
+      "about": "Logins in clear text: HTTP Basic, FTP, POP and IMAP.",
+      "facts": { "checks": { "cleartext_credentials": 4, "tcp_resets": 0 } },
+      "expect": [
+        {
+          "id": "credentials",
+          "label": "clear-text credentials, rated high or medium",
+          "check": ["cleartext_credentials"],
+          "any": ["credential", "password", "clear-?text", "plain-?text", "unencrypted"],
+          "severity": ["high", "medium"]
+        },
+        {
+          "id": "protocols",
+          "label": "names the protocols carrying them",
+          "any": ["\\bFTP\\b", "\\bPOP3?\\b", "\\bIMAP\\b", "Basic"]
+        }
+      ],
+      "forbid": [
+        { "id": "scan", "label": "claims a scan", "any": ["\\bscan", "port sweep"] },
+        { "id": "resets", "label": "claims resets", "any": ["\\breset", "\\bRST\\b"] }
+      ],
+      "minScore": 1
+    },
+    {
+      "id": "office-summary",
+      "kind": "summary",
+      "capture": "office-after.pcap",
+      "about": "A summary of the office network with problems: it should notice the errors and the probing host.",
+      "expect": [
+        {
+          "id": "scan",
+          "label": "10.0.0.66 contacting many ports",
+          "all": ["10\\.0\\.0\\.66"],
+          "any": ["scan", "prob(e|es|ing)", "sweep", "ports"]
+        },
+        {
+          "id": "resets",
+          "label": "resets or refused connections",
+          "any": ["\\breset", "\\bRST\\b", "refused"]
+        },
+        {
+          "id": "http5xx",
+          "label": "HTTP 503 errors",
+          "any": ["\\b503\\b", "5xx", "service unavailable", "server errors?"]
+        },
+        {
+          "id": "dns",
+          "label": "DNS errors",
+          "any": ["NXDOMAIN", "SERVFAIL", "DNS (errors?|failures?)", "No such name"]
+        }
+      ],
+      "forbid": [
+        { "id": "credentials", "label": "claims credentials", "any": ["credential", "password"] },
+        {
+          "id": "tls",
+          "label": "claims TLS problems",
+          "any": ["TLS (alert|handshake|errors?)", "certificate"]
+        }
+      ],
+      "minScore": 0.75
+    },
+    {
+      "id": "office-compare",
+      "kind": "compare",
+      "captures": ["office-before.pcap", "office-after.pcap"],
+      "open": "after",
+      "about": "The office network before and after: what changed is the new probing host and every error.",
+      "facts": {
+        "changed": {
+          "tcp_resets": [0, 5],
+          "http_server_errors": [0, 4],
+          "dns_errors": [0, 3],
+          "dns_unanswered": [0, 1],
+          "icmp_unanswered": [0, 3],
+          "tcp_retransmissions": [0, 1]
+        },
+        "newEndpoints": ["10.0.0.66"],
+        "goneEndpoints": []
+      },
+      "expect": [
+        {
+          "id": "scan",
+          "label": "the new host 10.0.0.66 probing 10.0.0.80",
+          "all": ["10\\.0\\.0\\.66"],
+          "any": ["scan", "prob(e|es|ing)", "sweep", "reconnaissance", "ports"]
+        },
+        {
+          "id": "resets",
+          "label": "new resets or refused connections",
+          "any": ["\\breset", "\\bRST\\b", "refused"]
+        },
+        {
+          "id": "http5xx",
+          "label": "new HTTP 5xx errors",
+          "any": ["\\b5\\d\\d\\b", "5xx", "server errors?", "service unavailable"]
+        },
+        {
+          "id": "dns",
+          "label": "new DNS errors",
+          "any": ["\\bDNS\\b.*(error|fail|unanswered|NXDOMAIN|SERVFAIL)", "NXDOMAIN", "SERVFAIL"]
+        },
+        { "id": "icmp", "label": "unanswered pings", "any": ["ICMP", "\\bping", "echo"] }
+      ],
+      "forbid": [
+        {
+          "id": "gone",
+          "label": "claims a host or service disappeared",
+          "any": [
+            "disappeared",
+            "went away",
+            "no longer (seen|present|appears|reachable)",
+            "(host|service|server)s? (is|are|was|were) gone"
+          ]
+        },
+        { "id": "credentials", "label": "claims credentials", "any": ["credential", "password"] }
+      ],
+      "minScore": 0.8
+    }
+  ]
+}

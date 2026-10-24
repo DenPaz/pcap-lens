@@ -20,6 +20,7 @@ CONTRIBUTING.md for building, testing and releasing (not packaged).
 | Regenerate fixtures       | `uv run python test/fixtures/generate.py`                                                                                                                |
 | Coverage                  | `make coverage` (pytest-cov and c8; summaries in the terminal, HTML in `coverage/`; CI's Linux job adds both to the run summary)                         |
 | Perf check                | `uv run python test/fixtures/generate.py --large 1000000 test/fixtures/large-1m.pcap && uv run python -u test/perf/bench.py test/fixtures/large-1m.pcap` |
+| AI answer evals (by hand) | `pnpm run evals` (asks a model the cases in `test/evals/cases.json`; `-- --prompts <dir>` / `--answers <dir>` without a model)                           |
 | Package                   | `pnpm run package` (vsce, `--no-dependencies`)                                                                                                           |
 | Prepare a release         | `pnpm run release:prepare 0.2.0` on `dev` (then PR `dev` → `main`, tag the merge, push the tag)                                                          |
 | Icon / screenshots        | `node scripts/render-icon.js` / `node scripts/screenshots.js` (after `pnpm run compile`; `CHROMIUM_PATH` for another Chromium)                           |
@@ -268,7 +269,8 @@ plugins` and the plugin folders), `decryption.py` (decryption keys and
 - `media/` icon (`icon.svg` → `icon.png`), `sample.pcapng` (a copy of the
   `mixed.pcapng` fixture that `generate.py` writes), `walkthrough/*.md` (the
   walkthrough's pages) and `screenshots/` (README only, not packaged).
-- `scripts/` release helper (`release.mjs`, tests in `test/scripts`), icon and
+- `scripts/` release helper (`release.mjs`, tests in `test/scripts`), the AI
+  evals (`evals/grade.mjs` pure, `evals/run.mjs` by hand), icon and
   screenshot renderers, `themes.js` (VS Code's Dark Modern, Light Modern and
   Dark High Contrast as CSS variables, for screenshots). Not packaged.
 - `test/backend` pytest; `test/backend/acceptance` pytest-bdd scenarios
@@ -1945,6 +1947,31 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   without and with problems: resets, refused connections, unanswered ICMP
   and DNS, DNS errors, HTTP 5xx, a retransmission and 10.0.0.66 scanning
   10.0.0.80's ports 22, 23, 445, 3389 and 5900.
+- **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
+  names a fixture with known problems, the feature (triage, summary,
+  compare), `facts` tshark must compute for it (`test_evals.py`: triage
+  counts, changed checks, new and gone endpoints; every `check` id must be
+  in `triage.CHECKS`), `expect`ed findings (regexes, case-insensitive: all
+  of `all` and one of `any` within one block, a triage finding's own check
+  id, an optional `severity`) and `forbid`den claims (a sentence that
+  matches and holds no negation word; `maxSeverity` caps triage findings).
+  `grade.mjs` (pure, in c8) splits an answer into blocks (`triageBlocks`:
+  summary plus each finding; `textBlocks`: paragraphs, list items,
+  headings) and scores found / expected against `minScore`.
+  `test/evals/canned.json` holds a good and a bad answer per case:
+  `test/scripts/evals.test.mjs` checks the good one passes and the bad one
+  fails for exactly its `fails`, so every case can be passed and catches
+  something. `run.mjs` (not CI) opens the fixtures through the harness's
+  `startBackend` (isolated home, `names: {}`), builds the host's own prompts
+  from `out/src` (`gatherTriage`/`gatherSummary`, moved out of `ai.ts` for
+  this, `buildComparePrompt`), masks with `AddressMasker` like the host,
+  asks Claude through `@anthropic-ai/sdk` (a dev dependency; default
+  `claude-opus-5-5`, no refusal fallback, since another model answering
+  would grade the wrong one), retries a triage once with `TRIAGE_RETRY`
+  (shared with `ai.ts`), validates cited filters with tshark, and prints
+  the table (`--out` JSON, `--save` prompts and answers, `--repeat`).
+  `--prompts` writes the masked prompts for any other model, `--answers`
+  grades saved ones.
 - **MCP server** (`backend/pcap_backend/mcp.py`, `standins.py`;
   `src/mcpConfig.ts` pure, `src/commands/mcp.ts`): `python -m
 pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:

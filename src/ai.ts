@@ -43,7 +43,7 @@ import {
   notableExpertRows,
   ANOMALY_LIMITS,
 } from "./aiAnomaly";
-import { CaptureFacts, StatsTable, buildSummaryPrompt } from "./aiSummary";
+import { Requester, StatsTable, buildSummaryPrompt, gatherSummary } from "./aiSummary";
 import { CaptureDiff, buildComparePrompt } from "./aiCompare";
 import { ToolConsent, TOOL_LIMITS, buildToolPrompt, runTool, runToolLoop } from "./aiTools";
 import { toolsRuntime } from "./lmTools";
@@ -66,7 +66,14 @@ import {
 } from "./aiFilter";
 import { suggestCaptureFilters } from "./aiCaptureFilter";
 import { DissectorRequest, DissectorResult, generateDissector } from "./aiDissector";
-import { TriageCheck, TriageInput, TriageReport, buildTriagePrompt, parseTriage } from "./aiTriage";
+import {
+  TRIAGE_RETRY,
+  TriageCheck,
+  TriageReport,
+  buildTriagePrompt,
+  gatherTriage,
+  parseTriage,
+} from "./aiTriage";
 
 /** A triage: the findings (filters validated, packets from the data), and the checks they came from. */
 export interface TriageOutcome extends ExplainOutcome {
@@ -186,6 +193,12 @@ function askFor(
     return masker.restore(text);
   };
 }
+
+/** `backend.request` as the pure modules' `Requester`. */
+const request =
+  (backend: BackendClient): Requester =>
+  (method, params, options) =>
+    backend.request(method, params, options);
 
 /** `promise`, or a CancellationError as soon as `token` is cancelled. */
 function untilCancelled<T>(promise: Promise<T>, token: vscode.CancellationToken): Promise<T> {
@@ -755,46 +768,14 @@ export class FilterAssistant implements vscode.Disposable {
     }
     try {
       sink.progress("Computing statistics with tshark…");
-      const stats = (params: Record<string, unknown>) =>
-        backend.request<StatsTable>("stats", params, { timeoutMs: 0 }).catch((err: unknown) => {
-          this.log.info(
-            `AI summary: ${String(params.kind)} statistics failed: ${(err as Error).message}`,
-          );
-          return undefined;
-        });
-      const [info, protocols, tcp, udp, endpoints, expert, io] = await untilCancelled(
-        Promise.all([
-          backend.request<CaptureFacts>("capture_info", {}),
-          stats({ kind: "phs" }),
-          stats({ kind: "conversations", type: "tcp" }),
-          stats({ kind: "conversations", type: "udp" }),
-          stats({ kind: "endpoints", type: "ip" }),
-          stats({ kind: "expert" }),
-          stats({ kind: "io" }),
-        ]),
-        token,
+      const prompt = buildSummaryPrompt(
+        await untilCancelled(
+          gatherSummary(request(backend), req, (kind, message) =>
+            this.log.info(`AI summary: ${kind} statistics failed: ${message}`),
+          ),
+          token,
+        ),
       );
-      const missing = Object.entries({
-        "protocol hierarchy": protocols,
-        "TCP conversations": tcp,
-        "UDP conversations": udp,
-        endpoints,
-        "expert information": expert,
-        "traffic over time": io,
-      })
-        .filter(([, t]) => !t)
-        .map(([name]) => name);
-      const prompt = buildSummaryPrompt({
-        question: req.question,
-        currentFilter: req.currentFilter,
-        info,
-        protocols,
-        conversations: [tcp, udp].filter((t): t is StatsTable => !!t),
-        endpoints: endpoints ? [endpoints] : [],
-        expert,
-        io,
-        missing,
-      });
       const answer = await this.streamAnswer(
         model,
         prompt,
@@ -878,59 +859,19 @@ export class FilterAssistant implements vscode.Disposable {
     }
     try {
       sink.progress("Counting the checks with tshark…");
-      const stats = (params: Record<string, unknown>) =>
-        backend.request<StatsTable>("stats", params, { timeoutMs: 0 }).catch((err: unknown) => {
-          this.log.info(
-            `AI triage: ${String(params.kind)} statistics failed: ${(err as Error).message}`,
-          );
-          return undefined;
-        });
-      const [info, triage, expert, protocols, tcp, udp] = await untilCancelled(
-        Promise.all([
-          backend.request<CaptureFacts>("capture_info", {}),
-          backend.request<{ checks: TriageCheck[]; ignored: boolean }>(
-            "triage",
-            {},
-            { timeoutMs: 0 },
-          ),
-          stats({ kind: "expert" }),
-          stats({ kind: "phs" }),
-          stats({ kind: "conversations", type: "tcp" }),
-          stats({ kind: "conversations", type: "udp" }),
-        ]),
+      const input = await untilCancelled(
+        gatherTriage(request(backend), question, (kind, message) =>
+          this.log.info(`AI triage: ${kind} statistics failed: ${message}`),
+        ),
         token,
       );
-      const input: TriageInput = {
-        question,
-        info,
-        checks: triage.checks,
-        ignored: triage.ignored,
-        expert,
-        protocols,
-        conversations: [tcp, udp].filter((t): t is StatsTable => !!t),
-        missing: Object.entries({
-          "expert information": expert,
-          "protocol hierarchy": protocols,
-          "TCP conversations": tcp,
-          "UDP conversations": udp,
-        })
-          .filter(([, t]) => !t)
-          .map(([name]) => name),
-      };
       sink.progress("Asking the language model…");
       const ask = askFor(model, this.maskerFor(backend), TRIAGE_JUSTIFICATION, token);
       const turns: ChatTurn[] = [{ role: "user", content: buildTriagePrompt(input) }];
       let answer = await ask(turns);
       let report = parseTriage(answer, input);
       if (!report) {
-        turns.push(
-          { role: "assistant", content: answer },
-          {
-            role: "user",
-            content:
-              'That was not the JSON object asked for. Reply with JSON only: {"summary": "...", "findings": [...]}',
-          },
-        );
+        turns.push({ role: "assistant", content: answer }, { role: "user", content: TRIAGE_RETRY });
         answer = await ask(turns);
         report = parseTriage(answer, input);
       }

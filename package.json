@@ -2301,6 +2301,7 @@
     "test:unit": "pnpm run compile && mocha --ui tdd --timeout 10000 \"out/test/extension/unit/**/*.test.js\" \"test/webview/**/*.test.js\" \"test/scripts/**/*.test.mjs\"",
     "test:coverage": "pnpm run compile && c8 mocha --ui tdd --timeout 10000 \"out/test/extension/unit/**/*.test.js\" \"test/webview/**/*.test.js\" \"test/scripts/**/*.test.mjs\"",
     "test:backend": "uv run pytest",
+    "evals": "pnpm run compile && node scripts/evals/run.mjs",
     "test:extension": "pnpm run compile && node ./out/test/extension/runTest.js",
     "package": "vsce package --no-dependencies",
     "release:prepare": "node scripts/release.mjs prepare",
@@ -2308,6 +2309,7 @@
     "worldmap": "node scripts/world-map.mjs"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^1.2.0",
     "@eslint/js": "^10.0.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.19.43",
