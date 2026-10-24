@@ -41,6 +41,13 @@ import { CaptureFacts, StatsTable, buildSummaryPrompt } from "./aiSummary";
 import { ToolConsent, TOOL_LIMITS, buildToolPrompt, runTool, runToolLoop } from "./aiTools";
 import { toolsRuntime } from "./lmTools";
 import { ModelInfo, modelLabel, modelSelector, unavailableMessage } from "./aiModel";
+import {
+  AddressMasker,
+  maskedLoopModel,
+  namesInRows,
+  namesInTree,
+  withStandInNote,
+} from "./aiPrivacy";
 import type { QuickDetail } from "./settingsModel";
 import {
   ChatTurn,
@@ -172,6 +179,11 @@ export function modelSetting(): string {
   return vscode.workspace.getConfiguration(SECTION).get<string>("ai.model", "") ?? "";
 }
 
+/** `pcapViewer.ai.pseudonymizeAddresses` (application-scoped, on by default). */
+export function pseudonymizing(): boolean {
+  return vscode.workspace.getConfiguration(SECTION).get<boolean>("ai.pseudonymizeAddresses", true);
+}
+
 /** Every chat model VS Code offers now (for PCAP: Choose Language Model…). */
 export async function listModels(): Promise<ModelInfo[]> {
   const lm = lmApi();
@@ -198,6 +210,8 @@ export class FilterAssistant implements vscode.Disposable {
   /** Fires when AI help may have become (un)available; re-check with isAvailable(). */
   readonly onDidChangeAvailability = this.availability.event;
   private readonly disposables: vscode.Disposable[] = [this.availability];
+  /** Stand-ins per capture: a token means the same address in every request about it. */
+  private readonly maskers = new WeakMap<BackendClient, AddressMasker>();
   /** Protocol names per backend (one protocol-hierarchy pass per capture). */
   private readonly protocols = new WeakMap<BackendClient, Promise<string[]>>();
 
@@ -221,6 +235,17 @@ export class FilterAssistant implements vscode.Disposable {
   private changed(): void {
     this.blocked = false;
     this.availability.fire();
+  }
+
+  /** The capture's stand-ins (a new set when pcapViewer.ai.pseudonymizeAddresses changed). */
+  maskerFor(backend: BackendClient): AddressMasker {
+    const on = pseudonymizing();
+    let masker = this.maskers.get(backend);
+    if (!masker || masker.enabled !== on) {
+      masker = new AddressMasker(on);
+      this.maskers.set(backend, masker);
+    }
+    return masker;
   }
 
   async isAvailable(): Promise<boolean> {
@@ -270,18 +295,22 @@ export class FilterAssistant implements vscode.Disposable {
         Promise.all([this.protocolNames(backend), this.candidateFields(backend, request)]),
         token,
       );
+      const masker = this.maskerFor(backend);
       const ask = async (turns: ChatTurn[]): Promise<string> => {
-        const messages = turns.map((t) =>
-          t.role === "user"
-            ? vscode.LanguageModelChatMessage.User(t.content)
-            : vscode.LanguageModelChatMessage.Assistant(t.content),
-        );
+        const messages = turns.map((t, i) => {
+          const content = masker.mask(t.content);
+          return t.role === "user"
+            ? vscode.LanguageModelChatMessage.User(
+                i === 0 ? withStandInNote(masker, content) : content,
+              )
+            : vscode.LanguageModelChatMessage.Assistant(content);
+        });
         const response = await model.sendRequest(messages, { justification: JUSTIFICATION }, token);
         let text = "";
         for await (const part of response.text) {
           text += part;
         }
-        return text;
+        return masker.restore(text);
       };
       const validate = async (filter: string): Promise<string | undefined> => {
         try {
@@ -381,7 +410,10 @@ export class FilterAssistant implements vscode.Disposable {
     const included = req.frames.slice(0, EXPLAIN_LIMITS.maxPackets);
     try {
       sink.progress(`Reading packet${included.length === 1 ? "" : "s"} ${included.join(", ")}…`);
-      type Rows = { rows: { number: number; cells: string[] }[]; columns: string[] };
+      type Rows = {
+        rows: { number: number; cells: string[]; addresses?: string[] }[];
+        columns: string[];
+      };
       type Detail = {
         tree: TreeNode[];
         sources: { name: string; hex: string }[];
@@ -416,6 +448,10 @@ export class FilterAssistant implements vscode.Disposable {
         ]),
         token,
       );
+      const masker = this.maskerFor(backend);
+      // (Bytes hold the addresses too, and they can't be replaced there.)
+      const includeBytes = req.includeBytes && !masker.enabled;
+      masker.learnNames(namesInRows(rows.rows));
       const packets: ExplainPacket[] = [];
       included.forEach((number, i) => {
         const detail = details[i];
@@ -425,7 +461,7 @@ export class FilterAssistant implements vscode.Disposable {
             number,
             cells: row.cells,
             tree: detail.tree,
-            hex: req.includeBytes ? detail.sources[0]?.hex : undefined,
+            hex: includeBytes ? detail.sources[0]?.hex : undefined,
             approximateFrom: detail.approximate && detail.window ? detail.window[0] : undefined,
           });
         }
@@ -433,23 +469,39 @@ export class FilterAssistant implements vscode.Disposable {
       if (!packets.length) {
         return { ...none, message: `The capture has no packet ${req.frames.join(", ")}.` };
       }
+      for (const p of packets) {
+        masker.learnNames(namesInTree(p.tree));
+      }
       const prompt = buildExplainPrompt({
         question: req.question,
         currentFilter: req.currentFilter,
         titles: rows.columns.map((f) => req.titleOf[f] ?? f),
         packets,
         omitted: req.frames.length - packets.length,
-        includeBytes: req.includeBytes,
+        includeBytes,
       });
-      const answer = await this.streamAnswer(model, prompt, EXPLAIN_JUSTIFICATION, sink, token);
+      const answer = await this.streamAnswer(
+        model,
+        prompt,
+        EXPLAIN_JUSTIFICATION,
+        sink,
+        token,
+        masker,
+      );
       const filters = await this.validFilters(backend, extractFilters(answer), "explain");
       const skipped = req.frames.length - packets.length;
+      const notes = [
+        skipped
+          ? `${skipped} of the ${req.frames.length} packets were not included (at most ${EXPLAIN_LIMITS.maxPackets} at a time).`
+          : "",
+        req.includeBytes && !includeBytes
+          ? "Raw bytes were not sent: the addresses in them can't be replaced by stand-ins (pcapViewer.ai.pseudonymizeAddresses)."
+          : "",
+      ].filter(Boolean);
       return {
         frames: packets.map((p) => p.number),
         filters,
-        message: skipped
-          ? `${skipped} of the ${req.frames.length} packets were not included (at most ${EXPLAIN_LIMITS.maxPackets} at a time).`
-          : undefined,
+        message: notes.length ? notes.join(" ") : undefined,
       };
     } catch (err) {
       const failed = this.failure(err, token);
@@ -477,25 +529,36 @@ export class FilterAssistant implements vscode.Disposable {
     );
   }
 
-  /** Send one prompt and stream the answer into `sink`; returns the whole answer. */
+  /**
+   * Send one prompt (addresses replaced by `masker`'s stand-ins) and stream
+   * the answer, real values restored, into `sink`; returns the whole answer.
+   */
   private async streamAnswer(
     model: vscode.LanguageModelChat,
     prompt: string,
     justification: string,
     sink: ExplainSink,
     token: vscode.CancellationToken,
+    masker: AddressMasker,
   ): Promise<string> {
     sink.progress(`Asking ${modelLabel(model)}…`);
     const response = await model.sendRequest(
-      [vscode.LanguageModelChatMessage.User(prompt)],
+      [vscode.LanguageModelChatMessage.User(withStandInNote(masker, masker.mask(prompt)))],
       { justification },
       token,
     );
+    const restorer = masker.restorer();
     let answer = "";
+    const emit = (text: string) => {
+      if (text) {
+        answer += text;
+        sink.markdown(text);
+      }
+    };
     for await (const part of response.text) {
-      answer += part;
-      sink.markdown(part);
+      emit(restorer.push(part));
     }
+    emit(restorer.end());
     return answer;
   }
 
@@ -582,7 +645,14 @@ export class FilterAssistant implements vscode.Disposable {
         io,
         missing,
       });
-      const answer = await this.streamAnswer(model, prompt, SUMMARY_JUSTIFICATION, sink, token);
+      const answer = await this.streamAnswer(
+        model,
+        prompt,
+        SUMMARY_JUSTIFICATION,
+        sink,
+        token,
+        this.maskerFor(backend),
+      );
       return {
         frames: [],
         filters: await this.validFilters(backend, extractFilters(answer), "summary"),
@@ -619,6 +689,8 @@ export class FilterAssistant implements vscode.Disposable {
               "That call is no longer available: use Ask Copilot… in the VoIP Calls panel again.",
           };
         }
+        // (The parties' SIP URIs name people and hosts: stand-ins for them too.)
+        this.maskerFor(backend).learnNames([{ name: req.call.from }, { name: req.call.to }]);
         prompt = buildCallPrompt({ question: req.question, call: req.call });
         frames = [
           ...new Set([
@@ -678,7 +750,14 @@ export class FilterAssistant implements vscode.Disposable {
         });
         frames = [...new Set(rows.flatMap((r) => r.frames.slice(0, 1)))].slice(0, 3);
       }
-      const answer = await this.streamAnswer(model, prompt, ANOMALY_JUSTIFICATION, sink, token);
+      const answer = await this.streamAnswer(
+        model,
+        prompt,
+        ANOMALY_JUSTIFICATION,
+        sink,
+        token,
+        this.maskerFor(backend),
+      );
       return {
         frames,
         filters: await this.validFilters(backend, extractFilters(answer), "anomaly"),
@@ -768,13 +847,20 @@ export class FilterAssistant implements vscode.Disposable {
     try {
       sink.progress("Looking into the capture…");
       const outcome = await runToolLoop(
-        runtime.loopModel(model, TOOLS_JUSTIFICATION, deadline.token),
+        maskedLoopModel(
+          runtime.loopModel(model, TOOLS_JUSTIFICATION, deadline.token),
+          this.maskerFor(backend),
+        ),
         buildToolPrompt(req.question, req.currentFilter),
         {
           cancelled: () => deadline.token.isCancellationRequested,
           onText: (t) => sink.markdown(t),
           onToolCall: (name, input) => sink.progress(describeToolCall(name, input)),
-          runTool: (name, input) => runTool(name, input, backend, req.consent),
+          runTool: async (name, input) => {
+            const result = await runTool(name, input, backend, req.consent);
+            this.maskerFor(backend).learnNames(result.names ?? []);
+            return result;
+          },
         },
       );
       for (const call of outcome.calls) {

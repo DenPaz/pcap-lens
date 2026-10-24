@@ -13,6 +13,7 @@
  * answers with a short "not allowed" result instead of data.
  */
 import { extractFilters } from "./aiExplain";
+import { namesInRows } from "./aiPrivacy";
 import {
   StatsTable,
   expertCounts,
@@ -163,6 +164,8 @@ export interface ToolResult {
   filter?: string;
   /** The consent the tool lacked. */
   refused?: Exclude<ToolNeed, "none">;
+  /** Host names the result shows, with their addresses (stand-ins replace both). */
+  names?: { name: string; address: string }[];
 }
 
 const SETTING_OF: Record<Exclude<ToolNeed, "none">, string> = {
@@ -352,7 +355,9 @@ export async function runTool(
         if (!match.frames.length) {
           return { text: `No packet matches \`${filter}\`.`, filter: filter || undefined };
         }
-        const page = await backend.request<{ rows: { number: number; cells: string[] }[] }>(
+        const page = await backend.request<{
+          rows: { number: number; cells: string[]; addresses?: string[] }[];
+        }>(
           "list_packets",
           { frames: match.frames, inView: false, columns: [], timeFormat: "relative" },
           { timeoutMs: 0 },
@@ -367,7 +372,11 @@ export async function runTool(
               .join(" | "),
           ),
         ];
-        return { text: cap(lines.join("\n"), limits.maxResultChars), filter: filter || undefined };
+        return {
+          text: cap(lines.join("\n"), limits.maxResultChars),
+          filter: filter || undefined,
+          names: namesInRows(page.rows),
+        };
       }
     }
   } catch (err) {

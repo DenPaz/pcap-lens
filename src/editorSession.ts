@@ -30,6 +30,7 @@ import type {
   SuggestOutcome,
 } from "./ai";
 import type { ToolConsent } from "./aiTools";
+import type { AddressMasker } from "./aiPrivacy";
 import {
   CaptureEvent,
   ColoringResult,
@@ -1275,6 +1276,12 @@ export class PcapEditorSession {
   /** Whether AI help can be used now (a language model is available and allowed). */
   async aiAvailable(): Promise<boolean> {
     return !!this.info && (await this.assistant.isAvailable());
+  }
+
+  /** The capture's address stand-ins for AI requests (undefined before a backend runs). */
+  aiMasker(): AddressMasker | undefined {
+    const client = this.client;
+    return client ? this.assistant.maskerFor(client) : undefined;
   }
 
   /** Whether @pcap can answer with language model tools in this VS Code. */

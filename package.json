@@ -1937,6 +1937,12 @@
           "scope": "application",
           "markdownDescription": "The language model the AI features use, by id: empty is automatic (GitHub Copilot's model). Pick one with *PCAP: Choose Language Model…*: any chat model VS Code offers, including those other extensions provide, such as models running on your machine, which keep what the AI features send there. When the chosen model isn't available, AI help says so instead of using another one. User settings only."
         },
+        "pcapViewer.ai.pseudonymizeAddresses": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "markdownDescription": "Replace addresses by stand-ins in everything the AI features send: IPv4, IPv6 and MAC addresses and the host names name resolution shows become tokens such as `IP_PRIVATE_1`, `IP_PUBLIC_2`, `MAC_3` and `HOST_4` (the same token for the same address in every question about a capture), and the answers, the display filters in them and the tools' inputs get the real values back. Loopback, multicast and broadcast addresses are kept, and private and public addresses get different tokens. Names inside packet contents (DNS queries, HTTP hosts, TLS server names) are not replaced, and raw bytes are never sent while this is on. User settings only."
+        },
         "pcapViewer.ai.allowPacketData": {
           "type": "boolean",
           "default": false,

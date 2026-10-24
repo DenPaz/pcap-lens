@@ -25,5 +25,7 @@ export const STATISTICS_CONSENT =
   "with times and addresses, the parties' SIP URIs, no message bodies or DTMF digits) with its RTP streams' " +
   "statistics; and the results of @pcap's tools (packet counts for display filters, the same statistics " +
   `with up to ${TOOL_LIMITS.maxStatsRows} rows). Listing packets (their summary lines) also needs ` +
-  "pcapViewer.ai.allowPacketData. Addresses and host names can be private. Your choice is saved in the " +
+  "pcapViewer.ai.allowPacketData. Addresses and host names can be private: with " +
+  "pcapViewer.ai.pseudonymizeAddresses on (the default) they are replaced by stand-ins such as IP_PRIVATE_1 " +
+  "before anything is sent. Your choice is saved in the " +
   "pcapViewer.ai.allowCaptureStatistics setting (user settings only).";

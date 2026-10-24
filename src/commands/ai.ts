@@ -11,6 +11,7 @@ import {
 } from "../aiAnomaly";
 import { STATISTICS_CONSENT } from "../aiConsent";
 import { modelItems } from "../aiModel";
+import { withStandInNote } from "../aiPrivacy";
 import { EXPLAIN_LIMITS, PACKET_DATA_CONSENT, explainQuery, parseExplainArgs } from "../aiExplain";
 import { summaryQuery } from "../aiSummary";
 import { PCAP_TOOLS, ToolConsent, runTool } from "../aiTools";
@@ -692,8 +693,14 @@ function registerLanguageModelTools(
             if (!session?.openInfo || !backend?.running) {
               return runtime.result("No capture is open in PCAP Lens.");
             }
-            const result = await runTool(spec.name, options.input, backend, toolConsent());
-            return runtime.result(result.text);
+            // The same stand-ins as @pcap's: the calling model sees them, the tool the real values.
+            const masker = session.aiMasker();
+            const input = masker ? masker.restoreDeep(options.input) : options.input;
+            const result = await runTool(spec.name, input, backend, toolConsent());
+            masker?.learnNames(result.names ?? []);
+            return runtime.result(
+              masker ? withStandInNote(masker, masker.mask(result.text)) : result.text,
+            );
           },
         }),
       );
