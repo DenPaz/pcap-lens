@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.21.2 — 2026-10-24
+
 ### Fixed
 
 - _Keep Packets_ could freeze the extension when a list of packet ranges with

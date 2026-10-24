@@ -2271,3 +2271,5 @@ Then context menus with submenus, a reorganised ☰ menu, editor title bar
 actions, a filter field and toolbar, list density and status bar items: 0.20.0.
 Then the panels in the same style, with row menus, and column dividers: 0.21.0.
 Then the extension bundled with esbuild and working Marketplace badges: 0.21.1.
+Then a Keep Packets freeze fixed, and capture's advice when dumpcap can't
+start: 0.21.2.
