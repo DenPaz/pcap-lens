@@ -2536,3 +2536,5 @@ capture filters and Lua dissectors from a description, and one-click triage
 with findings in the capture report: 0.22.0.
 Then an MCP server for AI assistants (counts, statistics, triage, field
 values and, if allowed, packets) and triage of unanswered requests: 0.23.0.
+Then comparing two captures with AI (with the port scans and host sweeps
+tshark's numbers show), and AI answer evals: 0.24.0.
