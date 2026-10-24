@@ -11,8 +11,12 @@ commit) that made it. The format follows
 
 - _Keep Packets_ could freeze the extension when a list of packet ranges with
   double spaces didn't parse. [78d2e86]
+- _Start Capture_ showed an internal error when your user may not run dumpcap
+  (Debian and Ubuntu: not in the `wireshark` group yet); it now says how to
+  allow it, also for capture helpers and Capture to Files. [96e0722]
 
 [78d2e86]: https://github.com/DenPaz/vsc_pcap_viewer/commit/78d2e86
+[96e0722]: https://github.com/DenPaz/vsc_pcap_viewer/commit/96e0722
 
 ## 0.21.1 — 2026-10-24
 
