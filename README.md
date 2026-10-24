@@ -342,8 +342,10 @@ answer); see [Security](#security) for exactly what is sent.
 - **Lua dissectors**: _PCAP: New Lua Dissector from Description…_ writes one
   from the template and your description of the messages. tshark loads it
   (its errors go back to the model, three tries at most) before it is saved
-  in the dissectors folder; scripts that reach for files or programs (`os`,
-  `io`, `require`…) are refused unloaded. Review it like any script.
+  in the dissectors folder. Only Lua's string, table and math functions and
+  Wireshark's dissection API may be used: a script reaching for anything else
+  (`os`, `io`, `require`, `Dumper`…) is refused without being loaded. Review
+  it like any script.
 - **Triage**: `@pcap /triage` or _PCAP: Triage Capture with AI_ ranks findings
   from checks tshark counts (retransmissions, resets, unanswered connection
   attempts, DNS/HTTP/TLS errors, clear-text credentials…), each with what

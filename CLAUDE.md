@@ -1857,10 +1857,15 @@ false` counts as accepted, like the box). The display-filter loop is shared
   `commands/dissectors.ts`): the New Lua Dissector questions (`askSpec`) plus
   a description; the prompt holds `luaDissectorTemplate(spec)`. Each answer's
   ```lua block (`extractLua`) is screened first (`luaProblems` over
-  `luaCode`, the source without comments and with strings emptied: it must
-  hold `Proto("<name>"` and `DissectorTable.get(`, and no value use of os, io,
-  require, load*, dofile, package, debug, Dir, _G, _ENV, raw\*/metatable
-  functions, FileHandler, Listener, browser_* or `string.dump`): loading runs
+  `luaCode`, the source without comments and with strings emptied): it must
+  hold `Proto("<name>"` and `DissectorTable.get(`, no `string.dump`, and every
+  name used as a value (not after `.`/`:`, not an assignment target or table
+  key) must be a keyword, `LUA_GLOBALS` (Lua's pure libraries and the
+  dissection API), an `ENC_`/`PI_` constant, or declared by the script before
+  that point (`declaredNames`: a `local` counts from the end of its line, so
+  `local Dumper = Dumper` reads the global; declaring an `ESCAPES` name is
+  refused too). An allowlist since the Codex review of the 0.22.0 PR showed
+  the first denylist missed `Dumper.new`, which writes a file: loading runs
   a script's top-level code, so only a screened one is loaded, with
   `check_dissectors {lua: [tmp]}` from a `mkdtemp` copy (AppArmor lets
   tshark read /tmp). Problems or tshark's Lua errors (temp path replaced by
