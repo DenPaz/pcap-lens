@@ -7,7 +7,8 @@
  * Privacy: never packet contents. The diff holds the captures' totals and
  * rates, triage check counts with their display filters, protocol paths,
  * flows (client → server:port) and IP endpoints that are new, gone or
- * changed share (at most `maxItems` of each), and expert messages. Flows and
+ * changed share (at most `maxItems` of each), expert messages, and the
+ * port scans and host sweeps found in the flows. Flows and
  * endpoints are addresses, so this runs only with
  * `pcapViewer.ai.allowCaptureStatistics` (aiConsent.ts), like the summary.
  */
@@ -45,10 +46,11 @@ const INSTRUCTIONS = [
   '("before") and a later or problem capture ("after"). You get what tshark computed for both, never packet',
   "contents: totals and rates, fixed checks (counts, per 1,000 packets, display filters), protocol paths,",
   "flows (client → server:port, all connections summed), IP endpoints and expert messages, each listed as new,",
-  "gone or changed share of the capture.",
+  "gone or changed share of the capture, and scans: port scans (one client reaching many ports of one server)",
+  "and host sweeps (one port of many servers) in flows of a few packets per connection, new, gone or in both.",
   "Explain what changed and what it likely means, most important first: new or growing problems (errors,",
-  "resets, retransmissions, unanswered requests), new hosts or services (a host connecting to many ports may be",
-  "a scan), services that disappeared, then shifts in the traffic mix. Compare rates, not raw counts, when the",
+  "resets, retransmissions, unanswered requests), scans (call them scans, naming the client, the target and",
+  "the ports, never new services), new hosts or services, services that disappeared, then shifts in the traffic mix. Compare rates, not raw counts, when the",
   "captures differ in length. Say what stayed the same if it matters, and what these statistics can't tell.",
   "Use only this data. Format the answer as short Markdown sections; put each display filter worth applying in",
   "a ```filter code block of its own.",
@@ -64,7 +66,7 @@ export function shrinkDiff(diff: CaptureDiff, n: number): CaptureDiff {
     const lists = value as Record<string, unknown>;
     const cut: Record<string, unknown> = { ...lists };
     const more: Record<string, number> = { ...((lists.more as Record<string, number>) ?? {}) };
-    for (const key of ["new", "gone", "changed"]) {
+    for (const key of ["new", "gone", "changed", "both"]) {
       const list = lists[key];
       if (Array.isArray(list) && list.length > n) {
         cut[key] = list.slice(0, n);

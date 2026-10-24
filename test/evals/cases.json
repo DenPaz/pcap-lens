@@ -234,9 +234,9 @@
       "expect": [
         {
           "id": "scan",
-          "label": "the new host 10.0.0.66 probing 10.0.0.80",
+          "label": "the new host 10.0.0.66 scanning 10.0.0.80 (called a scan or probe, not new services)",
           "all": ["10\\.0\\.0\\.66"],
-          "any": ["scan", "prob(e|es|ing)", "sweep", "reconnaissance", "ports"]
+          "any": ["\\bscan", "prob(e|es|ing)", "sweep", "reconnaissance"]
         },
         {
           "id": "resets",
@@ -266,7 +266,12 @@
             "(host|service|server)s? (is|are|was|were) gone"
           ]
         },
-        { "id": "credentials", "label": "claims credentials", "any": ["credential", "password"] }
+        { "id": "credentials", "label": "claims credentials", "any": ["credential", "password"] },
+        {
+          "id": "services",
+          "label": "calls the scanned ports new services in use",
+          "any": ["new services? (being |were |are )?(accessed|used|reached|contacted)"]
+        }
       ],
       "minScore": 0.8
     }

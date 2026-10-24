@@ -6,7 +6,10 @@ hierarchy, flows, IP endpoints, the triage checks' counts and the expert
 messages, all keyed so that the same thing has the same key in another
 capture of the same network. A *diff* of two profiles lists what is new, what
 is gone and what changed share; the triage checks are compared per 1,000
-packets, since the two captures rarely have the same length.
+packets, since the two captures rarely have the same length. Port scans and
+host sweeps are found in each profile's flows and listed as new, gone or in
+both (``scans``): five two-packet flows to five ports read as five new
+services to a model, which didn't call them a scan.
 
 Flows are conversations without the client's port: ``tcp 10.0.0.5 →
 93.184.216.34:443`` sums every connection from that client to that service.
@@ -27,6 +30,13 @@ MAX_PROFILE_ITEMS = 500
 MAX_DIFF_ITEMS = 15
 # A share must move this many percentage points to count as changed.
 MIN_SHARE_CHANGE = 1.0
+# A scan: one client reaching MIN_SCAN_PORTS ports of one server (a port
+# scan) or one port of MIN_SWEEP_HOSTS servers (a host sweep; more, since a
+# client asking several DNS or NTP servers looks alike), in flows of at most
+# SCAN_PACKETS packets per connection (a SYN and its reset, a few retries).
+MIN_SCAN_PORTS = 4
+MIN_SWEEP_HOSTS = 8
+SCAN_PACKETS = 4
 
 
 def _cells(table: Mapping[str, Any] | None) -> tuple[list[str], list[dict[str, Any]]]:
@@ -251,6 +261,68 @@ def _compare(
     return out
 
 
+def _parse_flow(key: str) -> tuple[str, str, str, int] | None:
+    """``tcp 10.0.0.5 → 10.0.0.80:443`` → protocol, client, server, port."""
+    head, arrow, service = key.partition(" → ")
+    proto, _, client = head.partition(" ")
+    if not arrow or not client:
+        return None
+    server, port = _split_endpoint(service)
+    if port is None:
+        return None
+    return proto, client, server.removeprefix("[").removesuffix("]"), port
+
+
+def scans(flows: Mapping[str, Sequence[float]]) -> list[dict[str, Any]]:
+    """Port scans (one client, one server, many ports) and host sweeps (one
+    client, one port, many servers) among a profile's flows with few packets
+    per connection. Only the profile's flows count (MAX_PROFILE_ITEMS by
+    bytes), so a scan in a very large capture can be missed."""
+    small: list[tuple[str, str, str, int, float]] = []
+    for key, (connections, packets, _size) in flows.items():
+        parsed = _parse_flow(key)
+        if parsed and parsed[0] in ("tcp", "udp") and packets <= SCAN_PACKETS * max(connections, 1):
+            small.append((*parsed, packets))
+    groups: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for proto, client, server, port, packets in small:
+        for kind, target, value in (("port scan", server, port), ("host sweep", str(port), server)):
+            g = groups.setdefault((kind, proto, client, target), {"targets": set(), "packets": 0})
+            g["targets"].add(value)
+            g["packets"] += int(packets)
+    out = []
+    for (kind, proto, client, target), g in groups.items():
+        if len(g["targets"]) < (MIN_SCAN_PORTS if kind == "port scan" else MIN_SWEEP_HOSTS):
+            continue
+        item: dict[str, Any] = {"kind": kind, "protocol": proto, "client": client}
+        if kind == "port scan":
+            item.update(server=target, ports=sorted(g["targets"]))
+        else:
+            item.update(port=int(target), servers=sorted(g["targets"]))
+        item["packets"] = g["packets"]
+        out.append(item)
+    out.sort(key=lambda x: -len(x.get("ports") or x.get("servers") or []))
+    return out
+
+
+def _scan_key(item: Mapping[str, Any]) -> tuple[str, ...]:
+    return (
+        item["kind"],
+        item["protocol"],
+        item["client"],
+        str(item.get("server", item.get("port"))),
+    )
+
+
+def _scans(before: Mapping[str, Any], after: Mapping[str, Any], limit: int) -> dict[str, Any]:
+    b, a = scans(before["flows"]), scans(after["flows"])
+    b_keys, a_keys = {_scan_key(x) for x in b}, {_scan_key(x) for x in a}
+    return {
+        "new": [x for x in a if _scan_key(x) not in b_keys][:limit],
+        "gone": [x for x in b if _scan_key(x) not in a_keys][:limit],
+        "both": [x for x in a if _scan_key(x) in b_keys][:limit],
+    }
+
+
 def _per_1000(count: int, packets: int) -> float:
     return round(1000 * count / packets, 2) if packets else 0.0
 
@@ -411,6 +483,7 @@ def diff(
             before["endpoints"], after["endpoints"], ("packets", "bytes"), 1, size, "address", limit
         ),
         "expert": _expert(before, after, limit),
+        "scans": _scans(before, after, limit),
     }
     if notes:
         out["notes"] = notes

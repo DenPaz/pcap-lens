@@ -11,7 +11,7 @@ commit) that made it. The format follows
 
 - Compare two captures with AI: `@pcap /compare baseline.pcapng` or _PCAP:
   Compare Captures with AI…_ explains what changed (check rates, new and gone
-  hosts, services and flows, protocol mix, expert messages) from statistics
+  hosts, services and flows, port scans, protocol mix, expert messages) from statistics
   tshark computes for both; the MCP server has the same as `compare_captures`.
   [ae3cc3c]
 

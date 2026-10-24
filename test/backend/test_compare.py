@@ -176,6 +176,39 @@ def test_diff_limits_and_notes() -> None:
         compare.diff({**before, "version": 0}, after)
 
 
+def test_scans() -> None:
+    def flows(*keys: str, packets: float = 2) -> dict[str, list[float]]:
+        return {k: [1, packets, 100 * packets] for k in keys}
+
+    probes = flows(*(f"tcp 10.0.0.9 → 10.0.0.1:{p}" for p in (21, 22, 23, 25)))
+    assert compare.scans(probes) == [
+        {
+            "kind": "port scan",
+            "protocol": "tcp",
+            "client": "10.0.0.9",
+            "server": "10.0.0.1",
+            "ports": [21, 22, 23, 25],
+            "packets": 8,
+        }
+    ]
+    # Three ports, or flows that carried data, are no scan.
+    assert compare.scans(dict(list(probes.items())[:3])) == []
+    assert compare.scans(flows(*probes, packets=40)) == []
+    # A host sweep needs more servers: a client asking four DNS servers is normal.
+    dns = flows(*(f"udp 10.0.0.9 → 10.0.0.{n}:53" for n in range(1, 5)))
+    assert compare.scans(dns) == []
+    sweep = flows(*(f"tcp 10.0.0.9 → [2001:db8::{n}]:445" for n in range(1, 9)))
+    (found,) = compare.scans(sweep)
+    assert found["kind"] == "host sweep" and found["port"] == 445
+    assert found["servers"][0] == "2001:db8::1" and len(found["servers"]) == 8
+    # Flows without ports (ICMP) are skipped.
+    assert compare.scans({"icmp 10.0.0.1 ↔ 10.0.0.2": [1, 2, 100]}) == []
+    base = _profile(100, [], {})
+    d = compare.diff({**base, "flows": probes}, {**base, "flows": sweep})
+    assert [s["kind"] for s in d["scans"]["gone"]] == ["port scan"]
+    assert [s["kind"] for s in d["scans"]["new"]] == ["host sweep"]
+
+
 @pytest.mark.tshark
 def test_office_before_and_after(ctx: RequestContext) -> None:
     services = []
@@ -203,6 +236,20 @@ def test_office_before_and_after(ctx: RequestContext) -> None:
             f"tcp 10.0.0.66 → 10.0.0.80:{port}" for port in (22, 23, 445, 3389, 5900)
         }
         assert not d["flows"]["gone"] and not d["endpoints"]["gone"]
+        assert d["scans"] == {
+            "new": [
+                {
+                    "kind": "port scan",
+                    "protocol": "tcp",
+                    "client": "10.0.0.66",
+                    "server": "10.0.0.80",
+                    "ports": [22, 23, 445, 3389, 5900],
+                    "packets": 10,
+                }
+            ],
+            "gone": [],
+            "both": [],
+        }
         summaries = {e["summary"] for e in d["expert"]["new"]}
         assert "Connection reset (RST)" in summaries
         # Every message only the after capture has is new (tshark versions word
@@ -216,6 +263,7 @@ def test_office_before_and_after(ctx: RequestContext) -> None:
         same = services[0].compare_profiles({"before": before, "after": before}, ctx)
         assert not same["checks"]["changed"] and not same["flows"]["new"]
         assert not same["protocols"]["changed"] and not same["expert"]["new"]
+        assert not same["scans"]["new"] and len(same["scans"]["both"]) == 0
         with pytest.raises(InvalidParamsError, match="profiles"):
             services[0].compare_profiles({"before": before}, ctx)
         with pytest.raises(InvalidParamsError, match="not a capture profile"):

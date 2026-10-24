@@ -41,6 +41,11 @@ function officeDiff(flows = 5): CaptureDiff {
     },
     endpoints: { new: [{ address: "10.0.0.66" }], gone: [], changed: [] },
     expert: { new: [{ summary: "Connection reset (RST)", after: 5 }], gone: [] },
+    scans: {
+      new: [{ kind: "port scan", client: "10.0.0.66", server: "10.0.0.80", ports: [22, 23] }],
+      gone: [],
+      both: [],
+    },
   };
 }
 
@@ -58,6 +63,8 @@ suite("aiCompare", () => {
     assert.match(prompt, /```filter/);
     assert.match(prompt, /untrusted/);
     assert.match(prompt, /never packet\s+contents/);
+    assert.match(prompt, /call them scans/);
+    assert.match(prompt, /"scans":\{"new":\[\{"kind":"port scan"/);
     const json = JSON.parse(prompt.slice(prompt.indexOf("## Differences (JSON)\n") + 22));
     assert.equal(json.checks.changed[0].id, "tcp_resets");
     assert.equal(json.flows.new.length, 5);
@@ -75,6 +82,9 @@ suite("aiCompare", () => {
     // Lists that fit and plain values are kept as they are.
     assert.deepEqual(cut.endpoints, officeDiff(40).endpoints);
     assert.equal(cut.before.name, "office-before.pcap");
+    // Scans seen in both captures are cut like the rest.
+    const both = shrinkDiff({ ...officeDiff(), scans: { new: [], gone: [], both: [1, 2, 3] } }, 2);
+    assert.deepEqual(both.scans, { new: [], gone: [], both: [1, 2], more: { both: 1 } });
 
     const full = buildComparePrompt({ question: "", diff: officeDiff(40), open: "after" });
     assert.equal(

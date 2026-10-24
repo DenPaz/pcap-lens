@@ -1946,8 +1946,15 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   by share (≥ `MIN_SHARE_CHANGE` 1 percentage point), `MAX_DIFF_ITEMS` (15)
   each (expert messages most severe first, then by count: tshark 4.6's extra
   chats pushed a new 503 out of the list on macOS CI; `more` counts the
-  rest), plus `notes` (two-pass checks on one side only, missing parts,
-  different link types). The prompt (`buildComparePrompt`) says which
+  rest), `scans` (`compare.scans` over each profile's flows: a client
+  reaching ≥ `MIN_SCAN_PORTS` (4) ports of one server, or one port of ≥
+  `MIN_SWEEP_HOSTS` (8) servers, at most `SCAN_PACKETS` (4) packets per
+  connection; `new`/`gone`/`both`: a Copilot answer called the office scan's
+  five two-packet flows "new services being accessed", so the backend names
+  the pattern and the prompt says to call it a scan; the office-compare eval
+  no longer accepts plain "ports" and forbids "new services"), plus `notes`
+  (two-pass checks on one side only, missing parts, different link
+  types). The prompt (`buildComparePrompt`) says which
   capture is open (its filters and packet numbers apply) and halves the
   lists until it fits `COMPARE_LIMITS`; the open capture's backend checks
   the answer's filters and its stand-ins mask both captures' addresses.
