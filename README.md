@@ -1,7 +1,7 @@
 # PCAP Lens
 
-[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/denpaz.pcap-viewer?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=denpaz.pcap-viewer)
-[![Installs](https://img.shields.io/visual-studio-marketplace/i/denpaz.pcap-viewer)](https://marketplace.visualstudio.com/items?itemName=denpaz.pcap-viewer)
+[![VS Code Marketplace](https://vsmarketplacebadges.dev/version-short/denpaz.pcap-viewer.svg?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=denpaz.pcap-viewer)
+[![Installs](https://vsmarketplacebadges.dev/installs-short/denpaz.pcap-viewer.svg?label=installs)](https://marketplace.visualstudio.com/items?itemName=denpaz.pcap-viewer)
 [![Open VSX](https://img.shields.io/open-vsx/v/denpaz/pcap-viewer?label=Open%20VSX)](https://open-vsx.org/extension/denpaz/pcap-viewer)
 [![Open VSX downloads](https://img.shields.io/open-vsx/dt/denpaz/pcap-viewer?label=downloads)](https://open-vsx.org/extension/denpaz/pcap-viewer)
 [![CI](https://img.shields.io/github/actions/workflow/status/DenPaz/vsc_pcap_viewer/ci.yml?branch=main&label=CI)](https://github.com/DenPaz/vsc_pcap_viewer/actions/workflows/ci.yml?query=branch%3Amain)
