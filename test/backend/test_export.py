@@ -211,7 +211,7 @@ def test_export_packet_list_follows_view(
     assert rows[0] == ["No.", "Time", "Source", "Destination", "Protocol", "Length", "Info", "Host"]
     lengths = [int(r[5]) for r in rows[1:]]
     assert lengths == sorted(lengths, reverse=True)  # current sort order
-    assert "example.com" in {r[7] for r in rows[1:]}
+    assert {"example.com"} <= {r[7] for r in rows[1:]}  # the Host column
 
     opened.set_filter({"expr": "http"}, ctx)
     res = opened.export({"kind": "json", "dest": str(tmp_path / "list.json")}, ctx)

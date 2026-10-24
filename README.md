@@ -398,7 +398,9 @@ be set in user settings.
 Capturing runs Wireshark's `dumpcap`, which needs permission:
 
 - **Linux**: `sudo dpkg-reconfigure wireshark-common` (answer _Yes_), then
-  `sudo usermod -aG wireshark $USER` and log in again; elsewhere
+  `sudo usermod -aG wireshark $USER` and log in again (Debian and Ubuntu let
+  only the `wireshark` group run dumpcap: "Permission denied" running it means
+  you aren't in it yet); elsewhere
   `sudo setcap cap_net_raw,cap_net_admin=eip $(command -v dumpcap)`.
 - **macOS**: install ChmodBPF (in Wireshark's disk image, or
   `brew install --cask wireshark-chmodbpf`), then log in again.

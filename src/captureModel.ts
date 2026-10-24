@@ -116,6 +116,18 @@ export function parseDuration(text: string): bigint | undefined {
   return ns === undefined ? undefined : sign * ns;
 }
 
+/**
+ * Whether text lists packet ranges as Keep Packets takes them ("1-100, 250
+ * 300-"): items split on commas and whitespace, like the backend's
+ * `editing.parse_ranges`, each a number or a range, at least one. (One
+ * regular expression for the whole list backtracked exponentially on
+ * repeated spaces.)
+ */
+export function isFrameRanges(text: string): boolean {
+  const items = text.split(/[,\s]+/).filter((item) => item !== "");
+  return items.length > 0 && items.every((item) => /^\d+(-\d*)?$/.test(item));
+}
+
 /** Nanoseconds as editcap's decimal seconds: "-3600.25", "0.000000001". */
 export function nsToSeconds(ns: bigint): string {
   const negative = ns < 0n;

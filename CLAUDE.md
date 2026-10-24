@@ -1402,7 +1402,12 @@ limits: {packets, seconds, bytes}, promiscuous, snaplen}` + the open
   `-e` fields before reading) and does its rejected-field retries there
   (`_pass_lines`). `capture_start` = `_open(live=…)`: returns once dumpcap
   wrote its first bytes (interfaces open) or failed (`capture_error`: its
-  message plus `permission_hint` per OS), with `indexing: true` and
+  message plus `permission_hint` per OS; `start_error` for a dumpcap that
+  can't even start: Debian and Ubuntu install it root:wireshark 0754, so a
+  user outside the group gets EACCES from `Popen` in `list_interfaces`,
+  `validate_capture_filter` (`checked: false`), live capture and capture to
+  files, and tshark's "Couldn't run dumpcap … Permission denied" for extcap;
+  the hint's words match without case), with `indexing: true` and
   `capture` (`describe()`); `on_rows` is called at once (`_PassProgress.ready`:
   a quiet interface has no rows). "capture" notifications: `stats` (packets,
   bytes, seconds, about every second, POSIX only when idle) and `stopped`
@@ -1468,7 +1473,8 @@ folders`, personal first, left out as root) for `--extcap-interfaces` (in
   (`test/fixtures/fake_extcap.py`, installed with a shebang into the
   personal extcap folder by the `fake_extcap` fixture as a shell script that
   answers `--extcap-interfaces` and runs the Python for the rest; skipped as
-  root, on Windows and where `tshark -D` doesn't list it: macOS CI's
+  root, on Windows, where this user can't run dumpcap (tshark captures
+  through it) and where `tshark -D` doesn't list it: macOS CI's
   Homebrew tshark loads no extcap helper at all, not even an instant shell
   one), randpkt where installed (Linux CI), and `{interfaces, extcap}`
   arguments in the smoke test.
@@ -1837,9 +1843,11 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   would refuse its install scripts), each skipped with a notice when its
   secret (`VSCE_PAT`, `OVSX_PAT`) is missing. CI uploads the `.vsix` as an
   artifact. Marketplace details: `icon` (PNG: vsce refuses SVG icons),
-  `galleryBanner`, categories, keywords; README badges from img.shields.io
-  (Marketplace version and installs, Open VSX version and downloads, CI on
-  `main`: vsce only accepts SVGs from trusted badge services); the README's
+  `galleryBanner`, categories, keywords; README badges (vsce only accepts
+  SVGs from trusted badge services): the Marketplace version and installs
+  from vsmarketplacebadges.dev (shields.io retired its Visual Studio
+  Marketplace badges in 2026: they read "retired badge"), Open VSX version
+  and downloads and CI on `main` from img.shields.io; the README's
   hero is `demo.gif`, recorded by `scripts/screenshots.js` (`recordDemo`:
   PNG frames → `encodeGif` with the dev dependencies `pngjs` and `gifenc`,
   one palette, unchanged pixels transparent, ~350 KB); README images are relative (vsce
@@ -2263,3 +2271,5 @@ Then context menus with submenus, a reorganised ☰ menu, editor title bar
 actions, a filter field and toolbar, list density and status bar items: 0.20.0.
 Then the panels in the same style, with row menus, and column dividers: 0.21.0.
 Then the extension bundled with esbuild and working Marketplace badges: 0.21.1.
+Then a Keep Packets freeze fixed, and capture's advice when dumpcap can't
+start: 0.21.2.

@@ -13,7 +13,7 @@ import pytest
 
 from pcap_backend import extcap
 from pcap_backend.cancellation import CancelledError, CancelToken
-from pcap_backend.capture import CaptureOptions, capture_command
+from pcap_backend.capture import CaptureOptions, capture_command, dumpcap_command
 from pcap_backend.pcap_service import PcapService
 from pcap_backend.protocol import InvalidParamsError, RequestContext
 from pcap_backend.tshark import ToolError, run
@@ -197,6 +197,13 @@ def fake_extcap(service: PcapService) -> Iterator[str]:
     helper.chmod(0o755)
     try:
         tshark = service._require_tshark().path
+        try:
+            run([*dumpcap_command(tshark), "-v"])
+        except OSError as exc:
+            # (Debian and Ubuntu's dumpcap is root:wireshark 0754; tshark captures through it.)
+            pytest.skip(
+                f"this user can't run dumpcap ({exc.strerror}): not in the wireshark group?"
+            )
         listed = run([str(tshark), "-D"])
         if "fake-remote" not in listed.stdout.decode("utf-8", "replace"):
             # (macOS CI's Homebrew tshark loads no extcap helper at all, its own

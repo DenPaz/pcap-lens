@@ -76,7 +76,9 @@ def dumpcap_command(tshark: Path) -> list[str]:
 
 def permission_hint(stderr: str, platform: str = sys.platform) -> str | None:
     """How to allow capturing, when dumpcap failed for lack of permission."""
-    if not any(w in stderr for w in _PERMISSION_WORDS):
+    # (Without case: tshark says "Couldn't run dumpcap in child process: Permission denied".)
+    text = stderr.lower()
+    if not any(w.lower() in text for w in _PERMISSION_WORDS):
         return None
     if platform == "win32":
         return (
@@ -91,9 +93,11 @@ def permission_hint(stderr: str, platform: str = sys.platform) -> str | None:
             "wireshark-chmodbpf'), then log out and in again."
         )
     return (
-        "dumpcap needs the CAP_NET_RAW and CAP_NET_ADMIN capabilities. On Debian and Ubuntu: "
-        "'sudo dpkg-reconfigure wireshark-common' (answer Yes), then "
-        "'sudo usermod -aG wireshark $USER' and log in again. Elsewhere: "
+        "dumpcap needs the CAP_NET_RAW and CAP_NET_ADMIN capabilities, and on Debian and "
+        "Ubuntu only root and the wireshark group may run it: "
+        "'sudo dpkg-reconfigure wireshark-common' (answer Yes) if 'getcap "
+        "$(command -v dumpcap)' shows nothing, then 'sudo usermod -aG wireshark $USER' and "
+        "log in again. Elsewhere: "
         "'sudo setcap cap_net_raw,cap_net_admin=eip $(command -v dumpcap)'."
     )
 
@@ -113,6 +117,16 @@ def capture_error(stderr: str, returncode: int | None, default: str) -> ToolErro
     if hint:
         message = f"{message}\n\n{hint}"
     return ToolError(message, text, returncode)
+
+
+def start_error(exc: OSError, program: str) -> ToolError:
+    """A capture program that couldn't be started at all, with how to allow
+    it: Debian and Ubuntu install dumpcap as root:wireshark 0754, so a user
+    outside the wireshark group gets EACCES before it even runs."""
+    reason = exc.strerror or str(exc)
+    return capture_error(
+        f"could not run {exc.filename or program}: {reason}", None, f"could not run {program}"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,7 +315,7 @@ class LiveCapture:
             )
         except OSError as exc:
             out.close()
-            raise ToolError(f"could not start dumpcap: {exc}") from exc
+            raise start_error(exc, argv[0]) from exc
         PROCESSES.add(proc)
         self._proc = proc
         self._reader, self._writer = os.pipe()
@@ -655,7 +669,7 @@ class FileCapture:
                 creationflags=flags,
             )
         except OSError as exc:
-            raise ToolError(f"could not start the capture: {exc}") from exc
+            raise start_error(exc, argv[0]) from exc
         PROCESSES.add(proc)
         self._proc = proc
         self.started_at = time.time()

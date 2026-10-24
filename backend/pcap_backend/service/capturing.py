@@ -17,6 +17,7 @@ from pcap_backend.capture import (
     dumpcap_command,
     filter_problem,
     parse_interfaces,
+    start_error,
 )
 from pcap_backend.protocol import InvalidParamsError, RequestContext, param, str_list
 from pcap_backend.tshark import ToolError, run
@@ -134,7 +135,10 @@ class CaptureMixin(OpeningMixin):
         helpers = self._pool.submit(self._extcap_helpers, ctx) if want_extcap else None
         tshark_d = [str(tshark.path), "-D"]
         listed = self._pool.submit(run, tshark_d, ctx.token) if want_extcap else None
-        res = run([*command, "-D", "-M"], ctx.token)
+        try:
+            res = run([*command, "-D", "-M"], ctx.token)
+        except OSError as exc:
+            raise start_error(exc, command[0]) from exc
         interfaces = [i.to_json() for i in parse_interfaces(res.stdout.decode("utf-8", "replace"))]
         if helpers is not None and listed is not None:
             shown = listed.result()
@@ -203,7 +207,14 @@ class CaptureMixin(OpeningMixin):
         if not expr:
             return {"valid": True, "checked": True}
         command = dumpcap_command(self._require_tshark().path)
-        res = run([*command, "-i", interface, "-f", expr, "-d"], ctx.token)
+        try:
+            res = run([*command, "-i", interface, "-f", expr, "-d"], ctx.token)
+        except OSError as exc:  # (the capture itself reports it too)
+            return {
+                "valid": True,
+                "checked": False,
+                "message": start_error(exc, command[0]).args[0],
+            }
         problem = filter_problem(res.stderr)
         if problem:
             return {"valid": False, "checked": True, "error": problem}

@@ -5,6 +5,7 @@ import { RpcError } from "../backendClient";
 import {
   epochNs,
   formatDateTime,
+  isFrameRanges,
   nsToSeconds,
   parseCaptureTime,
   parseDateTime,
@@ -182,8 +183,7 @@ async function keepParams(session: PcapEditorSession): Promise<Params | undefine
       title: "Keep Packets: packet numbers",
       prompt: `Packets to keep, of 1-${(info?.frames ?? 0).toLocaleString()} (the others are dropped)`,
       placeHolder: "1-100, 250, 300-",
-      validateInput: (t) =>
-        /^\s*\d+(-\d*)?(\s*[,\s]\s*\d+(-\d*)?)*\s*$/.test(t) ? undefined : "e.g. 1-100, 250, 300-",
+      validateInput: (t) => (isFrameRanges(t) ? undefined : "e.g. 1-100, 250, 300-"),
     });
     return text === undefined ? undefined : { frames: text };
   }
