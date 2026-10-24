@@ -30,6 +30,10 @@ commit) that made it. The format follows
 - An assistant that runs the MCP server from a pasted configuration gets the
   new version's server once VS Code has started PCAP Lens after an update;
   before, only VS Code starting a server of its own refreshed it. [0bc33a7]
+- A language model that can't answer extensions (VS Code keeps some for its
+  own chat; others answer with nothing) gives a message saying so instead of a
+  blank answer; automatic choice moves on to another Copilot model, and _PCAP:
+  Choose Language Model…_ tries a model before saving it.
 
 [3a7f0de]: https://github.com/DenPaz/pcap-lens/commit/3a7f0de
 [ae3cc3c]: https://github.com/DenPaz/pcap-lens/commit/ae3cc3c

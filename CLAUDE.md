@@ -1834,6 +1834,17 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   says so. The picker (`modelItems`): Automatic, then `lm.selectChatModels()`
   by vendor (Copilot first), the one in use marked, a missing chosen id kept
   under "Not available now". The setting change re-checks availability.
+  **Models that can't serve extensions**: `selectChatModels` also lists
+  models VS Code keeps for its own chat (a request fails with "Model … is
+  only available to VS Code core") and entries that answer with nothing
+  (Copilot CLI's "Auto (copilotcli)", in a manual test of `/compare`).
+  `answerFrom` (around every `sendRequest` in `askFor` and `streamAnswer`)
+  turns both into `UnusableModelError` (`unusableReason`); `failure()` says
+  so (`unusableMessage`) and, in automatic mode, adds the model to `skipped`,
+  so the next request takes the next Copilot model (`automaticModel`; a model
+  chosen by id is never swapped). The picker sends a picked model one short
+  request (`checkModel`, "Reply with the single word OK.") and saves it only
+  when it answers; `{id}` arguments skip the check (smoke test).
 - **Address stand-ins** (`src/aiPrivacy.ts` pure,
   `pcapViewer.ai.pseudonymizeAddresses`, application scope, on):
   `AddressMasker` replaces IPv4 (`IP_PRIVATE_n` for 10/8, 172.16/12,

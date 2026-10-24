@@ -47,7 +47,16 @@ import { Requester, StatsTable, buildSummaryPrompt, gatherSummary } from "./aiSu
 import { CaptureDiff, buildComparePrompt } from "./aiCompare";
 import { ToolConsent, TOOL_LIMITS, buildToolPrompt, runTool, runToolLoop } from "./aiTools";
 import { toolsRuntime } from "./lmTools";
-import { ModelInfo, modelLabel, modelSelector, unavailableMessage } from "./aiModel";
+import {
+  ModelInfo,
+  UnusableModelError,
+  automaticModel,
+  modelLabel,
+  modelSelector,
+  unavailableMessage,
+  unusableMessage,
+  unusableReason,
+} from "./aiModel";
 import {
   AddressMasker,
   maskedLoopModel,
@@ -163,6 +172,28 @@ export interface AnomalyRequest {
 }
 const FIELDS_PER_KEYWORD = 12;
 
+/**
+ * `run` (a request to `model` and reading its answer), with VS Code's refusal
+ * of a model kept for its own chat, or an empty answer, as UnusableModelError.
+ */
+async function answerFrom(
+  model: vscode.LanguageModelChat,
+  token: vscode.CancellationToken,
+  run: () => Promise<string>,
+): Promise<string> {
+  let answer: string;
+  try {
+    answer = await run();
+  } catch (err) {
+    const reason = unusableReason(err);
+    throw reason ? new UnusableModelError(modelLabel(model), model.id, reason) : err;
+  }
+  if (!token.isCancellationRequested && unusableReason(undefined, answer)) {
+    throw new UnusableModelError(modelLabel(model), model.id, "empty");
+  }
+  return answer;
+}
+
 function lmApi(): typeof vscode.lm | undefined {
   // Guard against hosts that ship without the API (it is stable in 1.90, our minimum).
   return typeof vscode.lm?.selectChatModels === "function" ? vscode.lm : undefined;
@@ -185,11 +216,14 @@ function askFor(
         ? vscode.LanguageModelChatMessage.User(i === 0 ? withStandInNote(masker, content) : content)
         : vscode.LanguageModelChatMessage.Assistant(content);
     });
-    const response = await model.sendRequest(messages, { justification }, token);
-    let text = "";
-    for await (const part of response.text) {
-      text += part;
-    }
+    const text = await answerFrom(model, token, async () => {
+      const response = await model.sendRequest(messages, { justification }, token);
+      let all = "";
+      for await (const part of response.text) {
+        all += part;
+      }
+      return all;
+    });
     return masker.restore(text);
   };
 }
@@ -279,6 +313,8 @@ export async function listModels(): Promise<ModelInfo[]> {
 export class FilterAssistant implements vscode.Disposable {
   /** Set when the user denied (or policy blocked) access; cleared when models or settings change. */
   private blocked = false;
+  /** Copilot models that failed as UnusableModelError: the automatic choice skips them. */
+  private readonly skipped = new Set<string>();
   private readonly availability = new vscode.EventEmitter<void>();
   /** Fires when AI help may have become (un)available; re-check with isAvailable(). */
   readonly onDidChangeAvailability = this.availability.event;
@@ -332,7 +368,9 @@ export class FilterAssistant implements vscode.Disposable {
     }
     try {
       // (The chosen model only: never another vendor's instead.)
-      return (await lm.selectChatModels(modelSelector(modelSetting())))[0];
+      const setting = modelSetting();
+      const models = await lm.selectChatModels(modelSelector(setting));
+      return setting.trim() ? models[0] : automaticModel(models, this.skipped);
     } catch {
       return undefined;
     }
@@ -508,6 +546,18 @@ export class FilterAssistant implements vscode.Disposable {
     if (token.isCancellationRequested || err instanceof vscode.CancellationError) {
       return { suggestions: [], rejected: [], message: "Cancelled." };
     }
+    if (err instanceof UnusableModelError) {
+      const automatic = !modelSetting().trim();
+      if (automatic) {
+        this.skipped.add(err.modelId);
+      }
+      this.log.warn(`AI: ${err.message}${automatic ? " (skipped from now on)" : ""}`);
+      return {
+        suggestions: [],
+        rejected: [],
+        message: unusableMessage(err.label, err.reason, automatic),
+      };
+    }
     if (err instanceof vscode.LanguageModelError) {
       this.log.warn(`AI filter help: ${err.code}: ${err.message}`);
       if (
@@ -533,7 +583,7 @@ export class FilterAssistant implements vscode.Disposable {
         };
       }
     } else {
-      this.log.warn(`AI filter help failed: ${(err as Error)?.message ?? err}`);
+      this.log.warn(`AI request failed: ${(err as Error)?.message ?? err}`);
     }
     return {
       suggestions: [],
@@ -705,24 +755,26 @@ export class FilterAssistant implements vscode.Disposable {
     masker: AddressMasker,
   ): Promise<string> {
     sink.progress(`Asking ${modelLabel(model)}…`);
-    const response = await model.sendRequest(
-      [vscode.LanguageModelChatMessage.User(withStandInNote(masker, masker.mask(prompt)))],
-      { justification },
-      token,
-    );
-    const restorer = masker.restorer();
-    let answer = "";
-    const emit = (text: string) => {
-      if (text) {
-        answer += text;
-        sink.markdown(text);
+    return answerFrom(model, token, async () => {
+      const response = await model.sendRequest(
+        [vscode.LanguageModelChatMessage.User(withStandInNote(masker, masker.mask(prompt)))],
+        { justification },
+        token,
+      );
+      const restorer = masker.restorer();
+      let answer = "";
+      const emit = (text: string) => {
+        if (text) {
+          answer += text;
+          sink.markdown(text);
+        }
+      };
+      for await (const part of response.text) {
+        emit(restorer.push(part));
       }
-    };
-    for await (const part of response.text) {
-      emit(restorer.push(part));
-    }
-    emit(restorer.end());
-    return answer;
+      emit(restorer.end());
+      return answer;
+    });
   }
 
   /** The filters tshark accepts (the others are logged). */
@@ -832,14 +884,6 @@ export class FilterAssistant implements vscode.Disposable {
         token,
         this.maskerFor(backend),
       );
-      if (!answer.trim() && !token.isCancellationRequested) {
-        this.log.warn(`AI compare: ${modelLabel(model)} sent an empty answer`);
-        return {
-          frames: [],
-          filters: [],
-          message: `${modelLabel(model)} sent an empty answer. Try again, or pick another model with PCAP: Choose Language Model….`,
-        };
-      }
       return {
         frames: [],
         filters: await this.validFilters(backend, extractFilters(answer), "comparison"),

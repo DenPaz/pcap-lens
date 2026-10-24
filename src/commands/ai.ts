@@ -18,7 +18,7 @@ import {
 } from "../aiAnomaly";
 import { STATISTICS_CONSENT } from "../aiConsent";
 import { compareQuery, parseCompareArgs } from "../aiCompare";
-import { modelItems } from "../aiModel";
+import { modelItems, modelLabel, unusableReason, unusableWhy } from "../aiModel";
 import { withStandInNote } from "../aiPrivacy";
 import { EXPLAIN_LIMITS, PACKET_DATA_CONSENT, explainQuery, parseExplainArgs } from "../aiExplain";
 import { formatNumber, summaryQuery } from "../aiSummary";
@@ -107,11 +107,63 @@ export async function chooseLanguageModel(args?: { id?: unknown }): Promise<stri
       return undefined;
     }
     id = pick.id;
+    const problem = id ? await checkModel(id) : undefined;
+    if (problem) {
+      void vscode.window.showWarningMessage(problem);
+      return undefined;
+    }
   }
   await vscode.workspace
     .getConfiguration(SECTION)
     .update("ai.model", id, vscode.ConfigurationTarget.Global);
   return id;
+}
+
+/**
+ * One short request to a model just picked: VS Code lists models it keeps
+ * for its own chat, and entries that answer extensions with nothing, so a
+ * pick is only saved once the model answered. Undefined when it did (or is
+ * gone: the setting then says so); else why it wasn't chosen.
+ */
+async function checkModel(id: string): Promise<string | undefined> {
+  const [model] = await vscode.lm.selectChatModels({ id }).then(
+    (m) => m,
+    () => [],
+  );
+  if (!model) {
+    return undefined;
+  }
+  const label = modelLabel(model);
+  return vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: `Checking ${label}…`,
+      cancellable: true,
+    },
+    async (_progress, token) => {
+      try {
+        const response = await model.sendRequest(
+          [vscode.LanguageModelChatMessage.User("Reply with the single word OK.")],
+          { justification: "PCAP Lens checks that the model you picked answers it." },
+          token,
+        );
+        let text = "";
+        for await (const part of response.text) {
+          text += part;
+        }
+        const reason = unusableReason(undefined, text);
+        return reason ? `${unusableWhy(label, reason)}, so it wasn't chosen.` : undefined;
+      } catch (err) {
+        if (token.isCancellationRequested) {
+          return `The check of ${label} was cancelled, so it wasn't chosen.`;
+        }
+        const reason = unusableReason(err);
+        return reason
+          ? `${unusableWhy(label, reason)}, so it wasn't chosen.`
+          : `${label} didn't answer (${(err as Error)?.message ?? err}), so it wasn't chosen.`;
+      }
+    },
+  );
 }
 
 // ---------------------------------------------------------------------- explaining packets

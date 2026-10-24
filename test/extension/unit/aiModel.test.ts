@@ -1,10 +1,14 @@
 import * as assert from "node:assert/strict";
 import {
   ModelInfo,
+  UnusableModelError,
+  automaticModel,
   modelItems,
   modelLabel,
   modelSelector,
   unavailableMessage,
+  unusableMessage,
+  unusableReason,
 } from "../../../src/aiModel";
 
 const models: ModelInfo[] = [
@@ -53,5 +57,34 @@ suite("AI language model choice", () => {
     assert.match(unavailableMessage("", false), /GitHub Copilot.*Choose Language Model/);
     assert.match(unavailableMessage("llama3", false), /"llama3".*isn't available/);
     assert.match(unavailableMessage("llama3", true), /not allowed/);
+  });
+
+  test("models that can't serve extensions: the reason, the message, the automatic choice", () => {
+    // Seen with Copilot: a model kept for VS Code's chat, and Copilot CLI's
+    // "Auto", which answered with nothing.
+    const core = new Error("Model gpt-5.6-luna is only available to VS Code core.");
+    assert.equal(unusableReason(core), "core-only");
+    assert.equal(unusableReason(new Error("rate limited")), undefined);
+    assert.equal(unusableReason(undefined, " \n"), "empty");
+    assert.equal(unusableReason(undefined, "OK"), undefined);
+    assert.equal(unusableReason(undefined), undefined);
+
+    const err = new UnusableModelError("Auto (copilotcli)", "auto", "empty");
+    assert.match(err.message, /Auto \(copilotcli\): empty answer/);
+    assert.match(
+      unusableMessage("GPT-5.6 Luna (GitHub Copilot)", "core-only", false),
+      /^GPT-5\.6 Luna \(GitHub Copilot\) is reserved for VS Code's own chat.*Pick another model/,
+    );
+    assert.match(
+      unusableMessage("X", "empty", true),
+      /^X sent an empty answer\. Try again: .*another GitHub Copilot model/,
+    );
+
+    const copilot = [{ id: "a" }, { id: "b" }];
+    assert.equal(automaticModel(copilot, new Set())?.id, "a");
+    assert.equal(automaticModel(copilot, new Set(["a"]))?.id, "b");
+    // Every one failed: the first again (the user may have fixed it).
+    assert.equal(automaticModel(copilot, new Set(["a", "b"]))?.id, "a");
+    assert.equal(automaticModel([], new Set()), undefined);
   });
 });
