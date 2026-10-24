@@ -1837,9 +1837,11 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   would refuse its install scripts), each skipped with a notice when its
   secret (`VSCE_PAT`, `OVSX_PAT`) is missing. CI uploads the `.vsix` as an
   artifact. Marketplace details: `icon` (PNG: vsce refuses SVG icons),
-  `galleryBanner`, categories, keywords; README badges from img.shields.io
-  (Marketplace version and installs, Open VSX version and downloads, CI on
-  `main`: vsce only accepts SVGs from trusted badge services); the README's
+  `galleryBanner`, categories, keywords; README badges (vsce only accepts
+  SVGs from trusted badge services): the Marketplace version and installs
+  from vsmarketplacebadges.dev (shields.io retired its Visual Studio
+  Marketplace badges in 2026: they read "retired badge"), Open VSX version
+  and downloads and CI on `main` from img.shields.io; the README's
   hero is `demo.gif`, recorded by `scripts/screenshots.js` (`recordDemo`:
   PNG frames → `encodeGif` with the dev dependencies `pngjs` and `gifenc`,
   one palette, unchanged pixels transparent, ~350 KB); README images are relative (vsce
