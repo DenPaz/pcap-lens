@@ -25,14 +25,16 @@ git clone https://github.com/DenPaz/vsc_pcap_viewer.git
 cd vsc_pcap_viewer
 uv sync            # .venv with Python 3.14 and the dev tools
 pnpm install       # TypeScript toolchain, ESLint, mocha, vsce, Playwright
-pnpm run compile   # build into out/
+pnpm run compile   # type-check into out/, bundle into dist/extension.js
 ```
 
 ## Run
 
 - **From source**: open the folder in VS Code and press `F5`. The Extension
-  Development Host opens with `test/fixtures/`. `pnpm run watch` rebuilds on
-  save; reload the host with `Ctrl+R`. `src/webview/` needs no build.
+  Development Host opens with `test/fixtures/`. The extension runs from the
+  esbuild bundle (`dist/extension.js`): `pnpm run watch:bundle` rebuilds it on
+  save (`pnpm run watch` type-checks), then reload the host with `Ctrl+R`.
+  `src/webview/` needs no build.
 - **Installed**: `pnpm run package`, then
   `code --install-extension pcap-viewer-<version>.vsix`.
 

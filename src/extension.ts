@@ -44,6 +44,14 @@ import { registerSetupCommands } from "./commands/setup";
 import { RecentCapturesProvider, registerRecentCaptures } from "./commands/recent";
 import { pruneTemporaryCaptures } from "./tempCaptures";
 import { PcapEditorProvider } from "./pcapEditor";
+import { ComparePanel } from "./panels/comparePanel";
+import { FlowGraphPanel } from "./panels/flowGraphPanel";
+import { FollowPanel } from "./panels/followPanel";
+import { ObjectsPanel } from "./panels/objectsPanel";
+import { PacketPanel } from "./panels/packetPanel";
+import { StatsPanel } from "./panels/statsPanel";
+import { TcpGraphPanel } from "./panels/tcpGraphPanel";
+import { VoipPanel } from "./panels/voipPanel";
 import { sameNameResolution } from "./settingsModel";
 
 let provider: PcapEditorProvider | undefined;
@@ -55,7 +63,24 @@ export interface PcapViewerApi {
   /** Exposed for integration tests. */
   readonly provider: PcapEditorProvider;
   readonly recent: RecentCapturesProvider;
+  /**
+   * The panel classes (their open panels are static fields). The extension
+   * runs from the esbuild bundle, so the tests' own imports of these modules
+   * would be other instances.
+   */
+  readonly panels: typeof PANELS;
 }
+
+const PANELS = {
+  ComparePanel,
+  FlowGraphPanel,
+  FollowPanel,
+  ObjectsPanel,
+  PacketPanel,
+  StatsPanel,
+  TcpGraphPanel,
+  VoipPanel,
+};
 
 export function activate(context: vscode.ExtensionContext): PcapViewerApi {
   // Before any capture loads: readSettings applies each capture's Lua choice.
@@ -245,7 +270,7 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
       }
     }),
   );
-  return { provider: p, recent };
+  return { provider: p, recent, panels: PANELS };
 }
 
 export async function deactivate(): Promise<void> {
