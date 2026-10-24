@@ -39,13 +39,17 @@ class FilteringMixin(PacketsMixin):
         """How many packets match display filter ``filter`` (``""``: all), without
         touching the viewer's view (the AI tools use it). ``limit`` (at most
         MAX_MATCH_FRAMES) also returns the first matching frame numbers, in
-        capture order. Results come from and go to the filter cache (also the
-        saved index), so asking again, or applying the filter later, is instant.
+        capture order (from match ``offset`` on, default 0). Results come from
+        and go to the filter cache (also the saved index), so asking again, or
+        applying the filter later, is instant.
         """
         expr = param(params, "filter", str, "").strip()
         limit = param(params, "limit", int, 0)
         if not 0 <= limit <= MAX_MATCH_FRAMES:
             raise InvalidParamsError(f"limit must be between 0 and {MAX_MATCH_FRAMES}")
+        offset = param(params, "offset", int, 0)
+        if offset < 0:
+            raise InvalidParamsError("offset must be non-negative")
         f = self._require_file()
         self._require_indexed()
         total = f.info.frames
@@ -66,7 +70,7 @@ class FilteringMixin(PacketsMixin):
             "filter": expr,
             "count": len(matched),
             "total": total,
-            "frames": matched.slice(0, limit),
+            "frames": matched.slice(offset, offset + limit),
         }
 
     def set_filter(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:

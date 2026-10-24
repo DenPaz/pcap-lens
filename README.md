@@ -357,6 +357,9 @@ answer); see [Security](#security) for exactly what is sent.
   Information, TCP Stream Graph and VoIP Calls panels (`@pcap /anomaly`).
 - **Questions with tools**: `@pcap how many DNS queries got no answer?` counts
   and looks things up read-only in the open capture.
+- **Other AI assistants**: PCAP Lens's [MCP server](#ai-assistants-mcp) gives
+  Claude Code, Claude Desktop, Cursor and VS Code's agent mode the same
+  read-only tools over capture files.
 
 ## Keyboard shortcuts
 
@@ -388,30 +391,31 @@ They are under **PCAP Lens** in the Settings editor, and their IDs start with
 apply). Those marked † can differ per workspace folder; those marked ‡ can only
 be set in user settings.
 
-| Setting                                                                     | What it does                                                                |
-| --------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `tsharkPath`, `pythonPath`                                                  | Tools to use (empty: auto-detect)                                           |
-| `luaScripts`†, `dissectorsFolder`†                                          | Lua dissectors to load                                                      |
-| `decodeAs`†, `prefs`†                                                       | Decode As rules (`"tcp.port==8080,http"`) and preference overrides          |
-| `tlsKeyLogFile`†                                                            | TLS key log for decryption                                                  |
-| `wiresharkProfile`†                                                         | Wireshark configuration profile tshark uses (empty: Default)                |
-| `enabledProtocols`†, `heuristicDissectors`†                                 | Protocols and heuristic dissectors switched on or off                       |
-| `geoip.databaseFolders`                                                     | Folders of MaxMind databases for GeoIP                                      |
-| `columns`†, `columnLayout`                                                  | Custom columns; column order and hidden columns                             |
-| `timeFormat`                                                                | `relative`, `delta_displayed`, `delta_captured`, `absolute`, `utc`, `epoch` |
-| `savedFilters`, `filterButtons`                                             | Named filters and filter buttons (user or workspace)                        |
-| `coloringRules`, `colorize`                                                 | Coloring rules (first match wins) and coloring on/off                       |
-| `coloringStyle`                                                             | `auto` (for the theme), `full`, `subtle` (tint and stripe) or `stripe`      |
-| `nameResolution.mac` / `.network` / `.capturedDns` / `.transport`           | Which names to show                                                         |
-| `nameResolution.external`‡                                                  | Also ask your DNS server (off)                                              |
-| `capture.stopAfterPackets` / `Seconds` / `Megabytes`, `capture.promiscuous` | Live capture limits and mode                                                |
-| `indexCache.enabled`, `indexCache.maxSizeMB`                                | Saved indexes (on, 1 GB)                                                    |
-| `quickDetail.after`, `quickDetail.window`                                   | Quick view from packet 20,000, of 300 packets (`0`: never)                  |
-| `maxCachedFrames`, `requestTimeoutSeconds`                                  | Backend cache budget; timeout of quick requests                             |
-| `ai.enabled`                                                                | Offer AI help when a model is available (on)                                |
-| `ai.model`‡                                                                 | The language model's id (empty: GitHub Copilot's)                           |
-| `ai.pseudonymizeAddresses`‡                                                 | Send stand-ins for addresses and host names (on)                            |
-| `ai.allowPacketData`‡, `ai.allowCaptureStatistics`‡, `ai.allowPacketBytes`‡ | What AI features may send (off; asked once)                                 |
+| Setting                                                                     | What it does                                                                 |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `tsharkPath`, `pythonPath`                                                  | Tools to use (empty: auto-detect)                                            |
+| `luaScripts`†, `dissectorsFolder`†                                          | Lua dissectors to load                                                       |
+| `decodeAs`†, `prefs`†                                                       | Decode As rules (`"tcp.port==8080,http"`) and preference overrides           |
+| `tlsKeyLogFile`†                                                            | TLS key log for decryption                                                   |
+| `wiresharkProfile`†                                                         | Wireshark configuration profile tshark uses (empty: Default)                 |
+| `enabledProtocols`†, `heuristicDissectors`†                                 | Protocols and heuristic dissectors switched on or off                        |
+| `geoip.databaseFolders`                                                     | Folders of MaxMind databases for GeoIP                                       |
+| `columns`†, `columnLayout`                                                  | Custom columns; column order and hidden columns                              |
+| `timeFormat`                                                                | `relative`, `delta_displayed`, `delta_captured`, `absolute`, `utc`, `epoch`  |
+| `savedFilters`, `filterButtons`                                             | Named filters and filter buttons (user or workspace)                         |
+| `coloringRules`, `colorize`                                                 | Coloring rules (first match wins) and coloring on/off                        |
+| `coloringStyle`                                                             | `auto` (for the theme), `full`, `subtle` (tint and stripe) or `stripe`       |
+| `nameResolution.mac` / `.network` / `.capturedDns` / `.transport`           | Which names to show                                                          |
+| `nameResolution.external`‡                                                  | Also ask your DNS server (off)                                               |
+| `capture.stopAfterPackets` / `Seconds` / `Megabytes`, `capture.promiscuous` | Live capture limits and mode                                                 |
+| `indexCache.enabled`, `indexCache.maxSizeMB`                                | Saved indexes (on, 1 GB)                                                     |
+| `quickDetail.after`, `quickDetail.window`                                   | Quick view from packet 20,000, of 300 packets (`0`: never)                   |
+| `maxCachedFrames`, `requestTimeoutSeconds`                                  | Backend cache budget; timeout of quick requests                              |
+| `ai.enabled`                                                                | Offer AI help when a model is available (on)                                 |
+| `ai.model`‡                                                                 | The language model's id (empty: GitHub Copilot's)                            |
+| `ai.pseudonymizeAddresses`‡                                                 | Send stand-ins for addresses and host names (on)                             |
+| `mcp.enabled`‡, `mcp.allowPacketData`‡                                      | Offer the MCP server to agent mode (on); let it return packet contents (off) |
+| `ai.allowPacketData`‡, `ai.allowCaptureStatistics`‡, `ai.allowPacketBytes`‡ | What AI features may send (off; asked once)                                  |
 
 ## Live capture
 
@@ -458,6 +462,47 @@ moves its dissectors to other ports. Wireshark ignores personal plugins when it
 runs as root. In a remote window, install the plugin on the remote machine,
 where tshark runs. Lua dissectors need none of this (see
 [Dissection](#dissection)).
+
+## AI assistants (MCP)
+
+PCAP Lens comes with an MCP server: a small program an AI assistant starts to
+look into capture files with tshark, using the same backend as the viewer. It
+doesn't need VS Code running. You ask the assistant something like "why is
+login slow in captures/outage.pcapng?"; it calls the tools below and answers
+from what they return. The capture itself never goes to the model, only the
+tools' results.
+
+- **VS Code 1.101+**: nothing to set up. Agent mode lists _PCAP Lens_ among
+  its MCP servers, reading captures in your workspace folders
+  (`pcapViewer.mcp.enabled`).
+- **Claude Code, Claude Desktop, Cursor and others**: run _PCAP: Copy MCP
+  Server Configuration…_, pick the assistant, and paste what it copied (a
+  `claude mcp add` command line, or an `mcpServers` entry for the app's
+  configuration file). It starts Python on a copy of the backend kept in VS
+  Code's storage, so it keeps working after updates.
+
+| Tool                                                | What it returns                                                                   |
+| --------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `list_captures`                                     | Capture files in the allowed folders                                              |
+| `capture_info`                                      | Packets, times, size, link type, format                                           |
+| `count_packets`                                     | How many packets match a display filter, and the first ones' numbers              |
+| `statistics`                                        | Protocol hierarchy, conversations, endpoints, expert information, I/O, HTTP, DNS… |
+| `triage`                                            | The triage checks' counts with filters and first/last packets                     |
+| `validate_filter`, `search_fields`                  | Display filter checks and field names                                             |
+| `list_packets`, `packet_details`, `follow_stream` ¹ | Packet rows, dissection trees, a stream's payload as text                         |
+
+¹ Only with `pcapViewer.mcp.allowPacketData` (`--allow-packet-data`); payload
+bytes in the trees only with `--allow-packet-bytes`. Every tool only reads,
+and only files inside the allowed folders: the workspace folders, or the
+`--root` folders of the command line (default: the assistant's working
+folder). With `pcapViewer.ai.pseudonymizeAddresses` (`--stand-ins`) addresses
+become stand-ins such as `IP_PRIVATE_1` in every result, and filters naming
+them are turned back before tshark runs. The first call on a capture indexes
+it (saved like the viewer's indexes), so later ones are quick. By hand:
+
+```sh
+PYTHONPATH=<extension>/backend python3 -m pcap_backend.mcp --root ~/captures
+```
 
 ## Remote windows
 
@@ -520,6 +565,10 @@ _PCAP: Show Log_ shows backend and tshark messages.
   the same address always the same stand-in for one capture; answers and
   tool calls get the real values back. Packet bytes are then not sent at
   all, since addresses inside them can't be replaced.
+- **The MCP server** reads only, and only captures inside the folders it was
+  given; it opens no network port (the assistant starts it and talks to it
+  over its standard input and output). What its results contain goes to the
+  assistant's model, under that assistant's own terms.
 
 | Feature                                      | What is sent                                                                                                                                  | Needs                    |
 | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |

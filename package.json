@@ -356,6 +356,12 @@
         "category": "PCAP"
       },
       {
+        "command": "pcapViewer.copyMcpConfig",
+        "title": "Copy MCP Server Configuration…",
+        "category": "PCAP",
+        "icon": "$(plug)"
+      },
+      {
         "command": "pcapViewer.triageCapture",
         "title": "Triage Capture with AI",
         "category": "PCAP",
@@ -1959,6 +1965,18 @@
           "scope": "application",
           "markdownDescription": "Replace addresses by stand-ins in everything the AI features send: IPv4, IPv6 and MAC addresses and the host names name resolution shows become tokens such as `IP_PRIVATE_1`, `IP_PUBLIC_2`, `MAC_3` and `HOST_4` (the same token for the same address in every question about a capture), and the answers, the display filters in them and the tools' inputs get the real values back. Loopback, multicast and broadcast addresses are kept, and private and public addresses get different tokens. Names inside packet contents (DNS queries, HTTP hosts, TLS server names) are not replaced, and raw bytes are never sent while this is on. User settings only."
         },
+        "pcapViewer.mcp.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "markdownDescription": "Offer PCAP Lens's MCP server to VS Code's agent mode (VS Code 1.101+): AI assistants can then count packets, read statistics and triage the captures in your workspace folders. It only reads. Other assistants: _PCAP: Copy MCP Server Configuration…_."
+        },
+        "pcapViewer.mcp.allowPacketData": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "markdownDescription": "Let the MCP server's tools return packet contents (packet rows, dissection trees and followed streams), not only counts and statistics. Addresses get stand-ins when `#pcapViewer.ai.pseudonymizeAddresses#` is on."
+        },
         "pcapViewer.ai.allowPacketData": {
           "type": "boolean",
           "default": false,
@@ -1983,6 +2001,12 @@
       {
         "language": "lua",
         "path": "./snippets/lua-dissector.json"
+      }
+    ],
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "pcapViewer.mcp",
+        "label": "PCAP Lens"
       }
     ],
     "chatParticipants": [

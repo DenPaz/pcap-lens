@@ -171,6 +171,8 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   builders/parsers; `src/ai.ts` (`FilterAssistant`) and
   `src/lmTools.ts` (the tools API, declared locally) talk to `vscode.lm`;
   `src/commands/ai.ts` holds commands, consent and the `@pcap` participant.
+  `src/mcpConfig.ts` the MCP server's command line and configuration
+  snippets (pure); `src/commands/mcp.ts` its VS Code registration.
   `src/captureModel.ts` pure capture/editing helpers (file names, durations,
   date-times as bigint ns); `src/tempCaptures.ts` unsaved captures;
   `src/commands/capture.ts` and `editCapture.ts` (start/stop, editing),
@@ -245,6 +247,7 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   of capture editing), `hexdump.py` (text2pcap options of Import from Hex
   Dump), `ber.py` (counting back-to-back BER records), `codecs.py` (G.722,
   G.726-32 and L16 decoders), `triage.py` (the AI triage's checks),
+  `mcp.py` (the MCP server) and `standins.py` (its address stand-ins),
   `filterhelp.py` (a filter's
   field names, case hints, value counts), `plugins.py` (`tshark -G
 plugins` and the plugin folders), `decryption.py` (decryption keys and
@@ -1894,6 +1897,47 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   asks "With AI findings" only when a model is available (`findings` arg),
   under the statistics consent; `findingsBlocks` adds a Findings section
   after Properties, naming the model.
+- **MCP server** (`backend/pcap_backend/mcp.py`, `standins.py`;
+  `src/mcpConfig.ts` pure, `src/commands/mcp.ts`): `python -m
+pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
+  `initialize` with version negotiation (`PROTOCOL_VERSIONS`, else
+  `DEFAULT_PROTOCOL`), `tools/list`, `tools/call` in a pool with a
+  `CancelToken` per call, `ping`, `notifications/cancelled`, and
+  `notifications/progress` when the call has a `progressToken`). Tools read
+  captures by path (`Captures`: one `PcapService` per capture, opened
+  non-streaming with `names: {}` (`-n`) and the saved-index cache in the
+  user cache folder (`default_cache_dir`), `max_open` 3 LRU, reopened when
+  size or mtime change; one more service without a capture for
+  `validate_filter` and `search_fields`). Paths must resolve (symlinks too)
+  inside a `--root` (default the working folder): `ToolFailureError`, which
+  like every tshark/RPC error becomes an `isError` result, while an unknown
+  tool or bad params are JSON-RPC errors. Tools: list_captures (by
+  extension, depth 8, hidden and venv folders skipped), capture_info,
+  count_packets (`count_matches` got an `offset`), statistics (kinds mapped
+  to `stats`, tables cut to their top rows by bytes, tree reports in order),
+  triage, validate_filter, search_fields, and with `--allow-packet-data`
+  only (not even listed otherwise) list_packets (`count_matches` frames →
+  `list_packets {frames, inView: false}`, so no view is touched),
+  packet_details (labels as indented lines, byte dumps "[N bytes not
+  shown]" unless `--allow-packet-bytes`) and follow_stream (printable text
+  per segment, `max_bytes`). All are `readOnlyHint`. `--stand-ins`:
+  `standins.AddressMasker` (a port of aiPrivacy.ts without host names: the
+  server runs `-n`) masks every result's text and restores tokens in the
+  arguments. VS Code: `contributes.mcpServerDefinitionProviders`
+  (`pcapViewer.mcp`) and, when `lm.registerMcpServerDefinitionProvider`
+  exists (1.101+, types declared locally), a `McpStdioServerDefinition`
+  over the workspace folders (else home), `cwd` the first, version =
+  extension version + a hash of the command line (VS Code restarts it when
+  the settings change: `mcp.*`, `ai.pseudonymizeAddresses` → `--stand-ins`,
+  pythonPath, tsharkPath, workspace folders). It runs Python on
+  `stableBackend()`: `globalStorage/mcp/backend/pcap_backend`, copied (no
+  `__pycache__`) when `.pcap-lens-version` differs, always while developing,
+  so a configuration pasted into another assistant survives updates. _PCAP:
+  Copy MCP Server Configuration…_ (`MCP_TARGETS`: `claude mcp add --scope
+user --env PYTHONPATH=… pcap-lens -- …` with `shellQuote`, an
+  `mcpServers` entry, a VS Code `servers` entry) copies to the clipboard;
+  Claude Code without workspace folders gets no `--root` (its working
+  folder). `{target, quiet: true}` returns the text (smoke test).
 - **Get Started walkthrough** (`contributes.walkthroughs` id `gettingStarted`,
   pages in `media/walkthrough/`): Python, TShark, open a capture, filter,
   analyze, AI. The setup steps complete on context keys

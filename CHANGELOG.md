@@ -7,6 +7,13 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- PCAP Lens's MCP server lets AI assistants (Claude Code, Claude Desktop,
+  Cursor, VS Code's agent mode) read capture files with tshark: counts,
+  statistics, triage and, if allowed, packets. _PCAP: Copy MCP Server
+  Configuration…_ sets it up.
+
 ## 0.22.0 — 2026-10-24
 
 ### Added

@@ -419,6 +419,21 @@ suite("PCAP Lens smoke test", () => {
     assert.equal(setting(), "");
   });
 
+  test("Copy MCP Server Configuration: a stable backend copy and every snippet", async () => {
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    await ext!.activate();
+    const text = (target: string) =>
+      vscode.commands.executeCommand<string>("pcapViewer.copyMcpConfig", { target, quiet: true });
+    const apps = JSON.parse((await text("mcp-servers")) ?? "{}");
+    const server = apps.mcpServers["pcap-lens"];
+    assert.ok(server.args.includes("pcap_backend.mcp"));
+    const copy = server.env.PYTHONPATH as string;
+    assert.ok(fs.existsSync(path.join(copy, "pcap_backend", "mcp.py")), copy);
+    assert.ok(!copy.startsWith(ext!.extensionPath), "outside the versioned extension folder");
+    assert.match((await text("claude-code")) ?? "", /^claude mcp add --scope user --env /);
+    assert.ok(JSON.parse((await text("vscode")) ?? "{}").servers["pcap-lens"]);
+  });
+
   test("language model tools: registered, and answering, where VS Code has the API", async function () {
     const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
     const api = (await ext!.activate()) as PcapViewerApi;
