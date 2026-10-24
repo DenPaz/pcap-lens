@@ -284,12 +284,10 @@ suite("PCAP Lens smoke test", () => {
 
     session.editComments(new Map([[1, "saved"]]), "Edit Packet Comment");
     await waitFor(() => (dirty() ? true : undefined));
-    const before = fs.statSync(file).mtimeMs;
     await vscode.commands.executeCommand("workbench.action.files.save");
     await waitFor(() => (dirty() === false ? true : undefined));
-    assert.ok(fs.statSync(file).mtimeMs > before || fs.statSync(file).size > 0, "written");
     assert.equal(await comment(1), "saved", "now in the file");
-    assert.ok(fs.readFileSync(file).includes(Buffer.from("saved")));
+    assert.ok(fs.readFileSync(file).includes(Buffer.from("saved")), "written");
 
     // The flow graph and TCP stream graph panels talk to the same backend.
     await vscode.commands.executeCommand("pcapViewer.statistics.flowGraph");
