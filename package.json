@@ -340,6 +340,12 @@
         "icon": "$(sparkle)"
       },
       {
+        "command": "pcapViewer.describeLuaDissector",
+        "title": "New Lua Dissector from Description…",
+        "category": "PCAP",
+        "icon": "$(sparkle)"
+      },
+      {
         "command": "pcapViewer.askAboutPackets",
         "title": "Ask Copilot About Selected Packets…",
         "category": "PCAP"

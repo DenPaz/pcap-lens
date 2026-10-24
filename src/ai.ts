@@ -5,6 +5,9 @@
  *
  * - Display filters (aiFilter.ts): only the request, the current filter,
  *   protocol names and field names/descriptions are sent, never packet data.
+ * - Capture filters (aiCaptureFilter.ts) and Lua dissectors (aiDissector.ts):
+ *   only the description, the current capture filter and interface names, or
+ *   the dissector template; dumpcap and tshark check what comes back.
  * - Explaining packets (aiExplain.ts, `@pcap /explain`): sends the packets'
  *   rows and dissection trees, so callers first get the user's consent
  *   (`pcapViewer.ai.allowPacketData`, see commands/ai.ts). Raw bytes only
@@ -14,6 +17,9 @@
  *   statistics computed by tshark, never packet contents; callers first get
  *   the consent of `pcapViewer.ai.allowCaptureStatistics` (aiConsent.ts).
  */
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import * as vscode from "vscode";
 import type { BackendClient } from "./backendClient";
 import { SECTION } from "./config";
@@ -58,6 +64,15 @@ import {
   suggestFilters,
 } from "./aiFilter";
 import { suggestCaptureFilters } from "./aiCaptureFilter";
+import { DissectorRequest, DissectorResult, generateDissector } from "./aiDissector";
+
+export interface DissectorOutcome extends DissectorResult {
+  /** Short user-facing note when there is no script (or it couldn't be loaded). */
+  message?: string;
+  unavailable?: boolean;
+  /** Why tshark couldn't load the script to check it (Lua off as root). */
+  unchecked?: string;
+}
 
 export interface SuggestOutcome {
   suggestions: FilterSuggestion[];
@@ -72,6 +87,8 @@ const JUSTIFICATION =
   "PCAP Lens turns your description into a Wireshark display filter. Only your request, the current filter and protocol/field names are sent.";
 const CAPTURE_FILTER_JUSTIFICATION =
   "PCAP Lens turns your description into a capture filter. Only your request, the current capture filter and the interface names are sent.";
+const DISSECTOR_JUSTIFICATION =
+  "PCAP Lens writes a Lua dissector from your description. Only your description and its dissector template are sent.";
 const EXPLAIN_JUSTIFICATION =
   "PCAP Lens explains the packets you picked. Their packet-list rows and dissection trees are sent.";
 const SUMMARY_JUSTIFICATION =
@@ -411,6 +428,52 @@ export class FilterAssistant implements vscode.Disposable {
           };
     } catch (err) {
       return this.failure(err, token);
+    }
+  }
+
+  /**
+   * A Lua dissector for `req` from the model, screened and then loaded by
+   * tshark (`check_dissectors`, from a temporary copy) until it loads or the
+   * rounds run out. Only the description and the template are sent.
+   */
+  async generateDissector(
+    backend: BackendClient,
+    req: DissectorRequest,
+    template: string,
+    token: vscode.CancellationToken,
+    progress?: (round: number, problems: readonly string[]) => void,
+  ): Promise<DissectorOutcome> {
+    const model = await this.suggestModel();
+    if ("suggestions" in model) {
+      return { ok: false, problems: [], rounds: 0, ...model };
+    }
+    let unchecked: string | undefined;
+    const check = async (source: string): Promise<string[]> => {
+      // tshark's AppArmor profile lets it read the temp folder.
+      const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pcap-lens-lua-"));
+      const file = path.join(dir, `${req.name}.lua`);
+      try {
+        await fs.promises.writeFile(file, source);
+        const res = await backend.request<{
+          errors: { message: string }[];
+          warnings: string[];
+        }>("check_dissectors", { lua: [file] }, { timeoutMs: 60_000 });
+        unchecked = res.warnings.find((w) => /root/i.test(w));
+        return res.errors.map((e) => e.message.split(file).join(`${req.name}.lua`));
+      } finally {
+        await fs.promises.rm(dir, { recursive: true, force: true });
+      }
+    };
+    try {
+      const ask = askFor(model, this.maskerFor(backend), DISSECTOR_JUSTIFICATION, token);
+      const result = await generateDissector({ ask, check }, req, template, progress);
+      for (const p of result.problems) {
+        this.log.info(`AI Lua dissector (round ${result.rounds}): ${p}`);
+      }
+      return { ...result, unchecked };
+    } catch (err) {
+      const f = this.failure(err, token);
+      return { ok: false, problems: [], rounds: 0, message: f.message, unavailable: f.unavailable };
     }
   }
 

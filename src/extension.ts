@@ -99,7 +99,7 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
   registerSavedFilterCommands(context, p);
   registerFilterButtonCommands(context, p);
   registerAnalysisCommands(context, p);
-  registerDissectorCommands(context, p, log);
+  registerDissectorCommands(context, p, log, assistant);
   registerExportCommands(context, p);
   registerExportPdusCommand(context, p, log);
   registerReportCommand(context, p, log);

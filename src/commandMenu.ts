@@ -160,6 +160,7 @@ const GROUP_OF: Readonly<Record<string, CommandGroup>> = {
   "pcapViewer.importWiresharkProfile": "Other",
   "pcapViewer.suggestFilter": "AI",
   "pcapViewer.chooseLanguageModel": "AI",
+  "pcapViewer.describeLuaDissector": "AI",
   "pcapViewer.askAboutPackets": "AI",
   "pcapViewer.summarizeCapture": "AI",
   "pcapViewer.askAboutAnomaly": "AI",
@@ -213,6 +214,7 @@ const REQUIRES: Readonly<Record<string, Requirement[]>> = {
   "pcapViewer.askAboutPackets": ["ai", "selection"],
   "pcapViewer.summarizeCapture": ["ai"],
   "pcapViewer.askAboutAnomaly": ["ai"],
+  "pcapViewer.describeLuaDissector": ["ai"],
 };
 
 /** The heading of a command: its explicit group, else by category, else Other. */
