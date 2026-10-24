@@ -13,6 +13,7 @@ commit) that made it. The format follows
   Compare Captures with AI…_ explains what changed (check rates, new and gone
   hosts, services and flows, protocol mix, expert messages) from statistics
   tshark computes for both; the MCP server has the same as `compare_captures`.
+  [ae3cc3c]
 
 ### Changed
 
@@ -21,6 +22,7 @@ commit) that made it. The format follows
   URL redirects). [3a7f0de]
 
 [3a7f0de]: https://github.com/DenPaz/pcap-lens/commit/3a7f0de
+[ae3cc3c]: https://github.com/DenPaz/pcap-lens/commit/ae3cc3c
 
 ## 0.23.0 — 2026-10-24
 
