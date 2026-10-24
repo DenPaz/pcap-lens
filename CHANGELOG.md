@@ -33,12 +33,13 @@ commit) that made it. The format follows
 - A language model that can't answer extensions (VS Code keeps some for its
   own chat; others answer with nothing) gives a message saying so instead of a
   blank answer; automatic choice moves on to another Copilot model, and _PCAP:
-  Choose Language Model…_ tries a model before saving it.
+  Choose Language Model…_ tries a model before saving it. [baf568a]
 
 [3a7f0de]: https://github.com/DenPaz/pcap-lens/commit/3a7f0de
 [ae3cc3c]: https://github.com/DenPaz/pcap-lens/commit/ae3cc3c
 [f7a5283]: https://github.com/DenPaz/pcap-lens/commit/f7a5283
 [0bc33a7]: https://github.com/DenPaz/pcap-lens/commit/0bc33a7
+[baf568a]: https://github.com/DenPaz/pcap-lens/commit/baf568a
 
 ## 0.23.0 — 2026-10-24
 
