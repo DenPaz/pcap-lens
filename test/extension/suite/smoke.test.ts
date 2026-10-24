@@ -429,7 +429,9 @@ suite("PCAP Lens smoke test", () => {
     assert.ok(server.args.includes("pcap_backend.mcp"));
     const copy = server.env.PYTHONPATH as string;
     assert.ok(fs.existsSync(path.join(copy, "pcap_backend", "mcp.py")), copy);
-    assert.ok(!copy.startsWith(ext!.extensionPath), "outside the versioned extension folder");
+    // (The tests' user data, and so global storage, sit inside the repository.)
+    assert.ok(copy.endsWith(path.join("mcp", "backend")), copy);
+    assert.notEqual(path.resolve(copy), path.resolve(ext!.extensionPath, "backend"));
     assert.match((await text("claude-code")) ?? "", /^claude mcp add --scope user --env /);
     assert.ok(JSON.parse((await text("vscode")) ?? "{}").servers["pcap-lens"]);
   });
