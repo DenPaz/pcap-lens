@@ -7,6 +7,13 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- _Keep Packets_ could freeze the extension when a list of packet ranges with
+  double spaces didn't parse. [78d2e86]
+
+[78d2e86]: https://github.com/DenPaz/vsc_pcap_viewer/commit/78d2e86
+
 ## 0.21.1 — 2026-10-24
 
 ### Changed
