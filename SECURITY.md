@@ -12,7 +12,7 @@ Only the latest release gets fixes. Update from the Extensions view.
 ## Reporting a vulnerability
 
 Please report it privately through GitHub's
-[Report a vulnerability](https://github.com/DenPaz/vsc_pcap_viewer/security/advisories/new)
+[Report a vulnerability](https://github.com/DenPaz/pcap-lens/security/advisories/new)
 form (the repository's _Security_ tab), not as a public issue. Include the
 PCAP Lens, VS Code and tshark versions, and a capture or steps that show the
 problem if you can.

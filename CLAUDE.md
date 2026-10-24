@@ -313,11 +313,14 @@ UI behaviour stays in the Chromium test (`test/webview/e2e.test.js`).
   Marketplace refused "PCAP Viewer" ("Similar extension display name:
   pcapviewer already exists"; it publishes nothing on that error), so 0.4.1
   renamed every user-visible string. The extension ID `denpaz.pcap-viewer`,
-  the `pcapViewer.*` commands, settings and context keys, the
-  `pcap-viewer-<version>.vsix` file and the repository keep the old name:
-  changing the ID would make it a different extension, and changing the
-  prefixes would drop users' settings. Capture fixtures still carry "PCAP
-  Viewer" in their payloads (test data).
+  the `pcapViewer.*` commands, settings and context keys and the
+  `pcap-viewer-<version>.vsix` file keep the old name: changing the ID would
+  make it a different extension, and changing the prefixes would drop users'
+  settings. The repository was renamed from `DenPaz/vsc_pcap_viewer` to
+  `DenPaz/pcap-lens` in 2026-10 (GitHub redirects the old URL); package.json's
+  repository, bugs and homepage URLs name the new one, since vsce builds the
+  Marketplace links and the README's image URLs from them. Capture fixtures
+  still carry "PCAP Viewer" in their payloads (test data).
 - **Packaging of the backend**: a package (`backend/pcap_backend/`) rather than
   loose `server.py`/`pcap_service.py` files, managed by `pyproject.toml` + uv
   (no `requirements.txt`: there are no runtime dependencies).

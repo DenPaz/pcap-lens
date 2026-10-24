@@ -4,7 +4,7 @@
 [![Installs](https://vsmarketplacebadges.dev/installs-short/denpaz.pcap-viewer.svg?label=installs)](https://marketplace.visualstudio.com/items?itemName=denpaz.pcap-viewer)
 [![Open VSX](https://img.shields.io/open-vsx/v/denpaz/pcap-viewer?label=Open%20VSX)](https://open-vsx.org/extension/denpaz/pcap-viewer)
 [![Open VSX downloads](https://img.shields.io/open-vsx/dt/denpaz/pcap-viewer?label=downloads)](https://open-vsx.org/extension/denpaz/pcap-viewer)
-[![CI](https://img.shields.io/github/actions/workflow/status/DenPaz/vsc_pcap_viewer/ci.yml?branch=main&label=CI)](https://github.com/DenPaz/vsc_pcap_viewer/actions/workflows/ci.yml?query=branch%3Amain)
+[![CI](https://img.shields.io/github/actions/workflow/status/DenPaz/pcap-lens/ci.yml?branch=main&label=CI)](https://github.com/DenPaz/pcap-lens/actions/workflows/ci.yml?query=branch%3Amain)
 
 Open `.pcap` / `.pcapng` captures in VS Code with a Wireshark-like packet list,
 protocol tree and hex view. **tshark** (Wireshark's command-line tool) does all
@@ -17,7 +17,7 @@ dissection and filtering, so results match Wireshark exactly.
 1. Install **PCAP Lens** (extension ID `denpaz.pcap-viewer`; it was called
    PCAP Viewer before 0.4.1) from the VS Code Marketplace or Open VSX, or
    download the `.vsix` from
-   [GitHub releases](https://github.com/DenPaz/vsc_pcap_viewer/releases) and
+   [GitHub releases](https://github.com/DenPaz/pcap-lens/releases) and
    run `code --install-extension pcap-viewer-<version>.vsix`.
 2. Install the [requirements](#requirements): **tshark** and **Python 3.12+**.
 3. Run **PCAP: Get Started** (also under _Help › Welcome_). The walkthrough

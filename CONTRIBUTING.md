@@ -21,8 +21,8 @@ which CI also tests. Keep `~/.local/bin` on your `PATH`, and don't run VS Code
 as root (tshark disables Lua for root).
 
 ```sh
-git clone https://github.com/DenPaz/vsc_pcap_viewer.git
-cd vsc_pcap_viewer
+git clone https://github.com/DenPaz/pcap-lens.git
+cd pcap-lens
 uv sync            # .venv with Python 3.14 and the dev tools
 pnpm install       # TypeScript toolchain, ESLint, mocha, vsce, Playwright
 pnpm run compile   # type-check into out/, bundle into dist/extension.js
@@ -101,11 +101,11 @@ git push -u origin my-change       # then open a pull request into dev
 
 Add each user-visible change under `## Unreleased` in `CHANGELOG.md`, in the
 right group (`### Added`, `### Changed`, `### Fixed`), with a link to its pull
-request: `[#42]` in the entry and `[#42]: https://github.com/DenPaz/vsc_pcap_viewer/pull/42`
+request: `[#42]` in the entry and `[#42]: https://github.com/DenPaz/pcap-lens/pull/42`
 at the end of the same section. Link definitions stay inside their version's
 section, so the GitHub release notes keep them. A change committed straight to
 `dev` has no pull request of its own: link the commit instead
-(`[abc1234]: https://github.com/DenPaz/vsc_pcap_viewer/commit/abc1234`).
+(`[abc1234]: https://github.com/DenPaz/pcap-lens/commit/abc1234`).
 
 ## Release
 

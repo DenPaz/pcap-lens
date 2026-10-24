@@ -7,6 +7,12 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Changed
+
+- The repository is now
+  [github.com/DenPaz/pcap-lens](https://github.com/DenPaz/pcap-lens) (the old
+  URL redirects).
+
 ## 0.23.0 — 2026-10-24
 
 ### Added
@@ -31,10 +37,10 @@ commit) that made it. The format follows
   (`::ffff:192.168.1.2` became `IP6_PUBLIC_1.168.1.2`); it now becomes
   `::ffff:IP_PRIVATE_1`, like the IPv4 address. [8848a61]
 
-[408a8c7]: https://github.com/DenPaz/vsc_pcap_viewer/commit/408a8c7
-[1967f9c]: https://github.com/DenPaz/vsc_pcap_viewer/commit/1967f9c
-[38cf37d]: https://github.com/DenPaz/vsc_pcap_viewer/commit/38cf37d
-[8848a61]: https://github.com/DenPaz/vsc_pcap_viewer/commit/8848a61
+[408a8c7]: https://github.com/DenPaz/pcap-lens/commit/408a8c7
+[1967f9c]: https://github.com/DenPaz/pcap-lens/commit/1967f9c
+[38cf37d]: https://github.com/DenPaz/pcap-lens/commit/38cf37d
+[8848a61]: https://github.com/DenPaz/pcap-lens/commit/8848a61
 
 ## 0.22.0 — 2026-10-24
 
@@ -55,11 +61,11 @@ commit) that made it. The format follows
   checks tshark counts, each with a filter and packet links; the capture
   report can add them as a Findings section. [daf8400]
 
-[b6e5da3]: https://github.com/DenPaz/vsc_pcap_viewer/commit/b6e5da3
-[6e2bb0b]: https://github.com/DenPaz/vsc_pcap_viewer/commit/6e2bb0b
-[668f418]: https://github.com/DenPaz/vsc_pcap_viewer/commit/668f418
-[e528baa]: https://github.com/DenPaz/vsc_pcap_viewer/commit/e528baa
-[daf8400]: https://github.com/DenPaz/vsc_pcap_viewer/commit/daf8400
+[b6e5da3]: https://github.com/DenPaz/pcap-lens/commit/b6e5da3
+[6e2bb0b]: https://github.com/DenPaz/pcap-lens/commit/6e2bb0b
+[668f418]: https://github.com/DenPaz/pcap-lens/commit/668f418
+[e528baa]: https://github.com/DenPaz/pcap-lens/commit/e528baa
+[daf8400]: https://github.com/DenPaz/pcap-lens/commit/daf8400
 
 ## 0.21.2 — 2026-10-24
 
@@ -71,8 +77,8 @@ commit) that made it. The format follows
   (Debian and Ubuntu: not in the `wireshark` group yet); it now says how to
   allow it, also for capture helpers and Capture to Files. [96e0722]
 
-[78d2e86]: https://github.com/DenPaz/vsc_pcap_viewer/commit/78d2e86
-[96e0722]: https://github.com/DenPaz/vsc_pcap_viewer/commit/96e0722
+[78d2e86]: https://github.com/DenPaz/pcap-lens/commit/78d2e86
+[96e0722]: https://github.com/DenPaz/pcap-lens/commit/96e0722
 
 ## 0.21.1 — 2026-10-24
 
@@ -86,8 +92,8 @@ commit) that made it. The format follows
 - The VS Code Marketplace version and installs badges on the extension's page
   showed "retired badge". [edd5b1e]
 
-[8c24d7e]: https://github.com/DenPaz/vsc_pcap_viewer/commit/8c24d7e
-[edd5b1e]: https://github.com/DenPaz/vsc_pcap_viewer/commit/edd5b1e
+[8c24d7e]: https://github.com/DenPaz/pcap-lens/commit/8c24d7e
+[edd5b1e]: https://github.com/DenPaz/pcap-lens/commit/edd5b1e
 
 ## 0.21.0 — 2026-10-23
 
@@ -106,9 +112,9 @@ commit) that made it. The format follows
 - The packet list's header shows where to drag to resize a column, and the
   selected row and field have rounded corners. [21dbb84]
 
-[c32bf02]: https://github.com/DenPaz/vsc_pcap_viewer/commit/c32bf02
-[43a2bb1]: https://github.com/DenPaz/vsc_pcap_viewer/commit/43a2bb1
-[21dbb84]: https://github.com/DenPaz/vsc_pcap_viewer/commit/21dbb84
+[c32bf02]: https://github.com/DenPaz/pcap-lens/commit/c32bf02
+[43a2bb1]: https://github.com/DenPaz/pcap-lens/commit/43a2bb1
+[21dbb84]: https://github.com/DenPaz/pcap-lens/commit/21dbb84
 
 ## 0.20.0 — 2026-10-23
 
@@ -133,10 +139,10 @@ commit) that made it. The format follows
   validity edge; filter buttons are pills; the status bar's items have icons.
   [95f8023]
 
-[c2018f3]: https://github.com/DenPaz/vsc_pcap_viewer/commit/c2018f3
-[dedadc8]: https://github.com/DenPaz/vsc_pcap_viewer/commit/dedadc8
-[95f8023]: https://github.com/DenPaz/vsc_pcap_viewer/commit/95f8023
-[76ca42f]: https://github.com/DenPaz/vsc_pcap_viewer/commit/76ca42f
+[c2018f3]: https://github.com/DenPaz/pcap-lens/commit/c2018f3
+[dedadc8]: https://github.com/DenPaz/pcap-lens/commit/dedadc8
+[95f8023]: https://github.com/DenPaz/pcap-lens/commit/95f8023
+[76ca42f]: https://github.com/DenPaz/pcap-lens/commit/76ca42f
 
 ## 0.19.0 — 2026-10-23
 
@@ -147,7 +153,7 @@ commit) that made it. The format follows
   digits, quality and media problems; IAX2 voice can be analysed, played and
   saved like RTP. [eb909ad]
 
-[eb909ad]: https://github.com/DenPaz/vsc_pcap_viewer/commit/eb909ad
+[eb909ad]: https://github.com/DenPaz/pcap-lens/commit/eb909ad
 
 ## 0.18.0 — 2026-10-21
 
@@ -165,8 +171,8 @@ commit) that made it. The format follows
   endpoints, expert information and the packet list as Markdown or HTML.
   [515b32b]
 
-[ff18c62]: https://github.com/DenPaz/vsc_pcap_viewer/commit/ff18c62
-[515b32b]: https://github.com/DenPaz/vsc_pcap_viewer/commit/515b32b
+[ff18c62]: https://github.com/DenPaz/pcap-lens/commit/ff18c62
+[515b32b]: https://github.com/DenPaz/pcap-lens/commit/515b32b
 
 ## 0.17.0 — 2026-10-21
 
@@ -179,8 +185,8 @@ commit) that made it. The format follows
   bytes in a panel of their own, and _Show File Format_ shows the capture
   file's own headers, records and pcapng blocks over its bytes. [09312e5]
 
-[b9403be]: https://github.com/DenPaz/vsc_pcap_viewer/commit/b9403be
-[09312e5]: https://github.com/DenPaz/vsc_pcap_viewer/commit/09312e5
+[b9403be]: https://github.com/DenPaz/pcap-lens/commit/b9403be
+[09312e5]: https://github.com/DenPaz/pcap-lens/commit/09312e5
 
 ## 0.16.0 — 2026-10-20
 
@@ -198,10 +204,10 @@ commit) that made it. The format follows
 - IPv4 and IPv6 statistics, UDP multicast streams, resolved addresses and SCTP
   associations. [d22494f]
 
-[4bdc8ef]: https://github.com/DenPaz/vsc_pcap_viewer/commit/4bdc8ef
-[710d578]: https://github.com/DenPaz/vsc_pcap_viewer/commit/710d578
-[1d9e2b0]: https://github.com/DenPaz/vsc_pcap_viewer/commit/1d9e2b0
-[d22494f]: https://github.com/DenPaz/vsc_pcap_viewer/commit/d22494f
+[4bdc8ef]: https://github.com/DenPaz/pcap-lens/commit/4bdc8ef
+[710d578]: https://github.com/DenPaz/pcap-lens/commit/710d578
+[1d9e2b0]: https://github.com/DenPaz/pcap-lens/commit/1d9e2b0
+[d22494f]: https://github.com/DenPaz/pcap-lens/commit/d22494f
 
 ## 0.15.0 — 2026-10-20
 
@@ -219,10 +225,10 @@ commit) that made it. The format follows
 - Credentials, _Export TLS Session Keys…_ and _Firewall ACL Rules…_, as in
   Wireshark's Tools menu. [08c490f]
 
-[0e017cc]: https://github.com/DenPaz/vsc_pcap_viewer/commit/0e017cc
-[acfb607]: https://github.com/DenPaz/vsc_pcap_viewer/commit/acfb607
-[fb31e4d]: https://github.com/DenPaz/vsc_pcap_viewer/commit/fb31e4d
-[08c490f]: https://github.com/DenPaz/vsc_pcap_viewer/commit/08c490f
+[0e017cc]: https://github.com/DenPaz/pcap-lens/commit/0e017cc
+[acfb607]: https://github.com/DenPaz/pcap-lens/commit/acfb607
+[fb31e4d]: https://github.com/DenPaz/pcap-lens/commit/fb31e4d
+[08c490f]: https://github.com/DenPaz/pcap-lens/commit/08c490f
 
 ## 0.14.1 — 2026-10-20
 
@@ -232,7 +238,7 @@ commit) that made it. The format follows
   follow stream…) no longer opens the capture a second time beside it and
   leaves the first tab empty. [7aed74b]
 
-[7aed74b]: https://github.com/DenPaz/vsc_pcap_viewer/commit/7aed74b
+[7aed74b]: https://github.com/DenPaz/pcap-lens/commit/7aed74b
 
 ## 0.14.0 — 2026-10-19
 
@@ -250,7 +256,7 @@ commit) that made it. The format follows
 - _Ask Copilot…_ about a VoIP call: its SIP flow, timings, stream statistics
   and problems, never audio, message bodies or DTMF digits. [452b59a]
 
-[452b59a]: https://github.com/DenPaz/vsc_pcap_viewer/commit/452b59a
+[452b59a]: https://github.com/DenPaz/pcap-lens/commit/452b59a
 
 ## 0.13.0 — 2026-10-19
 
@@ -267,7 +273,7 @@ commit) that made it. The format follows
 - _Save Call…_ writes one call's SIP, RTP and RTCP packets to a new capture.
   [5ebe171]
 
-[5ebe171]: https://github.com/DenPaz/vsc_pcap_viewer/commit/5ebe171
+[5ebe171]: https://github.com/DenPaz/pcap-lens/commit/5ebe171
 
 ## 0.12.0 — 2026-10-19
 
@@ -280,7 +286,7 @@ commit) that made it. The format follows
 - A PCAP Lens view in the activity bar lists recent captures with packet
   counts, sizes and when they were opened. [4c54893]
 
-[4c54893]: https://github.com/DenPaz/vsc_pcap_viewer/commit/4c54893
+[4c54893]: https://github.com/DenPaz/pcap-lens/commit/4c54893
 
 ## 0.11.0 — 2026-10-19
 
@@ -298,7 +304,7 @@ commit) that made it. The format follows
 - The packet details tree reports expanded nodes to screen readers on the
   tree item, where ARIA expects it. [7266035]
 
-[7266035]: https://github.com/DenPaz/vsc_pcap_viewer/commit/7266035
+[7266035]: https://github.com/DenPaz/pcap-lens/commit/7266035
 
 ## 0.10.1 — 2026-10-19
 
@@ -308,7 +314,7 @@ commit) that made it. The format follows
   details as well as the packet bytes (a match in the details selects its
   field), and finds by regular expression. [4389b78]
 
-[4389b78]: https://github.com/DenPaz/vsc_pcap_viewer/commit/4389b78
+[4389b78]: https://github.com/DenPaz/pcap-lens/commit/4389b78
 
 ## 0.10.0 — 2026-10-19
 
@@ -322,8 +328,8 @@ commit) that made it. The format follows
 - Follow Stream shows the data as UTF-8, UTF-16, ISO 8859-1, EBCDIC, C
   arrays or YAML as well as ASCII, hex dump and raw. [8aae6f8]
 
-[03478e0]: https://github.com/DenPaz/vsc_pcap_viewer/commit/03478e0
-[8aae6f8]: https://github.com/DenPaz/vsc_pcap_viewer/commit/8aae6f8
+[03478e0]: https://github.com/DenPaz/pcap-lens/commit/03478e0
+[8aae6f8]: https://github.com/DenPaz/pcap-lens/commit/8aae6f8
 
 ## 0.9.0 — 2026-10-19
 
@@ -337,8 +343,8 @@ commit) that made it. The format follows
   _Only differences_ switch. From the packet list's menu or the ☰ menu.
   [e42090b]
 
-[f6bbeb9]: https://github.com/DenPaz/vsc_pcap_viewer/commit/f6bbeb9
-[e42090b]: https://github.com/DenPaz/vsc_pcap_viewer/commit/e42090b
+[f6bbeb9]: https://github.com/DenPaz/pcap-lens/commit/f6bbeb9
+[e42090b]: https://github.com/DenPaz/pcap-lens/commit/e42090b
 
 ## 0.8.0 — 2026-10-18
 
@@ -359,10 +365,10 @@ commit) that made it. The format follows
   dimmed in the list and left out of statistics, the expert counts and
   exports; _Unignore All Packets_ brings them back. [dce57fe]
 
-[1e2af9f]: https://github.com/DenPaz/vsc_pcap_viewer/commit/1e2af9f
-[26e01b9]: https://github.com/DenPaz/vsc_pcap_viewer/commit/26e01b9
-[137b196]: https://github.com/DenPaz/vsc_pcap_viewer/commit/137b196
-[dce57fe]: https://github.com/DenPaz/vsc_pcap_viewer/commit/dce57fe
+[1e2af9f]: https://github.com/DenPaz/pcap-lens/commit/1e2af9f
+[26e01b9]: https://github.com/DenPaz/pcap-lens/commit/26e01b9
+[137b196]: https://github.com/DenPaz/pcap-lens/commit/137b196
+[dce57fe]: https://github.com/DenPaz/pcap-lens/commit/dce57fe
 
 ## 0.7.0 — 2026-10-18
 
@@ -383,10 +389,10 @@ commit) that made it. The format follows
 - A live capture's size limit now stops at the first packet past it; a fast
   interface could overshoot it by several packets. [91e898e]
 
-[9c1afc4]: https://github.com/DenPaz/vsc_pcap_viewer/commit/9c1afc4
-[188ddcf]: https://github.com/DenPaz/vsc_pcap_viewer/commit/188ddcf
-[985f8b3]: https://github.com/DenPaz/vsc_pcap_viewer/commit/985f8b3
-[91e898e]: https://github.com/DenPaz/vsc_pcap_viewer/commit/91e898e
+[9c1afc4]: https://github.com/DenPaz/pcap-lens/commit/9c1afc4
+[188ddcf]: https://github.com/DenPaz/pcap-lens/commit/188ddcf
+[985f8b3]: https://github.com/DenPaz/pcap-lens/commit/985f8b3
+[91e898e]: https://github.com/DenPaz/pcap-lens/commit/91e898e
 
 ## 0.6.0 — 2026-10-18
 
@@ -405,8 +411,8 @@ commit) that made it. The format follows
   headers, sort order and row numbers, the flow graph's rows as a list that
   follows the selection, and the VoIP call flow's rows as buttons. [c446d3a]
 
-[3049e5e]: https://github.com/DenPaz/vsc_pcap_viewer/commit/3049e5e
-[c446d3a]: https://github.com/DenPaz/vsc_pcap_viewer/commit/c446d3a
+[3049e5e]: https://github.com/DenPaz/pcap-lens/commit/3049e5e
+[c446d3a]: https://github.com/DenPaz/pcap-lens/commit/c446d3a
 
 ## 0.5.0 — 2026-10-17
 
@@ -423,7 +429,7 @@ commit) that made it. The format follows
   Ubuntu 24.04 or Debian 13 works. A Python installed with uv is found even
   when it isn't on `PATH`. [8b9486a]
 
-[8b9486a]: https://github.com/DenPaz/vsc_pcap_viewer/commit/8b9486a
+[8b9486a]: https://github.com/DenPaz/pcap-lens/commit/8b9486a
 
 ## 0.4.1 — 2026-10-15
 
@@ -433,7 +439,7 @@ commit) that made it. The format follows
   too close to another extension's name. The extension ID, commands and
   settings are unchanged, so nothing needs reconfiguring. [#42]
 
-[#42]: https://github.com/DenPaz/vsc_pcap_viewer/pull/42
+[#42]: https://github.com/DenPaz/pcap-lens/pull/42
 
 ## 0.4.0 — 2026-10-15
 
@@ -459,8 +465,8 @@ commit) that made it. The format follows
 - High-contrast themes: the selected packet, tree node, menu entry and table
   row were invisible; they are outlined now, as VS Code does. [#39]
 
-[#39]: https://github.com/DenPaz/vsc_pcap_viewer/pull/39
-[#40]: https://github.com/DenPaz/vsc_pcap_viewer/pull/40
+[#39]: https://github.com/DenPaz/pcap-lens/pull/39
+[#40]: https://github.com/DenPaz/pcap-lens/pull/40
 
 ## 0.3.0 — 2026-10-14
 
@@ -488,9 +494,9 @@ commit) that made it. The format follows
   tshark now gets 2 minutes, the viewer says why it's waiting after 5 s, and
   a backend that never answered is stopped. [#35]
 
-[#34]: https://github.com/DenPaz/vsc_pcap_viewer/pull/34
-[#35]: https://github.com/DenPaz/vsc_pcap_viewer/pull/35
-[#36]: https://github.com/DenPaz/vsc_pcap_viewer/pull/36
+[#34]: https://github.com/DenPaz/pcap-lens/pull/34
+[#35]: https://github.com/DenPaz/pcap-lens/pull/35
+[#36]: https://github.com/DenPaz/pcap-lens/pull/36
 
 ## 0.2.0 — 2026-09-28
 
@@ -600,28 +606,28 @@ The first published release. It adds everything since 0.1.0 below.
 - Closing VS Code mid-index could save a truncated index as complete. [#29]
 - A background tshark outlived the backend at shutdown. [#32]
 
-[#10]: https://github.com/DenPaz/vsc_pcap_viewer/pull/10
-[#11]: https://github.com/DenPaz/vsc_pcap_viewer/pull/11
-[#12]: https://github.com/DenPaz/vsc_pcap_viewer/pull/12
-[#13]: https://github.com/DenPaz/vsc_pcap_viewer/pull/13
-[#14]: https://github.com/DenPaz/vsc_pcap_viewer/pull/14
-[#16]: https://github.com/DenPaz/vsc_pcap_viewer/pull/16
-[#17]: https://github.com/DenPaz/vsc_pcap_viewer/pull/17
-[#18]: https://github.com/DenPaz/vsc_pcap_viewer/pull/18
-[#19]: https://github.com/DenPaz/vsc_pcap_viewer/pull/19
-[#20]: https://github.com/DenPaz/vsc_pcap_viewer/pull/20
-[#21]: https://github.com/DenPaz/vsc_pcap_viewer/pull/21
-[#22]: https://github.com/DenPaz/vsc_pcap_viewer/pull/22
-[#23]: https://github.com/DenPaz/vsc_pcap_viewer/pull/23
-[#24]: https://github.com/DenPaz/vsc_pcap_viewer/pull/24
-[#25]: https://github.com/DenPaz/vsc_pcap_viewer/pull/25
-[#26]: https://github.com/DenPaz/vsc_pcap_viewer/pull/26
-[#27]: https://github.com/DenPaz/vsc_pcap_viewer/pull/27
-[#28]: https://github.com/DenPaz/vsc_pcap_viewer/pull/28
-[#29]: https://github.com/DenPaz/vsc_pcap_viewer/pull/29
-[#30]: https://github.com/DenPaz/vsc_pcap_viewer/pull/30
-[#31]: https://github.com/DenPaz/vsc_pcap_viewer/pull/31
-[#32]: https://github.com/DenPaz/vsc_pcap_viewer/pull/32
+[#10]: https://github.com/DenPaz/pcap-lens/pull/10
+[#11]: https://github.com/DenPaz/pcap-lens/pull/11
+[#12]: https://github.com/DenPaz/pcap-lens/pull/12
+[#13]: https://github.com/DenPaz/pcap-lens/pull/13
+[#14]: https://github.com/DenPaz/pcap-lens/pull/14
+[#16]: https://github.com/DenPaz/pcap-lens/pull/16
+[#17]: https://github.com/DenPaz/pcap-lens/pull/17
+[#18]: https://github.com/DenPaz/pcap-lens/pull/18
+[#19]: https://github.com/DenPaz/pcap-lens/pull/19
+[#20]: https://github.com/DenPaz/pcap-lens/pull/20
+[#21]: https://github.com/DenPaz/pcap-lens/pull/21
+[#22]: https://github.com/DenPaz/pcap-lens/pull/22
+[#23]: https://github.com/DenPaz/pcap-lens/pull/23
+[#24]: https://github.com/DenPaz/pcap-lens/pull/24
+[#25]: https://github.com/DenPaz/pcap-lens/pull/25
+[#26]: https://github.com/DenPaz/pcap-lens/pull/26
+[#27]: https://github.com/DenPaz/pcap-lens/pull/27
+[#28]: https://github.com/DenPaz/pcap-lens/pull/28
+[#29]: https://github.com/DenPaz/pcap-lens/pull/29
+[#30]: https://github.com/DenPaz/pcap-lens/pull/30
+[#31]: https://github.com/DenPaz/pcap-lens/pull/31
+[#32]: https://github.com/DenPaz/pcap-lens/pull/32
 
 ## 0.1.0
 
@@ -645,11 +651,11 @@ The project brief, never published.
 - tshark permission errors under AppArmor or Snap explain the fix. [#7]
 - A Makefile for installs, updates, checks and packaging. [#9]
 
-[#1]: https://github.com/DenPaz/vsc_pcap_viewer/pull/1
-[#2]: https://github.com/DenPaz/vsc_pcap_viewer/pull/2
-[#3]: https://github.com/DenPaz/vsc_pcap_viewer/pull/3
-[#4]: https://github.com/DenPaz/vsc_pcap_viewer/pull/4
-[#5]: https://github.com/DenPaz/vsc_pcap_viewer/pull/5
-[#6]: https://github.com/DenPaz/vsc_pcap_viewer/pull/6
-[#7]: https://github.com/DenPaz/vsc_pcap_viewer/pull/7
-[#9]: https://github.com/DenPaz/vsc_pcap_viewer/pull/9
+[#1]: https://github.com/DenPaz/pcap-lens/pull/1
+[#2]: https://github.com/DenPaz/pcap-lens/pull/2
+[#3]: https://github.com/DenPaz/pcap-lens/pull/3
+[#4]: https://github.com/DenPaz/pcap-lens/pull/4
+[#5]: https://github.com/DenPaz/pcap-lens/pull/5
+[#6]: https://github.com/DenPaz/pcap-lens/pull/6
+[#7]: https://github.com/DenPaz/pcap-lens/pull/7
+[#9]: https://github.com/DenPaz/pcap-lens/pull/9

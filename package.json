@@ -12,11 +12,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/DenPaz/vsc_pcap_viewer"
+    "url": "https://github.com/DenPaz/pcap-lens"
   },
-  "homepage": "https://github.com/DenPaz/vsc_pcap_viewer#readme",
+  "homepage": "https://github.com/DenPaz/pcap-lens#readme",
   "bugs": {
-    "url": "https://github.com/DenPaz/vsc_pcap_viewer/issues"
+    "url": "https://github.com/DenPaz/pcap-lens/issues"
   },
   "qna": false,
   "pricing": "Free",
