@@ -32,7 +32,12 @@ const MAX_TOKEN = 20;
 
 const IPV4_RE = /(?<![\w.])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?![\w]|\.\d)/g;
 // Candidates only: isIPv6 decides (times like 12:34:56 aren't addresses).
-const IPV6_RE = /(?<![\w:.])(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}(?![\w:])/g;
+// The dotted form (::ffff:192.168.1.2) first, and never a match that stops
+// before ".<digit>": "::ffff:192" alone would leave ".168.1.2" readable.
+const IPV6_RE =
+  /(?<![\w:.])(?:(?:[0-9A-Fa-f]{0,4}:){2,6}\d{1,3}(?:\.\d{1,3}){3}|(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4})(?![\w:]|\.\d)/g;
+// An IPv4-mapped address written dotted: that IPv4 host.
+const MAPPED_RE = /^(?:::|(?:0{1,4}:){5})ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i;
 const MAC_RE = /(?<![\w:-])[0-9A-Fa-f]{2}([:-])[0-9A-Fa-f]{2}(?:\1[0-9A-Fa-f]{2}){4}(?![\w:-])/g;
 // tshark's resolved form: the vendor and the last three bytes ("Apple_12:34:56").
 const VENDOR_MAC_RE = /(?<![\w:-])[A-Za-z][\w-]*_[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){2}(?![\w:-])/g;
@@ -135,6 +140,13 @@ export class AddressMasker {
       })
       .replace(VENDOR_MAC_RE, (m) => this.token("MAC", m.toLowerCase(), m))
       .replace(IPV6_RE, (m) => {
+        const mapped = MAPPED_RE.exec(m);
+        if (mapped) {
+          // ::ffff:192.168.1.2 is that IPv4 host: its token after the prefix.
+          const v4 = mapped[1];
+          const v4Kind = ipv4Kind(v4.split(".").map(Number));
+          return v4Kind ? m.slice(0, m.length - v4.length) + this.token(v4Kind, v4, v4) : m;
+        }
         const kind = ipv6Kind(m);
         return kind ? this.token(kind, m.toLowerCase(), m) : m;
       })

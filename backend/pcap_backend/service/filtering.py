@@ -70,7 +70,7 @@ class FilteringMixin(PacketsMixin):
             "filter": expr,
             "count": len(matched),
             "total": total,
-            "frames": matched.slice(offset, offset + limit),
+            "frames": matched.slice(offset, limit),
         }
 
     def set_filter(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:

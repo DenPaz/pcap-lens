@@ -1833,6 +1833,10 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   192.168/16, 100.64/10, 169.254/16; `IP_PUBLIC_n`), IPv6 (`IP6_LOCAL_n` for
   fe80::/10 and fc00::/7, `IP6_PUBLIC_n`) and unicast MAC addresses
   (`MAC_n`, colon or dash form; `Vendor_12:34:56` too) in everything sent;
+  IPv4-mapped IPv6 (`::ffff:192.168.1.2`) keeps its prefix and takes the
+  IPv4's token (the IPv6 pattern tries the dotted form first and never stops
+  before `.<digit>`: `IP6_PUBLIC_1.168.1.2` leaked three octets; Codex
+  review; `standins.py` the same);
   0/8, 127/8, ≥ 224, `::`, `::1`, ff00::/8, group and all-zero MACs stay
   (they say something and identify no one). Host names come from
   `namesInRows` (cells vs `addresses`) and `namesInTree` (`*.src_host`… with
@@ -1917,7 +1921,10 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   sent: `_capture_arg`) (`Captures`: one `PcapService` per capture, opened
   non-streaming with `names: {}` (`-n`) and the saved-index cache in the
   user cache folder (`default_cache_dir`), `max_open` 3 LRU, reopened when
-  size or mtime change; one more service without a capture for
+  size or mtime change; every tool call runs in `Captures.pinned()` (entries
+  counted per call in a thread-local), so an entry evicted while another
+  call uses it is `retired` and shut down by its last user, not under it
+  (Codex review); one more service without a capture for
   `validate_filter` and `search_fields`). Paths must resolve (symlinks too)
   inside a `--root` (default the working folder): `ToolFailureError`, which
   like every tshark/RPC error becomes an `isError` result, while an unknown
@@ -1954,7 +1961,9 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   extension version + a hash of the command line (VS Code restarts it when
   the settings change: `mcp.*`, `ai.pseudonymizeAddresses` → `--stand-ins`,
   pythonPath, tsharkPath, workspace folders). It runs Python on
-  `stableBackend()`: `globalStorage/mcp/backend/pcap_backend`, copied (no
+  `stableBackend()` with `-P` (`-m` would put the working folder, a
+  workspace, first on sys.path, and its own `pcap_backend` would run;
+  Codex review): `globalStorage/mcp/backend/pcap_backend`, copied (no
   `__pycache__`) when `.pcap-lens-version` differs, always while developing,
   so a configuration pasted into another assistant survives updates. _PCAP:
   Copy MCP Server Configuration…_ (`MCP_TARGETS`: `claude mcp add pcap-lens

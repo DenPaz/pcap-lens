@@ -25,6 +25,12 @@ commit) that made it. The format follows
 - Triage also counts ICMP, DNS and HTTP requests without a response, in
   captures of up to 200,000 packets (read twice for that). [1967f9c]
 
+### Fixed
+
+- Address stand-ins left most of an IPv4-mapped IPv6 address readable
+  (`::ffff:192.168.1.2` became `IP6_PUBLIC_1.168.1.2`); it now becomes
+  `::ffff:IP_PRIVATE_1`, like the IPv4 address.
+
 [408a8c7]: https://github.com/DenPaz/vsc_pcap_viewer/commit/408a8c7
 [1967f9c]: https://github.com/DenPaz/vsc_pcap_viewer/commit/1967f9c
 [38cf37d]: https://github.com/DenPaz/vsc_pcap_viewer/commit/38cf37d

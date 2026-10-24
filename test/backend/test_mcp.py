@@ -290,7 +290,9 @@ def test_packet_tools(client_for: Any) -> None:
     page, _ = c.call("list_packets", capture="http.pcap", filter="tcp", limit=3)
     assert page["columns"][0] == "No." and len(page["rows"]) == 3 and page["more"]
     nxt, _ = c.call("list_packets", capture="http.pcap", filter="tcp", offset=3, limit=3)
-    assert nxt["rows"][0][0] != page["rows"][0][0]
+    assert len(nxt["rows"]) == 3 and nxt["rows"][0][0] != page["rows"][0][0]
+    every, _ = c.call("list_packets", capture="http.pcap", filter="tcp", limit=6)
+    assert page["rows"] + nxt["rows"] == every["rows"], "pages follow each other"
 
     get = next(r for r in page["rows"] + nxt["rows"] if "GET" in str(r[6]))
     detail, _ = c.call("packet_details", capture="http.pcap", packet=int(get[0]))
@@ -386,6 +388,25 @@ def test_captures_reopen_when_changed_and_stay_few(
 
 
 @pytest.mark.tshark
+def test_a_capture_in_use_stays_open_when_evicted(
+    client_for: Any, tmp_path: Path, ctx: RequestContext
+) -> None:
+    for name in ("http.pcap", "dns.pcap"):
+        shutil.copy(FIXTURES / name, tmp_path / name)
+    captures = client_for(roots=[tmp_path], max_open=1).captures
+    with captures.pinned():
+        busy = captures.get(tmp_path / "http.pcap", ctx)
+        # Another call opens a second capture meanwhile: http.pcap leaves the table.
+        other = threading.Thread(target=captures.get, args=(tmp_path / "dns.pcap", ctx))
+        other.start()
+        other.join()
+        assert list(captures._entries) == [tmp_path / "dns.pcap"]
+        assert busy._file is not None, "still usable by the call that has it"
+        assert busy.capture_info({}, ctx)["frames"] > 0
+    assert busy._file is None, "shut down once that call ended"
+
+
+@pytest.mark.tshark
 def test_cancelled_call_gets_no_answer(client_for: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     c = client_for()
     started = threading.Event()
@@ -473,7 +494,7 @@ def test_runs_as_a_program(tmp_path: Path) -> None:
         },
     ]
     proc = subprocess.Popen(
-        [sys.executable, "-m", "pcap_backend.mcp", "--root", str(FIXTURES), "--cache-dir",
+        [sys.executable, "-P", "-m", "pcap_backend.mcp", "--root", str(FIXTURES), "--cache-dir",
          str(tmp_path / "cache")],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,

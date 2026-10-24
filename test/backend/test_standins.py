@@ -43,6 +43,19 @@ def test_ipv6_and_mac() -> None:
     assert m.restore("MAC_1 talks to IP6_PUBLIC_1") == "00:1a:2b:3c:4d:5e talks to 2001:db8::42"
 
 
+def test_ipv4_mapped_ipv6() -> None:
+    m = AddressMasker()
+    text = (
+        "::ffff:192.168.1.2 is 192.168.1.2; 0:0:0:0:0:ffff:10.0.0.1, 64:ff9b::8.8.8.8, "
+        "kept ::ffff:127.0.0.1, not an address ::ffff:1.2.3, at 12:34:56.789"
+    )
+    assert m.mask(text) == (
+        "::ffff:IP_PRIVATE_1 is IP_PRIVATE_1; 0:0:0:0:0:ffff:IP_PRIVATE_2, IP6_PUBLIC_1, "
+        "kept ::ffff:127.0.0.1, not an address ::ffff:1.2.3, at 12:34:56.789"
+    )
+    assert m.restore(m.mask(text)) == text
+
+
 def test_filters_and_deep_restore() -> None:
     m = AddressMasker()
     masked = m.mask("ip.addr == 10.1.2.3 && eth.src == 00:1a:2b:3c:4d:5e && ip.dst == 8.8.8.0/24")

@@ -29,7 +29,12 @@ NOTE = (
 _TOKEN = re.compile(r"\b(" + "|".join(KINDS) + r")_(\d+)\b")
 _IPV4 = re.compile(r"(?<![\w.])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?!\w|\.\d)")
 # Candidates only: ipaddress decides (times like 12:34:56 aren't addresses).
-_IPV6 = re.compile(r"(?<![\w:.])(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}(?![\w:])")
+# The dotted form (::ffff:192.168.1.2) first, and never a match that stops
+# before ".<digit>": "::ffff:192" alone would leave ".168.1.2" readable.
+_IPV6 = re.compile(
+    r"(?<![\w:.])(?:(?:[0-9A-Fa-f]{0,4}:){2,6}\d{1,3}(?:\.\d{1,3}){3}"
+    r"|(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4})(?![\w:]|\.\d)"
+)
 _MAC = re.compile(r"(?<![\w:-])[0-9A-Fa-f]{2}([:-])[0-9A-Fa-f]{2}(?:\1[0-9A-Fa-f]{2}){4}(?![\w:-])")
 # tshark's resolved form: the vendor and the last three bytes ("Apple_12:34:56").
 _VENDOR_MAC = re.compile(
@@ -64,6 +69,16 @@ def _ipv6_kind(text: str) -> str | None:
 
 
 _ULA = ipaddress.IPv6Network("fc00::/7")
+
+
+def _ipv4_mapped(text: str) -> ipaddress.IPv4Address | None:
+    """The IPv4 address of an IPv4-mapped IPv6 address written dotted."""
+    if "." not in text:
+        return None
+    try:
+        return ipaddress.IPv6Address(text).ipv4_mapped
+    except ValueError:
+        return None
 
 
 def _mac_kind(text: str) -> str | None:
@@ -106,6 +121,12 @@ class AddressMasker:
 
         def ipv6(m: re.Match[str]) -> str:
             real = m.group(0)
+            mapped = _ipv4_mapped(real)
+            if mapped is not None:
+                # ::ffff:192.168.1.2 is that IPv4 host: its token after the prefix.
+                prefix, v4 = real.rsplit(":", 1)
+                v4_kind = _ipv4_kind([int(o) for o in v4.split(".")])
+                return f"{prefix}:{self._token(v4_kind, v4, v4)}" if v4_kind else real
             kind = _ipv6_kind(real)
             return self._token(kind, real.lower(), real) if kind else real
 

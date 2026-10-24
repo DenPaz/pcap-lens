@@ -23,6 +23,7 @@ suite("mcpConfig", () => {
     assert.deepEqual(serverCommand(LAUNCH), {
       command: "/usr/bin/python3.14",
       args: [
+        "-P",
         "-m",
         "pcap_backend.mcp",
         "--root",
@@ -44,6 +45,7 @@ suite("mcpConfig", () => {
       command: "py",
       args: [
         "-3.14",
+        "-P",
         "-m",
         "pcap_backend.mcp",
         "--allow-packet-data",
@@ -63,7 +65,7 @@ suite("mcpConfig", () => {
     assert.equal(
       claudeCodeCommand(LAUNCH, false),
       "claude mcp add pcap-lens --scope user --env PYTHONPATH=/home/ann/.config/Code/User/globalStorage/denpaz.pcap-viewer/mcp/backend " +
-        "-- /usr/bin/python3.14 -m pcap_backend.mcp --root /home/ann/captures --root '/srv/it'\\''s here' --stand-ins",
+        "-- /usr/bin/python3.14 -P -m pcap_backend.mcp --root /home/ann/captures --root '/srv/it'\\''s here' --stand-ins",
     );
   });
 

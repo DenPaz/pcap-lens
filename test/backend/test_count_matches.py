@@ -28,6 +28,15 @@ def test_counts_without_changing_the_view(service: PcapService, ctx: RequestCont
     res = service.count_matches({"filter": "dns", "limit": 3}, ctx)
     assert res == {"filter": "dns", "count": 6, "total": 26, "frames": res["frames"]}
     assert len(res["frames"]) == 3 and res["frames"] == sorted(res["frames"])
+    # offset + limit is a page: the next three, then what is left.
+    rest = service.count_matches({"filter": "dns", "limit": 3, "offset": 3}, ctx)["frames"]
+    assert len(rest) == 3 and rest[0] > res["frames"][-1]
+    every = service.count_matches({"filter": "dns", "limit": 6}, ctx)["frames"]
+    assert res["frames"] + rest == every
+    last = service.count_matches({"filter": "dns", "limit": 3, "offset": 5}, ctx)["frames"]
+    assert last == every[5:]
+    page = service.count_matches({"filter": "", "limit": 3, "offset": 3}, ctx)["frames"]
+    assert page == [4, 5, 6]
     # The view is still the viewer's icmp filter.
     page = service.list_packets({"limit": 50}, ctx)
     assert page["filterId"] == view["filterId"] and page["total"] == view["matchCount"]

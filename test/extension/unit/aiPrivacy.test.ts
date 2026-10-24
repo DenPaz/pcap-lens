@@ -45,6 +45,19 @@ suite("AI address stand-ins", () => {
     );
   });
 
+  test("IPv4-mapped IPv6 addresses: the IPv4 host's token, never a partial match", () => {
+    const m = new AddressMasker();
+    const text =
+      "::ffff:192.168.1.2 is 192.168.1.2; 0:0:0:0:0:ffff:10.0.0.1, 64:ff9b::8.8.8.8, " +
+      "kept ::ffff:127.0.0.1, not an address ::ffff:1.2.3, at 12:34:56.789";
+    assert.equal(
+      m.mask(text),
+      "::ffff:IP_PRIVATE_1 is IP_PRIVATE_1; 0:0:0:0:0:ffff:IP_PRIVATE_2, IP6_PUBLIC_1, " +
+        "kept ::ffff:127.0.0.1, not an address ::ffff:1.2.3, at 12:34:56.789",
+    );
+    assert.equal(m.restore(m.mask(text)), text);
+  });
+
   test("display filters keep working with tokens; unknown tokens stay", () => {
     const m = new AddressMasker();
     const masked = m.mask(

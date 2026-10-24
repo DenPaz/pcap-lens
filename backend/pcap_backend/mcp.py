@@ -31,8 +31,9 @@ import signal
 import sys
 import threading
 from collections import OrderedDict
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -117,12 +118,16 @@ class _Entry:
     stamp: tuple[int, int]  # size, mtime_ns when opened
     lock: threading.Lock = field(default_factory=threading.Lock)
     opened: bool = False
+    users: int = 0  # tool calls using it now (``Captures.pinned``)
+    retired: bool = False  # evicted while in use: shut down by its last user
 
 
 class Captures:
     """One open service per capture (at most ``max_open``, least recently used
     closed first), reopened when the file changed; plus one service without a
-    capture for filter checks and the field catalogue."""
+    capture for filter checks and the field catalogue. A tool call runs inside
+    ``pinned()``, so a capture another call evicts meanwhile stays open until
+    the call is done."""
 
     def __init__(self, config: McpConfig) -> None:
         self.config = config
@@ -130,6 +135,7 @@ class Captures:
         self._lock = threading.Lock()
         self._tools: PcapService | None = None
         self._tools_lock = threading.Lock()
+        self._local = threading.local()  # this thread's pinned entries
         self.tshark_version = ""
 
     def _new_service(self, ctx: RequestContext) -> PcapService:
@@ -171,6 +177,32 @@ class Captures:
             )
         return path
 
+    @contextmanager
+    def pinned(self) -> Iterator[None]:
+        """Keep the captures this thread gets open until the block ends."""
+        pins: list[_Entry] = []
+        self._local.pins = pins
+        try:
+            yield
+        finally:
+            self._local.pins = None
+            closed: list[PcapService] = []
+            with self._lock:
+                for entry in pins:
+                    entry.users -= 1
+                    if entry.retired and entry.users == 0:
+                        closed.append(entry.service)
+            for service in closed:
+                service.shutdown()
+
+    def _retire(self, entry: _Entry, closed: list[PcapService]) -> None:
+        """An entry leaving the table (under ``_lock``): shut down now, or by
+        its last user."""
+        if entry.users:
+            entry.retired = True
+        else:
+            closed.append(entry.service)
+
     def get(self, path: Path, ctx: RequestContext) -> PcapService:
         """The capture's service, indexed (opened on first use)."""
         st = path.stat()
@@ -179,16 +211,20 @@ class Captures:
         with self._lock:
             entry = self._entries.get(path)
             if entry is not None and entry.stamp != stamp:
-                closed.append(entry.service)  # the file changed: index it again
+                self._retire(entry, closed)  # the file changed: index it again
                 del self._entries[path]
                 entry = None
             if entry is None:
                 entry = _Entry(self._new_service(ctx), stamp)
                 self._entries[path] = entry
+            pins: list[_Entry] | None = getattr(self._local, "pins", None)
+            if pins is not None:
+                entry.users += 1
+                pins.append(entry)
             self._entries.move_to_end(path)
             while len(self._entries) > self.config.max_open:
                 _, old = self._entries.popitem(last=False)
-                closed.append(old.service)
+                self._retire(old, closed)
         for service in closed:
             service.shutdown()
         with entry.lock:
@@ -199,10 +235,13 @@ class Captures:
                 try:
                     entry.service.open(params, ctx)
                 except BaseException:
+                    failed: list[PcapService] = []
                     with self._lock:
                         if self._entries.get(path) is entry:
                             del self._entries[path]
-                    entry.service.shutdown()
+                            self._retire(entry, failed)
+                    for service in failed:
+                        service.shutdown()
                     raise
                 entry.opened = True
         return entry.service
@@ -1084,7 +1123,8 @@ class McpServer:
                 return
             ctx = RequestContext(token=token, progress=progress)
             try:
-                result = tool.run(self.masker.restore_deep(args), ctx)
+                with self.toolbox.captures.pinned():
+                    result = tool.run(self.masker.restore_deep(args), ctx)
                 token.raise_if_cancelled()
                 text = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
                 self._respond(req_id, self._content(text, error=False))

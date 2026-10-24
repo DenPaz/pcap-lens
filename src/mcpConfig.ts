@@ -25,7 +25,9 @@ export const SERVER_ID = "pcap-lens";
 /** The command and arguments that start the server. */
 export function serverCommand(l: McpLaunch): { command: string; args: string[] } {
   const [command, ...pythonArgs] = l.python;
-  const args = [...pythonArgs, "-m", "pcap_backend.mcp"];
+  // -P: `-m` would put the working folder (a workspace) first on sys.path, so
+  // a folder holding its own pcap_backend would run instead of ours.
+  const args = [...pythonArgs, "-P", "-m", "pcap_backend.mcp"];
   for (const root of l.roots) {
     args.push("--root", root);
   }

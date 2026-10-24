@@ -513,7 +513,7 @@ Code's `settings.json`: `"permissions": {"deny": ["Bash(tshark:*)"]}`.
 By hand:
 
 ```sh
-PYTHONPATH=<extension>/backend python3 -m pcap_backend.mcp --root ~/captures
+PYTHONPATH=<extension>/backend python3 -P -m pcap_backend.mcp --root ~/captures
 ```
 
 ## Remote windows
