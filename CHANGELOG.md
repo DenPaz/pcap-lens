@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.24.2 — 2026-10-25
+
 ### Fixed
 
 - Packet details highlight the right bytes when a protocol lives in another

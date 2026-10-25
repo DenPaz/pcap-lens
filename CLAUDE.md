@@ -2611,6 +2611,6 @@ Then comparing two captures with AI (with the port scans and host sweeps
 tshark's numbers show), and AI answer evals: 0.24.0.
 Then the scans in triage and capture summaries too, with the resets each
 drew: 0.24.1.
-Since: the real-capture harness and what it found (byte sources, exports
+Then the real-capture harness and what it found (byte sources, exports
 and editing of captures Wireshark can't write, IO graphs of long captures,
-Follow, unsupported link types).
+Follow, unsupported link types): 0.24.2.
