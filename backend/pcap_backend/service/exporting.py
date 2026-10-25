@@ -36,13 +36,15 @@ from .helpers import _frame_list, _stderr_warnings
 from .packets import PacketsMixin
 from .state import _TRUNCATION_HINTS, BASE_COLUMNS, MAX_FILTER_ARG, PROGRESS_INTERVAL_S, _Open
 
-# tshark's answer when the packets can't go into a pcap file: it holds one link
-# type, and a pcapng can mix several (a Bluetooth capture from two adapters),
-# or use one pcap has no number for. Found by test/realworld.
-_PCAP_REFUSED = 'can\'t be written as a "pcap" file'
+# tshark's answers when the packets can't go into a pcap file: it holds one
+# link type and only packets, and a pcapng can mix link types (a Bluetooth
+# capture from two adapters), use one pcap has no number for, or hold other
+# records (process information). Found by test/realworld.
+_PCAP_REFUSED = ('can\'t be written as a "pcap" file', 'can\'t be saved in a "pcap" file')
 PCAP_REFUSED_MESSAGE = (
     "These packets can't be saved as pcap: a pcap file holds packets of one link type, "
-    "and these have several (or one pcap can't store). Export them as pcapng instead."
+    "and this capture has several, one pcap can't store, or records that aren't packets. "
+    "Export them as pcapng instead."
 )
 
 
@@ -283,7 +285,7 @@ class ExportMixin(DetailMixin, PacketsMixin):
                     last_emit = now
                     ctx.progress({"phase": "export", "fraction": min(0.99, n / total)})
             truncated = any(h in result.stderr for h in _TRUNCATION_HINTS)
-            if fmt == "pcap" and _PCAP_REFUSED in result.stderr:
+            if fmt == "pcap" and any(h in result.stderr for h in _PCAP_REFUSED):
                 raise InvalidParamsError(PCAP_REFUSED_MESSAGE, {"pcapng": True})
             if result.returncode not in (0, None) and not (truncated and tmp.exists()):
                 raise f.tshark.error(
