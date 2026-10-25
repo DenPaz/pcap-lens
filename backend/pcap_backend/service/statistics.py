@@ -13,6 +13,9 @@ from pcap_backend.tshark import ToolError, run
 from .base import ServiceBase
 from .state import _FIELD_NAME_RE, _Open
 
+# The IO graph's longest interval (100 years), so a default always fits.
+MAX_IO_INTERVAL_S = 100 * 365 * 86400
+
 
 class StatisticsMixin(ServiceBase):
     """Statistics from tshark's -z reports."""
@@ -132,8 +135,10 @@ class StatisticsMixin(ServiceBase):
             else None
         )
         interval = param(params, "interval", float, 0.0) or stats.io_interval(duration)
-        if not 0.000001 <= interval <= 86400:
-            raise InvalidParamsError("interval must be between 1 µs and 1 day")
+        # (A capture can span decades: a packet stamped 1970 beside one from
+        # today, as in Wireshark's bt_attr.pcapng; tshark takes such intervals.)
+        if not 0.000001 <= interval <= MAX_IO_INTERVAL_S:
+            raise InvalidParamsError("interval must be between 1 µs and 100 years")
         series = self._io_series(f, params.get("series"), ctx)
         # (tshark refuses an empty last argument: "frame" is every packet too.)
         scope = [counted or "frame"] if counted or series else []

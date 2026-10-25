@@ -157,6 +157,11 @@ suite("webview lib: filters", () => {
       { label: "UDP Stream", proto: "udp" },
       { label: "QUIC Stream", proto: "quic" },
     ]);
+    // QUIC carries a TLS handshake, but TLS follows a TCP stream.
+    assert.deepEqual(lib.followOptions([proto("udp"), proto("quic"), proto("tls")]), [
+      { label: "UDP Stream", proto: "udp" },
+      { label: "QUIC Stream", proto: "quic" },
+    ]);
     // Fields named like a protocol don't count; neither do protocols nobody follows.
     assert.deepEqual(lib.followOptions([proto("arp", [{ name: "tcp" }])]), []);
     assert.deepEqual(lib.followOptions([]), []);

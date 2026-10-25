@@ -420,7 +420,7 @@ def _quick(run: Run, frames: int) -> None:
     run.call("voip calls", "voip_calls", {})
     run.call("triage", "triage", {})
     run.call("capture profile", "capture_profile", {})
-    run.call("comments", "packet_comments", {})
+    run.call("comments", "packet_comments", {"frames": list(range(1, min(frames, 50) + 1))})
     dest = run.work / "all.pcapng"
     if run.call("export pcapng", "export", {"kind": "pcapng", "dest": str(dest), "filter": ""}):
         got = record_count(dest)
@@ -620,7 +620,7 @@ STATS: list[dict[str, Any]] = [
     {"kind": "io"},
     {
         "kind": "io",
-        "series": [{"metric": "packets", "filter": "tcp"}, {"metric": "SUM", "field": "frame.len"}],
+        "series": [{"metric": "packets", "filter": "tcp"}, {"metric": "sum", "field": "frame.len"}],
     },
     {"kind": "expert"},
     {"kind": "properties"},
@@ -660,7 +660,7 @@ def _other(run: Run, frames: int) -> None:
             "save_objects",
             {"ids": [obj.get("id")], "dir": str(run.work)},
         )
-    run.call("comments", "packet_comments", {})
+    run.call("comments", "packet_comments", {"frames": list(range(1, min(frames, 50) + 1))})
     run.call("triage", "triage", {})
     run.call("capture profile", "capture_profile", {})
     run.call("scans", "scans", {})
