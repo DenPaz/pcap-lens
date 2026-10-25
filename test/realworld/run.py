@@ -232,7 +232,7 @@ class Server:
 @dataclass
 class Step:
     name: str
-    status: str  # ok, expected, problem
+    status: str  # ok, expected, note (tshark's own oddity), problem
     seconds: float
     detail: str = ""
 
@@ -506,26 +506,39 @@ def _collect_names(nodes: list[dict[str, Any]], out: set[str]) -> None:
 
 
 def _check_tree(run: Run, n: int, detail: dict[str, Any]) -> None:
-    """Every field's bytes must lie inside its data source."""
-    sources = detail.get("sources") or detail.get("bytes") or []
-    sizes = [len(s.get("hex") or s.get("data") or "") // 2 for s in sources if isinstance(s, dict)]
-    if not sizes:
+    """Each field must lie in its byte source, with its raw value there. A
+    field that fits no source at all is tshark's own position (its Babel
+    dissector reports offsets past the packet): a note, not our problem."""
+    data = [bytes.fromhex(s.get("hex") or "") for s in detail.get("sources") or []]
+    if not data:
         return
-    bad: list[str] = []
+    wrong: list[str] = []
+    upstream: list[str] = []
+
+    def fits(i: int, pos: int, size: int, raw: str) -> bool:
+        if pos + size > len(data[i]):
+            return False
+        return len(raw) != 2 * size or data[i][pos : pos + size].hex() == raw
 
     def walk(nodes: list[dict[str, Any]]) -> None:
         for node in nodes:
-            pos, size, src = node.get("pos"), node.get("size"), node.get("source", 0)
-            if isinstance(pos, int) and isinstance(size, int) and isinstance(src, int):
-                limit = sizes[src] if 0 <= src < len(sizes) else -1
-                if pos < 0 or size < 0 or pos + size > limit:
-                    bad.append(
-                        f"{node.get('name') or node.get('label', '')[:30]} {pos}+{size} > {limit}"
+            pos, size, src = node.get("pos"), node.get("size"), node.get("src", 0)
+            if isinstance(pos, int) and isinstance(size, int) and 0 <= src < len(data):
+                raw = node.get("value") or ""
+                if not fits(src, pos, size, raw):
+                    what = f"{node.get('name') or node.get('label', '')[:30]} {pos}+{size} in {src}"
+                    others = [i for i in range(len(data)) if i != src and fits(i, pos, size, raw)]
+                    (wrong if others else upstream).append(
+                        what + (f", fits {others}" if others else "")
                     )
             walk(node.get("children") or [])
 
     walk(detail.get("tree") or [])
-    run.check(f"detail {n} byte ranges", not bad, "; ".join(bad[:4]))
+    run.check(f"detail {n} byte sources", not wrong, "; ".join(wrong[:4]))
+    if upstream:
+        run.report.steps.append(
+            Step(f"detail {n} tshark positions", "note", 0.0, "; ".join(upstream[:4]))
+        )
 
 
 def _filters_and_find(run: Run) -> None:
