@@ -116,18 +116,25 @@ class _Counter:
 def _locate_field(
     el: ET.Element, sources: Sequence[bytes], src: int, pos: int, size: int
 ) -> tuple[int, int]:
-    """A leaf field's (source, position): as given while its raw value is
-    there, else where it is at that position in another source, else a
-    source it fills whole. tshark gives a decrypted TLS record's "TLS segment
-    data" the record's frame offset, though its bytes are a whole "Decrypted
-    TLS" buffer."""
+    """An item's (source, position): as given while its raw value is there,
+    else where it is at that position in another source, else a source it
+    fills whole. tshark gives a decrypted TLS record's "TLS segment data" the
+    record's frame offset, though its bytes are a whole "Decrypted TLS"
+    buffer; an HTTP "Content-encoded entity body" holds the compressed body
+    (its own value) and, below it, the uncompressed one's fields."""
     raw = el.get("unmaskedvalue") or el.get("value") or ""
-    if len(raw) != 2 * size:
-        return src, pos
     try:
-        value = bytes.fromhex(raw)
+        value = bytes.fromhex(raw) if len(raw) == 2 * size else None
     except ValueError:
-        return src, pos
+        value = None
+    if value is None:
+        # No bytes to compare: only a range that can't be in its source moves
+        # (to the first source it fits: QUIC CRYPTO data in a packet with
+        # several decrypted buffers).
+        if pos + size <= len(sources[src]):
+            return src, pos
+        fits = [i for i, data in enumerate(sources) if pos + size <= len(data)]
+        return (fits[0] if fits else src), pos
     if sources[src][pos : pos + size] == value:
         return src, pos
     for i, data in enumerate(sources):
@@ -147,8 +154,14 @@ def _own_source(el: ET.Element, sources: Sequence[bytes], inner: int, outer: int
     pos, size = _int(el.get("pos")), _int(el.get("size"))
     if pos is None or not size or pos + size <= len(sources[inner]):
         return inner
-    # (Neither fits, as for an EAP item spanning several attributes past the
-    # frame's end: the enclosing source, where it starts, if it starts there.)
+    # Else the enclosing source, or the first its range fits (a QUIC frame in
+    # a packet with several decrypted buffers); when none does (an EAP item
+    # spanning several attributes past the frame's end), the enclosing one if
+    # it starts there.
+    candidates: list[int] = [outer, *range(len(sources))]
+    for i in candidates:
+        if pos + size <= len(sources[i]):
+            return i
     return outer if pos < len(sources[outer]) else inner
 
 
@@ -186,7 +199,7 @@ def _convert(
     size = _int(el.get("size"))
     pos = _int(el.get("pos"))
     if size and pos is not None:
-        if sources and len(sources) > 1 and len(el) == 0:
+        if sources and len(sources) > 1:  # (an item's own raw value decides too)
             node["src"], pos = _locate_field(el, sources, node["src"], pos, size)
         node["pos"] = pos
         node["size"] = size

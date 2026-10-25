@@ -156,15 +156,20 @@ def _find(nodes: list[dict[str, Any]], name: str) -> dict[str, Any]:
 
 
 def _check_sources(detail: dict[str, Any]) -> None:
-    """Every field with raw bytes has them at its position in its own source."""
+    """Every field whose raw bytes are in some source has them at its position
+    in its own one (tshark makes up a few values found nowhere, such as
+    HPACK's 4-byte name lengths)."""
     sources = [bytes.fromhex(s["hex"]) for s in detail["sources"]]
 
     def walk(nodes: list[dict[str, Any]]) -> None:
         for node in nodes:
             raw = node.get("value", "")
             if "pos" in node and len(raw) == 2 * node["size"]:
-                data = sources[node["src"]]
-                assert data[node["pos"] : node["pos"] + node["size"]].hex() == raw, node
+                at = slice(node["pos"], node["pos"] + node["size"])
+                where = [i for i, data in enumerate(sources) if data[at].hex() == raw]
+                whole = [i for i, data in enumerate(sources) if data.hex() == raw]
+                if where or whole:
+                    assert sources[node["src"]][at].hex() == raw, node
             walk(node.get("children", []))
 
     walk(detail["tree"])
@@ -229,3 +234,38 @@ def test_decrypted_tls_fields_lie_in_the_decrypted_buffers(
         decrypted += any(s["name"] == "Decrypted TLS" for s in detail["sources"])
         _check_sources(detail)
     assert decrypted >= 3
+
+
+@pytest.mark.tshark
+@pytest.mark.parametrize("capture", ["objects.pcap", "streams.pcapng"])
+def test_every_field_lies_in_its_byte_source(
+    service: PcapService, fixtures: Path, ctx: RequestContext, capture: str
+) -> None:
+    # objects.pcap: a gzipped, chunked HTTP body ("Content-encoded entity
+    # body" holds the compressed bytes, its children the uncompressed ones);
+    # streams.pcapng: decrypted QUIC with several buffers per packet.
+    service.open({"path": str(fixtures / capture)}, ctx)
+    for number in range(1, service.capture_info({}, ctx)["frames"] + 1):
+        _check_sources(service.packet_detail({"number": number}, ctx))
+
+
+def test_parse_pdml_places_items_by_their_own_bytes_and_range() -> None:
+    sources = [bytes(range(100)), bytes.fromhex("1f8b0800"), b"plain text here"]
+    pdml = (
+        b'<pdml><packet><proto name="frame" pos="0" size="100"/>'
+        # An HTTP/2 body: its own value is the compressed buffer, its fields
+        # the uncompressed one (found on http2_follow_multistream.pcapng).
+        b'<proto name="http" pos="10" size="5">'
+        b'<field name="body" pos="0" size="4" value="1f8b0800">'
+        b'<field name="text" pos="0" size="5" value="706c61696e"/>'
+        b'<field name="more" pos="6" size="4" value="74657874"/></field>'
+        # A leaf without bytes to compare whose range can't be in the text
+        # buffer (QUIC CRYPTO data, http3-qpack-reassembly-anon.pcapng).
+        b'<field name="crypto" pos="40" size="30"/>'
+        b"</proto></packet></pdml>"
+    )
+    tree = parse_pdml(pdml, 3, sources)
+    body = _find(tree, "body")
+    assert (body["src"], body["pos"]) == (1, 0)
+    assert [c["src"] for c in body["children"]] == [2, 2]
+    assert _find(tree, "crypto")["src"] == 0  # (fits only the frame)
