@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 import pytest
 
+from pcap_backend.pcap_service import PcapService
 from pcap_backend.pdml import PdmlError, parse_hexdump, parse_pdml
+from pcap_backend.protocol import RequestContext
 
 PDML = b"""<?xml version="1.0" encoding="utf-8"?>
 <pdml version="0" creator="wireshark/4.2.2">
@@ -138,3 +143,46 @@ def test_parse_hexdump_ignores_ascii_lookalikes() -> None:
     text = "0000  41 42 43 44 45 46 30 31 32 33 34 35 36 37 38 39   ABCDEF0123456789\n"
     (src,) = parse_hexdump(text)
     assert bytes(src.data) == b"ABCDEF0123456789"
+
+
+@pytest.mark.tshark
+def test_detail_fields_lie_in_their_byte_source(
+    service: PcapService, fixtures: Path, ctx: RequestContext
+) -> None:
+    # 6LoWPAN: the IPv6 header exists only in the "Decompressed 6LoWPAN IPHC"
+    # buffer, and no reassembly item says so (found by test/realworld on
+    # tcpdump's 802_15_4-data.pcap: IPv6 was highlighted over the frame's bytes).
+    service.open({"path": str(fixtures / "sixlowpan.pcap")}, ctx)
+    detail = service.packet_detail({"number": 1}, ctx)
+    sources = [bytes.fromhex(s["hex"]) for s in detail["sources"]]
+    assert [s["name"] for s in detail["sources"]] == ["Frame", "Decompressed 6LoWPAN IPHC"]
+    top = {n["name"]: n["src"] for n in detail["tree"] if "name" in n}
+    assert (top["wpan"], top["6lowpan"], top["ipv6"], top["udp"], top["data"]) == (0, 0, 1, 1, 1)
+
+    def walk(nodes: list[dict[str, Any]]) -> None:
+        for node in nodes:
+            if "pos" in node:
+                data = sources[node["src"]]
+                assert node["pos"] + node["size"] <= len(data), node["label"]
+                raw = node.get("value", "")
+                if len(raw) == 2 * node["size"]:
+                    assert data[node["pos"] : node["pos"] + node["size"]].hex() == raw, node
+            walk(node.get("children", []))
+
+    walk(detail["tree"])
+
+
+def test_parse_pdml_picks_the_source_whose_bytes_match() -> None:
+    pdml = (
+        b'<pdml><packet><proto name="frame" pos="0" size="4"/>'
+        b'<proto name="a" pos="0" size="2">'
+        b'<field name="a.x" pos="0" size="2" value="0102"/></proto>'
+        b'<proto name="b" pos="1" size="2">'
+        b'<field name="b.y" pos="1" size="2" value="bbcc"/></proto>'
+        b'<proto name="c" pos="0" size="1"/>'
+        b"</packet></pdml>"
+    )
+    tree = parse_pdml(pdml, 2, [bytes.fromhex("01020304"), bytes.fromhex("aabbcc")])
+    # a matches the frame, b only the second buffer, c (no bytes to compare) follows b.
+    assert [n["src"] for n in tree] == [0, 0, 1, 1]
+    assert [n["src"] for n in parse_pdml(pdml, 2)] == [0, 0, 0, 0]  # without the buffers

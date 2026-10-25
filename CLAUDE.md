@@ -563,9 +563,15 @@ frame.number==N` (no `-c`, both the PDML and the `-x` run), so references
   fallback blue sits under the browser's black text). `scripts/screenshots.js`
   writes `diagram.png` (README).
 - **Byte sources**: PDML does not say which data source (frame vs reassembled)
-  a field's `pos` refers to. Heuristic in `pdml.py`: top-level items after a
-  `*.segments`/`*.fragments` node belong to the next `-x` source. Documented
-  limitation for exotic multi-source packets (e.g. decrypted TLS + decompression).
+  a field's `pos` refers to. Heuristic in `pdml.py`: each top-level item goes
+  into the `-x` source whose bytes match its fields' raw `value`s (or
+  `unmaskedvalue`s) at their `pos` (`_matching_source`: +1 per match, −1 per
+  mismatch, the default unless another scores higher); without evidence it
+  stays in the previous item's source, moving to the next after a
+  `*.segments`/`*.fragments` node. The byte check came from test/realworld:
+  6LoWPAN's IPv6 header exists only in "Decompressed 6LoWPAN IPHC", with no
+  reassembly item before it (`sixlowpan.pcap`). A top-level item whose
+  children span several sources still gets one.
   The first source is always named "Frame" (`pdml.FRAME_SOURCE`): tshark 4.6
   prints "Packet (N bytes):" where 4.2/4.4 print "Frame", and single-source
   packets print no header at all, so the byte tabs and _Export Packet Bytes_

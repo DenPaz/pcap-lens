@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -38,8 +38,17 @@ class PdmlError(ValueError):
     """tshark produced PDML we could not parse."""
 
 
-def parse_pdml(data: bytes, source_count: int = 1) -> list[TreeNode]:
-    """Parse the first ``<packet>`` of a PDML document into a list of tree nodes."""
+def parse_pdml(
+    data: bytes, source_count: int = 1, sources: Sequence[bytes] | None = None
+) -> list[TreeNode]:
+    """Parse the first ``<packet>`` of a PDML document into a list of tree nodes.
+
+    PDML doesn't say which byte source a field's ``pos`` refers to. Each
+    top-level item goes into the source its fields' bytes match (``sources``,
+    the ``-x`` buffers), else the one before it, moving on after reassembly
+    info (``*.segments``): 6LoWPAN's IPv6 header, for one, is only in the
+    "Decompressed 6LoWPAN IPHC" buffer, with no reassembly item before it.
+    """
     try:
         root = ET.fromstring(data)  # noqa: S314 - trusted producer, escaped content
     except ET.ParseError as exc:
@@ -62,10 +71,35 @@ def parse_pdml(data: bytes, source_count: int = 1) -> list[TreeNode]:
     for el in top:
         if _NEW_SOURCE_RE.search(el.get("name", "")) and src + 1 < source_count:
             src += 1
+        if sources and len(sources) > 1:
+            src = _matching_source(el, sources, src)
         node = _convert(el, src, counter)
         if node is not None:
             nodes.append(node)
     return nodes
+
+
+def _matching_source(el: ET.Element, sources: Sequence[bytes], default: int) -> int:
+    """The byte source whose bytes agree best with ``el``'s fields (each
+    field's raw ``value`` at its ``pos``), or ``default`` when none does better."""
+    checks: list[tuple[int, bytes]] = []
+    for node in el.iter():
+        raw = node.get("unmaskedvalue") or node.get("value")
+        pos, size = _int(node.get("pos")), _int(node.get("size"))
+        if raw and pos is not None and size and len(raw) == 2 * size:
+            try:
+                checks.append((pos, bytes.fromhex(raw)))
+            except ValueError:
+                continue
+    if not checks:
+        return default
+
+    def score(data: bytes) -> int:
+        return sum(1 if data[pos : pos + len(b)] == b else -1 for pos, b in checks)
+
+    scores = [score(data) for data in sources]
+    best = max(range(len(sources)), key=lambda i: (scores[i], i == default))
+    return best if scores[best] > scores[min(default, len(sources) - 1)] else default
 
 
 class _Counter:

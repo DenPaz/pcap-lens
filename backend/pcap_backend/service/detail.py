@@ -125,7 +125,9 @@ class DetailMixin(DissectionMixin):
                 f"tshark returned no detail for frame {number}",
             )
         sources = pdml.parse_hexdump(hex_res.stdout.decode("utf-8", "replace"))
-        tree = pdml.parse_pdml(pdml_res.stdout, source_count=max(1, len(sources)))
+        tree = pdml.parse_pdml(
+            pdml_res.stdout, max(1, len(sources)), [bytes(s.data) for s in sources]
+        )
         return {
             "tree": tree,
             "sources": [s.to_json() for s in sources],
@@ -169,7 +171,9 @@ class DetailMixin(DissectionMixin):
         if not pdml_res.stdout.strip():
             raise f.tshark.error(pdml_res.stderr, pdml_res.returncode, "tshark can't read the file")
         sources = pdml.parse_hexdump(hex_res.stdout.decode("utf-8", "replace"))
-        tree = pdml.parse_pdml(pdml_res.stdout, source_count=max(1, len(sources)))
+        tree = pdml.parse_pdml(
+            pdml_res.stdout, max(1, len(sources)), [bytes(s.data) for s in sources]
+        )
         # (geninfo, frame and the MIME wrapper first; the file's own tree last.)
         protocols = [n for n in tree if n.get("proto") and n.get("name") not in _WRAPPERS]
         f.file_format = {

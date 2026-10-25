@@ -248,7 +248,10 @@ class Report:
 
 
 class Run:
-    def __init__(self, server: Server, report: Report, timeout: float, work: Path) -> None:
+    def __init__(
+        self, server: Server, report: Report, timeout: float, work: Path, quick: bool = False
+    ) -> None:
+        self.quick = quick
         self.server = server
         self.report = report
         self.timeout = timeout
@@ -295,7 +298,7 @@ def record_count(path: Path) -> int | None:
     return len(out.split())
 
 
-def exercise(path: Path, timeout: float) -> Report:
+def exercise(path: Path, timeout: float, quick: bool = False) -> Report:
     report = Report(str(path))
     with tempfile.TemporaryDirectory(prefix="pcap-realworld-") as tmp:
         home = Path(tmp) / "home"
@@ -303,7 +306,7 @@ def exercise(path: Path, timeout: float) -> Report:
         home.mkdir()
         work.mkdir()
         server = Server(home)
-        run = Run(server, report, timeout, work)
+        run = Run(server, report, timeout, work, quick)
         try:
             _exercise(run, path, Path(tmp) / "cache")
         except Exception as exc:  # noqa: BLE001 (a harness bug is reported, not fatal)
@@ -356,14 +359,17 @@ def _exercise(run: Run, path: Path, cache: Path) -> None:
     if expected is not None:
         run.check("frames = tshark", frames == expected, f"viewer {frames}, tshark {expected}")
 
-    _packet_list(run, frames)
-    if frames:
-        _details(run, frames)
-        _filters_and_find(run)
-        _streams(run)
-    _statistics(run)
-    _other(run, frames)
-    _exports(run, path, frames)
+    if run.quick:
+        _quick(run, frames)
+    else:
+        _packet_list(run, frames)
+        if frames:
+            _details(run, frames)
+            _filters_and_find(run)
+            _streams(run)
+        _statistics(run)
+        _other(run, frames)
+        _exports(run, path, frames)
     # Reopening reads the saved index: same rows.
     again = run.call(
         "reopen (saved index)",
@@ -383,6 +389,43 @@ def _exercise(run: Run, path: Path, cache: Path) -> None:
             "reopen total",
             page.get("total") == frames,
             f"total {page.get('total')} after reopening, {frames} before",
+        )
+
+
+def _quick(run: Run, frames: int) -> None:
+    """The parts most likely to meet a malformed capture, for big sets of
+    small captures (tcpdump's tests): a page, a sort, the first and last
+    details, one filter, the main statistics, triage and an export."""
+    page = run.call("list first page", "list_packets", {"offset": 0, "limit": 200}) or {}
+    run.check("list total", page.get("total") == frames, f"total {page.get('total')} vs {frames}")
+    run.call(
+        "sort info", "list_packets", {"offset": 0, "limit": 20, "sort": {"field": "_ws.col.info"}}
+    )
+    names: set[str] = set()
+    for n in sorted({1, frames} - {0}):
+        detail = run.call(f"detail {n}", "packet_detail", {"number": n})
+        if detail:
+            _collect_names(detail.get("tree") or [], names)
+            _check_tree(run, n, detail)
+    if names:
+        run.call("field_types", "field_types", {"fields": sorted(names)[:500]})
+    run.call("filter ip", "set_filter", {"expr": "ip || ipv6"})
+    run.call("list ip", "list_packets", {"offset": 0, "limit": 50})
+    run.call("filter clear", "set_filter", {"expr": ""})
+    for params in ({"kind": "phs"}, {"kind": "conversations", "type": "ip"}, {"kind": "expert"}):
+        run.call(f"stats {params['kind']}", "stats", params)
+    tcp = run.first_frame("tcp") if frames else None
+    if tcp is not None:
+        run.call("follow tcp", "follow_stream", {"proto": "tcp", "frame": tcp})
+    run.call("voip calls", "voip_calls", {})
+    run.call("triage", "triage", {})
+    run.call("capture profile", "capture_profile", {})
+    run.call("comments", "packet_comments", {})
+    dest = run.work / "all.pcapng"
+    if run.call("export pcapng", "export", {"kind": "pcapng", "dest": str(dest), "filter": ""}):
+        got = record_count(dest)
+        run.check(
+            "export pcapng count", got == frames, f"{got} packets written, {frames} in capture"
         )
 
 
@@ -670,6 +713,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("paths", nargs="*", type=Path, help="captures or folders of captures")
     ap.add_argument("--fetch", action="store_true", help="download Wireshark's test captures")
     ap.add_argument("--only", help="only captures whose name contains this")
+    ap.add_argument("--quick", action="store_true", help="fewer steps per capture")
     ap.add_argument("-j", "--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     ap.add_argument("--timeout", type=float, default=120.0, help="seconds per request")
     ap.add_argument("--out", type=Path, help="write the full report as JSON")
@@ -687,7 +731,7 @@ def main(argv: list[str] | None = None) -> int:
 
     reports: list[Report] = []
     with ThreadPoolExecutor(args.jobs) as pool:
-        for report in pool.map(lambda c: exercise(c, args.timeout), captures):
+        for report in pool.map(lambda c: exercise(c, args.timeout, args.quick), captures):
             reports.append(report)
             bad = report.problems()
             mark = "PROBLEM" if bad else "ok"

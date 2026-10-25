@@ -33,6 +33,7 @@ import quic  # test/fixtures/quic.py: the hand-encrypted QUIC connection
 from scapy.asn1.asn1 import ASN1_OID
 from scapy.layers.dns import DNS, DNSQR, DNSRR
 from scapy.layers.dot11 import Dot11
+from scapy.layers.dot15d4 import Dot15d4Data, Dot15d4FCS
 from scapy.layers.inet import ICMP, IP, TCP, UDP
 from scapy.layers.inet6 import IPv6
 from scapy.layers.l2 import ARP, LLC, SNAP, Ether
@@ -49,6 +50,7 @@ from scapy.layers.sctp import (
     SCTPChunkParamStateCookie,
     SCTPChunkSACK,
 )
+from scapy.layers.sixlowpan import LoWPAN_IPHC
 from scapy.layers.snmp import SNMP, SNMPget, SNMPnext, SNMPresponse, SNMPvarbind
 from scapy.packet import Packet, Raw
 from scapy.utils import wrpcap, wrpcapng
@@ -1871,6 +1873,19 @@ def network_packets() -> list[Packet]:
     return [pkt for _, pkt in out]
 
 
+def sixlowpan_packets() -> list[Packet]:
+    """An IEEE 802.15.4 frame carrying UDP in a 6LoWPAN-compressed IPv6 header:
+    tshark shows the IPv6, UDP and data trees on a second byte source
+    ("Decompressed 6LoWPAN IPHC") with no reassembly item before them."""
+    frame = Dot15d4FCS(
+        fcf_frametype=1, fcf_srcaddrmode=3, fcf_destaddrmode=3, fcf_panidcompress=1, seqnum=1
+    ) / Dot15d4Data(
+        dest_panid=0xABCD, dest_addr=0x1122334455667788, src_addr=0x0202000240021002
+    )  # fmt: skip
+    iphc = LoWPAN_IPHC(tf=3, nh=0, nhField=17, hlim=2, sam=3, dam=3)
+    return _stamp([frame / iphc / UDP(sport=7777, dport=7777) / Raw(b"hello 6lowpan")])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--large", nargs=2, metavar=("COUNT", "DEST"))
@@ -1899,6 +1914,7 @@ def main() -> None:
     wrpcap(str(HERE / "wep.pcap"), wep_packets())
     wrpcap(str(HERE / "esp.pcap"), esp_packets())
     wrpcap(str(HERE / "network.pcap"), network_packets())
+    wrpcap(str(HERE / "sixlowpan.pcap"), sixlowpan_packets())
     wrpcap(str(HERE / "office-before.pcap"), office_packets(problems=False))
     wrpcap(str(HERE / "office-after.pcap"), office_packets(problems=True))
     geoip_fixtures()
