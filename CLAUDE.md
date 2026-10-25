@@ -1939,9 +1939,16 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   settings (`dissectionOptions`) and the saved-index cache. Flows are keyed
   client → server:port (`flow_key`: the server is the end with the lower
   port; IPv6 servers bracketed), with connections summed; at most
-  `MAX_PROFILE_ITEMS` (500) flows and endpoints by bytes. `compare_profiles
+  `MAX_PROFILE_ITEMS` (500) flows and endpoints by bytes, the rest summed and
+  known by `member_id` (12 hex of sha256; `otherFlowIds`/`otherEndpointIds`,
+  at most `MAX_MEMBER_IDS` 100k, `complete`), so an item kept on one side and
+  only an id on the other is neither new nor gone, and one missing beside
+  incomplete ids is counted as `unsure` with a note (Codex review: a flow
+  ranked 501st on one side read as new or gone; `PROFILE_VERSION` 2). `compare_profiles
 {before, after, names}` (`compare.diff`) gives totals and rates, the checks
-  whose counts differ (per 1,000 packets, first packet in each), and per kind
+  whose counts or rates differ (per 1,000 packets, first packet in each;
+  equal counts change when one rate is ≥ `RATE_CHANGE` 1.5× the other: Codex
+  review), and per kind
   (protocols, flows, endpoints, expert) what is `new`, `gone` or `changed`
   by share (≥ `MIN_SHARE_CHANGE` 1 percentage point), `MAX_DIFF_ITEMS` (15)
   each (expert messages most severe first, then by count: tshark 4.6's extra

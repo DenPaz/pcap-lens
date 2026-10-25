@@ -20,16 +20,24 @@ client port changes.
 
 from __future__ import annotations
 
+import bisect
+import hashlib
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
-PROFILE_VERSION = 1
+PROFILE_VERSION = 2
 # Flows and endpoints kept per profile (by bytes); the rest are summed.
 MAX_PROFILE_ITEMS = 500
+# The rest are still known by a short hash (``member_id``), so a flow ranked
+# 501st in one capture isn't reported as new or gone; at most this many.
+MAX_MEMBER_IDS = 100_000
 # Items per list in a diff.
 MAX_DIFF_ITEMS = 15
 # A share must move this many percentage points to count as changed.
 MIN_SHARE_CHANGE = 1.0
+# A check with the same count in both captures still changed when one
+# capture's rate per 1,000 packets is this many times the other's.
+RATE_CHANGE = 1.5
 # A scan: one client reaching MIN_SCAN_PORTS ports of one server (a port
 # scan) or one port of MIN_SWEEP_HOSTS servers (a host sweep; more, since a
 # client asking several DNS or NTP servers looks alike), in flows of at most
@@ -89,14 +97,27 @@ def _protocols(phs: Mapping[str, Any] | None) -> dict[str, list[float]]:
     return out
 
 
-def _top(items: dict[str, list[float]], by: int) -> tuple[dict[str, list[float]], list[float]]:
-    """The MAX_PROFILE_ITEMS largest items by column ``by``, and the sums of the rest."""
+def member_id(key: str) -> str:
+    """A flow's or endpoint's key as a short hash (for the items a profile doesn't keep)."""
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+
+
+def _top(
+    items: dict[str, list[float]], by: int
+) -> tuple[dict[str, list[float]], list[float], dict[str, Any]]:
+    """The MAX_PROFILE_ITEMS largest items by column ``by``, the sums of the
+    rest, and the rest's ``member_id``s (``ids``, sorted; ``complete``)."""
     ranked = sorted(items.items(), key=lambda kv: kv[1][by], reverse=True)
     kept = dict(ranked[:MAX_PROFILE_ITEMS])
     rest = [0.0] * (len(ranked[0][1]) if ranked else 0)
     for _, values in ranked[MAX_PROFILE_ITEMS:]:
         rest = [r + v for r, v in zip(rest, values, strict=True)]
-    return kept, rest
+    others = ranked[MAX_PROFILE_ITEMS:]
+    members = {
+        "ids": sorted(member_id(k) for k, _ in others[:MAX_MEMBER_IDS]),
+        "complete": len(others) <= MAX_MEMBER_IDS,
+    }
+    return kept, rest, members
 
 
 def profile(
@@ -162,8 +183,8 @@ def profile(
             messages[key] = messages.get(key, 0) + _num(cells[i_count])
             severity = str(cells[i_sev])
             severities[severity] = severities.get(severity, 0) + _num(cells[i_count])
-    kept_flows, other_flows = _top(flows, 2)
-    kept_hosts, other_hosts = _top(hosts, 1)
+    kept_flows, other_flows, flow_members = _top(flows, 2)
+    kept_hosts, other_hosts, host_members = _top(hosts, 1)
     start, end = info.get("startTime"), info.get("endTime")
     return {
         "version": PROFILE_VERSION,
@@ -179,8 +200,10 @@ def profile(
         "protocols": protocols,
         "flows": kept_flows,
         "otherFlows": other_flows,
+        "otherFlowIds": flow_members,
         "endpoints": kept_hosts,
         "otherEndpoints": other_hosts,
+        "otherEndpointIds": host_members,
         "checks": checks,
         "notCounted": not_counted,
         "twoPass": bool((triage or {}).get("twoPass")),
@@ -220,9 +243,25 @@ def _compare(
     totals: tuple[float, float],
     label: str,
     limit: int,
+    others: tuple[Mapping[str, Any] | None, Mapping[str, Any] | None] = (None, None),
 ) -> dict[str, Any]:
     """New, gone and changed items of one kind (share = column ``share_of``
-    as a percentage of the capture's total)."""
+    as a percentage of the capture's total). ``others``: each profile's
+    ``member_id``s of the items it didn't keep; an item one profile keeps and
+    the other only knows by id is in both (neither new nor gone, and its
+    share there unknown), and an item missing from a profile whose ids are
+    incomplete may be in it (counted as ``unsure``)."""
+    unsure = {"new": 0, "gone": 0}
+
+    def absent(key: str, members: Mapping[str, Any] | None, side: str) -> bool:
+        if not members:
+            return True
+        if _sorted_has(members.get("ids") or [], member_id(key)):
+            return False
+        if not members.get("complete", True):
+            unsure[side] += 1
+            return False
+        return True
 
     def item(key: str, values: Sequence[float], total: float) -> dict[str, Any]:
         out: dict[str, Any] = {label: key}
@@ -230,8 +269,16 @@ def _compare(
         out["share"] = _share(values[share_of], total)
         return out
 
-    new = [item(k, v, totals[1]) for k, v in after.items() if k not in before]
-    gone = [item(k, v, totals[0]) for k, v in before.items() if k not in after]
+    new = [
+        item(k, v, totals[1])
+        for k, v in after.items()
+        if k not in before and absent(k, others[0], "new")
+    ]
+    gone = [
+        item(k, v, totals[0])
+        for k, v in before.items()
+        if k not in after and absent(k, others[1], "gone")
+    ]
     changed = []
     for key in before.keys() & after.keys():
         b = item(key, before[key], totals[0])
@@ -258,7 +305,14 @@ def _compare(
     }
     if more:
         out["more"] = more
+    if any(unsure.values()):
+        out["unsure"] = {k: n for k, n in unsure.items() if n}
     return out
+
+
+def _sorted_has(ids: Sequence[str], wanted: str) -> bool:
+    i = bisect.bisect_left(ids, wanted)
+    return i < len(ids) and ids[i] == wanted
 
 
 def _parse_flow(key: str) -> tuple[str, str, str, int] | None:
@@ -334,13 +388,14 @@ def _checks(before: Mapping[str, Any], after: Mapping[str, Any]) -> dict[str, An
         b, a = before["checks"][cid], after["checks"][cid]
         if b["count"] == a["count"] == 0:
             continue
-        if b["count"] == a["count"]:
-            unchanged += 1
-            continue
         b1000, a1000 = (
             _per_1000(b["count"], before["packets"]),
             _per_1000(a["count"], after["packets"]),
         )
+        # (Equal counts in captures of very different lengths are different rates.)
+        if b["count"] == a["count"] and max(a1000, b1000) < RATE_CHANGE * min(a1000, b1000):
+            unchanged += 1
+            continue
         rows.append(
             {
                 "id": cid,
@@ -455,6 +510,13 @@ def diff(
     for name, p in zip(names, (before, after), strict=True):
         if p.get("missing"):
             notes.append(f"Not available for {name}: {', '.join(p['missing'])}.")
+    notes.extend(
+        f"{name} has more than {MAX_PROFILE_ITEMS + MAX_MEMBER_IDS:,} {kind}s: whether"
+        f" some {kind}s are new or gone can't be told ('unsure' counts them)."
+        for name, p in zip(names, (before, after), strict=True)
+        for kind in ("flow", "endpoint")
+        if not (p.get(f"other{kind.title()}Ids") or {}).get("complete", True)
+    )
     if before.get("linkType") != after.get("linkType"):
         notes.append(f"Different link types: {before.get('linkType')} and {after.get('linkType')}.")
     out: dict[str, Any] = {
@@ -478,9 +540,17 @@ def diff(
             size,
             "flow",
             limit,
+            (before.get("otherFlowIds"), after.get("otherFlowIds")),
         ),
         "endpoints": _compare(
-            before["endpoints"], after["endpoints"], ("packets", "bytes"), 1, size, "address", limit
+            before["endpoints"],
+            after["endpoints"],
+            ("packets", "bytes"),
+            1,
+            size,
+            "address",
+            limit,
+            (before.get("otherEndpointIds"), after.get("otherEndpointIds")),
         ),
         "expert": _expert(before, after, limit),
         "scans": _scans(before, after, limit),

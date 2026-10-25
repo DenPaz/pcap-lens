@@ -102,6 +102,42 @@ def test_profile_keeps_the_largest_flows(monkeypatch: pytest.MonkeyPatch) -> Non
     )
     assert list(p["flows"]) == ["tcp 10.0.0.5 → 10.0.0.80:80", "tcp 10.0.0.4 → 10.0.0.80:80"]
     assert p["otherFlows"] == [3, 3, 600]
+    assert p["otherFlowIds"] == {
+        "ids": sorted(compare.member_id(f"tcp 10.0.0.{i} → 10.0.0.80:80") for i in (1, 2, 3)),
+        "complete": True,
+    }
+
+
+def test_flows_beyond_the_kept_ones_are_neither_new_nor_gone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Codex review: a flow ranked just inside the kept ones in one capture and
+    # just outside in the other read as new (or gone).
+    monkeypatch.setattr(compare, "MAX_PROFILE_ITEMS", 2)
+
+    def conv(sizes: dict[int, int]) -> list[list[Any]]:
+        return [[f"10.0.0.{i}:50000", "10.0.0.80:80", 1, n] for i, n in sizes.items()]
+
+    before = _profile(100, conv({1: 500, 2: 400, 3: 300, 4: 200}), {})
+    after = _profile(100, conv({1: 500, 3: 450, 2: 100, 5: 50}), {})
+    d = compare.diff(before, after)
+    # 10.0.0.3 moved into the kept ones and 10.0.0.2 out: in both, so neither.
+    assert d["flows"]["new"] == [] and d["flows"]["gone"] == []
+    assert "unsure" not in d["flows"]
+    # Endpoints the same way (10.0.0.80 and the clients by bytes).
+    assert d["endpoints"]["new"] == [] and d["endpoints"]["gone"] == []
+    # Ids that stop short: a flow missing from the other side may be in it.
+    monkeypatch.setattr(compare, "MAX_MEMBER_IDS", 1)
+    before = _profile(100, conv({1: 500, 2: 400, 3: 300, 4: 200}), {})
+    after = _profile(100, conv({1: 500, 6: 450, 2: 100}), {})
+    d = compare.diff(before, after)
+    # 10.0.0.6 isn't among before's ids (10.0.0.3 is the one kept), but they stop
+    # short: unsure, not new.
+    assert d["flows"]["new"] == [] and d["flows"]["unsure"] == {"new": 1}
+    assert any("some flows are new or gone" in n for n in d["notes"])
+    # 10.0.0.2 left the kept ones but after's ids are complete: in both.
+    assert d["flows"]["gone"] == []
+    assert compare.diff(after, before)["flows"]["new"] == []
 
 
 def test_diff_new_gone_changed_and_checks() -> None:
@@ -132,11 +168,23 @@ def test_diff_new_gone_changed_and_checks() -> None:
     )
     d = compare.diff(before, after, ("monday.pcap", "tuesday.pcap"))
     assert d["before"]["name"] == "monday.pcap" and d["after"]["packetsPerSecond"] == 200.0
-    # Counts that differ, most changed rate first; equal counts are only counted.
-    assert [c["id"] for c in d["checks"]["changed"]] == ["tcp_resets", "http_server_errors"]
+    # Most changed rate first. Equal counts in a capture twice as long are half
+    # the rate: changed too (Codex review: 10 in 100 packets vs 10 in 10,000
+    # read as unchanged).
+    assert [c["id"] for c in d["checks"]["changed"]] == [
+        "tcp_resets",
+        "tcp_connection_attempts",
+        "dns_errors",
+        "http_server_errors",
+    ]
     resets = d["checks"]["changed"][0]
     assert (resets["before"], resets["after"], resets["afterPer1000"]) == (0, 50, 25.0)
-    assert d["checks"]["unchangedNonZero"] == 2 and "notCompared" not in d["checks"]
+    assert d["checks"]["unchangedNonZero"] == 0 and "notCompared" not in d["checks"]
+    # Equal counts at close rates (1000 vs 1100 packets) stay unchanged.
+    longer = {**after, "packets": 1100}
+    same = compare.diff(before, longer)["checks"]
+    assert [c["id"] for c in same["changed"]] == ["tcp_resets", "http_server_errors"]
+    assert same["unchangedNonZero"] == 2
     flows = d["flows"]
     assert [f["flow"] for f in flows["new"]] == ["tcp 10.0.0.66 → 10.0.0.80:3389"]
     assert [f["flow"] for f in flows["gone"]] == ["tcp 10.0.0.7 → 10.0.0.80:21"]
