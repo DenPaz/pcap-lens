@@ -81,18 +81,36 @@ def parse_pdml(
     return nodes
 
 
+# A bit field's label ("0001 00.. = DSCP: …"): its ``value`` is the masked
+# value, not the bytes, unless PDML adds ``unmaskedvalue``.
+_BITS_RE = re.compile(r"^[01.]{4}(?: [01.]{4})* = ")
+
+
+def _raw_value(el: ET.Element, size: int | None) -> bytes | None:
+    """The bytes an item covers, when PDML gives them (``unmaskedvalue``, else
+    ``value`` unless it's a bit field's masked value), else None."""
+    raw = el.get("unmaskedvalue")
+    if raw is None:
+        raw = el.get("value")
+        if raw is None or _BITS_RE.match(el.get("showname", "")):
+            return None
+    if not size or len(raw) != 2 * size:
+        return None
+    try:
+        return bytes.fromhex(raw)
+    except ValueError:
+        return None
+
+
 def _matching_source(el: ET.Element, sources: Sequence[bytes], default: int) -> int:
     """The byte source whose bytes agree best with ``el``'s fields (each
     field's raw ``value`` at its ``pos``), or ``default`` when none does better."""
     checks: list[tuple[int, bytes]] = []
     for node in el.iter():
-        raw = node.get("unmaskedvalue") or node.get("value")
         pos, size = _int(node.get("pos")), _int(node.get("size"))
-        if raw and pos is not None and size and len(raw) == 2 * size:
-            try:
-                checks.append((pos, bytes.fromhex(raw)))
-            except ValueError:
-                continue
+        value = _raw_value(node, size) if size else None
+        if value is not None and pos is not None:
+            checks.append((pos, value))
     if not checks:
         return default
 
@@ -122,11 +140,7 @@ def _locate_field(
     record's frame offset, though its bytes are a whole "Decrypted TLS"
     buffer; an HTTP "Content-encoded entity body" holds the compressed body
     (its own value) and, below it, the uncompressed one's fields."""
-    raw = el.get("unmaskedvalue") or el.get("value") or ""
-    try:
-        value = bytes.fromhex(raw) if len(raw) == 2 * size else None
-    except ValueError:
-        value = None
+    value = _raw_value(el, size)
     if value is None:
         # No bytes to compare: only a range that can't be in its source moves
         # (to the first source it fits: QUIC CRYPTO data in a packet with

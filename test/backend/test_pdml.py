@@ -269,3 +269,17 @@ def test_parse_pdml_places_items_by_their_own_bytes_and_range() -> None:
     assert (body["src"], body["pos"]) == (1, 0)
     assert [c["src"] for c in body["children"]] == [2, 2]
     assert _find(tree, "crypto")["src"] == 0  # (fits only the frame)
+
+
+def test_parse_pdml_ignores_masked_bit_field_values() -> None:
+    # "0001 00.. = DSCP" holds 0x04, the masked value, not the byte (0x10);
+    # the second buffer happens to have 04 there, which must not pull it over.
+    sources = [bytes.fromhex("4510"), bytes.fromhex("0004")]
+    pdml = (
+        b'<pdml><packet><proto name="ip" pos="0" size="2">'
+        b'<field name="ip.dsfield" pos="1" size="1" value="10">'
+        b'<field name="ip.dsfield.dscp" showname="0001 00.. = DSCP: 4"'
+        b' pos="1" size="1" value="04"/>'
+        b"</field></proto></packet></pdml>"
+    )
+    assert _find(parse_pdml(pdml, 2, sources), "ip.dsfield.dscp")["src"] == 0
