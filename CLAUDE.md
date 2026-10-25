@@ -562,20 +562,24 @@ frame.number==N` (no `-c`, both the PDML and the `-x` run), so references
   without the bytes pane (the harness has no theme, so the field highlight's
   fallback blue sits under the browser's black text). `scripts/screenshots.js`
   writes `diagram.png` (README).
-- **Byte sources**: PDML does not say which data source (frame vs reassembled)
-  a field's `pos` refers to. Heuristic in `pdml.py`: each top-level item goes
-  into the `-x` source whose bytes match its fields' raw `value`s (or
-  `unmaskedvalue`s) at their `pos` (`_matching_source`: +1 per match, −1 per
-  mismatch, the default unless another scores higher); without evidence it
-  stays in the previous item's source, moving to the next after a
-  `*.segments`/`*.fragments` node. The byte check came from test/realworld:
-  6LoWPAN's IPv6 header exists only in "Decompressed 6LoWPAN IPHC", with no
-  reassembly item before it (`sixlowpan.pcap`). Nested protocols are matched
-  the same way (EAP reassembled from RADIUS EAP-Message attributes:
-  `radius-eap.pcap`); a protocol item's own range stays on the enclosing
-  source when it doesn't fit the matched one (`_own_source`: the EAP item
-  spans the attributes, past the frame's end). Fields of one protocol that
-  span several sources still get one.
+- **Byte sources**: PDML does not say which data source (frame vs
+  reassembled, decrypted, decompressed) a field's `pos` refers to. `pdml.py`
+  checks fields' raw `value`s (or `unmaskedvalue`s) against the `-x` buffers,
+  at three levels: each top-level item and each nested item with children
+  goes to the source its fields match best (`_matching_source`: +1 per match,
+  −1 per mismatch, the inherited source unless another scores higher;
+  without evidence a top-level item stays in the previous one's source,
+  moving to the next after a `*.segments`/`*.fragments` node); an item's own
+  range stays on the enclosing source when it doesn't fit the matched one
+  (`_own_source`); a leaf whose value isn't at its position moves to a
+  source where it is, else to one it fills whole at position 0
+  (`_locate_field`). All found by test/realworld: 6LoWPAN's IPv6 header only
+  in "Decompressed 6LoWPAN IPHC" with no reassembly item before it
+  (`sixlowpan.pcap`), EAP reassembled from RADIUS attributes nested in
+  RADIUS (`radius-eap.pcap`, the EAP item spanning past the frame's end), a
+  decrypted (D)TLS alert's fields under a record in the frame, and "TLS
+  segment data" given its record's frame offset though its bytes are a
+  whole "Decrypted TLS" buffer (the key-log test).
   The first source is always named "Frame" (`pdml.FRAME_SOURCE`): tshark 4.6
   prints "Packet (N bytes):" where 4.2/4.4 print "Frame", and single-source
   packets print no header at all, so the byte tabs and _Export Packet Bytes_

@@ -113,8 +113,34 @@ class _Counter:
         return self.value
 
 
+def _locate_field(
+    el: ET.Element, sources: Sequence[bytes], src: int, pos: int, size: int
+) -> tuple[int, int]:
+    """A leaf field's (source, position): as given while its raw value is
+    there, else where it is at that position in another source, else a
+    source it fills whole. tshark gives a decrypted TLS record's "TLS segment
+    data" the record's frame offset, though its bytes are a whole "Decrypted
+    TLS" buffer."""
+    raw = el.get("unmaskedvalue") or el.get("value") or ""
+    if len(raw) != 2 * size:
+        return src, pos
+    try:
+        value = bytes.fromhex(raw)
+    except ValueError:
+        return src, pos
+    if sources[src][pos : pos + size] == value:
+        return src, pos
+    for i, data in enumerate(sources):
+        if data[pos : pos + size] == value:
+            return i, pos
+    for i, data in enumerate(sources):
+        if data == value:
+            return i, 0
+    return src, pos
+
+
 def _own_source(el: ET.Element, sources: Sequence[bytes], inner: int, outer: int) -> int:
-    """A protocol item's own source: the one its fields are in, unless its
+    """An item's own source: the one its fields are in, unless its
     own range only fits the enclosing one (EAP reassembled from RADIUS
     attributes: the item spans the attribute in the frame, its fields the
     "Reassembled EAP" buffer)."""
@@ -134,8 +160,10 @@ def _convert(
     own: int | None = None,
 ) -> TreeNode | None:
     """``src`` is the byte source of ``el``'s fields, ``own`` its own (default
-    the same). A nested protocol whose fields' bytes match another source
-    (``sources``) moves its subtree there."""
+    the same). A nested item (a protocol, or a field with children) whose
+    fields' bytes match another source (``sources``) moves its subtree there:
+    a decrypted DTLS alert's level and description are offsets in "Decrypted
+    DTLS", under a record that is in the frame."""
     if el.get("hide") == "yes":
         return None
     name = el.get("name", "")
@@ -158,6 +186,8 @@ def _convert(
     size = _int(el.get("size"))
     pos = _int(el.get("pos"))
     if size and pos is not None:
+        if sources and len(sources) > 1 and len(el) == 0:
+            node["src"], pos = _locate_field(el, sources, node["src"], pos, size)
         node["pos"] = pos
         node["size"] = size
     if el.tag == "proto":
@@ -167,7 +197,7 @@ def _convert(
         if child.tag not in ("field", "proto"):
             continue
         inner, child_own = src, None
-        if sources and len(sources) > 1 and child.tag == "proto":
+        if sources and len(sources) > 1 and len(child):
             inner = _matching_source(child, sources, src)
             child_own = _own_source(child, sources, inner, src)
         converted = _convert(child, inner, counter, sources, child_own)

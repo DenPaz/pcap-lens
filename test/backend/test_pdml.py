@@ -211,3 +211,21 @@ def test_parse_pdml_picks_the_source_whose_bytes_match() -> None:
     # a matches the frame, b only the second buffer, c (no bytes to compare) follows b.
     assert [n["src"] for n in tree] == [0, 0, 1, 1]
     assert [n["src"] for n in parse_pdml(pdml, 2)] == [0, 0, 0, 0]  # without the buffers
+
+
+@pytest.mark.tshark
+def test_decrypted_tls_fields_lie_in_the_decrypted_buffers(
+    service: PcapService, ctx: RequestContext, tls_keylog: tuple[Path, Path]
+) -> None:
+    # Decrypted handshake messages are offsets in "Decrypted TLS" under a
+    # record in the frame, and tshark gives "TLS segment data" the record's
+    # frame offset though its bytes are a whole decrypted buffer (found by
+    # test/realworld on dtls12-aes128ccm8-dsb.pcapng's alert).
+    capture, keylog = tls_keylog
+    service.open({"path": str(capture), "prefs": {"tls.keylog_file": str(keylog)}}, ctx)
+    decrypted = 0
+    for number in range(1, service.capture_info({}, ctx)["frames"] + 1):
+        detail = service.packet_detail({"number": number}, ctx)
+        decrypted += any(s["name"] == "Decrypted TLS" for s in detail["sources"])
+        _check_sources(detail)
+    assert decrypted >= 3
