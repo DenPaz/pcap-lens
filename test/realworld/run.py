@@ -8,9 +8,14 @@ per capture over JSON-RPC, a streaming open with the default coloring
 rules and name resolution, then each feature in turn, and checks a few
 invariants (packet counts agree, exports read back, pages are complete).
 
-    uv run python test/realworld/run.py --fetch          # Wireshark's test captures
-    uv run python test/realworld/run.py DIR_OR_FILE …   # your own
+    uv run python test/realworld/run.py --fetch wireshark           # every feature
+    uv run python test/realworld/run.py --fetch tcpdump --quick     # 600 odd captures
+    uv run python test/realworld/run.py DIR_OR_FILE …              # your own
     … --only http -j 4 --out report.json
+
+Wireshark's test captures (about 190 after skipping its synthetic Oracle
+TNS and NVMe-MI series) come from GitLab, tcpdump's (about 600, many
+fuzzed: out-of-bounds reads, odd link types) from its TESTLIST on GitHub.
 
 Captures are kept in ~/.cache/pcap-lens-realworld (never in the repository:
 they aren't ours to redistribute). Every result is listed as ok, expected
@@ -100,6 +105,32 @@ def fetch_wireshark(dest: Path) -> list[Path]:
         time.sleep(0.2)
         print(f"fetched {name}", file=sys.stderr)
     return sorted(dest / n for n in names)
+
+
+TCPDUMP_TESTLIST = (
+    "https://raw.githubusercontent.com/the-tcpdump-group/tcpdump/master/tests/TESTLIST"
+)
+TCPDUMP_RAW = "https://raw.githubusercontent.com/the-tcpdump-group/tcpdump/master/tests/{name}"
+
+
+def fetch_tcpdump(dest: Path) -> list[Path]:
+    """tcpdump's test captures (the files its TESTLIST reads), downloaded once."""
+    dest.mkdir(parents=True, exist_ok=True)
+    names = sorted(
+        {
+            cells[1]
+            for line in _get(TCPDUMP_TESTLIST).decode().splitlines()
+            if not line.startswith("#")
+            and len(cells := line.split()) > 1
+            and re.search(r"\.(pcap|pcapng|cap)$", cells[1])
+        }
+    )
+    for name in names:
+        target = dest / name
+        if not (target.exists() and target.stat().st_size):
+            target.write_bytes(_get(TCPDUMP_RAW.format(name=name)))
+            print(f"fetched {name}", file=sys.stderr)
+    return [dest / n for n in names]
 
 
 def _is_html(path: Path) -> bool:
@@ -724,7 +755,13 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("paths", nargs="*", type=Path, help="captures or folders of captures")
-    ap.add_argument("--fetch", action="store_true", help="download Wireshark's test captures")
+    ap.add_argument(
+        "--fetch",
+        action="append",
+        choices=["wireshark", "tcpdump"],
+        default=[],
+        help="download and run a source's test captures (repeatable)",
+    )
     ap.add_argument("--only", help="only captures whose name contains this")
     ap.add_argument("--quick", action="store_true", help="fewer steps per capture")
     ap.add_argument("-j", "--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2))
@@ -733,8 +770,10 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     captures: list[Path] = []
-    if args.fetch:
+    if "wireshark" in args.fetch:
         captures += fetch_wireshark(CACHE / "wireshark")
+    if "tcpdump" in args.fetch:
+        captures += fetch_tcpdump(CACHE / "tcpdump")
     for p in args.paths:
         captures += sorted(x for x in p.rglob("*") if x.is_file()) if p.is_dir() else [p]
     if args.only:

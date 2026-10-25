@@ -20,6 +20,7 @@ CONTRIBUTING.md for building, testing and releasing (not packaged).
 | Regenerate fixtures       | `uv run python test/fixtures/generate.py`                                                                                                                |
 | Coverage                  | `make coverage` (pytest-cov and c8; summaries in the terminal, HTML in `coverage/`; CI's Linux job adds both to the run summary)                         |
 | Perf check                | `uv run python test/fixtures/generate.py --large 1000000 test/fixtures/large-1m.pcap && uv run python -u test/perf/bench.py test/fixtures/large-1m.pcap` |
+| Real captures (by hand)   | `make realworld` (`test/realworld/run.py --fetch wireshark`, then `--fetch tcpdump --quick`; downloads into `~/.cache/pcap-lens-realworld`)              |
 | AI answer evals (by hand) | `pnpm run evals` (asks a model the cases in `test/evals/cases.json`; `-- --prompts <dir>` / `--answers <dir>` without a model)                           |
 | Package                   | `pnpm run package` (vsce, `--no-dependencies`)                                                                                                           |
 | Prepare a release         | `pnpm run release:prepare 0.2.0` on `dev` (then PR `dev` → `main`, tag the merge, push the tag)                                                          |
@@ -281,7 +282,8 @@ plugins` and the plugin folders), `decryption.py` (decryption keys and
   scapy-generated captures, `mmdb.py` (writes the GeoIP test databases in
   `geoip/`), `h323.py` (H.225.0/H.245 messages in aligned PER, by hand) and
   `fake_dumpcap.py` (a stand-in dumpcap for
-  capture tests: `PCAP_VIEWER_DUMPCAP` = JSON argv), `test/perf/bench.py`.
+  capture tests: `PCAP_VIEWER_DUMPCAP` = JSON argv), `test/perf/bench.py`,
+  `test/realworld/run.py` (every feature over real captures, by hand).
 
 ## Rules (from the brief — do not break)
 
@@ -2015,6 +2017,29 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   without and with problems: resets, refused connections, unanswered ICMP
   and DNS, DNS errors, HTTP 5xx, a retransmission and 10.0.0.66 scanning
   10.0.0.80's ports 22, 23, 445, 3389 and 5900.
+- **Real-capture testing** (`test/realworld/run.py`, `make realworld`, not
+  CI): `--fetch wireshark` (Wireshark's `test/captures` through GitLab's API,
+  one file at a time: parallel raw requests get an HTML page; its synthetic
+  `tns_*`/`nvme-mi-*` series skipped) and `--fetch tcpdump` (the captures its
+  `tests/TESTLIST` names, many fuzzed) into `~/.cache/pcap-lens-realworld`,
+  never the repository. One `python -m pcap_backend` per capture with an
+  empty home, a streaming open with the default coloring rules and name
+  resolution, then every feature (`--quick`: a page, a sort, first and last
+  details, a filter, the main statistics, follow, VoIP, triage, profile,
+  comments, a pcapng export). Steps are ok, expected (the error codes the
+  viewer shows as a message), note (a field whose bytes fit no byte source:
+  tshark's own position, e.g. its Babel dissector's offsets past the packet,
+  HPACK's made-up name lengths) or problem (internal error, tshark failure,
+  timeout, slow > 30 s, stderr traceback, non-JSON stdout, a broken check:
+  record count = tshark's (capinfos counts Sysdig events as 0), list total,
+  exports read back, each field's raw bytes at its position in its own
+  source). Its first runs (Wireshark 188, tcpdump 612 captures) found: PDML
+  export with hex dumps (tshark refuses `-x`), pcap/pcapng exports and
+  editing of captures Wireshark can't write (`unwritable_error`), byte
+  sources (see _Byte sources_), an IO interval cap below a decades-long
+  capture (`MAX_IO_INTERVAL_S`), Follow › TLS on QUIC, and link types tshark
+  can't read (`_unsupported_data`). Each fix has a generated fixture or a
+  capture the test writes itself.
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage
@@ -2586,3 +2611,6 @@ Then comparing two captures with AI (with the port scans and host sweeps
 tshark's numbers show), and AI answer evals: 0.24.0.
 Then the scans in triage and capture summaries too, with the resets each
 drew: 0.24.1.
+Since: the real-capture harness and what it found (byte sources, exports
+and editing of captures Wireshark can't write, IO graphs of long captures,
+Follow, unsupported link types).
