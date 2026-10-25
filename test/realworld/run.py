@@ -280,22 +280,19 @@ class Run:
         return frames[0] if frames else None
 
 
-def capinfos_count(path: Path) -> int | None:
+def record_count(path: Path) -> int | None:
+    """Records in a capture as tshark reads them (capinfos counts a Sysdig
+    file's system-call events as 0 packets)."""
     try:
         out = subprocess.run(
-            ["capinfos", "-c", "-M", "-T", "-r", str(path)],  # noqa: S607
+            ["tshark", "-n", "-r", str(path), "-T", "fields", "-e", "frame.number"],  # noqa: S607
             capture_output=True,
-            text=True,
-            timeout=120,
+            timeout=300,
             check=False,
         ).stdout
     except (OSError, subprocess.TimeoutExpired):
         return None
-    for line in out.splitlines():
-        cells = line.split("\t")
-        if len(cells) >= 2 and cells[1].strip().isdigit():
-            return int(cells[1])
-    return None
+    return len(out.split())
 
 
 def exercise(path: Path, timeout: float) -> Report:
@@ -355,9 +352,9 @@ def _exercise(run: Run, path: Path, cache: Path) -> None:
     info = run.call("capture_info", "capture_info") or {}
     frames = int(info.get("frames") or info.get("packets") or 0)
     run.report.frames = frames
-    expected = capinfos_count(path)
+    expected = record_count(path)
     if expected is not None:
-        run.check("frames = capinfos", frames == expected, f"viewer {frames}, capinfos {expected}")
+        run.check("frames = tshark", frames == expected, f"viewer {frames}, tshark {expected}")
 
     _packet_list(run, frames)
     if frames:
@@ -624,7 +621,7 @@ def _exports(run: Run, path: Path, frames: int) -> None:
             is None
         ):
             continue
-        got = capinfos_count(dest)
+        got = record_count(dest)
         # pcap can't hold every link type; a refusal is reported as an error above.
         run.check(
             f"export {kind} count", got == frames, f"{got} packets written, {frames} in capture"

@@ -183,6 +183,30 @@ def test_export_all_as_pcap_and_explicit_filter(
 
 
 @pytest.mark.tshark
+def test_export_as_pcap_refuses_mixed_link_types(
+    service: PcapService, fixtures: Path, ctx: RequestContext, tmp_path: Path
+) -> None:
+    # Ethernet and Bluetooth HCI in one pcapng: a pcap file holds one link type.
+    mixed = tmp_path / "mixed-links.pcapng"
+    subprocess.run(
+        [str(find_tool("mergecap")), "-w", str(mixed),
+         str(fixtures / "http.pcap"), str(fixtures / "formats" / "hci.btsnoop")],
+        check=True,
+    )  # fmt: skip
+    service.open({"path": str(mixed)}, ctx)
+    with pytest.raises(InvalidParamsError, match="as pcapng") as exc:
+        service.export({"kind": "pcap", "dest": str(tmp_path / "out.pcap"), "filter": ""}, ctx)
+    assert exc.value.data == {"pcapng": True}
+    with pytest.raises(InvalidParamsError, match="as pcapng"):  # a filtered export too
+        service.export({"kind": "pcap", "dest": str(tmp_path / "out.pcap"), "filter": "frame"}, ctx)
+    assert not (tmp_path / "out.pcap").exists()
+    res = service.export(
+        {"kind": "pcapng", "dest": str(tmp_path / "out.pcapng"), "filter": ""}, ctx
+    )
+    assert res["packets"] == _count(mixed)
+
+
+@pytest.mark.tshark
 def test_export_refuses_to_overwrite_capture(
     service: PcapService, fixtures: Path, ctx: RequestContext, tmp_path: Path
 ) -> None:
