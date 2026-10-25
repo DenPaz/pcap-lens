@@ -34,6 +34,36 @@ _NUMBER_RE = re.compile(r"^-?\d+(\.\d+)?$")
 _FORMULA_START = ("=", "+", "@", "\t", "\r")
 
 
+# tshark's and editcap's refusals to write packets in a format: pcap holds one
+# link type and only packets, while a pcapng can mix link types (Bluetooth
+# from two adapters), hold other records (process information) or carry a
+# link type Wireshark can only read ("Unknown"), which no format can store.
+# Found by test/realworld.
+_UNWRITABLE_RE = re.compile(r"can't be (?:written as|saved in) an? \"(?P<format>[\w-]+)\" file")
+
+
+def unwritable_error(stderr: str) -> InvalidParamsError | None:
+    """An explanation for a tool's refusal to write the capture's packets in a
+    format (None for any other failure)."""
+    match = _UNWRITABLE_RE.search(stderr)
+    if match is None:
+        return None
+    fmt = match["format"]
+    if fmt == "pcap":
+        return InvalidParamsError(
+            "These packets can't be saved as pcap: a pcap file holds packets of one link "
+            "type, and this capture has several, one pcap can't store, or records that aren't "
+            "packets. Export them as pcapng instead.",
+            {"format": fmt, "pcapng": True},
+        )
+    return InvalidParamsError(
+        f"Wireshark can't write this capture's packets as {fmt}: some have a link type or "
+        "record type it can only read (shown as UNKNOWN). Exporting, editing or saving "
+        "comments needs a capture it can write.",
+        {"format": fmt},
+    )
+
+
 def check_destination(dest: str, capture: Path) -> Path:
     """Validate an export destination: absolute, in an existing folder, and
     never the open capture file itself (tshark would truncate its own input)."""

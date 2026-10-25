@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from pcap_backend import comments
-from pcap_backend.export import atomic_output, check_destination
+from pcap_backend.export import atomic_output, check_destination, unwritable_error
 from pcap_backend.protocol import InvalidParamsError, RequestContext, param
 from pcap_backend.tshark import ToolError, ToolNotFoundError, find_tool, run
 
@@ -197,5 +197,7 @@ class CommentsMixin(ServiceBase):
                 source.unlink(missing_ok=True)
             if res.returncode != 0 or not out.exists():
                 out.unlink(missing_ok=True)
-                raise ToolError(res.stderr.strip() or "editcap failed", res.stderr, res.returncode)
+                raise unwritable_error(res.stderr) or ToolError(
+                    res.stderr.strip() or "editcap failed", res.stderr, res.returncode
+                )
             source = out

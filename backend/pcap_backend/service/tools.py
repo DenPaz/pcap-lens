@@ -11,7 +11,12 @@ from typing import Any
 
 from pcap_backend import ber, comments, editing, hexdump, objects, plugins, wsprofile
 from pcap_backend.cancellation import CancelledError
-from pcap_backend.export import CAPTURE_FORMATS, atomic_output, check_destination
+from pcap_backend.export import (
+    CAPTURE_FORMATS,
+    atomic_output,
+    check_destination,
+    unwritable_error,
+)
 from pcap_backend.protocol import InvalidParamsError, RequestContext, param, str_list
 from pcap_backend.tshark import ToolError, ToolNotFoundError, find_tool, run
 
@@ -233,7 +238,9 @@ class ToolsMixin(ServiceBase):
             argv = [str(editcap), "-F", "pcapng", *options, str(f.path), str(tmp), *selections]
             res = run(argv, ctx.token)
             if res.returncode != 0 or not tmp.exists():
-                raise ToolError(res.stderr.strip() or "editcap failed", res.stderr, res.returncode)
+                raise unwritable_error(res.stderr) or ToolError(
+                    res.stderr.strip() or "editcap failed", res.stderr, res.returncode
+                )
         result: dict[str, Any] = {"path": str(dest), "packets": comments.packet_count(dest)}
         if operation == "dedup":
             result["removed"] = editing.skipped_packets(res.stderr) or 0
@@ -262,7 +269,9 @@ class ToolsMixin(ServiceBase):
                       ctx.token)  # fmt: skip
             pieces = sorted(scratch.iterdir())
             if res.returncode != 0 or not pieces:
-                raise ToolError(res.stderr.strip() or "editcap failed", res.stderr, res.returncode)
+                raise unwritable_error(res.stderr) or ToolError(
+                    res.stderr.strip() or "editcap failed", res.stderr, res.returncode
+                )
             taken: set[str] = set()
             files = []
             for piece in pieces:

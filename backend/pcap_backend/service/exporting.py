@@ -19,6 +19,7 @@ from pcap_backend.export import (
     PacketListWriter,
     atomic_output,
     check_destination,
+    unwritable_error,
 )
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, param, str_list
 from pcap_backend.tshark import (
@@ -35,18 +36,6 @@ from .detail import DetailMixin
 from .helpers import _frame_list, _stderr_warnings
 from .packets import PacketsMixin
 from .state import _TRUNCATION_HINTS, BASE_COLUMNS, MAX_FILTER_ARG, PROGRESS_INTERVAL_S, _Open
-
-# tshark's answers when the packets can't go into a pcap file: it holds one
-# link type and only packets, and a pcapng can mix link types (a Bluetooth
-# capture from two adapters), use one pcap has no number for, or hold other
-# records (process information). Found by test/realworld.
-_PCAP_REFUSED = ('can\'t be written as a "pcap" file', 'can\'t be saved in a "pcap" file')
-PCAP_REFUSED_MESSAGE = (
-    "These packets can't be saved as pcap: a pcap file holds packets of one link type, "
-    "and this capture has several, one pcap can't store, or records that aren't packets. "
-    "Export them as pcapng instead."
-)
-
 
 EXPORT_CHUNK = 5000
 # A line of tshark's export tap list: "    OSI layer 4 - Wireshark Upper PDU export".
@@ -285,8 +274,8 @@ class ExportMixin(DetailMixin, PacketsMixin):
                     last_emit = now
                     ctx.progress({"phase": "export", "fraction": min(0.99, n / total)})
             truncated = any(h in result.stderr for h in _TRUNCATION_HINTS)
-            if fmt == "pcap" and any(h in result.stderr for h in _PCAP_REFUSED):
-                raise InvalidParamsError(PCAP_REFUSED_MESSAGE, {"pcapng": True})
+            if refused := unwritable_error(result.stderr):
+                raise refused
             if result.returncode not in (0, None) and not (truncated and tmp.exists()):
                 raise f.tshark.error(
                     result.stderr, result.returncode, f"tshark exited with code {result.returncode}"
