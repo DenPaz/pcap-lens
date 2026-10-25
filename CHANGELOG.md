@@ -7,6 +7,21 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.24.1 — 2026-10-25
+
+### Added
+
+- AI triage and capture summaries point out port scans and host sweeps that
+  tshark's numbers show, above the answer and with an Apply filter button;
+  the MCP server's `triage` lists them too. [0d96685]
+
+### Changed
+
+- A scan says how many of its targets answered with a TCP reset, so those
+  resets read as the scan's answers rather than a server problem. [0d96685]
+
+[0d96685]: https://github.com/DenPaz/pcap-lens/commit/0d96685
+
 ## 0.24.0 — 2026-10-24
 
 ### Added

@@ -91,6 +91,7 @@ def rpc_methods(service: PcapService) -> dict[str, Callable[[dict[str, Any], Req
         "expert_summary": service.expert_summary,
         "triage": service.triage,
         "capture_profile": service.capture_profile,
+        "scans": service.scans,
         "compare_profiles": service.compare_profiles,
         "dissector_names": service.dissector_names,
         "enabled_protocols": service.enabled_protocols,

@@ -45,6 +45,7 @@ import {
 } from "./aiAnomaly";
 import { Requester, StatsTable, buildSummaryPrompt, gatherSummary } from "./aiSummary";
 import { CaptureDiff, buildComparePrompt, scanNote } from "./aiCompare";
+import { scanNote as scansNote } from "./aiScans";
 import { ToolConsent, TOOL_LIMITS, buildToolPrompt, runTool, runToolLoop } from "./aiTools";
 import { toolsRuntime } from "./lmTools";
 import {
@@ -88,6 +89,8 @@ import {
 export interface TriageOutcome extends ExplainOutcome {
   report?: TriageReport;
   checks?: TriageCheck[];
+  /** The scans tshark found, shown above the findings (aiScans.ts `scanNote`). */
+  scans?: { markdown: string; filters: string[] };
   /** The model that wrote it ("GPT-4o (GitHub Copilot)"). */
   model?: string;
 }
@@ -820,14 +823,18 @@ export class FilterAssistant implements vscode.Disposable {
     }
     try {
       sink.progress("Computing statistics with tshark…");
-      const prompt = buildSummaryPrompt(
-        await untilCancelled(
-          gatherSummary(request(backend), req, (kind, message) =>
-            this.log.info(`AI summary: ${kind} statistics failed: ${message}`),
-          ),
-          token,
+      const input = await untilCancelled(
+        gatherSummary(request(backend), req, (kind, message) =>
+          this.log.info(`AI summary: ${kind} statistics failed: ${message}`),
         ),
+        token,
       );
+      const prompt = buildSummaryPrompt(input);
+      // (The scans tshark found, whatever the model makes of them: aiScans.ts.)
+      const scans = scansNote((input.scans ?? []).map((scan) => ({ scan })));
+      if (scans.markdown) {
+        sink.markdown(scans.markdown);
+      }
       const answer = await this.streamAnswer(
         model,
         prompt,
@@ -838,7 +845,11 @@ export class FilterAssistant implements vscode.Disposable {
       );
       return {
         frames: [],
-        filters: await this.validFilters(backend, extractFilters(answer), "summary"),
+        filters: await this.validFilters(
+          backend,
+          [...new Set([...scans.filters, ...extractFilters(answer)])],
+          "summary",
+        ),
       };
     } catch (err) {
       return this.failed(err, token);
@@ -947,19 +958,27 @@ export class FilterAssistant implements vscode.Disposable {
         };
       }
       sink.progress("Checking the filters with tshark…");
+      const scans = scansNote((input.scans ?? []).map((scan) => ({ scan })));
       const valid = new Set(
         await this.validFilters(
           backend,
-          [...new Set(report.findings.flatMap((f) => (f.filter ? [f.filter] : [])))],
+          [
+            ...new Set([
+              ...scans.filters,
+              ...report.findings.flatMap((f) => (f.filter ? [f.filter] : [])),
+            ]),
+          ],
           "triage",
         ),
       );
+      scans.filters = scans.filters.filter((f) => valid.has(f));
       report.findings = report.findings.map((f) =>
         f.filter && !valid.has(f.filter) ? { ...f, filter: undefined } : f,
       );
       return {
         report,
         checks: input.checks,
+        scans,
         model: modelLabel(model),
         frames: [...new Set(report.findings.flatMap((f) => f.frames.slice(0, 1)))],
         filters: [...valid],

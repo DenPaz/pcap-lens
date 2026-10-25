@@ -1,6 +1,7 @@
 import * as assert from "node:assert/strict";
 import { STATISTICS_CONSENT } from "../../../src/aiConsent";
-import { Requester, StatsTable, gatherSummary } from "../../../src/aiSummary";
+import { Scan } from "../../../src/aiScans";
+import { Requester, StatsTable, buildSummaryPrompt, gatherSummary } from "../../../src/aiSummary";
 import {
   TRIAGE_LIMITS,
   TriageCheck,
@@ -15,6 +16,17 @@ import {
 import { buildReport } from "../../../src/captureReport";
 
 const col = (id: string, label: string, numeric = false) => ({ id, label, numeric });
+
+const SCAN: Scan = {
+  kind: "port scan",
+  protocol: "tcp",
+  client: "10.0.0.66",
+  server: "10.0.0.80",
+  ports: [22, 23, 445, 3389, 5900],
+  targets: 5,
+  packets: 10,
+  reset: 5,
+};
 
 const CHECKS: TriageCheck[] = [
   {
@@ -235,35 +247,63 @@ suite("aiTriage", () => {
         throw new Error("tshark refused");
       }
       if (method === "capture_info") {
-        return { frames: 10 } as T;
+        return INPUT.info as T;
       }
       if (method === "triage") {
         return { checks: CHECKS, ignored: true } as T;
+      }
+      if (method === "scans") {
+        return { scans: [SCAN] } as T;
       }
       return table as T;
     };
     const input = await gatherTriage(request, "why?", (kind, message) =>
       failed.push(`${kind}: ${message}`),
     );
-    assert.deepEqual(asked.sort(), [
-      "capture_info",
-      "stats conversations tcp",
-      "stats conversations udp",
-      "stats expert",
-      "stats phs",
-      "triage",
-    ]);
+    assert.deepEqual(
+      asked.sort(),
+      [
+        "capture_info",
+        "scans",
+        "stats conversations tcp",
+        "stats conversations udp",
+        "stats expert",
+        "stats phs",
+        "triage",
+      ].sort(),
+    );
     assert.deepEqual(failed, ["conversations: tshark refused"]);
     assert.equal(input.question, "why?");
     assert.equal(input.ignored, true);
     assert.equal(input.checks, CHECKS);
     assert.deepEqual(input.conversations, [table]);
     assert.deepEqual(input.missing, ["UDP conversations"]);
+    assert.deepEqual(input.scans, [SCAN]);
+    // The scans are in the prompt as sentences, with what tshark counted.
+    const prompt = buildTriagePrompt(input);
+    assert.match(prompt, /## Scans tshark's numbers show\n/);
+    assert.match(
+      prompt,
+      /- Port scan: 10\.0\.0\.66 reached 5 TCP ports of 10\.0\.0\.80 \(22, 23, 445, 3389, 5900\), 10 packets, a few per connection; 5 of the 5 ports answered with a TCP reset/,
+    );
+    assert.match(prompt, /Give each scan tshark found its own finding/);
+    assert.doesNotMatch(buildTriagePrompt({ ...input, scans: [] }), /## Scans/);
 
     asked.length = 0;
     const summary = await gatherSummary(request, { question: "q", currentFilter: "dns" });
-    assert.equal(asked.length, 7);
+    assert.equal(asked.length, 8);
     assert.deepEqual(summary.missing, ["UDP conversations", "traffic over time"]);
+    assert.match(buildSummaryPrompt(summary), /- Port scan: 10\.0\.0\.66 reached 5 TCP ports/);
+    // An older backend without scans: named as missing, nothing else changes.
+    const noScans: Requester = async <T>(method: string, params: Record<string, unknown>) => {
+      if (method === "scans") {
+        throw new Error("unknown method");
+      }
+      return request<T>(method, params);
+    };
+    const without = await gatherTriage(noScans, "");
+    assert.equal(without.scans, undefined);
+    assert.deepEqual(without.missing, ["scan detection", "UDP conversations"]);
     assert.deepEqual(summary.endpoints, [table]);
     assert.equal(summary.currentFilter, "dns");
     // capture_info failing fails the whole gathering (there is nothing to say without it).

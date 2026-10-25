@@ -1,5 +1,5 @@
 {
-  "$comment": "Answer-quality cases for the AI features (scripts/evals). facts = what tshark computes for the capture, checked by test/backend/test_evals.py; expect = findings a good answer names (regexes, case-insensitive, all of `all` and one of `any` in one finding or paragraph; or a triage finding whose check is one of `check`); forbid = claims the data doesn't support (a match in a sentence without a negation). Graded by scripts/evals/grade.mjs.",
+  "$comment": "Answer-quality cases for the AI features (scripts/evals). facts = what tshark computes for the capture, checked by test/backend/test_evals.py; expect = findings a good answer names (regexes, case-insensitive, all of `all` and one of `any` in one finding or paragraph, or in one sentence with within: sentence; or a triage finding whose check is one of `check`); forbid = claims the data doesn't support (a match in a sentence without a negation). Graded by scripts/evals/grade.mjs.",
   "version": 1,
   "cases": [
     {
@@ -25,7 +25,7 @@
           "id": "scan",
           "label": "10.0.0.66 probes 10.0.0.80's ports (a scan)",
           "all": ["10\\.0\\.0\\.66"],
-          "any": ["scan", "prob(e|es|ing)", "sweep", "reconnaissance", "many (different )?ports"],
+          "any": ["scan", "prob(e|es|ing)", "sweep", "reconnaissance"],
           "severity": ["high", "medium"]
         },
         {
@@ -33,6 +33,13 @@
           "label": "refused connections (resets)",
           "check": ["tcp_resets"],
           "any": ["\\breset", "\\bRST\\b", "refused", "rejected"]
+        },
+        {
+          "id": "resets-scan",
+          "label": "says the resets are the scanned ports refusing the probes (not a server problem)",
+          "all": ["\\breset|\\bRST\\b|refus"],
+          "any": ["scan", "prob(e|es|ing|ed)", "10\\.0\\.0\\.66", "closed ports?"],
+          "within": "sentence"
         },
         {
           "id": "http5xx",
@@ -183,14 +190,21 @@
       "expect": [
         {
           "id": "scan",
-          "label": "10.0.0.66 contacting many ports",
+          "label": "10.0.0.66 scanning 10.0.0.80 (called a scan or probe)",
           "all": ["10\\.0\\.0\\.66"],
-          "any": ["scan", "prob(e|es|ing)", "sweep", "ports"]
+          "any": ["\\bscan", "prob(e|es|ing)", "sweep", "reconnaissance"]
         },
         {
           "id": "resets",
           "label": "resets or refused connections",
           "any": ["\\breset", "\\bRST\\b", "refused"]
+        },
+        {
+          "id": "resets-scan",
+          "label": "says the resets are the scanned ports refusing the probes (not a server problem)",
+          "all": ["\\breset|\\bRST\\b|refus"],
+          "any": ["scan", "prob(e|es|ing|ed)", "10\\.0\\.0\\.66", "closed ports?"],
+          "within": "sentence"
         },
         {
           "id": "http5xx",
@@ -209,16 +223,25 @@
           "id": "tls",
           "label": "claims TLS problems",
           "any": ["TLS (alert|handshake|errors?)", "certificate"]
+        },
+        {
+          "id": "pings",
+          "label": "reads the unanswered pings as fewer pings",
+          "any": [
+            "fewer (pings|echo)",
+            "less (ICMP|ping)",
+            "(less|reduced|decreased|lower) (network )?diagnostic traffic"
+          ]
         }
       ],
-      "minScore": 0.75
+      "minScore": 0.8
     },
     {
       "id": "office-compare",
       "kind": "compare",
       "captures": ["office-before.pcap", "office-after.pcap"],
       "open": "after",
-      "about": "The office network before and after: what changed is the new probing host and every error.",
+      "about": "The office network before and after: what changed is the new probing host (whose probes drew the five resets) and every error.",
       "facts": {
         "changed": {
           "tcp_resets": [0, 5],
@@ -242,6 +265,13 @@
           "id": "resets",
           "label": "new resets or refused connections",
           "any": ["\\breset", "\\bRST\\b", "refused"]
+        },
+        {
+          "id": "resets-scan",
+          "label": "says the resets are the scanned ports refusing the probes (not a server problem)",
+          "all": ["\\breset|\\bRST\\b|refus"],
+          "any": ["scan", "prob(e|es|ing|ed)", "10\\.0\\.0\\.66", "closed ports?"],
+          "within": "sentence"
         },
         {
           "id": "http5xx",
@@ -271,9 +301,18 @@
           "id": "services",
           "label": "calls the scanned ports new services in use",
           "any": ["new services? (being |were |are )?(accessed|used|reached|contacted)"]
+        },
+        {
+          "id": "pings",
+          "label": "reads the unanswered pings as fewer pings",
+          "any": [
+            "fewer (pings|echo)",
+            "less (ICMP|ping)",
+            "(less|reduced|decreased|lower) (network )?diagnostic traffic"
+          ]
         }
       ],
-      "minScore": 0.8
+      "minScore": 1
     }
   ]
 }
