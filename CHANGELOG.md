@@ -26,6 +26,9 @@ commit) that made it. The format follows
   packets. [0e1e415]
 - Captures of a link type tshark can't read open with that reason instead
   of a tshark failure. [f2b8b7e]
+- Packet colors are saved with the capture's index even when coloring
+  starts before the index is saved, so the next open doesn't recompute
+  them. [5a86b1d]
 
 [56a8807]: https://github.com/DenPaz/pcap-lens/commit/56a8807
 [4d537ca]: https://github.com/DenPaz/pcap-lens/commit/4d537ca
@@ -38,6 +41,7 @@ commit) that made it. The format follows
 [c0d66a6]: https://github.com/DenPaz/pcap-lens/commit/c0d66a6
 [0e1e415]: https://github.com/DenPaz/pcap-lens/commit/0e1e415
 [f2b8b7e]: https://github.com/DenPaz/pcap-lens/commit/f2b8b7e
+[5a86b1d]: https://github.com/DenPaz/pcap-lens/commit/5a86b1d
 
 ## 0.24.1 — 2026-10-25
 
