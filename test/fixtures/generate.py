@@ -1229,6 +1229,90 @@ def services_packets() -> list[Packet]:
     return [pkt for _, pkt in timed]
 
 
+def office_packets(problems: bool) -> list[Packet]:
+    """A small office network for comparing captures and for the answer-quality
+    test set (test/eval): ``office-before.pcap`` is healthy; ``office-after.pcap``
+    (``problems``) has the same traffic plus known faults: HTTP 503s, a port
+    scan from a new host answered with resets, DNS SERVFAILs and a query with
+    no answer, a retransmitted request, and pings with no reply."""
+    timed: list[tuple[float, Packet]] = []
+    web, dns_server, gateway = "10.0.0.80", "10.0.0.53", "10.0.0.1"
+    clients = ["10.0.0.21", "10.0.0.22"]
+    pages = [b"/index.html", b"/app.js", b"/api/orders", b"/api/stock"]
+    for i, page in enumerate(pages * 2):
+        client = clients[i % 2]
+        s = _TcpSession(client, web, 52000 + i, 80)
+        s.handshake()
+        s.client_send(b"GET " + page + b" HTTP/1.1\r\nHost: intranet\r\n\r\n")
+        if problems and i == 5:
+            # The request again, same sequence number: a retransmission.
+            s.packets.append(s.packets[-2].copy())
+        failed = problems and page.startswith(b"/api/")
+        status = b"503 Service Unavailable" if failed else b"200 OK"
+        body = b"" if failed else b"ok" * 40
+        s.server_send(
+            b"HTTP/1.1 " + status + f"\r\nContent-Length: {len(body)}\r\n\r\n".encode() + body
+        )
+        s.close()
+        timed += [(0.2 * i + 0.002 * j, pkt) for j, pkt in enumerate(s.packets)]
+    names = ["intranet.corp", "mail.corp", "files.corp", "example.com", "updates.example.org"]
+    for i, name in enumerate(names):
+        client = clients[i % 2]
+        qid = 0x3000 + i
+        q = (
+            Ether(src=CLIENT_MAC, dst=SERVER_MAC)
+            / IP(src=client, dst=dns_server)
+            / UDP(sport=43000 + i, dport=53)
+            / DNS(id=qid, rd=1, qd=DNSQR(qname=name))
+        )
+        timed.append((0.1 + 0.3 * i, q))
+        if problems and i == 4:
+            continue  # no answer
+        rcode = 2 if problems and i in (1, 2, 3) else 0  # SERVFAIL
+        an = None if rcode else DNSRR(rrname=name, rdata=f"10.0.1.{i + 10}")
+        r = (
+            Ether(src=SERVER_MAC, dst=CLIENT_MAC)
+            / IP(src=dns_server, dst=client)
+            / UDP(sport=53, dport=43000 + i)
+            / DNS(id=qid, qr=1, rd=1, ra=1, rcode=rcode, qd=DNSQR(qname=name), an=an)
+        )
+        timed.append((0.1 + 0.3 * i + 0.004, r))
+    for i in range(3):
+        q = (
+            Ether(src=CLIENT_MAC, dst=SERVER_MAC)
+            / IP(src=clients[0], dst=gateway)
+            / ICMP(type=8, id=9, seq=i + 1)
+            / Raw(b"ping")
+        )
+        timed.append((1.6 + 0.1 * i, q))
+        if not problems:
+            r = (
+                Ether(src=SERVER_MAC, dst=CLIENT_MAC)
+                / IP(src=gateway, dst=clients[0])
+                / ICMP(type=0, id=9, seq=i + 1)
+                / Raw(b"ping")
+            )
+            timed.append((1.6 + 0.1 * i + 0.002, r))
+    if problems:
+        scanner = "10.0.0.66"
+        for i, port in enumerate([22, 23, 445, 3389, 5900]):
+            syn = (
+                Ether(src=CLIENT_MAC, dst=SERVER_MAC)
+                / IP(src=scanner, dst=web)
+                / TCP(sport=60000 + i, dport=port, flags="S", seq=777)
+            )
+            rst = (
+                Ether(src=SERVER_MAC, dst=CLIENT_MAC)
+                / IP(src=web, dst=scanner)
+                / TCP(sport=port, dport=60000 + i, flags="RA", seq=0, ack=778)
+            )
+            timed += [(1.0 + 0.05 * i, syn), (1.0 + 0.05 * i + 0.001, rst)]
+    timed.sort(key=lambda tp: tp[0])
+    for at, pkt in timed:
+        pkt.time = BASE_TS + at
+    return [pkt for _, pkt in timed]
+
+
 def hex_dump(data: bytes, ascii_column: bool = True) -> str:
     """One packet as Wireshark's *Copy as Hex Dump* writes it: 4-digit hex
     offsets, 16 bytes per line and, optionally, the ASCII column."""
@@ -1815,6 +1899,8 @@ def main() -> None:
     wrpcap(str(HERE / "wep.pcap"), wep_packets())
     wrpcap(str(HERE / "esp.pcap"), esp_packets())
     wrpcap(str(HERE / "network.pcap"), network_packets())
+    wrpcap(str(HERE / "office-before.pcap"), office_packets(problems=False))
+    wrpcap(str(HERE / "office-after.pcap"), office_packets(problems=True))
     geoip_fixtures()
     hexdump_fixtures()
     (HERE / "comments.pcapng").write_bytes(

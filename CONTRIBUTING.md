@@ -21,8 +21,8 @@ which CI also tests. Keep `~/.local/bin` on your `PATH`, and don't run VS Code
 as root (tshark disables Lua for root).
 
 ```sh
-git clone https://github.com/DenPaz/vsc_pcap_viewer.git
-cd vsc_pcap_viewer
+git clone https://github.com/DenPaz/pcap-lens.git
+cd pcap-lens
 uv sync            # .venv with Python 3.14 and the dev tools
 pnpm install       # TypeScript toolchain, ESLint, mocha, vsce, Playwright
 pnpm run compile   # type-check into out/, bundle into dist/extension.js
@@ -53,6 +53,7 @@ The `Makefile` wraps everything (`make` lists the targets):
 | `make fixtures` / `make perf`   | Regenerate test captures / benchmark 1M packets                     |
 | `make update` / `make outdated` | Upgrade dev dependencies / list available updates                   |
 | `make coverage`                 | Backend and TS unit tests with coverage (HTML in `coverage/`)       |
+| `make evals`                    | Ask a model the AI cases and grade the answers (costs API calls)    |
 | `make package` / `make clean`   | Build the `.vsix` / remove build output                             |
 
 - Formatting: Prettier (TS, JS, CSS, HTML, JSON, YAML, Markdown) and ruff
@@ -65,6 +66,22 @@ The `Makefile` wraps everything (`make` lists the targets):
   uv run python test/fixtures/generate.py --large 1000000 test/fixtures/large-1m.pcap
   uv run python -u test/perf/bench.py test/fixtures/large-1m.pcap --no-tcp-analysis
   ```
+
+- AI answer quality: `test/evals/cases.json` lists cases (a capture with
+  known problems, the AI feature to ask, the findings a good answer names
+  and claims it must not make). CI checks the cases' facts against tshark
+  (`test_evals.py`) and the grader against hand-written answers
+  (`test/scripts/evals.test.mjs`); asking a real model is by hand:
+
+  ```sh
+  pnpm run evals                                   # Claude: ANTHROPIC_API_KEY or `ant auth login`
+  pnpm run evals -- --case office-compare --repeat 3 --model claude-sonnet-5-5 --save /tmp/evals
+  pnpm run evals -- --prompts /tmp/prompts          # only write the prompts, for any other model
+  pnpm run evals -- --answers /tmp/answers          # grade saved answers (<case>.md)
+  ```
+
+  Run it after changing a prompt, a limit or a check, with `--repeat` (answers
+  vary), and compare the pass rate with the run before.
 
 - TLS decryption sample:
   `uv run python test/fixtures/generate.py --tls-keylog /tmp/tls.pcap /tmp/tls-keys.log`,
@@ -101,11 +118,11 @@ git push -u origin my-change       # then open a pull request into dev
 
 Add each user-visible change under `## Unreleased` in `CHANGELOG.md`, in the
 right group (`### Added`, `### Changed`, `### Fixed`), with a link to its pull
-request: `[#42]` in the entry and `[#42]: https://github.com/DenPaz/vsc_pcap_viewer/pull/42`
+request: `[#42]` in the entry and `[#42]: https://github.com/DenPaz/pcap-lens/pull/42`
 at the end of the same section. Link definitions stay inside their version's
 section, so the GitHub release notes keep them. A change committed straight to
 `dev` has no pull request of its own: link the commit instead
-(`[abc1234]: https://github.com/DenPaz/vsc_pcap_viewer/commit/abc1234`).
+(`[abc1234]: https://github.com/DenPaz/pcap-lens/commit/abc1234`).
 
 ## Release
 

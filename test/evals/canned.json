@@ -1,0 +1,157 @@
+{
+  "$comment": "Hand-written answers for the grader's unit test (test/scripts/evals.test.mjs): per case, a good answer that must pass and a bad one that must fail for the reasons named in `fails`. Triage answers are parsed reports; the others are Markdown.",
+  "office-after-triage": {
+    "good": {
+      "summary": "Several services fail and one host probes a server.",
+      "findings": [
+        {
+          "severity": "high",
+          "title": "Port scan from 10.0.0.66",
+          "detail": "10.0.0.66 connected to 10.0.0.80 on ports 22, 23, 445, 3389 and 5900, which looks like reconnaissance.",
+          "check": "tcp_connection_attempts"
+        },
+        {
+          "severity": "medium",
+          "title": "Connections reset",
+          "detail": "Five TCP resets: the probed ports refused the connections.",
+          "check": "tcp_resets"
+        },
+        {
+          "severity": "medium",
+          "title": "HTTP 503 Service Unavailable",
+          "detail": "The web server answered four requests with 503.",
+          "check": "http_server_errors"
+        },
+        {
+          "severity": "low",
+          "title": "DNS errors",
+          "detail": "Three NXDOMAIN answers and one query without a response.",
+          "check": "dns_errors"
+        },
+        {
+          "severity": "low",
+          "title": "Unanswered pings",
+          "detail": "Three ICMP echo requests got no reply.",
+          "check": "icmp_unanswered"
+        }
+      ]
+    },
+    "bad": {
+      "summary": "The network looks mostly fine. There are no clear-text credentials.",
+      "findings": [
+        {
+          "severity": "low",
+          "title": "Possible scan",
+          "detail": "10.0.0.66 talked to several ports on 10.0.0.80.",
+          "check": "tcp_connection_attempts"
+        },
+        {
+          "severity": "medium",
+          "title": "TLS handshake failures",
+          "detail": "Some TLS sessions ended with an alert."
+        }
+      ]
+    },
+    "fails": ["scan", "resets", "http5xx", "dns", "icmp", "tls"]
+  },
+  "office-before-triage": {
+    "good": {
+      "summary": "No significant problems: every connection was accepted and every DNS query answered.",
+      "findings": [
+        {
+          "severity": "info",
+          "title": "Normal office traffic",
+          "detail": "HTTP and DNS between the workstations and the servers, nothing reset or retransmitted.",
+          "check": "dns_queries"
+        }
+      ]
+    },
+    "bad": {
+      "summary": "Traffic shows a few issues.",
+      "findings": [
+        {
+          "severity": "medium",
+          "title": "Retransmissions",
+          "detail": "Some segments were retransmitted, which suggests congestion."
+        }
+      ]
+    },
+    "fails": ["healthy", "retransmissions", "severity"]
+  },
+  "services-triage": {
+    "good": {
+      "summary": "Mostly healthy services with three small errors.",
+      "findings": [
+        {
+          "severity": "low",
+          "title": "HTTP 404 Not Found",
+          "detail": "One request asked for a page the server doesn't have.",
+          "check": "http_client_errors"
+        },
+        {
+          "severity": "low",
+          "title": "DNS error answer",
+          "detail": "One query was answered with No such name.",
+          "check": "dns_errors"
+        },
+        {
+          "severity": "info",
+          "title": "Unanswered ping",
+          "detail": "One ICMP echo request got no reply.",
+          "check": "icmp_unanswered"
+        }
+      ]
+    },
+    "bad": {
+      "summary": "A host appears to scan the network.",
+      "findings": [
+        {
+          "severity": "high",
+          "title": "Port scan",
+          "detail": "The SNMP manager scans several hosts."
+        }
+      ]
+    },
+    "fails": ["http4xx", "dns", "icmp", "scan", "severity"]
+  },
+  "credentials-triage": {
+    "good": {
+      "summary": "Passwords cross the network in clear text.",
+      "findings": [
+        {
+          "severity": "high",
+          "title": "Clear-text credentials",
+          "detail": "HTTP Basic, FTP, POP3 and IMAP logins send user names and passwords unencrypted.",
+          "check": "cleartext_credentials"
+        }
+      ]
+    },
+    "bad": {
+      "summary": "Logins happen over several protocols.",
+      "findings": [
+        {
+          "severity": "info",
+          "title": "Credentials seen",
+          "detail": "FTP and IMAP logins.",
+          "check": "cleartext_credentials"
+        },
+        {
+          "severity": "low",
+          "title": "Connection resets",
+          "detail": "The FTP server reset the session."
+        }
+      ]
+    },
+    "fails": ["credentials", "resets"]
+  },
+  "office-summary": {
+    "good": "## Overview\n\nAn office network: workstations talk HTTP to 10.0.0.80 and DNS to 10.0.0.53.\n\n## Problems\n\n- 10.0.0.66 contacts 10.0.0.80 on many ports (22, 23, 445, 3389, 5900), which looks like a port scan.\n- Five connections were reset (RST): the probed ports refused them.\n- The web server answered four requests with HTTP 503 Service Unavailable.\n- DNS errors: three NXDOMAIN answers.\n\nNothing suggests credentials were exposed.",
+    "bad": "## Overview\n\nAn office network with HTTP and DNS traffic.\n\n- Some TLS handshake errors appear between the clients and the web server.\n- Traffic volume is steady.",
+    "fails": ["scan", "resets", "http5xx", "dns", "tls"]
+  },
+  "office-compare": {
+    "good": "## What changed\n\n- **A new host, 10.0.0.66**, connects to 10.0.0.80 on ports 22, 23, 445, 3389 and 5900: a port scan that wasn't there before.\n- **Resets**: 0 → 5 per capture; the scanned ports refused the connections.\n- **HTTP 5xx**: the web server now answers four requests with 503.\n- **DNS**: three NXDOMAIN errors and one unanswered query, none before.\n- **ICMP**: three echo requests got no reply.\n\nNo host or service disappeared.",
+    "bad": "## What changed\n\nThe traffic is about the same. The DNS server disappeared from the later capture, and the file server is gone.\n\nNew services being accessed: 10.0.0.66 connects to 10.0.0.80 on ports 22, 23, 445, 3389 and 5900.\n",
+    "fails": ["scan", "resets", "http5xx", "dns", "icmp", "gone", "services"]
+  }
+}

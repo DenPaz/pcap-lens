@@ -37,7 +37,9 @@ def test_checks_are_unique_and_safe_for_io_stat() -> None:
 
 
 @pytest.mark.tshark
-@pytest.mark.parametrize("capture", ["services.pcap", "credentials.pcap", "mixed.pcapng"])
+@pytest.mark.parametrize(
+    "capture", ["services.pcap", "credentials.pcap", "mixed.pcapng", "office-after.pcap"]
+)
 def test_counts_and_first_last_match_the_filters(
     service: PcapService, ctx: RequestContext, capture: str
 ) -> None:

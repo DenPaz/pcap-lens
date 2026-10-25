@@ -7,7 +7,7 @@ body:
       value: |
         Thanks for reporting. Please don't attach captures with private traffic:
         a small capture that shows the problem (or the steps to make one) is best.
-        For a security problem, follow [SECURITY.md](https://github.com/DenPaz/vsc_pcap_viewer/blob/main/SECURITY.md) instead.
+        For a security problem, follow [SECURITY.md](https://github.com/DenPaz/pcap-lens/blob/main/SECURITY.md) instead.
   - type: textarea
     id: what
     attributes:

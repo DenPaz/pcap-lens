@@ -232,6 +232,14 @@ async function copyMcpConfig(
 }
 
 export function registerMcp(context: vscode.ExtensionContext, log: vscode.LogOutputChannel): void {
+  // Refresh the copy now (a new version, or anything while developing): a
+  // server another assistant starts from it would otherwise keep running the
+  // code of whenever VS Code last started one.
+  try {
+    stableBackend(context);
+  } catch (err) {
+    log.warn(`couldn't copy the backend for the MCP server: ${(err as Error)?.message ?? err}`);
+  }
   registerProvider(context, log);
   context.subscriptions.push(
     vscode.commands.registerCommand("pcapViewer.copyMcpConfig", (args?: CopyArgs) =>

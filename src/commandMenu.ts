@@ -164,6 +164,7 @@ const GROUP_OF: Readonly<Record<string, CommandGroup>> = {
   "pcapViewer.askAboutPackets": "AI",
   "pcapViewer.summarizeCapture": "AI",
   "pcapViewer.triageCapture": "AI",
+  "pcapViewer.compareCaptures": "AI",
   "pcapViewer.copyMcpConfig": "AI",
   "pcapViewer.askAboutAnomaly": "AI",
   "pcapViewer.timeFormat": "Other",
@@ -216,6 +217,7 @@ const REQUIRES: Readonly<Record<string, Requirement[]>> = {
   "pcapViewer.askAboutPackets": ["ai", "selection"],
   "pcapViewer.summarizeCapture": ["ai"],
   "pcapViewer.triageCapture": ["ai"],
+  "pcapViewer.compareCaptures": ["ai"],
   "pcapViewer.askAboutAnomaly": ["ai"],
   "pcapViewer.describeLuaDissector": ["ai"],
 };

@@ -4,7 +4,7 @@
 [![Installs](https://vsmarketplacebadges.dev/installs-short/denpaz.pcap-viewer.svg?label=installs)](https://marketplace.visualstudio.com/items?itemName=denpaz.pcap-viewer)
 [![Open VSX](https://img.shields.io/open-vsx/v/denpaz/pcap-viewer?label=Open%20VSX)](https://open-vsx.org/extension/denpaz/pcap-viewer)
 [![Open VSX downloads](https://img.shields.io/open-vsx/dt/denpaz/pcap-viewer?label=downloads)](https://open-vsx.org/extension/denpaz/pcap-viewer)
-[![CI](https://img.shields.io/github/actions/workflow/status/DenPaz/vsc_pcap_viewer/ci.yml?branch=main&label=CI)](https://github.com/DenPaz/vsc_pcap_viewer/actions/workflows/ci.yml?query=branch%3Amain)
+[![CI](https://img.shields.io/github/actions/workflow/status/DenPaz/pcap-lens/ci.yml?branch=main&label=CI)](https://github.com/DenPaz/pcap-lens/actions/workflows/ci.yml?query=branch%3Amain)
 
 Open `.pcap` / `.pcapng` captures in VS Code with a Wireshark-like packet list,
 protocol tree and hex view. **tshark** (Wireshark's command-line tool) does all
@@ -17,7 +17,7 @@ dissection and filtering, so results match Wireshark exactly.
 1. Install **PCAP Lens** (extension ID `denpaz.pcap-viewer`; it was called
    PCAP Viewer before 0.4.1) from the VS Code Marketplace or Open VSX, or
    download the `.vsix` from
-   [GitHub releases](https://github.com/DenPaz/vsc_pcap_viewer/releases) and
+   [GitHub releases](https://github.com/DenPaz/pcap-lens/releases) and
    run `code --install-extension pcap-viewer-<version>.vsix`.
 2. Install the [requirements](#requirements): **tshark** and **Python 3.12+**.
 3. Run **PCAP: Get Started** (also under _Help › Welcome_). The walkthrough
@@ -352,6 +352,11 @@ answer); see [Security](#security) for exactly what is sent.
   tshark counted, a filter and packet links. Captures of up to 200,000 packets
   are read twice, so ICMP, DNS and HTTP requests without a response are
   counted too. The capture report can add them as a Findings section.
+- **Compare captures**: `@pcap /compare baseline.pcapng` or _PCAP: Compare
+  Captures with AI…_ explains what changed between the open capture and a
+  baseline: the triage checks per 1,000 packets, new and gone hosts, services
+  and flows, shifts in the protocol mix, new expert messages. tshark computes
+  both sides; the model only sees the differences.
 - **Explain packets**: right-click _Ask Copilot About This Packet…_ or
   `@pcap /explain 12 15-17`.
 - **Summaries and anomalies**: `@pcap /summary`, and _Ask Copilot_ in the Expert
@@ -489,6 +494,7 @@ tools' results.
 | `count_packets`                                     | How many packets match a display filter, and the first ones' numbers               |
 | `statistics`                                        | Protocol hierarchy, conversations, endpoints, expert information, I/O, HTTP, DNS…  |
 | `triage`                                            | The triage checks' counts with filters, first/last packets and where to look next  |
+| `compare_captures`                                  | What changed between two captures: checks, protocols, flows, endpoints, expert     |
 | `field_values` ²                                    | A field's values and how many packets hold each, optionally within a filter        |
 | `validate_filter`, `search_fields`                  | Display filter checks and field names                                              |
 | `list_packets`, `packet_details`, `follow_stream` ¹ | Packet rows, dissection trees (all layers or the protocols named), stream payloads |
@@ -582,20 +588,21 @@ _PCAP: Show Log_ shows backend and tshark messages.
   over its standard input and output). What its results contain goes to the
   assistant's model, under that assistant's own terms.
 
-| Feature                                      | What is sent                                                                                                                                  | Needs                    |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
-| Filter help (✨, _Suggest Display Filter…_)  | Your description, the current filter, protocol names in the capture, matching field names and descriptions                                    | `ai.enabled`             |
-| Capture filter help (✨ in _Start Capture_)  | Your description, the current capture filter, the chosen interfaces' names                                                                    | `ai.enabled`             |
-| _New Lua Dissector from Description…_        | Your description, the protocol's name, port and the dissector template; tshark's Lua errors on retries                                        | `ai.enabled`             |
-| _Triage Capture with AI_, `/triage`          | Capture properties, 33 check counts with their filters and first/last packet numbers, expert counts, protocol hierarchy, top 10 conversations | `allowCaptureStatistics` |
-| _Ask Copilot About This Packet…_, `/explain` | Up to 8 packets: row and dissection tree (250 lines each), your question, the filter; bytes only with `allowPacketBytes` (256 per packet)     | `allowPacketData`        |
-| _Summarize Capture_, `/summary`              | Capture properties, protocol hierarchy (40 rows), top 15 conversations and endpoints, expert counts, traffic in 12 buckets                    | `allowCaptureStatistics` |
-| Expert _Ask Copilot…_, `/anomaly`            | Up to 10 expert entries (5 packet numbers each) and up to 5 conversation rows                                                                 | `allowCaptureStatistics` |
-| TCP Stream Graph _Ask Copilot_, `/anomaly`   | Endpoints, derived facts (bytes, retransmissions, RTT, zero windows), up to 200 packets as numbers and flags                                  | `allowCaptureStatistics` |
-| VoIP Calls _Ask Copilot…_, `/anomaly`        | The call's message names (60) with times and addresses, parties' names, timings, stream statistics and problems; no bodies or DTMF digits     | `allowCaptureStatistics` |
-| `@pcap` tools: count, stats, capture info    | Filters and their counts, statistics tables (25 rows), capture properties                                                                     | `allowCaptureStatistics` |
-| `@pcap` tool: field search                   | Field names and descriptions (nothing from the capture)                                                                                       | `ai.enabled`             |
-| `@pcap` tool: list packets                   | Up to 20 packet-list rows for a filter                                                                                                        | `allowPacketData`        |
+| Feature                                      | What is sent                                                                                                                                            | Needs                    |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| Filter help (✨, _Suggest Display Filter…_)  | Your description, the current filter, protocol names in the capture, matching field names and descriptions                                              | `ai.enabled`             |
+| Capture filter help (✨ in _Start Capture_)  | Your description, the current capture filter, the chosen interfaces' names                                                                              | `ai.enabled`             |
+| _New Lua Dissector from Description…_        | Your description, the protocol's name, port and the dissector template; tshark's Lua errors on retries                                                  | `ai.enabled`             |
+| _Triage Capture with AI_, `/triage`          | Capture properties, 33 check counts with their filters and first/last packet numbers, expert counts, protocol hierarchy, top 10 conversations           | `allowCaptureStatistics` |
+| _Compare Captures with AI…_, `/compare`      | Both captures' totals and rates, the checks whose counts differ, up to 15 protocols, flows, endpoints and expert messages that are new, gone or changed | `allowCaptureStatistics` |
+| _Ask Copilot About This Packet…_, `/explain` | Up to 8 packets: row and dissection tree (250 lines each), your question, the filter; bytes only with `allowPacketBytes` (256 per packet)               | `allowPacketData`        |
+| _Summarize Capture_, `/summary`              | Capture properties, protocol hierarchy (40 rows), top 15 conversations and endpoints, expert counts, traffic in 12 buckets                              | `allowCaptureStatistics` |
+| Expert _Ask Copilot…_, `/anomaly`            | Up to 10 expert entries (5 packet numbers each) and up to 5 conversation rows                                                                           | `allowCaptureStatistics` |
+| TCP Stream Graph _Ask Copilot_, `/anomaly`   | Endpoints, derived facts (bytes, retransmissions, RTT, zero windows), up to 200 packets as numbers and flags                                            | `allowCaptureStatistics` |
+| VoIP Calls _Ask Copilot…_, `/anomaly`        | The call's message names (60) with times and addresses, parties' names, timings, stream statistics and problems; no bodies or DTMF digits               | `allowCaptureStatistics` |
+| `@pcap` tools: count, stats, capture info    | Filters and their counts, statistics tables (25 rows), capture properties                                                                               | `allowCaptureStatistics` |
+| `@pcap` tool: field search                   | Field names and descriptions (nothing from the capture)                                                                                                 | `ai.enabled`             |
+| `@pcap` tool: list packets                   | Up to 20 packet-list rows for a filter                                                                                                                  | `allowPacketData`        |
 
 `allowPacketData` implies `allowCaptureStatistics`. Payload fields become
 "[N bytes not sent]" unless `allowPacketBytes` is on.

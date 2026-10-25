@@ -20,6 +20,7 @@ CONTRIBUTING.md for building, testing and releasing (not packaged).
 | Regenerate fixtures       | `uv run python test/fixtures/generate.py`                                                                                                                |
 | Coverage                  | `make coverage` (pytest-cov and c8; summaries in the terminal, HTML in `coverage/`; CI's Linux job adds both to the run summary)                         |
 | Perf check                | `uv run python test/fixtures/generate.py --large 1000000 test/fixtures/large-1m.pcap && uv run python -u test/perf/bench.py test/fixtures/large-1m.pcap` |
+| AI answer evals (by hand) | `pnpm run evals` (asks a model the cases in `test/evals/cases.json`; `-- --prompts <dir>` / `--answers <dir>` without a model)                           |
 | Package                   | `pnpm run package` (vsce, `--no-dependencies`)                                                                                                           |
 | Prepare a release         | `pnpm run release:prepare 0.2.0` on `dev` (then PR `dev` → `main`, tag the merge, push the tag)                                                          |
 | Icon / screenshots        | `node scripts/render-icon.js` / `node scripts/screenshots.js` (after `pnpm run compile`; `CHROMIUM_PATH` for another Chromium)                           |
@@ -165,7 +166,7 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   dump's layout (pure).
   `src/rotation.ts` recognises rotated capture pieces (pure).
   AI: `src/aiFilter.ts`, `aiCaptureFilter.ts`, `aiDissector.ts`,
-  `aiExplain.ts`, `aiSummary.ts`, `aiTriage.ts`, `aiAnomaly.ts`, `aiTools.ts`
+  `aiExplain.ts`, `aiSummary.ts`, `aiTriage.ts`, `aiCompare.ts`, `aiAnomaly.ts`, `aiTools.ts`
   (tool specs, `runTool`, `runToolLoop`), `aiModel.ts` (model choice),
   `aiPrivacy.ts` (address stand-ins) and `aiConsent.ts` are pure prompt
   builders/parsers; `src/ai.ts` (`FilterAssistant`) and
@@ -194,7 +195,8 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   `src/commands/recent.ts` its tree view and commands.
   `src/extcapModel.ts` extcap options' values, checks and labels (pure).
   `src/captureReport.ts` the capture report as Markdown or HTML (pure);
-  `src/commands/report.ts`.
+  `src/commands/report.ts`. `src/commands/compare.ts` the other capture of
+  a comparison (picking it, its profile).
 - `src/webview/` plain JS/CSS/HTML (no build step). `lib.js` = pure helpers
   shared with Node tests (a classic script, `window.PcapLib`, like the panels'
   scripts and `worldmap.js`, the Endpoints map's land outline that
@@ -232,7 +234,7 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   (follow, TCP graphs), `statistics` → `telephony` (VoIP), `colors`,
   `exporting`, `tools` (merge, hex import, probe, plugins, editing),
   `flow`, `exported_objects`, `filterhelp` (empty-filter hints, field
-  values); plus `state.py` (constants and the per-capture
+  values), `comparing` (capture profiles and their diff); plus `state.py` (constants and the per-capture
   dataclasses `_Open`, `_View`…), `indexing.py` (the index pass's
   module-level helpers) and `helpers.py`), `tshark.py` (discovery/argv/process helpers), `cache.py`
   (row store, frame index, LRU), `pdml.py` (PDML + hexdump parsing),
@@ -247,6 +249,7 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   of capture editing), `hexdump.py` (text2pcap options of Import from Hex
   Dump), `ber.py` (counting back-to-back BER records), `codecs.py` (G.722,
   G.726-32 and L16 decoders), `triage.py` (the AI triage's checks),
+  `compare.py` (capture profiles and diffs),
   `mcp.py` (the MCP server) and `standins.py` (its address stand-ins),
   `filterhelp.py` (a filter's
   field names, case hints, value counts), `plugins.py` (`tshark -G
@@ -266,7 +269,8 @@ plugins` and the plugin folders), `decryption.py` (decryption keys and
 - `media/` icon (`icon.svg` → `icon.png`), `sample.pcapng` (a copy of the
   `mixed.pcapng` fixture that `generate.py` writes), `walkthrough/*.md` (the
   walkthrough's pages) and `screenshots/` (README only, not packaged).
-- `scripts/` release helper (`release.mjs`, tests in `test/scripts`), icon and
+- `scripts/` release helper (`release.mjs`, tests in `test/scripts`), the AI
+  evals (`evals/grade.mjs` pure, `evals/run.mjs` by hand), icon and
   screenshot renderers, `themes.js` (VS Code's Dark Modern, Light Modern and
   Dark High Contrast as CSS variables, for screenshots). Not packaged.
 - `test/backend` pytest; `test/backend/acceptance` pytest-bdd scenarios
@@ -313,11 +317,14 @@ UI behaviour stays in the Chromium test (`test/webview/e2e.test.js`).
   Marketplace refused "PCAP Viewer" ("Similar extension display name:
   pcapviewer already exists"; it publishes nothing on that error), so 0.4.1
   renamed every user-visible string. The extension ID `denpaz.pcap-viewer`,
-  the `pcapViewer.*` commands, settings and context keys, the
-  `pcap-viewer-<version>.vsix` file and the repository keep the old name:
-  changing the ID would make it a different extension, and changing the
-  prefixes would drop users' settings. Capture fixtures still carry "PCAP
-  Viewer" in their payloads (test data).
+  the `pcapViewer.*` commands, settings and context keys and the
+  `pcap-viewer-<version>.vsix` file keep the old name: changing the ID would
+  make it a different extension, and changing the prefixes would drop users'
+  settings. The repository was renamed from `DenPaz/vsc_pcap_viewer` to
+  `DenPaz/pcap-lens` in 2026-10 (GitHub redirects the old URL); package.json's
+  repository, bugs and homepage URLs name the new one, since vsce builds the
+  Marketplace links and the README's image URLs from them. Capture fixtures
+  still carry "PCAP Viewer" in their payloads (test data).
 - **Packaging of the backend**: a package (`backend/pcap_backend/`) rather than
   loose `server.py`/`pcap_service.py` files, managed by `pyproject.toml` + uv
   (no `requirements.txt`: there are no runtime dependencies).
@@ -1827,6 +1834,17 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   says so. The picker (`modelItems`): Automatic, then `lm.selectChatModels()`
   by vendor (Copilot first), the one in use marked, a missing chosen id kept
   under "Not available now". The setting change re-checks availability.
+  **Models that can't serve extensions**: `selectChatModels` also lists
+  models VS Code keeps for its own chat (a request fails with "Model … is
+  only available to VS Code core") and entries that answer with nothing
+  (Copilot CLI's "Auto (copilotcli)", in a manual test of `/compare`).
+  `answerFrom` (around every `sendRequest` in `askFor` and `streamAnswer`)
+  turns both into `UnusableModelError` (`unusableReason`); `failure()` says
+  so (`unusableMessage`) and, in automatic mode, adds the model to `skipped`,
+  so the next request takes the next Copilot model (`automaticModel`; a model
+  chosen by id is never swapped). The picker sends a picked model one short
+  request (`checkModel`, "Reply with the single word OK.") and saves it only
+  when it answers; `{id}` arguments skip the check (smoke test).
 - **Address stand-ins** (`src/aiPrivacy.ts` pure,
   `pcapViewer.ai.pseudonymizeAddresses`, application scope, on):
   `AddressMasker` replaces IPv4 (`IP_PRIVATE_n` for 10/8, 172.16/12,
@@ -1910,6 +1928,82 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   asks "With AI findings" only when a model is available (`findings` arg),
   under the statistics consent; `findingsBlocks` adds a Findings section
   after Properties, naming the model.
+- **Comparing captures** (`compare.py`, `service/comparing.py`,
+  `src/aiCompare.ts` pure, `FilterAssistant.compare`, `commands/compare.ts`;
+  `@pcap /compare`, _PCAP: Compare Captures with AI…_, MCP
+  `compare_captures`): `capture_profile` computes one capture's profile
+  (`PROFILE_VERSION`; seven parts in a pool of 4: capture_info, phs, TCP/UDP
+  conversations, IPv4/IPv6 endpoints, triage, expert; a part tshark refuses
+  is listed in `missing`), so the other capture needs no editor: its own
+  session's profile when loaded, else a short-lived backend opened with its
+  settings (`dissectionOptions`) and the saved-index cache. Flows are keyed
+  client → server:port (`flow_key`: the server is the end with the lower
+  port; IPv6 servers bracketed), with connections summed; at most
+  `MAX_PROFILE_ITEMS` (500) flows and endpoints by bytes, the rest summed and
+  known by `member_id` (12 hex of sha256; `otherFlowIds`/`otherEndpointIds`,
+  at most `MAX_MEMBER_IDS` 100k, `complete`), so an item kept on one side and
+  only an id on the other is neither new nor gone, and one missing beside
+  incomplete ids is counted as `unsure` with a note (Codex review: a flow
+  ranked 501st on one side read as new or gone; `PROFILE_VERSION` 2). `compare_profiles
+{before, after, names}` (`compare.diff`) gives totals and rates, the checks
+  whose counts or rates differ (per 1,000 packets, first packet in each;
+  equal counts change when one rate is ≥ `RATE_CHANGE` 1.5× the other: Codex
+  review), and per kind
+  (protocols, flows, endpoints, expert) what is `new`, `gone` or `changed`
+  by share (≥ `MIN_SHARE_CHANGE` 1 percentage point), `MAX_DIFF_ITEMS` (15)
+  each (expert messages most severe first, then by count: tshark 4.6's extra
+  chats pushed a new 503 out of the list on macOS CI; `more` counts the
+  rest), `scans` (`compare.scans` over each profile's flows: a client
+  reaching ≥ `MIN_SCAN_PORTS` (4) ports of one server, or one port of ≥
+  `MIN_SWEEP_HOSTS` (8) servers, at most `SCAN_PACKETS` (4) packets per
+  connection; `new`/`gone`/`both`: a Copilot answer called the office scan's
+  five two-packet flows "new services being accessed", so the backend names
+  the pattern, and the prompt lists the scans as sentences before the JSON
+  (`scanLines`: a retest still said "new services") and says to call them scans,
+  and the chat (or editor) shows them itself above the answer as "Found by
+  tshark" (`scanNote`, escaped) with an Apply filter each (`scanFilter`:
+  client → server and its ports, or client → port; validated): another
+  retest still wrote "new connection attempts"; the office-compare eval
+  no longer accepts plain "ports" and forbids "new services"), plus `notes`
+  (two-pass checks on one side only, missing parts, different link
+  types). The prompt (`buildComparePrompt`) says which
+  capture is open (its filters and packet numbers apply) and halves the
+  lists until it fits `COMPARE_LIMITS`; the open capture's backend checks
+  the answer's filters and its stand-ins mask both captures' addresses.
+  Chat: a path (quoted, or a word with a slash or an extension; relative to
+  the open capture's folder, then the workspace folders) is the baseline;
+  the command asks for the other file and which is the baseline, then opens
+  `@pcap /compare #N` (`compareSelections`, kept like expert rows) or
+  streams into an editor. Statistics consent. `office-before.pcap` and
+  `office-after.pcap` (`generate.office_packets`) are one office network
+  without and with problems: resets, refused connections, unanswered ICMP
+  and DNS, DNS errors, HTTP 5xx, a retransmission and 10.0.0.66 scanning
+  10.0.0.80's ports 22, 23, 445, 3389 and 5900.
+- **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
+  names a fixture with known problems, the feature (triage, summary,
+  compare), `facts` tshark must compute for it (`test_evals.py`: triage
+  counts, changed checks, new and gone endpoints; every `check` id must be
+  in `triage.CHECKS`), `expect`ed findings (regexes, case-insensitive: all
+  of `all` and one of `any` within one block, a triage finding's own check
+  id, an optional `severity`) and `forbid`den claims (a sentence that
+  matches and holds no negation word; `maxSeverity` caps triage findings).
+  `grade.mjs` (pure, in c8) splits an answer into blocks (`triageBlocks`:
+  summary plus each finding; `textBlocks`: paragraphs, list items,
+  headings) and scores found / expected against `minScore`.
+  `test/evals/canned.json` holds a good and a bad answer per case:
+  `test/scripts/evals.test.mjs` checks the good one passes and the bad one
+  fails for exactly its `fails`, so every case can be passed and catches
+  something. `run.mjs` (not CI) opens the fixtures through the harness's
+  `startBackend` (isolated home, `names: {}`), builds the host's own prompts
+  from `out/src` (`gatherTriage`/`gatherSummary`, moved out of `ai.ts` for
+  this, `buildComparePrompt`), masks with `AddressMasker` like the host,
+  asks Claude through `@anthropic-ai/sdk` (a dev dependency; default
+  `claude-opus-5-5`, no refusal fallback, since another model answering
+  would grade the wrong one), retries a triage once with `TRIAGE_RETRY`
+  (shared with `ai.ts`), validates cited filters with tshark, and prints
+  the table (`--out` JSON, `--save` prompts and answers, `--repeat`).
+  `--prompts` writes the masked prompts for any other model, `--answers`
+  grades saved ones.
 - **MCP server** (`backend/pcap_backend/mcp.py`, `standins.py`;
   `src/mcpConfig.ts` pure, `src/commands/mcp.ts`): `python -m
 pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
@@ -1918,7 +2012,12 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   `CancelToken` per call, `ping`, `notifications/cancelled`, and
   `notifications/progress` when the call has a `progressToken`). Tools read
   captures by path (argument `capture`; `path` and `file` too, which models
-  sent: `_capture_arg`) (`Captures`: one `PcapService` per capture, opened
+  sent: `_capture_arg`; a bare name not in the first root is the one file of
+  that name under the roots, `_by_name` over list_captures' `_walk`, several
+  are an error listing them; every result then starts with `capture`, its
+  path from the root (`labelled`): an assistant running statistics on two
+  captures at once swapped which result was which) (`Captures`: one
+  `PcapService` per capture, opened
   non-streaming with `names: {}` (`-n`) and the saved-index cache in the
   user cache folder (`default_cache_dir`), `max_open` 3 LRU, reopened when
   size or mtime change; every tool call runs in `Captures.pinned()` (entries
@@ -1931,7 +2030,8 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   tool or bad params are JSON-RPC errors. Tools: list_captures (by
   extension, depth 8, hidden and venv folders skipped), capture_info,
   count_packets (`count_matches` got an `offset`), statistics (kinds mapped
-  to `stats`, tables cut to their top rows by bytes, default 25; tree
+  to `stats`, other spellings through `_stats_kind`: "Protocol Hierarchy",
+  `phs`, `conversation`…, tables cut to their top rows by bytes, default 25; tree
   reports (`_TREE_KINDS`) in order, default 100: a cut DNS tree read as
   missing data),
   triage (found checks by count, each with a `next` hint from `_NEXT` by id
@@ -1942,7 +2042,9 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   and need `--allow-packet-data`; the refusal and the instructions say the
   user chose this and not to read contents another way (`_CONTENTS_REFUSED`:
   in a test Claude Code ran tshark through Bash after a plain "this server
-  doesn't return"), validate_filter, search_fields, and with
+  doesn't return"), compare_captures (`{before, after, limit}`: both
+  captures' `capture_profile`, then `compare.diff`; names relative to the
+  root), validate_filter, search_fields, and with
   `--allow-packet-data`
   only (not even listed otherwise) list_packets (`count_matches` frames →
   `list_packets {frames, inView: false}`, so no view is touched),
@@ -1964,8 +2066,11 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   `stableBackend()` with `-P` (`-m` would put the working folder, a
   workspace, first on sys.path, and its own `pcap_backend` would run;
   Codex review): `globalStorage/mcp/backend/pcap_backend`, copied (no
-  `__pycache__`) when `.pcap-lens-version` differs, always while developing,
-  so a configuration pasted into another assistant survives updates. _PCAP:
+  `__pycache__`) when `.pcap-lens-version` differs (always while developing),
+  at activation (`registerMcp`) and whenever VS Code starts a server, so a
+  configuration pasted into another assistant survives updates (refreshing
+  only when VS Code started a server left Claude Code on the old code after
+  an update or an F5). _PCAP:
   Copy MCP Server Configuration…_ (`MCP_TARGETS`: `claude mcp add pcap-lens
 --scope user --env PYTHONPATH=… -- …` with `shellQuote`; the name first, as
   `--env` takes several values and swallowed it, an
@@ -2438,3 +2543,5 @@ capture filters and Lua dissectors from a description, and one-click triage
 with findings in the capture report: 0.22.0.
 Then an MCP server for AI assistants (counts, statistics, triage, field
 values and, if allowed, packets) and triage of unanswered requests: 0.23.0.
+Then comparing two captures with AI (with the port scans and host sweeps
+tshark's numbers show), and AI answer evals: 0.24.0.

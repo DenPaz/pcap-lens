@@ -104,3 +104,64 @@ export function unavailableMessage(setting: string, blocked: boolean): string {
     ? `The language model chosen in pcapViewer.ai.model ("${id}") isn't available. Pick another with PCAP: Choose Language Model…`
     : "No language model is available. Install and sign in to GitHub Copilot, or pick another model with PCAP: Choose Language Model…, to use AI help.";
 }
+
+/**
+ * Why a model can't serve PCAP Lens: VS Code keeps some models for its own
+ * chat ("Model … is only available to VS Code core"), and some entries
+ * answer an extension's request with nothing (Copilot CLI's "Auto"). Both
+ * are listed by `lm.selectChatModels` all the same.
+ */
+export type Unusable = "core-only" | "empty";
+
+/** The reason `error` (or an empty `answer`, when there was no error) says the model can't be used. */
+export function unusableReason(error: unknown, answer?: string): Unusable | undefined {
+  if (error !== undefined) {
+    const message = error instanceof Error ? error.message : String(error);
+    return /only available to VS Code core|not available to extensions/i.test(message)
+      ? "core-only"
+      : undefined;
+  }
+  return answer !== undefined && !answer.trim() ? "empty" : undefined;
+}
+
+/** A request the model can't serve (see `Unusable`); ai.ts turns it into `unusableMessage`. */
+export class UnusableModelError extends Error {
+  constructor(
+    readonly label: string,
+    readonly modelId: string,
+    readonly reason: Unusable,
+  ) {
+    super(`${label}: ${reason === "core-only" ? "only VS Code may use it" : "empty answer"}`);
+    this.name = "UnusableModelError";
+  }
+}
+
+/** "GPT-x (GitHub Copilot) is reserved for VS Code's own chat and doesn't answer extensions". */
+export function unusableWhy(label: string, reason: Unusable): string {
+  return reason === "core-only"
+    ? `${label} is reserved for VS Code's own chat and doesn't answer extensions`
+    : `${label} sent an empty answer`;
+}
+
+/**
+ * What to tell the user. Automatic: the next request skips this model and
+ * takes another Copilot one; a chosen model: pick another (never a silent
+ * switch, see the module comment).
+ */
+export function unusableMessage(label: string, reason: Unusable, automatic: boolean): string {
+  const why = unusableWhy(label, reason);
+  return automatic
+    ? `${why}. Try again: PCAP Lens will use another GitHub Copilot model, or pick one with PCAP: Choose Language Model….`
+    : `${why}. Pick another model with PCAP: Choose Language Model….`;
+}
+
+/**
+ * The automatic choice: Copilot's first model that hasn't failed this way
+ * (`skipped` ids), else the first (the user may have fixed what was wrong).
+ */
+export function automaticModel<T extends Pick<ModelInfo, "id">>(
+  models: readonly T[],
+  skipped: ReadonlySet<string>,
+): T | undefined {
+  return models.find((m) => !skipped.has(m.id)) ?? models[0];
+}

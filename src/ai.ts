@@ -43,10 +43,20 @@ import {
   notableExpertRows,
   ANOMALY_LIMITS,
 } from "./aiAnomaly";
-import { CaptureFacts, StatsTable, buildSummaryPrompt } from "./aiSummary";
+import { Requester, StatsTable, buildSummaryPrompt, gatherSummary } from "./aiSummary";
+import { CaptureDiff, buildComparePrompt, scanNote } from "./aiCompare";
 import { ToolConsent, TOOL_LIMITS, buildToolPrompt, runTool, runToolLoop } from "./aiTools";
 import { toolsRuntime } from "./lmTools";
-import { ModelInfo, modelLabel, modelSelector, unavailableMessage } from "./aiModel";
+import {
+  ModelInfo,
+  UnusableModelError,
+  automaticModel,
+  modelLabel,
+  modelSelector,
+  unavailableMessage,
+  unusableMessage,
+  unusableReason,
+} from "./aiModel";
 import {
   AddressMasker,
   maskedLoopModel,
@@ -65,7 +75,14 @@ import {
 } from "./aiFilter";
 import { suggestCaptureFilters } from "./aiCaptureFilter";
 import { DissectorRequest, DissectorResult, generateDissector } from "./aiDissector";
-import { TriageCheck, TriageInput, TriageReport, buildTriagePrompt, parseTriage } from "./aiTriage";
+import {
+  TRIAGE_RETRY,
+  TriageCheck,
+  TriageReport,
+  buildTriagePrompt,
+  gatherTriage,
+  parseTriage,
+} from "./aiTriage";
 
 /** A triage: the findings (filters validated, packets from the data), and the checks they came from. */
 export interface TriageOutcome extends ExplainOutcome {
@@ -102,6 +119,8 @@ const TRIAGE_JUSTIFICATION =
   "PCAP Lens triages the open capture from check counts and statistics computed by tshark (no packet contents).";
 const EXPLAIN_JUSTIFICATION =
   "PCAP Lens explains the packets you picked. Their packet-list rows and dissection trees are sent.";
+const COMPARE_JUSTIFICATION =
+  "PCAP Lens compares two captures' statistics (totals, check counts, flows, endpoints, expert information) to explain what changed.";
 const SUMMARY_JUSTIFICATION =
   "PCAP Lens summarizes the open capture from statistics computed by tshark (no packet contents).";
 const ANOMALY_JUSTIFICATION =
@@ -153,6 +172,28 @@ export interface AnomalyRequest {
 }
 const FIELDS_PER_KEYWORD = 12;
 
+/**
+ * `run` (a request to `model` and reading its answer), with VS Code's refusal
+ * of a model kept for its own chat, or an empty answer, as UnusableModelError.
+ */
+async function answerFrom(
+  model: vscode.LanguageModelChat,
+  token: vscode.CancellationToken,
+  run: () => Promise<string>,
+): Promise<string> {
+  let answer: string;
+  try {
+    answer = await run();
+  } catch (err) {
+    const reason = unusableReason(err);
+    throw reason ? new UnusableModelError(modelLabel(model), model.id, reason) : err;
+  }
+  if (!token.isCancellationRequested && unusableReason(undefined, answer)) {
+    throw new UnusableModelError(modelLabel(model), model.id, "empty");
+  }
+  return answer;
+}
+
 function lmApi(): typeof vscode.lm | undefined {
   // Guard against hosts that ship without the API (it is stable in 1.90, our minimum).
   return typeof vscode.lm?.selectChatModels === "function" ? vscode.lm : undefined;
@@ -175,14 +216,23 @@ function askFor(
         ? vscode.LanguageModelChatMessage.User(i === 0 ? withStandInNote(masker, content) : content)
         : vscode.LanguageModelChatMessage.Assistant(content);
     });
-    const response = await model.sendRequest(messages, { justification }, token);
-    let text = "";
-    for await (const part of response.text) {
-      text += part;
-    }
+    const text = await answerFrom(model, token, async () => {
+      const response = await model.sendRequest(messages, { justification }, token);
+      let all = "";
+      for await (const part of response.text) {
+        all += part;
+      }
+      return all;
+    });
     return masker.restore(text);
   };
 }
+
+/** `backend.request` as the pure modules' `Requester`. */
+const request =
+  (backend: BackendClient): Requester =>
+  (method, params, options) =>
+    backend.request(method, params, options);
 
 /** `promise`, or a CancellationError as soon as `token` is cancelled. */
 function untilCancelled<T>(promise: Promise<T>, token: vscode.CancellationToken): Promise<T> {
@@ -263,6 +313,8 @@ export async function listModels(): Promise<ModelInfo[]> {
 export class FilterAssistant implements vscode.Disposable {
   /** Set when the user denied (or policy blocked) access; cleared when models or settings change. */
   private blocked = false;
+  /** Copilot models that failed as UnusableModelError: the automatic choice skips them. */
+  private readonly skipped = new Set<string>();
   private readonly availability = new vscode.EventEmitter<void>();
   /** Fires when AI help may have become (un)available; re-check with isAvailable(). */
   readonly onDidChangeAvailability = this.availability.event;
@@ -316,7 +368,9 @@ export class FilterAssistant implements vscode.Disposable {
     }
     try {
       // (The chosen model only: never another vendor's instead.)
-      return (await lm.selectChatModels(modelSelector(modelSetting())))[0];
+      const setting = modelSetting();
+      const models = await lm.selectChatModels(modelSelector(setting));
+      return setting.trim() ? models[0] : automaticModel(models, this.skipped);
     } catch {
       return undefined;
     }
@@ -492,6 +546,18 @@ export class FilterAssistant implements vscode.Disposable {
     if (token.isCancellationRequested || err instanceof vscode.CancellationError) {
       return { suggestions: [], rejected: [], message: "Cancelled." };
     }
+    if (err instanceof UnusableModelError) {
+      const automatic = !modelSetting().trim();
+      if (automatic) {
+        this.skipped.add(err.modelId);
+      }
+      this.log.warn(`AI: ${err.message}${automatic ? " (skipped from now on)" : ""}`);
+      return {
+        suggestions: [],
+        rejected: [],
+        message: unusableMessage(err.label, err.reason, automatic),
+      };
+    }
     if (err instanceof vscode.LanguageModelError) {
       this.log.warn(`AI filter help: ${err.code}: ${err.message}`);
       if (
@@ -517,7 +583,7 @@ export class FilterAssistant implements vscode.Disposable {
         };
       }
     } else {
-      this.log.warn(`AI filter help failed: ${(err as Error)?.message ?? err}`);
+      this.log.warn(`AI request failed: ${(err as Error)?.message ?? err}`);
     }
     return {
       suggestions: [],
@@ -689,24 +755,26 @@ export class FilterAssistant implements vscode.Disposable {
     masker: AddressMasker,
   ): Promise<string> {
     sink.progress(`Asking ${modelLabel(model)}…`);
-    const response = await model.sendRequest(
-      [vscode.LanguageModelChatMessage.User(withStandInNote(masker, masker.mask(prompt)))],
-      { justification },
-      token,
-    );
-    const restorer = masker.restorer();
-    let answer = "";
-    const emit = (text: string) => {
-      if (text) {
-        answer += text;
-        sink.markdown(text);
+    return answerFrom(model, token, async () => {
+      const response = await model.sendRequest(
+        [vscode.LanguageModelChatMessage.User(withStandInNote(masker, masker.mask(prompt)))],
+        { justification },
+        token,
+      );
+      const restorer = masker.restorer();
+      let answer = "";
+      const emit = (text: string) => {
+        if (text) {
+          answer += text;
+          sink.markdown(text);
+        }
+      };
+      for await (const part of response.text) {
+        emit(restorer.push(part));
       }
-    };
-    for await (const part of response.text) {
-      emit(restorer.push(part));
-    }
-    emit(restorer.end());
-    return answer;
+      emit(restorer.end());
+      return answer;
+    });
   }
 
   /** The filters tshark accepts (the others are logged). */
@@ -752,46 +820,14 @@ export class FilterAssistant implements vscode.Disposable {
     }
     try {
       sink.progress("Computing statistics with tshark…");
-      const stats = (params: Record<string, unknown>) =>
-        backend.request<StatsTable>("stats", params, { timeoutMs: 0 }).catch((err: unknown) => {
-          this.log.info(
-            `AI summary: ${String(params.kind)} statistics failed: ${(err as Error).message}`,
-          );
-          return undefined;
-        });
-      const [info, protocols, tcp, udp, endpoints, expert, io] = await untilCancelled(
-        Promise.all([
-          backend.request<CaptureFacts>("capture_info", {}),
-          stats({ kind: "phs" }),
-          stats({ kind: "conversations", type: "tcp" }),
-          stats({ kind: "conversations", type: "udp" }),
-          stats({ kind: "endpoints", type: "ip" }),
-          stats({ kind: "expert" }),
-          stats({ kind: "io" }),
-        ]),
-        token,
+      const prompt = buildSummaryPrompt(
+        await untilCancelled(
+          gatherSummary(request(backend), req, (kind, message) =>
+            this.log.info(`AI summary: ${kind} statistics failed: ${message}`),
+          ),
+          token,
+        ),
       );
-      const missing = Object.entries({
-        "protocol hierarchy": protocols,
-        "TCP conversations": tcp,
-        "UDP conversations": udp,
-        endpoints,
-        "expert information": expert,
-        "traffic over time": io,
-      })
-        .filter(([, t]) => !t)
-        .map(([name]) => name);
-      const prompt = buildSummaryPrompt({
-        question: req.question,
-        currentFilter: req.currentFilter,
-        info,
-        protocols,
-        conversations: [tcp, udp].filter((t): t is StatsTable => !!t),
-        endpoints: endpoints ? [endpoints] : [],
-        expert,
-        io,
-        missing,
-      });
       const answer = await this.streamAnswer(
         model,
         prompt,
@@ -803,6 +839,64 @@ export class FilterAssistant implements vscode.Disposable {
       return {
         frames: [],
         filters: await this.validFilters(backend, extractFilters(answer), "summary"),
+      };
+    } catch (err) {
+      return this.failed(err, token);
+    }
+  }
+
+  /**
+   * Explain what changed between two captures (aiCompare.ts) from their
+   * profiles (`capture_profile`), which the backend diffs (`compare_profiles`).
+   * `backend` is the capture open in the viewer: its stand-ins mask both
+   * captures' addresses, and its tshark checks the answer's filters. The
+   * caller has the statistics consent.
+   */
+  async compare(
+    backend: BackendClient,
+    req: {
+      before: unknown;
+      after: unknown;
+      names: [string, string];
+      open: "before" | "after";
+      question: string;
+    },
+    sink: ExplainSink,
+    token: vscode.CancellationToken,
+  ): Promise<ExplainOutcome> {
+    const model = await this.readyModel();
+    if (!("sendRequest" in model)) {
+      return model;
+    }
+    try {
+      const diff = await backend.request<CaptureDiff>("compare_profiles", {
+        before: req.before,
+        after: req.after,
+        names: req.names,
+      });
+      const prompt = buildComparePrompt({ question: req.question, diff, open: req.open });
+      const scans = scanNote(diff);
+      this.log.info(
+        `AI compare: ${prompt.length} characters, ${scans.filters.length} scan(s), to ${modelLabel(model)}`,
+      );
+      if (scans.markdown) {
+        sink.markdown(scans.markdown);
+      }
+      const answer = await this.streamAnswer(
+        model,
+        prompt,
+        COMPARE_JUSTIFICATION,
+        sink,
+        token,
+        this.maskerFor(backend),
+      );
+      return {
+        frames: [],
+        filters: await this.validFilters(
+          backend,
+          [...new Set([...scans.filters, ...extractFilters(answer)])],
+          "comparison",
+        ),
       };
     } catch (err) {
       return this.failed(err, token);
@@ -828,59 +922,19 @@ export class FilterAssistant implements vscode.Disposable {
     }
     try {
       sink.progress("Counting the checks with tshark…");
-      const stats = (params: Record<string, unknown>) =>
-        backend.request<StatsTable>("stats", params, { timeoutMs: 0 }).catch((err: unknown) => {
-          this.log.info(
-            `AI triage: ${String(params.kind)} statistics failed: ${(err as Error).message}`,
-          );
-          return undefined;
-        });
-      const [info, triage, expert, protocols, tcp, udp] = await untilCancelled(
-        Promise.all([
-          backend.request<CaptureFacts>("capture_info", {}),
-          backend.request<{ checks: TriageCheck[]; ignored: boolean }>(
-            "triage",
-            {},
-            { timeoutMs: 0 },
-          ),
-          stats({ kind: "expert" }),
-          stats({ kind: "phs" }),
-          stats({ kind: "conversations", type: "tcp" }),
-          stats({ kind: "conversations", type: "udp" }),
-        ]),
+      const input = await untilCancelled(
+        gatherTriage(request(backend), question, (kind, message) =>
+          this.log.info(`AI triage: ${kind} statistics failed: ${message}`),
+        ),
         token,
       );
-      const input: TriageInput = {
-        question,
-        info,
-        checks: triage.checks,
-        ignored: triage.ignored,
-        expert,
-        protocols,
-        conversations: [tcp, udp].filter((t): t is StatsTable => !!t),
-        missing: Object.entries({
-          "expert information": expert,
-          "protocol hierarchy": protocols,
-          "TCP conversations": tcp,
-          "UDP conversations": udp,
-        })
-          .filter(([, t]) => !t)
-          .map(([name]) => name),
-      };
       sink.progress("Asking the language model…");
       const ask = askFor(model, this.maskerFor(backend), TRIAGE_JUSTIFICATION, token);
       const turns: ChatTurn[] = [{ role: "user", content: buildTriagePrompt(input) }];
       let answer = await ask(turns);
       let report = parseTriage(answer, input);
       if (!report) {
-        turns.push(
-          { role: "assistant", content: answer },
-          {
-            role: "user",
-            content:
-              'That was not the JSON object asked for. Reply with JSON only: {"summary": "...", "findings": [...]}',
-          },
-        );
+        turns.push({ role: "assistant", content: answer }, { role: "user", content: TRIAGE_RETRY });
         answer = await ask(turns);
         report = parseTriage(answer, input);
       }

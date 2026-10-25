@@ -13,13 +13,16 @@
  */
 import {
   CaptureFacts,
+  Requester,
   SUMMARY_LIMITS,
   StatsTable,
   expertLines,
   formatNumber,
+  missingNames,
   oneLine,
   propertyLines,
   protocolLines,
+  statsOrNothing,
   tableSection,
 } from "./aiSummary";
 
@@ -66,6 +69,42 @@ export interface TriageInput {
   conversations?: StatsTable[];
   missing?: string[];
 }
+
+/** What a triage sends (the host's and the evals' prompt), from the backend: six requests in parallel. */
+export async function gatherTriage(
+  request: Requester,
+  question: string,
+  failed: (kind: string, message: string) => void = () => undefined,
+): Promise<TriageInput> {
+  const stats = statsOrNothing(request, failed);
+  const [info, triage, expert, protocols, tcp, udp] = await Promise.all([
+    request<CaptureFacts>("capture_info", {}),
+    request<{ checks: TriageCheck[]; ignored: boolean }>("triage", {}, { timeoutMs: 0 }),
+    stats({ kind: "expert" }),
+    stats({ kind: "phs" }),
+    stats({ kind: "conversations", type: "tcp" }),
+    stats({ kind: "conversations", type: "udp" }),
+  ]);
+  return {
+    question,
+    info,
+    checks: triage.checks,
+    ignored: triage.ignored,
+    expert,
+    protocols,
+    conversations: [tcp, udp].filter((t): t is StatsTable => !!t),
+    missing: missingNames({
+      "expert information": expert,
+      "protocol hierarchy": protocols,
+      "TCP conversations": tcp,
+      "UDP conversations": udp,
+    }),
+  };
+}
+
+/** The one follow-up when an answer isn't the JSON asked for. */
+export const TRIAGE_RETRY =
+  'That was not the JSON object asked for. Reply with JSON only: {"summary": "...", "findings": [...]}';
 
 export const SEVERITIES = ["high", "medium", "low", "info"] as const;
 export type Severity = (typeof SEVERITIES)[number];

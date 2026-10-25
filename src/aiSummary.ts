@@ -84,6 +84,67 @@ export interface SummaryInput {
   missing?: string[];
 }
 
+/** A backend request: `BackendClient.request`, or the eval runner's (scripts/evals). */
+export type Requester = <T>(
+  method: string,
+  params: Record<string, unknown>,
+  options?: { timeoutMs?: number },
+) => Promise<T>;
+
+/** A `stats` request whose failure is reported to `failed` and gives undefined (the prompt says what's missing). */
+export function statsOrNothing(
+  request: Requester,
+  failed: (kind: string, message: string) => void,
+): (params: Record<string, unknown>) => Promise<StatsTable | undefined> {
+  return (params) =>
+    request<StatsTable>("stats", params, { timeoutMs: 0 }).catch((err: unknown) => {
+      failed(String(params.kind), (err as Error)?.message ?? String(err));
+      return undefined;
+    });
+}
+
+/** The names of the tables that are missing. */
+export const missingNames = (tables: Record<string, unknown>): string[] =>
+  Object.entries(tables)
+    .filter(([, t]) => !t)
+    .map(([name]) => name);
+
+/** What a summary sends (the host's and the evals' prompt), from the backend: seven requests in parallel. */
+export async function gatherSummary(
+  request: Requester,
+  req: { question: string; currentFilter: string },
+  failed: (kind: string, message: string) => void = () => undefined,
+): Promise<SummaryInput> {
+  const stats = statsOrNothing(request, failed);
+  const [info, protocols, tcp, udp, endpoints, expert, io] = await Promise.all([
+    request<CaptureFacts>("capture_info", {}),
+    stats({ kind: "phs" }),
+    stats({ kind: "conversations", type: "tcp" }),
+    stats({ kind: "conversations", type: "udp" }),
+    stats({ kind: "endpoints", type: "ip" }),
+    stats({ kind: "expert" }),
+    stats({ kind: "io" }),
+  ]);
+  return {
+    question: req.question,
+    currentFilter: req.currentFilter,
+    info,
+    protocols,
+    conversations: [tcp, udp].filter((t): t is StatsTable => !!t),
+    endpoints: endpoints ? [endpoints] : [],
+    expert,
+    io,
+    missing: missingNames({
+      "protocol hierarchy": protocols,
+      "TCP conversations": tcp,
+      "UDP conversations": udp,
+      endpoints,
+      "expert information": expert,
+      "traffic over time": io,
+    }),
+  };
+}
+
 const MAX_QUESTION = 1000;
 const MAX_FILTER = 500;
 
