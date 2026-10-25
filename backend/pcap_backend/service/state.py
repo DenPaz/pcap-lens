@@ -91,6 +91,21 @@ _RECORD_OVERHEAD = {"pcap": 16, "pcapng": 32}
 
 
 _UNSUPPORTED_RE = re.compile(r"isn't a capture file in a format TShark understands")
+# A capture format tshark reads, holding packets it can't: a pcap whose link
+# type it doesn't know ("(pcap: network type 182 unknown or unsupported)",
+# tcpdump's frf16_magic_ie-oobr.pcap, found by test/realworld).
+_UNSUPPORTED_DATA_RE = re.compile(
+    r"contains record data that TShark doesn't support\.?\s*(?:\((?P<why>[^)\n]*)\))?"
+)
+
+
+def _unsupported_data(stderr: str, name: str) -> str | None:
+    """Why tshark can't read a capture's packets, if that's what it said."""
+    match = _UNSUPPORTED_DATA_RE.search(stderr)
+    if match is None:
+        return None
+    why = f" ({match['why']})" if match["why"] else ""
+    return f"{name} holds packets tshark can't read{why}"
 
 
 @dataclass(slots=True)
