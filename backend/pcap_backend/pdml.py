@@ -71,9 +71,11 @@ def parse_pdml(
     for el in top:
         if _NEW_SOURCE_RE.search(el.get("name", "")) and src + 1 < source_count:
             src += 1
+        own = src
         if sources and len(sources) > 1:
             src = _matching_source(el, sources, src)
-        node = _convert(el, src, counter)
+            own = _own_source(el, sources, src, own)
+        node = _convert(el, src, counter, sources, own)
         if node is not None:
             nodes.append(node)
     return nodes
@@ -111,7 +113,29 @@ class _Counter:
         return self.value
 
 
-def _convert(el: ET.Element, src: int, counter: _Counter) -> TreeNode | None:
+def _own_source(el: ET.Element, sources: Sequence[bytes], inner: int, outer: int) -> int:
+    """A protocol item's own source: the one its fields are in, unless its
+    own range only fits the enclosing one (EAP reassembled from RADIUS
+    attributes: the item spans the attribute in the frame, its fields the
+    "Reassembled EAP" buffer)."""
+    pos, size = _int(el.get("pos")), _int(el.get("size"))
+    if pos is None or not size or pos + size <= len(sources[inner]):
+        return inner
+    # (Neither fits, as for an EAP item spanning several attributes past the
+    # frame's end: the enclosing source, where it starts, if it starts there.)
+    return outer if pos < len(sources[outer]) else inner
+
+
+def _convert(
+    el: ET.Element,
+    src: int,
+    counter: _Counter,
+    sources: Sequence[bytes] | None = None,
+    own: int | None = None,
+) -> TreeNode | None:
+    """``src`` is the byte source of ``el``'s fields, ``own`` its own (default
+    the same). A nested protocol whose fields' bytes match another source
+    (``sources``) moves its subtree there."""
     if el.get("hide") == "yes":
         return None
     name = el.get("name", "")
@@ -123,7 +147,7 @@ def _convert(el: ET.Element, src: int, counter: _Counter) -> TreeNode | None:
         label = f"{name}: {show}"
     else:
         label = show or name or "(unnamed)"
-    node: TreeNode = {"id": counter.next(), "label": label, "src": src}
+    node: TreeNode = {"id": counter.next(), "label": label, "src": src if own is None else own}
     if name:
         node["name"] = name
     if show is not None:
@@ -142,7 +166,11 @@ def _convert(el: ET.Element, src: int, counter: _Counter) -> TreeNode | None:
     for child in el:
         if child.tag not in ("field", "proto"):
             continue
-        converted = _convert(child, src, counter)
+        inner, child_own = src, None
+        if sources and len(sources) > 1 and child.tag == "proto":
+            inner = _matching_source(child, sources, src)
+            child_own = _own_source(child, sources, inner, src)
+        converted = _convert(child, inner, counter, sources, child_own)
         if converted is not None:
             children.append(converted)
     if children:

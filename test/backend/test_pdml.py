@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from typing import Any
 
@@ -145,6 +146,30 @@ def test_parse_hexdump_ignores_ascii_lookalikes() -> None:
     assert bytes(src.data) == b"ABCDEF0123456789"
 
 
+def _find(nodes: list[dict[str, Any]], name: str) -> dict[str, Any]:
+    for node in nodes:
+        if node.get("name") == name:
+            return node
+        with contextlib.suppress(LookupError):
+            return _find(node.get("children", []), name)
+    raise LookupError(name)
+
+
+def _check_sources(detail: dict[str, Any]) -> None:
+    """Every field with raw bytes has them at its position in its own source."""
+    sources = [bytes.fromhex(s["hex"]) for s in detail["sources"]]
+
+    def walk(nodes: list[dict[str, Any]]) -> None:
+        for node in nodes:
+            raw = node.get("value", "")
+            if "pos" in node and len(raw) == 2 * node["size"]:
+                data = sources[node["src"]]
+                assert data[node["pos"] : node["pos"] + node["size"]].hex() == raw, node
+            walk(node.get("children", []))
+
+    walk(detail["tree"])
+
+
 @pytest.mark.tshark
 def test_detail_fields_lie_in_their_byte_source(
     service: PcapService, fixtures: Path, ctx: RequestContext
@@ -154,22 +179,22 @@ def test_detail_fields_lie_in_their_byte_source(
     # tcpdump's 802_15_4-data.pcap: IPv6 was highlighted over the frame's bytes).
     service.open({"path": str(fixtures / "sixlowpan.pcap")}, ctx)
     detail = service.packet_detail({"number": 1}, ctx)
-    sources = [bytes.fromhex(s["hex"]) for s in detail["sources"]]
     assert [s["name"] for s in detail["sources"]] == ["Frame", "Decompressed 6LoWPAN IPHC"]
     top = {n["name"]: n["src"] for n in detail["tree"] if "name" in n}
     assert (top["wpan"], top["6lowpan"], top["ipv6"], top["udp"], top["data"]) == (0, 0, 1, 1, 1)
+    _check_sources(detail)
 
-    def walk(nodes: list[dict[str, Any]]) -> None:
-        for node in nodes:
-            if "pos" in node:
-                data = sources[node["src"]]
-                assert node["pos"] + node["size"] <= len(data), node["label"]
-                raw = node.get("value", "")
-                if len(raw) == 2 * node["size"]:
-                    assert data[node["pos"] : node["pos"] + node["size"]].hex() == raw, node
-            walk(node.get("children", []))
-
-    walk(detail["tree"])
+    # EAP reassembled from two RADIUS EAP-Message attributes is nested in
+    # RADIUS: its fields are on "Reassembled EAP", the item itself starts in
+    # the frame (found on Wireshark's coap-eap-failure.pcap).
+    service.open({"path": str(fixtures / "radius-eap.pcap")}, ctx)
+    detail = service.packet_detail({"number": 1}, ctx)
+    assert [s["name"] for s in detail["sources"]] == ["Frame", "Reassembled EAP"]
+    radius = next(n for n in detail["tree"] if n.get("name") == "radius")
+    eap = _find(radius["children"], "eap")
+    assert radius["src"] == 0 and eap["src"] == 0
+    assert {c["src"] for c in eap["children"]} == {1}
+    _check_sources(detail)
 
 
 def test_parse_pdml_picks_the_source_whose_bytes_match() -> None:

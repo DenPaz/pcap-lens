@@ -1886,6 +1886,20 @@ def sixlowpan_packets() -> list[Packet]:
     return _stamp([frame / iphc / UDP(sport=7777, dport=7777) / Raw(b"hello 6lowpan")])
 
 
+def radius_eap_packets() -> list[Packet]:
+    """A RADIUS Access-Request whose EAP Response/Identity is split over two
+    EAP-Message attributes: tshark shows EAP inside RADIUS with its fields on
+    a "Reassembled EAP" buffer (a nested protocol on another byte source)."""
+    identity = b"alice@example.org/" + b"x" * 300
+    eap = struct.pack("!BBHB", 2, 7, 5 + len(identity), 1) + identity
+    attrs = bytes([1, 7]) + b"alice"  # User-Name
+    attrs += b"".join(bytes([79, 2 + len(part)]) + part for part in (eap[:253], eap[253:]))
+    attrs += bytes([80, 18]) + bytes(16)  # Message-Authenticator
+    radius = struct.pack("!BBH", 1, 42, 20 + len(attrs)) + bytes(range(16)) + attrs
+    udp = UDP(sport=40001, dport=1812) / Raw(radius)
+    return _stamp([Ether() / IP(src="10.0.0.5", dst="10.0.0.1") / udp])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--large", nargs=2, metavar=("COUNT", "DEST"))
@@ -1915,6 +1929,7 @@ def main() -> None:
     wrpcap(str(HERE / "esp.pcap"), esp_packets())
     wrpcap(str(HERE / "network.pcap"), network_packets())
     wrpcap(str(HERE / "sixlowpan.pcap"), sixlowpan_packets())
+    wrpcap(str(HERE / "radius-eap.pcap"), radius_eap_packets())
     wrpcap(str(HERE / "office-before.pcap"), office_packets(problems=False))
     wrpcap(str(HERE / "office-after.pcap"), office_packets(problems=True))
     geoip_fixtures()

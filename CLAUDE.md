@@ -570,8 +570,12 @@ frame.number==N` (no `-c`, both the PDML and the `-x` run), so references
   stays in the previous item's source, moving to the next after a
   `*.segments`/`*.fragments` node. The byte check came from test/realworld:
   6LoWPAN's IPv6 header exists only in "Decompressed 6LoWPAN IPHC", with no
-  reassembly item before it (`sixlowpan.pcap`). A top-level item whose
-  children span several sources still gets one.
+  reassembly item before it (`sixlowpan.pcap`). Nested protocols are matched
+  the same way (EAP reassembled from RADIUS EAP-Message attributes:
+  `radius-eap.pcap`); a protocol item's own range stays on the enclosing
+  source when it doesn't fit the matched one (`_own_source`: the EAP item
+  spans the attributes, past the frame's end). Fields of one protocol that
+  span several sources still get one.
   The first source is always named "Frame" (`pdml.FRAME_SOURCE`): tshark 4.6
   prints "Packet (N bytes):" where 4.2/4.4 print "Frame", and single-source
   packets print no header at all, so the byte tabs and _Export Packet Bytes_
