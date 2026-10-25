@@ -25,7 +25,7 @@ import hashlib
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
-PROFILE_VERSION = 3
+PROFILE_VERSION = 4
 # Flows and endpoints kept per profile (by bytes); the rest are summed.
 MAX_PROFILE_ITEMS = 500
 # The rest are still known by a short hash (``member_id``), so a flow ranked
@@ -149,8 +149,11 @@ def flows_of(
 
 
 def reset_counts(lines: Iterable[str]) -> dict[str, int]:
-    """TCP resets per flow from a ``RESET_FIELDS`` pass (tab-separated
-    lines, the last occurrence of each field: the innermost header)."""
+    """TCP resets the server end of each flow sent, from a ``RESET_FIELDS``
+    pass (tab-separated lines, the last occurrence of each field: the
+    innermost header). Only the server's: in a SYN scan of an open port the
+    scanner resets after the SYN/ACK, and counting that would call the port
+    closed (Codex review)."""
     out: dict[str, int] = {}
     for line in lines:
         cells = line.rstrip("\r").split("\t")
@@ -160,6 +163,9 @@ def reset_counts(lines: Iterable[str]) -> dict[str, int]:
         src, dst = src6 or src4, dst6 or dst4
         if not (src and dst and sport.isdigit() and dport.isdigit()):
             continue
+        # (flow_key's server is the end with the lower port, then address.)
+        if (int(sport), src) >= (int(dport), dst):
+            continue  # sent by the client
         key = flow_key("tcp", f"{src}:{sport}", f"{dst}:{dport}")
         out[key] = out.get(key, 0) + 1
     return out
@@ -182,7 +188,7 @@ def profile(
     protocols = _protocols(phs)
     depth0 = [v for k, v in protocols.items() if "/" not in k]
     flows = flows_of(conversations)  # conversations, packets, bytes
-    found_scans = scans(flows, resets)
+    found_scans = scans(flows, resets, limit=None)
     hosts: dict[str, list[float]] = {}  # packets, bytes
     for table in endpoints:
         ids, rows = _cells(table)
@@ -237,7 +243,9 @@ def profile(
         "flows": kept_flows,
         "otherFlows": other_flows,
         "otherFlowIds": flow_members,
-        "scans": found_scans,
+        "scans": found_scans[:MAX_SCANS],
+        # Every scan's key, so one ranked outside the 20 kept here isn't new or gone.
+        "scanKeys": sorted(scan_key(x) for x in found_scans[:MAX_MEMBER_IDS]),
         "endpoints": kept_hosts,
         "otherEndpoints": other_hosts,
         "otherEndpointIds": host_members,
@@ -365,7 +373,9 @@ def _parse_flow(key: str) -> tuple[str, str, str, int] | None:
 
 
 def scans(
-    flows: Mapping[str, Sequence[float]], resets: Mapping[str, int] | None = None
+    flows: Mapping[str, Sequence[float]],
+    resets: Mapping[str, int] | None = None,
+    limit: int | None = MAX_SCANS,
 ) -> list[dict[str, Any]]:
     """Port scans (one client, one server, many ports) and host sweeps (one
     client, one port, many servers) among ``flows`` (``flows_of``) with few
@@ -403,25 +413,27 @@ def scans(
             item["reset"] = g["reset"]
         out.append(item)
     out.sort(key=lambda x: -x["targets"])
-    return out[:MAX_SCANS]
+    return out if limit is None else out[:limit]
 
 
-def _scan_key(item: Mapping[str, Any]) -> tuple[str, ...]:
-    return (
-        item["kind"],
-        item["protocol"],
-        item["client"],
-        str(item.get("server", item.get("port"))),
+def scan_key(item: Mapping[str, Any]) -> str:
+    """A scan's identity: kind, protocol, client and server (port scan) or port (sweep)."""
+    return "|".join(
+        (item["kind"], item["protocol"], item["client"], str(item.get("server", item.get("port"))))
     )
 
 
 def _scans(before: Mapping[str, Any], after: Mapping[str, Any], limit: int) -> dict[str, Any]:
+    """New, gone and both, judged on every scan's key (``scanKeys``), not only
+    the MAX_SCANS each profile details (Codex review: a scan pushed out of
+    one profile's top 20 read as gone)."""
     b, a = before["scans"], after["scans"]
-    b_keys, a_keys = {_scan_key(x) for x in b}, {_scan_key(x) for x in a}
+    b_keys = set(before.get("scanKeys") or map(scan_key, b))
+    a_keys = set(after.get("scanKeys") or map(scan_key, a))
     return {
-        "new": [x for x in a if _scan_key(x) not in b_keys][:limit],
-        "gone": [x for x in b if _scan_key(x) not in a_keys][:limit],
-        "both": [x for x in a if _scan_key(x) in b_keys][:limit],
+        "new": [x for x in a if scan_key(x) not in b_keys][:limit],
+        "gone": [x for x in b if scan_key(x) not in a_keys][:limit],
+        "both": [x for x in a if scan_key(x) in b_keys][:limit],
     }
 
 

@@ -1960,8 +1960,11 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   of a `RESET_FIELDS` pass (`_reset_counts`: `-Y "tcp.flags.reset == 1"`,
   `-E occurrence=l`, the innermost addresses; `reset_counts` → per flow):
   each scan has `targets` (listing at most `MAX_SCAN_TARGETS` 50),
-  `packets` and, for TCP, `reset` (targets that answered with a reset), at
-  most `MAX_SCANS` 20. A model read the office scan's five resets as
+  `packets` and, for TCP, `reset` (targets that answered with a reset:
+  only resets the server end sent count, since a SYN scan's scanner resets
+  open ports itself; Codex review), at most `MAX_SCANS` 20 kept per profile
+  plus every scan's `scan_key` in `scanKeys`, so a scan outside one side's
+  top 20 is neither new nor gone (Codex review; `PROFILE_VERSION` 4). A model read the office scan's five resets as
   "server or network stability"; the sentences now say they are the scan's
   answers. `compare_profiles
 {before, after, names}` (`compare.diff`) gives totals and rates, the checks

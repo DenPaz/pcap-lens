@@ -227,6 +227,7 @@ def test_diff_limits_and_notes() -> None:
 def test_reset_counts() -> None:
     lines = [
         "10.0.0.80\t\t22\t10.0.0.66\t\t50001",  # the server refusing the client
+        # The scanner's own reset after an open port's SYN/ACK isn't the port's answer.
         "10.0.0.66\t\t50002\t10.0.0.80\t\t23",
         "10.0.0.80\t\t22\t10.0.0.66\t\t50003",
         "\t2001:db8::1\t443\t\t2001:db8::9\t50000\r",
@@ -235,7 +236,6 @@ def test_reset_counts() -> None:
     ]
     assert compare.reset_counts(lines) == {
         "tcp 10.0.0.66 → 10.0.0.80:22": 2,
-        "tcp 10.0.0.66 → 10.0.0.80:23": 1,
         "tcp 2001:db8::9 → [2001:db8::1]:443": 1,
     }
 
@@ -282,6 +282,39 @@ def test_scans() -> None:
     )
     assert [s["kind"] for s in d["scans"]["gone"]] == ["port scan"]
     assert [s["kind"] for s in d["scans"]["new"]] == ["host sweep"]
+
+
+def test_scans_beyond_the_kept_ones_are_neither_new_nor_gone() -> None:
+    # Codex review: twenty four-port scans and one five-port scan before; the
+    # twenty grow to six ports after, pushing the five-port one out of the top
+    # twenty kept. It is in both captures, so it isn't gone.
+    def scan_flows(sizes: dict[int, int]) -> dict[str, list[float]]:
+        return {
+            f"tcp 10.0.1.{c} → 10.0.0.80:{port}": [1, 2, 200]
+            for c, n in sizes.items()
+            for port in range(1, n + 1)
+        }
+
+    before_flows = scan_flows({**dict.fromkeys(range(1, 21), 4), 99: 5})
+    after_flows = scan_flows({**dict.fromkeys(range(1, 21), 6), 99: 5})
+    base = _profile(100, [], {})
+    before = {**base, **_scan_parts(before_flows)}
+    after = {**base, **_scan_parts(after_flows)}
+    assert len(after["scans"]) == compare.MAX_SCANS and len(after["scanKeys"]) == 21
+    assert "10.0.1.99" not in {x["client"] for x in after["scans"]}
+    d = compare.diff(before, after)
+    assert d["scans"]["new"] == [] and d["scans"]["gone"] == []
+    # A profile without scanKeys (an older one) still compares by its scans.
+    old = {k: v for k, v in before.items() if k != "scanKeys"}
+    assert [x["client"] for x in compare.diff(old, old)["scans"]["both"]][:1] == ["10.0.1.99"]
+
+
+def _scan_parts(flows: dict[str, list[float]]) -> dict[str, Any]:
+    found = compare.scans(flows, limit=None)
+    return {
+        "scans": found[: compare.MAX_SCANS],
+        "scanKeys": sorted(compare.scan_key(x) for x in found),
+    }
 
 
 @pytest.mark.tshark
