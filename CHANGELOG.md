@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.24.1 — 2026-10-25
+
 ### Added
 
 - AI triage and capture summaries point out port scans and host sweeps that
