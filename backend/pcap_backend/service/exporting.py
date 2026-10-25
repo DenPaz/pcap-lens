@@ -411,6 +411,10 @@ class ExportMixin(DetailMixin, PacketsMixin):
         fmt = param(params, "format", str, "text")
         if fmt not in DISSECTION_FORMATS:
             raise InvalidParamsError(f"format must be one of {', '.join(DISSECTION_FORMATS)}")
+        if fmt == "pdml" and params.get("bytes"):
+            # (tshark: "Raw packet hex data can only be printed as text, … or JSON";
+            # PDML already holds every field's bytes as its value.)
+            raise InvalidParamsError("PDML can't include hex dumps: choose text or JSON")
         filters, label, expected, user_filter = self._export_scope(f, params)
         if user_filter:
             error = f.tshark.validate_filter(user_filter, ctx.token)

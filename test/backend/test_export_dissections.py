@@ -84,6 +84,11 @@ def test_export_dissections(opened: PcapService, ctx: RequestContext, tmp_path: 
     res = _export(opened, ctx, tmp_path / "http.json", format="json")
     packets = json.loads((tmp_path / "http.json").read_text())
     assert res["packets"] == 2 and _frame_numbers(packets) == ["4", "7"]
+    res = _export(opened, ctx, tmp_path / "http-bytes.json", format="json", bytes=True)
+    assert res["packets"] == 2 and "frame_raw" in (tmp_path / "http-bytes.json").read_text()
+    # tshark refuses -x with PDML (found by test/realworld: the host offered it).
+    with pytest.raises(InvalidParamsError, match="PDML"):
+        _export(opened, ctx, tmp_path / "bytes.pdml", format="pdml", bytes=True)
 
     with pytest.raises(FilterError):
         _export(opened, ctx, tmp_path / "bad.txt", filter="tcp.port ==")

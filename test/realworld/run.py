@@ -1,0 +1,728 @@
+"""Run every backend feature over real captures and report what breaks.
+
+Not part of CI (it downloads captures). The generated fixtures in
+test/fixtures are small and tidy; real captures have truncated packets,
+odd encapsulations, many link types and broken streams. This drives the
+backend the way the extension does: one ``python -m pcap_backend`` server
+per capture over JSON-RPC, a streaming open with the default coloring
+rules and name resolution, then each feature in turn, and checks a few
+invariants (packet counts agree, exports read back, pages are complete).
+
+    uv run python test/realworld/run.py --fetch          # Wireshark's test captures
+    uv run python test/realworld/run.py DIR_OR_FILE …   # your own
+    … --only http -j 4 --out report.json
+
+Captures are kept in ~/.cache/pcap-lens-realworld (never in the repository:
+they aren't ours to redistribute). Every result is listed as ok, expected
+(an answer the viewer shows as a message, e.g. "no TCP stream here") or a
+problem: an internal error, a tshark failure, a timeout, a broken
+invariant, a traceback on the server's stderr. Exit status 1 when there
+are problems.
+"""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import json
+import os
+import queue
+import re
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import urllib.parse
+import urllib.request
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parents[2]
+CACHE = Path.home() / ".cache" / "pcap-lens-realworld"
+WIRESHARK_TREE = (
+    "https://gitlab.com/api/v4/projects/wireshark%2Fwireshark/repository/tree"
+    "?path=test/captures&per_page=100&ref=master&page={page}"
+)
+WIRESHARK_RAW = "https://gitlab.com/api/v4/projects/wireshark%2Fwireshark/repository/files/{path}/raw?ref=master"
+# Generator scripts, side files, and the hundreds of synthetic Oracle TNS and
+# NVMe-MI captures (one dissector each: they add time, not variety).
+SKIP = re.compile(r"^(_gen_|tns_|nvme-mi-)|\.(py|cbordiag|m|xml)$|keys\.txt$|text2pcap_hash_eol")
+
+INTERNAL_ERROR = -32603
+TSHARK_FAILED = -32002
+TIMEOUT_CODE = 0
+# Answers the viewer shows as a message (no such stream, still indexing…).
+EXPECTED_CODES = {-32602, -32010, -32011, -32012}
+SLOW_S = 30.0
+
+with (ROOT / "package.json").open(encoding="utf-8") as fh:
+    _PROPS: dict[str, Any] = {}
+    _conf = json.load(fh)["contributes"]["configuration"]
+    for _section in _conf if isinstance(_conf, list) else [_conf]:
+        _PROPS.update(_section["properties"])
+COLORING = [
+    {"filter": r["filter"], "foreground": r["foreground"], "background": r["background"]}
+    for r in _PROPS["pcapViewer.coloringRules"]["default"]
+]
+NAMES = {"mac": True, "network": False, "capturedDns": True, "transport": False, "external": False}
+
+
+# --- fetching ---------------------------------------------------------------
+
+
+def _get(url: str, timeout: float = 120) -> bytes:
+    req = urllib.request.Request(url, headers={"User-Agent": "pcap-lens-realworld"})  # noqa: S310
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (https only)
+        data: bytes = resp.read()
+    return data
+
+
+def fetch_wireshark(dest: Path) -> list[Path]:
+    """Wireshark's own test captures (test/captures), downloaded once."""
+    dest.mkdir(parents=True, exist_ok=True)
+    names: list[str] = []
+    for page in range(1, 20):
+        entries = json.loads(_get(WIRESHARK_TREE.format(page=page)))
+        if not entries:
+            break
+        names += [e["name"] for e in entries if e["type"] == "blob" and not SKIP.search(e["name"])]
+    for name in names:
+        target = dest / name
+        if target.exists() and target.stat().st_size and not _is_html(target):
+            continue
+        path = urllib.parse.quote(f"test/captures/{name}", safe="")
+        # One at a time: GitLab answers parallel raw requests with an HTML page.
+        target.write_bytes(_get(WIRESHARK_RAW.format(path=path)))
+        time.sleep(0.2)
+        print(f"fetched {name}", file=sys.stderr)
+    return sorted(dest / n for n in names)
+
+
+def _is_html(path: Path) -> bool:
+    with path.open("rb") as fh:
+        return fh.read(15).lower().startswith((b"<!doctype", b"<html"))
+
+
+# --- the server -------------------------------------------------------------
+
+
+class RpcError(Exception):
+    def __init__(self, code: int, message: str, data: Any = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.data = data
+
+
+class Server:
+    """``python -m pcap_backend`` with an empty home, as the tests run it."""
+
+    def __init__(self, home: Path) -> None:
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if k not in ("WIRESHARK_CONFIG_DIR", "WIRESHARK_PLUGIN_DIR")
+        }
+        env |= {
+            "HOME": str(home),
+            "APPDATA": str(home),
+            "XDG_CONFIG_HOME": str(home / ".config"),
+            "PYTHONPATH": str(ROOT / "backend"),
+        }
+        self.proc = subprocess.Popen(
+            [sys.executable, "-m", "pcap_backend"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
+        self._next = 0
+        self._replies: dict[int, queue.Queue[dict[str, Any]]] = {}
+        self._lock = threading.Lock()
+        self.notifications: queue.Queue[dict[str, Any]] = queue.Queue()
+        self.stderr: list[str] = []
+        self.bad_output: list[str] = []
+        threading.Thread(target=self._read_out, daemon=True).start()
+        threading.Thread(target=self._read_err, daemon=True).start()
+
+    def _read_out(self) -> None:
+        assert self.proc.stdout is not None
+        for raw in self.proc.stdout:
+            try:
+                msg = json.loads(raw)
+            except ValueError:
+                self.bad_output.append(raw.decode("utf-8", "replace")[:200])
+                continue
+            if "id" in msg and ("result" in msg or "error" in msg):
+                with self._lock:
+                    box = self._replies.get(msg["id"])
+                if box is not None:
+                    box.put(msg)
+            elif msg.get("method") != "progress":
+                self.notifications.put(msg)
+
+    def _read_err(self) -> None:
+        assert self.proc.stderr is not None
+        for raw in self.proc.stderr:
+            self.stderr.append(raw.decode("utf-8", "replace").rstrip())
+
+    def call(self, method: str, params: dict[str, Any], timeout: float) -> Any:
+        with self._lock:
+            self._next += 1
+            rid = self._next
+            box: queue.Queue[dict[str, Any]] = queue.Queue()
+            self._replies[rid] = box
+        line = json.dumps({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
+        assert self.proc.stdin is not None
+        self.proc.stdin.write(line.encode() + b"\n")
+        self.proc.stdin.flush()
+        try:
+            msg = box.get(timeout=timeout)
+        except queue.Empty:
+            self.proc.stdin.write(
+                json.dumps(
+                    {"jsonrpc": "2.0", "method": "cancel", "params": {"requestId": rid}}
+                ).encode()
+                + b"\n"
+            )
+            self.proc.stdin.flush()
+            raise RpcError(TIMEOUT_CODE, f"no answer in {timeout:.0f} s") from None
+        finally:
+            with self._lock:
+                self._replies.pop(rid, None)
+        if "error" in msg:
+            err = msg["error"]
+            raise RpcError(err.get("code", 0), err.get("message", ""), err.get("data"))
+        return msg["result"]
+
+    def wait_for(self, method: str, event: set[str], timeout: float) -> dict[str, Any]:
+        deadline = time.monotonic() + timeout
+        while (left := deadline - time.monotonic()) > 0:
+            try:
+                msg = self.notifications.get(timeout=left)
+            except queue.Empty:
+                break
+            params = msg.get("params") or {}
+            if msg.get("method") == method and params.get("event") in event:
+                return params
+        raise RpcError(TIMEOUT_CODE, f"no {method} {'/'.join(sorted(event))} in {timeout:.0f} s")
+
+    def close(self) -> None:
+        assert self.proc.stdin is not None
+        with contextlib.suppress(OSError):
+            self.proc.stdin.close()
+        try:
+            self.proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+            self.proc.wait()
+            self.stderr.append("(server did not exit within 30 s of closing stdin)")
+        for stream in (self.proc.stdout, self.proc.stderr):
+            if stream is not None:
+                stream.close()
+
+
+# --- one capture -------------------------------------------------------------
+
+
+@dataclass
+class Step:
+    name: str
+    status: str  # ok, expected, problem
+    seconds: float
+    detail: str = ""
+
+
+@dataclass
+class Report:
+    capture: str
+    frames: int | None = None
+    steps: list[Step] = field(default_factory=list)
+
+    def problems(self) -> list[Step]:
+        return [s for s in self.steps if s.status == "problem"]
+
+
+class Run:
+    def __init__(self, server: Server, report: Report, timeout: float, work: Path) -> None:
+        self.server = server
+        self.report = report
+        self.timeout = timeout
+        self.work = work
+
+    def call(self, name: str, method: str, params: dict[str, Any] | None = None) -> Any:
+        """One request, recorded; None when it failed."""
+        start = time.monotonic()
+        try:
+            result = self.server.call(method, params or {}, self.timeout)
+        except RpcError as exc:
+            took = time.monotonic() - start
+            status = "expected" if exc.code in EXPECTED_CODES else "problem"
+            data = f" {json.dumps(exc.data)[:300]}" if exc.data else ""
+            self.report.steps.append(Step(name, status, took, f"[{exc.code}] {exc.message}{data}"))
+            return None
+        took = time.monotonic() - start
+        self.report.steps.append(
+            Step(name, "problem" if took > SLOW_S else "ok", took, "slow" if took > SLOW_S else "")
+        )
+        return result
+
+    def check(self, name: str, ok: bool, detail: str) -> None:
+        self.report.steps.append(Step(name, "ok" if ok else "problem", 0.0, "" if ok else detail))
+
+    def first_frame(self, flt: str) -> int | None:
+        res = self.call(f"count {flt}", "count_matches", {"filter": flt, "limit": 1})
+        frames = (res or {}).get("frames") or []
+        return frames[0] if frames else None
+
+
+def capinfos_count(path: Path) -> int | None:
+    try:
+        out = subprocess.run(
+            ["capinfos", "-c", "-M", "-T", "-r", str(path)],  # noqa: S607
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    for line in out.splitlines():
+        cells = line.split("\t")
+        if len(cells) >= 2 and cells[1].strip().isdigit():
+            return int(cells[1])
+    return None
+
+
+def exercise(path: Path, timeout: float) -> Report:
+    report = Report(str(path))
+    with tempfile.TemporaryDirectory(prefix="pcap-realworld-") as tmp:
+        home = Path(tmp) / "home"
+        work = Path(tmp) / "out"
+        home.mkdir()
+        work.mkdir()
+        server = Server(home)
+        run = Run(server, report, timeout, work)
+        try:
+            _exercise(run, path, Path(tmp) / "cache")
+        except Exception as exc:  # noqa: BLE001 (a harness bug is reported, not fatal)
+            report.steps.append(Step("harness", "problem", 0.0, f"{type(exc).__name__}: {exc}"))
+        finally:
+            run.call("close", "close")
+            server.close()
+        tracebacks = [i for i, line in enumerate(server.stderr) if "Traceback" in line]
+        for i in tracebacks:
+            tail = " | ".join(server.stderr[max(0, i - 1) : i + 25][-6:])
+            report.steps.append(Step("stderr traceback", "problem", 0.0, tail[:600]))
+        for line in server.bad_output[:3]:
+            report.steps.append(Step("stdout not JSON", "problem", 0.0, line))
+    return report
+
+
+def _exercise(run: Run, path: Path, cache: Path) -> None:
+    if run.call("initialize", "initialize", {}) is None:
+        return
+    opened = run.call(
+        "open",
+        "open",
+        {
+            "path": str(path),
+            "stream": True,
+            "names": NAMES,
+            "columns": [],
+            "coloring": {"rules": COLORING},
+            "cache": {"dir": str(cache), "maxBytes": 1 << 30},
+        },
+    )
+    if opened is None:
+        return
+    if opened.get("indexing"):
+        start = time.monotonic()
+        try:
+            done = run.server.wait_for("index", {"done", "failed"}, run.timeout)
+        except RpcError as exc:
+            run.check("index done", False, exc.message)
+            return
+        took = time.monotonic() - start
+        if done.get("event") == "failed":
+            run.report.steps.append(Step("index", "problem", took, json.dumps(done)[:400]))
+            return
+        run.report.steps.append(Step("index", "ok", took))
+    info = run.call("capture_info", "capture_info") or {}
+    frames = int(info.get("frames") or info.get("packets") or 0)
+    run.report.frames = frames
+    expected = capinfos_count(path)
+    if expected is not None:
+        run.check("frames = capinfos", frames == expected, f"viewer {frames}, capinfos {expected}")
+
+    _packet_list(run, frames)
+    if frames:
+        _details(run, frames)
+        _filters_and_find(run)
+        _streams(run)
+    _statistics(run)
+    _other(run, frames)
+    _exports(run, path, frames)
+    # Reopening reads the saved index: same rows.
+    again = run.call(
+        "reopen (saved index)",
+        "open",
+        {
+            "path": str(path),
+            "stream": True,
+            "names": NAMES,
+            "columns": [],
+            "coloring": {"rules": COLORING},
+            "cache": {"dir": str(cache), "maxBytes": 1 << 30},
+        },
+    )
+    if again is not None and not again.get("indexing"):
+        page = run.call("list after reopen", "list_packets", {"offset": 0, "limit": 50}) or {}
+        run.check(
+            "reopen total",
+            page.get("total") == frames,
+            f"total {page.get('total')} after reopening, {frames} before",
+        )
+
+
+def _packet_list(run: Run, frames: int) -> None:
+    page = run.call("list first page", "list_packets", {"offset": 0, "limit": 200}) or {}
+    rows = page.get("rows") or []
+    run.check("list total", page.get("total") == frames, f"total {page.get('total')} vs {frames}")
+    run.check(
+        "first page rows",
+        len(rows) == min(200, frames),
+        f"{len(rows)} rows, expected {min(200, frames)}",
+    )
+    if frames > 200:
+        last = run.call("list last page", "list_packets", {"offset": frames - 50, "limit": 50})
+        got = len((last or {}).get("rows") or [])
+        run.check("last page rows", got == 50, f"{got} rows on the last page")
+    for field_name in (
+        "frame.number",
+        "_ws.col.def_src",
+        "_ws.col.protocol",
+        "frame.len",
+        "_ws.col.info",
+    ):
+        for desc in (False, True):
+            res = run.call(
+                f"sort {field_name}{' desc' if desc else ''}",
+                "list_packets",
+                {"offset": 0, "limit": 20, "sort": {"field": field_name, "desc": desc}},
+            )
+            if res is not None and field_name == "frame.number" and frames:
+                first = (res.get("rows") or [{}])[0]
+                want = frames if desc else 1
+                got = first.get("frame", first.get("number"))
+                run.check("sort by number", got == want, f"first row {got}, expected {want}")
+    for fmt in ("relative", "delta_displayed", "delta_captured", "absolute", "utc", "epoch"):
+        run.call(f"time {fmt}", "list_packets", {"offset": 0, "limit": 50, "timeFormat": fmt})
+    run.call(
+        "sort by delta time",
+        "list_packets",
+        {
+            "offset": 0,
+            "limit": 20,
+            "sort": {"field": "frame.time_relative"},
+            "timeFormat": "delta_displayed",
+        },
+    )
+    if frames:
+        run.call(
+            "overview",
+            "view_overview",
+            {"buckets": 400, "sort": None, "timeFormat": "relative"},
+        )
+
+
+def _details(run: Run, frames: int) -> None:
+    picks = sorted({1, (frames + 1) // 2, frames})
+    names: set[str] = set()
+    for n in picks:
+        detail = run.call(f"detail {n}", "packet_detail", {"number": n})
+        if detail:
+            _collect_names(detail.get("tree") or [], names)
+            _check_tree(run, n, detail)
+    if frames <= 10_000:
+        run.call("detail two-pass", "packet_detail", {"number": picks[-1], "twoPass": True})
+    run.call("detail quick", "packet_detail", {"number": frames, "mode": "quick", "window": 50})
+    if names:
+        run.call("field_types", "field_types", {"fields": sorted(names)[:500]})
+    run.call(
+        "bytes export", "export", {"kind": "bytes", "number": 1, "dest": str(run.work / "b.bin")}
+    )
+
+
+def _collect_names(nodes: list[dict[str, Any]], out: set[str]) -> None:
+    for node in nodes:
+        if node.get("name"):
+            out.add(node["name"])
+        _collect_names(node.get("children") or [], out)
+
+
+def _check_tree(run: Run, n: int, detail: dict[str, Any]) -> None:
+    """Every field's bytes must lie inside its data source."""
+    sources = detail.get("sources") or detail.get("bytes") or []
+    sizes = [len(s.get("hex") or s.get("data") or "") // 2 for s in sources if isinstance(s, dict)]
+    if not sizes:
+        return
+    bad: list[str] = []
+
+    def walk(nodes: list[dict[str, Any]]) -> None:
+        for node in nodes:
+            pos, size, src = node.get("pos"), node.get("size"), node.get("source", 0)
+            if isinstance(pos, int) and isinstance(size, int) and isinstance(src, int):
+                limit = sizes[src] if 0 <= src < len(sizes) else -1
+                if pos < 0 or size < 0 or pos + size > limit:
+                    bad.append(
+                        f"{node.get('name') or node.get('label', '')[:30]} {pos}+{size} > {limit}"
+                    )
+            walk(node.get("children") or [])
+
+    walk(detail.get("tree") or [])
+    run.check(f"detail {n} byte ranges", not bad, "; ".join(bad[:4]))
+
+
+def _filters_and_find(run: Run) -> None:
+    for expr in ("ip || ipv6", "tcp", "udp", "frame.len > 100", "!(arp)"):
+        res = run.call(f"filter {expr}", "set_filter", {"expr": expr})
+        if res is None:
+            continue
+        count = run.call(f"count {expr}", "count_matches", {"filter": expr})
+        shown = res.get("matchCount")
+        if count is not None:
+            run.check(
+                f"filter {expr} count",
+                count.get("count") == shown,
+                f"set_filter {shown}, count_matches {count}",
+            )
+        run.call(f"list {expr}", "list_packets", {"offset": 0, "limit": 100})
+    run.call("filter clear", "set_filter", {"expr": ""})
+    for mode, value, where in (
+        ("string", "a", "bytes"),
+        ("string", "a", "list"),
+        ("string", "a", "details"),
+        ("regex", "[0-9]{3}", "details"),
+        ("hex", "00", "bytes"),
+        ("filter", "frame.len > 60", "bytes"),
+    ):
+        run.call(
+            f"find {mode} in {where}", "find_packet", {"mode": mode, "value": value, "in": where}
+        )
+    run.call("mark", "mark_packets", {"frames": [1]})
+    run.call("find marked", "find_packet", {"mode": "marked"})
+    run.call("neighbor", "neighbor_frame", {"frame": 1, "direction": "next"})
+    run.call("ignore", "ignore_packets", {"frames": [1]})
+    run.call("expert with ignored", "expert_summary", {})
+    run.call("unignore", "unignore_all", {})
+    run.call("filter hints", "filter_hints", {"expr": 'http.host == "Example" && tcp.port == 1'})
+    for fld in ("ip.src", "frame.len", "_ws.col.protocol", "eth.src"):
+        run.call(f"values {fld}", "field_values", {"field": fld, "limit": 20})
+
+
+def _streams(run: Run) -> None:
+    for proto, flt in (
+        ("tcp", "tcp"),
+        ("udp", "udp"),
+        ("tls", "tls"),
+        ("http", "http"),
+        ("http2", "http2"),
+        ("quic", "quic"),
+        ("websocket", "websocket"),
+    ):
+        frame = run.first_frame(flt)
+        if frame is not None:
+            res = run.call(f"follow {proto}", "follow_stream", {"proto": proto, "frame": frame})
+            if res is not None and not res.get("hint"):
+                segs = res.get("segments")
+                run.check(
+                    f"follow {proto} segments", isinstance(segs, list), f"segments {segs!r:.80}"
+                )
+    tcp = run.first_frame("tcp")
+    if tcp is not None:
+        run.call("tcp graph", "tcp_graph", {"frame": tcp})
+    run.call("flow graph", "flow_graph", {"offset": 0, "limit": 200})
+    voip = run.call("voip calls", "voip_calls", {})
+    streams = (voip or {}).get("streams") or []
+    if streams:
+        key = streams[0].get("key", streams[0])
+        run.call("rtp stream", "rtp_stream", {"stream": key})
+        run.call(
+            "rtp audio",
+            "rtp_audio",
+            {"stream": key, "dest": str(run.work / "a.wav"), "format": "wav"},
+        )
+    run.call("voip heuristic", "voip_calls", {"heuristic": True})
+
+
+STATS: list[dict[str, Any]] = [
+    {"kind": "phs"},
+    *({"kind": "conversations", "type": t} for t in ("eth", "ip", "ipv6", "tcp", "udp")),
+    *({"kind": "endpoints", "type": t} for t in ("eth", "ip", "ipv6", "tcp", "udp")),
+    {"kind": "io"},
+    {
+        "kind": "io",
+        "series": [{"metric": "packets", "filter": "tcp"}, {"metric": "SUM", "field": "frame.len"}],
+    },
+    {"kind": "expert"},
+    {"kind": "properties"},
+    *({"kind": "http", "type": t} for t in ("packets", "requests", "load")),
+    {"kind": "dns"},
+    {"kind": "plen"},
+    {"kind": "srt", "type": "auto"},
+    {"kind": "sip"},
+    {"kind": "credentials"},
+    *({"kind": "ipv4", "type": t} for t in ("addresses", "srcdst", "ptype", "dests")),
+    *({"kind": "ipv6", "type": t} for t in ("addresses", "srcdst", "ptype", "dests")),
+    {"kind": "multicast"},
+    {"kind": "hosts"},
+    {"kind": "sctp"},
+    {"kind": "conversations", "type": "tcp", "filter": "tcp.port == 80"},
+]
+
+
+def _statistics(run: Run) -> None:
+    for params in STATS:
+        label = " ".join(str(v) if not isinstance(v, list) else "series" for v in params.values())
+        res = run.call(f"stats {label}", "stats", params)
+        if res is not None:
+            run.check(
+                f"stats {label} shape",
+                isinstance(res.get("rows"), list) and isinstance(res.get("columns"), list),
+                f"keys {sorted(res)[:8]}",
+            )
+    run.call("expert summary", "expert_summary", {})
+
+
+def _other(run: Run, frames: int) -> None:
+    objects = run.call("export objects", "export_objects", {})
+    for obj in ((objects or {}).get("objects") or [])[:2]:
+        run.call(
+            "save object",
+            "save_objects",
+            {"ids": [obj.get("id")], "dir": str(run.work)},
+        )
+    run.call("comments", "packet_comments", {})
+    run.call("triage", "triage", {})
+    run.call("capture profile", "capture_profile", {})
+    run.call("scans", "scans", {})
+    run.call("file format", "file_format", {})
+    if frames:
+        run.call("colors again", "set_coloring", {"rules": COLORING})
+
+
+def _exports(run: Run, path: Path, frames: int) -> None:
+    for kind in ("pcapng", "pcap"):
+        dest = run.work / f"all.{kind}"
+        if (
+            run.call(f"export {kind}", "export", {"kind": kind, "dest": str(dest), "filter": ""})
+            is None
+        ):
+            continue
+        got = capinfos_count(dest)
+        # pcap can't hold every link type; a refusal is reported as an error above.
+        run.check(
+            f"export {kind} count", got == frames, f"{got} packets written, {frames} in capture"
+        )
+    for kind in ("csv", "json"):
+        dest = run.work / f"list.{kind}"
+        if run.call(f"export {kind}", "export", {"kind": kind, "dest": str(dest)}) is None:
+            continue
+        text = dest.read_text(encoding="utf-8")
+        if kind == "json":
+            try:
+                rows = json.loads(text)
+                run.check("export json rows", len(rows) == frames, f"{len(rows)} rows")
+            except ValueError as exc:
+                run.check("export json parses", False, str(exc))
+        else:
+            run.check("export csv rows", text.count("\n") >= frames, f"{text.count(chr(10))} lines")
+    for fmt in ("text", "pdml", "json"):
+        dest = run.work / f"diss.{fmt}"
+        res = run.call(
+            f"export dissections {fmt}",
+            "export",
+            {"kind": "dissections", "format": fmt, "dest": str(dest), "filter": "", "bytes": True},
+        )
+        if res is not None and fmt == "json" and frames:
+            try:
+                run.check(
+                    "dissections json", len(json.loads(dest.read_text("utf-8"))) == frames, "count"
+                )
+            except ValueError as exc:
+                run.check("dissections json parses", False, str(exc)[:200])
+    run.call(
+        "edit dedup", "edit_capture", {"operation": "dedup", "dest": str(run.work / "d.pcapng")}
+    )
+    if path.suffix != ".gz":
+        run.call("probe file", "probe_file", {"path": str(path)})
+
+
+# --- main --------------------------------------------------------------------
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument("paths", nargs="*", type=Path, help="captures or folders of captures")
+    ap.add_argument("--fetch", action="store_true", help="download Wireshark's test captures")
+    ap.add_argument("--only", help="only captures whose name contains this")
+    ap.add_argument("-j", "--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2))
+    ap.add_argument("--timeout", type=float, default=120.0, help="seconds per request")
+    ap.add_argument("--out", type=Path, help="write the full report as JSON")
+    args = ap.parse_args(argv)
+
+    captures: list[Path] = []
+    if args.fetch:
+        captures += fetch_wireshark(CACHE / "wireshark")
+    for p in args.paths:
+        captures += sorted(x for x in p.rglob("*") if x.is_file()) if p.is_dir() else [p]
+    if args.only:
+        captures = [c for c in captures if args.only in c.name]
+    if not captures:
+        ap.error("no captures: give paths or --fetch")
+
+    reports: list[Report] = []
+    with ThreadPoolExecutor(args.jobs) as pool:
+        for report in pool.map(lambda c: exercise(c, args.timeout), captures):
+            reports.append(report)
+            bad = report.problems()
+            mark = "PROBLEM" if bad else "ok"
+            print(f"{mark:8} {Path(report.capture).name} ({report.frames} packets)", flush=True)
+            for step in bad:
+                print(f"         {step.name}: {step.detail[:300]}", flush=True)
+
+    kinds = Counter(
+        (s.name.split(" ")[0], s.detail.split("]")[0] + "]" if s.detail.startswith("[") else s.name)
+        for r in reports
+        for s in r.problems()
+    )
+    print(f"\n{len(reports)} captures, {sum(1 for r in reports if r.problems())} with problems")
+    for (name, what), n in kinds.most_common(40):
+        print(f"{n:5}  {name}  {what}")
+    if args.out:
+        args.out.write_text(
+            json.dumps(
+                [
+                    {
+                        "capture": r.capture,
+                        "frames": r.frames,
+                        "steps": [s.__dict__ for s in r.steps],
+                    }
+                    for r in reports
+                ],
+                indent=1,
+            ),
+            encoding="utf-8",
+        )
+    return 1 if any(r.problems() for r in reports) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
