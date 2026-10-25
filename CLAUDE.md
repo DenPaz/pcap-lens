@@ -166,7 +166,7 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   dump's layout (pure).
   `src/rotation.ts` recognises rotated capture pieces (pure).
   AI: `src/aiFilter.ts`, `aiCaptureFilter.ts`, `aiDissector.ts`,
-  `aiExplain.ts`, `aiSummary.ts`, `aiTriage.ts`, `aiCompare.ts`, `aiAnomaly.ts`, `aiTools.ts`
+  `aiExplain.ts`, `aiSummary.ts`, `aiTriage.ts`, `aiCompare.ts`, `aiScans.ts`, `aiAnomaly.ts`, `aiTools.ts`
   (tool specs, `runTool`, `runToolLoop`), `aiModel.ts` (model choice),
   `aiPrivacy.ts` (address stand-ins) and `aiConsent.ts` are pure prompt
   builders/parsers; `src/ai.ts` (`FilterAssistant`) and
@@ -1899,6 +1899,17 @@ false` counts as accepted, like the box). The display-filter loop is shared
   script that loads is saved (`wx`) and opened with the Reload offer; one
   that doesn't opens unsaved. As root tshark skips Lua: `unchecked`, saved
   with a note to review it.
+- **Scans in one capture** (`scans {}`, `ComparingMixin`: TCP and UDP
+  conversations plus the reset pass, `compare.scans`; `src/aiScans.ts`
+  pure): triage and the summary ask for it (`scansOrNothing`: an older
+  backend or a failure only adds "scan detection" to `missing`), their
+  prompts carry `scanSection` (each scan as a sentence, `scanSentence`,
+  under "## Scans tshark's numbers show" with what to call them), triage
+  asks for one finding per scan, and the chat (or editor) shows
+  `scanNote` ("Found by tshark", escaped) above the summary or findings
+  with an Apply filter each (`scanFilter`, validated with tshark, as in a
+  comparison). The MCP server's `triage` returns them as `scans`. No other
+  fixture shows a scan (checked over every capture in `test/fixtures`).
 - **Triage** (`backend/pcap_backend/triage.py`, `triage {checks?}`;
   `src/aiTriage.ts` pure; `FilterAssistant.triage`; `@pcap /triage`,
   _PCAP: Triage Capture with AI_): `triage.CHECKS` (33 display filters, no
@@ -1944,7 +1955,15 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   at most `MAX_MEMBER_IDS` 100k, `complete`), so an item kept on one side and
   only an id on the other is neither new nor gone, and one missing beside
   incomplete ids is counted as `unsure` with a note (Codex review: a flow
-  ranked 501st on one side read as new or gone; `PROFILE_VERSION` 2). `compare_profiles
+  ranked 501st on one side read as new or gone; `PROFILE_VERSION` 3). The
+  profile's `scans` come from every flow before that cut, with the resets
+  of a `RESET_FIELDS` pass (`_reset_counts`: `-Y "tcp.flags.reset == 1"`,
+  `-E occurrence=l`, the innermost addresses; `reset_counts` → per flow):
+  each scan has `targets` (listing at most `MAX_SCAN_TARGETS` 50),
+  `packets` and, for TCP, `reset` (targets that answered with a reset), at
+  most `MAX_SCANS` 20. A model read the office scan's five resets as
+  "server or network stability"; the sentences now say they are the scan's
+  answers. `compare_profiles
 {before, after, names}` (`compare.diff`) gives totals and rates, the checks
   whose counts or rates differ (per 1,000 packets, first packet in each;
   equal counts change when one rate is ≥ `RATE_CHANGE` 1.5× the other: Codex
@@ -1984,9 +2003,12 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   compare), `facts` tshark must compute for it (`test_evals.py`: triage
   counts, changed checks, new and gone endpoints; every `check` id must be
   in `triage.CHECKS`), `expect`ed findings (regexes, case-insensitive: all
-  of `all` and one of `any` within one block, a triage finding's own check
-  id, an optional `severity`) and `forbid`den claims (a sentence that
-  matches and holds no negation word; `maxSeverity` caps triage findings).
+  of `all` and one of `any` within one block, or one sentence with `within:
+"sentence"` (the office cases' `resets-scan`: a conclusion naming resets
+  and, a sentence later, the scan passed a paragraph match), a triage
+  finding's own check id, an optional `severity`) and `forbid`den claims (a
+  sentence that matches and holds no negation word, e.g. `pings`: "fewer
+  pings" for unanswered ones; `maxSeverity` caps triage findings).
   `grade.mjs` (pure, in c8) splits an answer into blocks (`triageBlocks`:
   summary plus each finding; `textBlocks`: paragraphs, list items,
   headings) and scores found / expected against `minScore`.

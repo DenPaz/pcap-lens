@@ -214,6 +214,7 @@ def test_statistics_tools(client_for: Any) -> None:
     assert counts == sorted(counts, reverse=True)
     assert "malformed" in triage["none"]
     assert triage["twoPass"] and not triage["notAvailable"]
+    assert triage["scans"] == []  # (no port scans or host sweeps in services.pcap)
     by_id = {f["id"]: f for f in triage["found"]}
     assert by_id["icmp_unanswered"]["firstPacket"] == 61  # found with two passes only
     assert "statistics kind=dns" in by_id["dns_queries"]["next"]

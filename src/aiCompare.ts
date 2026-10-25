@@ -13,6 +13,17 @@
  * `pcapViewer.ai.allowCaptureStatistics` (aiConsent.ts), like the summary.
  */
 
+import {
+  Scan,
+  ScanEntry,
+  scanFilter,
+  scanNote as scanEntriesNote,
+  scanSection,
+  scanSentence,
+} from "./aiScans";
+
+export { Scan, scanFilter };
+
 export interface CompareLimits {
   /** Items per list (new, gone, changed) of each kind. */
   maxItems: number;
@@ -81,15 +92,17 @@ export function shrinkDiff(diff: CaptureDiff, n: number): CaptureDiff {
   return out;
 }
 
-export interface Scan {
-  kind?: string;
-  protocol?: string;
-  client?: string;
-  server?: string;
-  port?: number;
-  ports?: number[];
-  servers?: string[];
-  packets?: number;
+/** The diff's scans with the capture they are in (new, gone, both). */
+export function scanEntries(diff: CaptureDiff): ScanEntry[] {
+  const scans = (diff.scans ?? {}) as Record<string, unknown>;
+  const where: Record<string, string> = {
+    new: "only in the after capture",
+    gone: "only in the before capture",
+    both: "in both captures",
+  };
+  return Object.entries(where).flatMap(([key, label]) =>
+    Array.isArray(scans[key]) ? (scans[key] as Scan[]).map((scan) => ({ scan, where: label })) : [],
+  );
 }
 
 /**
@@ -97,78 +110,12 @@ export interface Scan {
  * scan's flows "new services being accessed", so they also come first, in words.
  */
 export function scanLines(diff: CaptureDiff): string[] {
-  const scans = (diff.scans ?? {}) as Record<string, unknown>;
-  const when: Record<string, string> = {
-    new: "only in the after capture",
-    gone: "only in the before capture",
-    both: "in both captures",
-  };
-  const lines: string[] = [];
-  for (const [key, label] of Object.entries(when)) {
-    const list = scans[key];
-    if (!Array.isArray(list)) {
-      continue;
-    }
-    for (const s of list as Scan[]) {
-      const proto = (s.protocol ?? "").toUpperCase();
-      const what =
-        s.kind === "host sweep"
-          ? `${s.client} reached ${proto} port ${s.port} on ${s.servers?.length ?? 0} servers` +
-            ` (${(s.servers ?? []).slice(0, 8).join(", ")}${(s.servers?.length ?? 0) > 8 ? ", …" : ""})`
-          : `${s.client} reached ${s.ports?.length ?? 0} ${proto} ports of ${s.server}` +
-            ` (${(s.ports ?? []).slice(0, 20).join(", ")}${(s.ports?.length ?? 0) > 20 ? ", …" : ""})`;
-      lines.push(
-        `- ${s.kind === "host sweep" ? "Host sweep" : "Port scan"}, ${label}: ${what},` +
-          ` ${s.packets ?? "?"} packets, a few per connection.`,
-      );
-    }
-  }
-  return lines;
+  return scanEntries(diff).map((e) => `- ${scanSentence(e.scan, e.where)}`);
 }
 
-/** A display filter for a scan's packets (the client's packets to its targets). */
-export function scanFilter(scan: Scan): string | undefined {
-  const { client, protocol } = scan;
-  if (!client || (protocol !== "tcp" && protocol !== "udp")) {
-    return undefined;
-  }
-  const ip = client.includes(":") ? "ipv6" : "ip";
-  if (scan.kind === "host sweep") {
-    return scan.port === undefined
-      ? undefined
-      : `${ip}.src == ${client} && ${protocol}.dstport == ${scan.port}`;
-  }
-  if (!scan.server) {
-    return undefined;
-  }
-  const ports = scan.ports ?? [];
-  // (tshark 4.2 refuses space-separated sets; a long list adds nothing to the filter.)
-  const portPart =
-    ports.length && ports.length <= 50 ? ` && ${protocol}.dstport in {${ports.join(",")}}` : "";
-  return `${ip}.src == ${client} && ${ip}.dst == ${scan.server}${portPart}`;
-}
-
-/**
- * What the chat shows above the model's answer: the scans tshark's numbers
- * show, whatever the model makes of them (a model still called them "new
- * connection attempts" with the sentences in its prompt), and their filters.
- */
+/** The "Found by tshark" note shown above a comparison's answer (aiScans.ts). */
 export function scanNote(diff: CaptureDiff): { markdown: string; filters: string[] } {
-  const lines = scanLines(diff);
-  if (!lines.length) {
-    return { markdown: "", filters: [] };
-  }
-  const scans = (diff.scans ?? {}) as Record<string, unknown>;
-  const filters = ["new", "both", "gone"].flatMap((key) =>
-    Array.isArray(scans[key])
-      ? (scans[key] as Scan[]).flatMap((x) => {
-          const f = scanFilter(x);
-          return f ? [f] : [];
-        })
-      : [],
-  );
-  const escaped = lines.map((l) => l.replace(/([\\`*_[\]<>])/g, "\\$1"));
-  return { markdown: `**Found by tshark**\n\n${escaped.join("\n")}\n\n`, filters };
+  return scanEntriesNote(scanEntries(diff));
 }
 
 /** The prompt (one user turn: VS Code 1.90's LM API has no system role). */
@@ -177,7 +124,6 @@ export function buildComparePrompt(
   limits: CompareLimits = COMPARE_LIMITS,
 ): string {
   const { before, after } = input.diff;
-  const scans = scanLines(input.diff);
   const head = [
     ...INSTRUCTIONS,
     `Packet numbers and filters are for the capture open in the viewer, the ${input.open} capture` +
@@ -192,13 +138,7 @@ export function buildComparePrompt(
     `## Before: ${before.name}`,
     `## After: ${after.name}`,
     "",
-    ...(scans.length
-      ? [
-          "## Scans tshark's numbers show (report each as a scan, not as new services)",
-          ...scans,
-          "",
-        ]
-      : []),
+    ...scanSection(scanEntries(input.diff)),
     "## Differences (JSON)",
   ].join("\n");
   let n = limits.maxItems;

@@ -7,6 +7,17 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- AI triage and capture summaries point out port scans and host sweeps that
+  tshark's numbers show, above the answer and with an Apply filter button;
+  the MCP server's `triage` lists them too.
+
+### Changed
+
+- A scan says how many of its targets answered with a TCP reset, so those
+  resets read as the scan's answers rather than a server problem.
+
 ## 0.24.0 — 2026-10-24
 
 ### Added

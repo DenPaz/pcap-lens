@@ -52,7 +52,7 @@
         }
       ]
     },
-    "fails": ["scan", "resets", "http5xx", "dns", "icmp", "tls"]
+    "fails": ["scan", "resets", "http5xx", "dns", "icmp", "tls", "resets-scan"]
   },
   "office-before-triage": {
     "good": {
@@ -146,12 +146,22 @@
   },
   "office-summary": {
     "good": "## Overview\n\nAn office network: workstations talk HTTP to 10.0.0.80 and DNS to 10.0.0.53.\n\n## Problems\n\n- 10.0.0.66 contacts 10.0.0.80 on many ports (22, 23, 445, 3389, 5900), which looks like a port scan.\n- Five connections were reset (RST): the probed ports refused them.\n- The web server answered four requests with HTTP 503 Service Unavailable.\n- DNS errors: three NXDOMAIN answers.\n\nNothing suggests credentials were exposed.",
-    "bad": "## Overview\n\nAn office network with HTTP and DNS traffic.\n\n- Some TLS handshake errors appear between the clients and the web server.\n- Traffic volume is steady.",
-    "fails": ["scan", "resets", "http5xx", "dns", "tls"]
+    "bad": "## Overview\n\nAn office network with HTTP and DNS traffic.\n\n- Some TLS handshake errors appear between the clients and the web server.\n- Traffic volume is steady.\n- Less network diagnostic traffic than usual.\n",
+    "fails": ["scan", "resets", "http5xx", "dns", "tls", "resets-scan", "pings"]
   },
   "office-compare": {
     "good": "## What changed\n\n- **A new host, 10.0.0.66**, connects to 10.0.0.80 on ports 22, 23, 445, 3389 and 5900: a port scan that wasn't there before.\n- **Resets**: 0 → 5 per capture; the scanned ports refused the connections.\n- **HTTP 5xx**: the web server now answers four requests with 503.\n- **DNS**: three NXDOMAIN errors and one unanswered query, none before.\n- **ICMP**: three echo requests got no reply.\n\nNo host or service disappeared.",
-    "bad": "## What changed\n\nThe traffic is about the same. The DNS server disappeared from the later capture, and the file server is gone.\n\nNew services being accessed: 10.0.0.66 connects to 10.0.0.80 on ports 22, 23, 445, 3389 and 5900.\n",
-    "fails": ["scan", "resets", "http5xx", "dns", "icmp", "gone", "services"]
+    "bad": "## What changed\n\nThe traffic is about the same. The DNS server disappeared from the later capture, and the file server is gone.\n\nNew services being accessed: 10.0.0.66 connects to 10.0.0.80 on ports 22, 23, 445, 3389 and 5900.\n\nLess network diagnostic traffic than before.\n",
+    "fails": [
+      "scan",
+      "resets",
+      "http5xx",
+      "dns",
+      "icmp",
+      "gone",
+      "services",
+      "resets-scan",
+      "pings"
+    ]
   }
 }

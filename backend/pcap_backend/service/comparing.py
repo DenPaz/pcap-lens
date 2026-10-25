@@ -9,7 +9,7 @@ from typing import Any
 
 from pcap_backend import compare
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext
-from pcap_backend.tshark import ToolError
+from pcap_backend.tshark import StreamResult, ToolError, stream_lines
 
 from .opening import OpeningMixin
 from .statistics import StatisticsMixin
@@ -40,6 +40,7 @@ class ComparingMixin(OpeningMixin, StatisticsMixin):
             "IPv6 endpoints": lambda: self.stats({"kind": "endpoints", "type": "ipv6"}, quiet),
             "triage checks": lambda: self.triage({}, quiet),
             "expert information": lambda: self.stats({"kind": "expert"}, quiet),
+            "TCP resets": lambda: {"resets": self._reset_counts(quiet)},
         }
         results: dict[str, dict[str, Any] | None] = {}
         with ThreadPoolExecutor(max_workers=4, thread_name_prefix="profile") as pool:
@@ -59,7 +60,47 @@ class ComparingMixin(OpeningMixin, StatisticsMixin):
             results["triage checks"],
             results["expert information"],
             [name for name, table in results.items() if table is None],
+            (results["TCP resets"] or {}).get("resets"),
         )
+
+    def scans(self, _params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """Port scans and host sweeps in the capture (``compare.scans`` over
+        every TCP/UDP conversation, with the resets each target saw), for
+        triage and the summary: ``{scans}``. Needs the capture completely
+        indexed."""
+        self._require_indexed()
+        ctx.progress({"phase": "stats", "fraction": None})
+        quiet = RequestContext(token=ctx.token)
+        with ThreadPoolExecutor(max_workers=3, thread_name_prefix="scans") as pool:
+            tables = [
+                (proto, pool.submit(self.stats, {"kind": "conversations", "type": proto}, quiet))
+                for proto in ("tcp", "udp")
+            ]
+            resets = pool.submit(self._reset_counts, quiet)
+            conversations = [(proto, future.result()) for proto, future in tables]
+            try:
+                counts: dict[str, int] | None = resets.result()
+            except (ToolError, FilterError) as exc:
+                print(f"pcap-viewer: scans: resets: {exc}", file=sys.stderr)  # noqa: T201
+                counts = None
+        ctx.token.raise_if_cancelled()
+        return {"scans": compare.scans(compare.flows_of(conversations), counts)}
+
+    def _reset_counts(self, ctx: RequestContext) -> dict[str, int]:
+        """TCP resets per flow (``compare.reset_counts``), without the ignored packets."""
+        f = self._require_file()
+        counted = self._without_ignored("")
+        flt = f"({compare.RESET_FILTER}) && ({counted})" if counted else compare.RESET_FILTER
+        args = ["-Y", flt, "-T", "fields", "-E", "occurrence=l"]
+        for name in compare.RESET_FIELDS:
+            args += ["-e", name]
+        result = StreamResult()
+        lines = stream_lines(f.tshark.argv(*args, capture=str(f.path)), result, ctx.token)
+        counts = compare.reset_counts(raw.decode("utf-8", "replace") for raw in lines)
+        ctx.token.raise_if_cancelled()
+        if not counts and result.returncode not in (0, None):
+            raise f.tshark.error(result.stderr, result.returncode, "counting TCP resets failed")
+        return counts
 
     def compare_profiles(self, params: dict[str, Any], _ctx: RequestContext) -> dict[str, Any]:
         """What changed between two profiles (``capture_profile`` results;

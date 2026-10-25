@@ -597,7 +597,9 @@ class Toolbox:
                 "errors, DNS, HTTP, SIP and Kerberos errors, old TLS, clear-text credentials, "
                 "duplicate addresses, fragments, malformed packets… Each with its display filter, "
                 "first and last packet, and where to look next (statistics or field_values give "
-                "the codes behind a count). A good first step to find what is wrong.",
+                "the codes behind a count). Also the port scans and host sweeps the conversations "
+                "show, with how many targets answered with a reset (the scan's resets, not a "
+                "server problem). A good first step to find what is wrong.",
                 _schema({"capture": _CAPTURE}, ["capture"]),
                 self.triage,
             ),
@@ -895,6 +897,11 @@ class Toolbox:
         path = self.captures.resolve(_capture_arg(args))
         service = self.captures.get(path, ctx)
         res = service.triage({}, ctx)
+        try:
+            scans: list[dict[str, Any]] | None = service.scans({}, ctx)["scans"]
+        except (ToolError, RpcError) as exc:
+            log.info("triage: scans failed: %s", exc)
+            scans = None
         checks = res["checks"]
         found = sorted(
             (c for c in checks if c.get("count")), key=lambda c: c["count"], reverse=True
@@ -917,6 +924,7 @@ class Toolbox:
             "packets": res["total"],
             "twoPass": res.get("twoPass", False),
             "found": rows,
+            **({"scans": scans} if scans is not None else {}),
             "none": [
                 c["id"]
                 for c in checks

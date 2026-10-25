@@ -14,6 +14,8 @@
  * `ioBuckets` buckets. Conversations and endpoints are capture data, so this
  * runs only with `pcapViewer.ai.allowCaptureStatistics` (aiConsent.ts).
  */
+import { Scan, scanSection } from "./aiScans";
+
 export interface SummaryLimits {
   /** Conversations / endpoints rows per table (the top ones by bytes). */
   maxRows: number;
@@ -80,6 +82,8 @@ export interface SummaryInput {
   endpoints?: StatsTable[];
   expert?: StatsTable;
   io?: StatsTable;
+  /** Port scans and host sweeps the backend found (`scans`). */
+  scans?: Scan[];
   /** Statistics that could not be computed (named in the prompt, so the model knows). */
   missing?: string[];
 }
@@ -103,6 +107,20 @@ export function statsOrNothing(
     });
 }
 
+/** The backend's scans (`scans`), or nothing when it fails (an older backend, a tshark error). */
+export function scansOrNothing(
+  request: Requester,
+  failed: (kind: string, message: string) => void,
+): Promise<Scan[] | undefined> {
+  return request<{ scans: Scan[] }>("scans", {}, { timeoutMs: 0 }).then(
+    (r) => r.scans,
+    (err: unknown) => {
+      failed("scans", (err as Error)?.message ?? String(err));
+      return undefined;
+    },
+  );
+}
+
 /** The names of the tables that are missing. */
 export const missingNames = (tables: Record<string, unknown>): string[] =>
   Object.entries(tables)
@@ -116,7 +134,7 @@ export async function gatherSummary(
   failed: (kind: string, message: string) => void = () => undefined,
 ): Promise<SummaryInput> {
   const stats = statsOrNothing(request, failed);
-  const [info, protocols, tcp, udp, endpoints, expert, io] = await Promise.all([
+  const [info, protocols, tcp, udp, endpoints, expert, io, scans] = await Promise.all([
     request<CaptureFacts>("capture_info", {}),
     stats({ kind: "phs" }),
     stats({ kind: "conversations", type: "tcp" }),
@@ -124,6 +142,7 @@ export async function gatherSummary(
     stats({ kind: "endpoints", type: "ip" }),
     stats({ kind: "expert" }),
     stats({ kind: "io" }),
+    scansOrNothing(request, failed),
   ]);
   return {
     question: req.question,
@@ -134,7 +153,9 @@ export async function gatherSummary(
     endpoints: endpoints ? [endpoints] : [],
     expert,
     io,
+    scans,
     missing: missingNames({
+      "scan detection": scans,
       "protocol hierarchy": protocols,
       "TCP conversations": tcp,
       "UDP conversations": udp,
@@ -435,6 +456,7 @@ export function buildSummaryPrompt(
     "## Capture properties",
     ...propertyLines(input.info),
     "",
+    ...scanSection((input.scans ?? []).map((scan) => ({ scan }))),
   ];
   const tail = input.missing?.length
     ? [`Not available (could not be computed): ${input.missing.join(", ")}.`]

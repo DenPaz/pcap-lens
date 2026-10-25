@@ -6,9 +6,10 @@
  *
  * An answer is a list of blocks: a triage's summary and each finding (with
  * its severity and check), or a text answer's paragraphs. An expected finding
- * is found when one block matches all of its `all` patterns and one of its
- * `any` (or, for a triage finding, names one of its `check`s), and has one of
- * its `severity` values when it asks for one. A forbidden claim counts when a
+ * is found when one block (one sentence with `within: "sentence"`) matches all
+ * of its `all` patterns and one of its `any` (or, for a triage finding, names
+ * one of its `check`s), and has one of its `severity` values when it asks for
+ * one. A forbidden claim counts when a
  * sentence matches it and holds no negation ("no resets", "nothing suggests a
  * scan" are fine).
  */
@@ -50,12 +51,21 @@ export function sentences(text) {
     .filter(Boolean);
 }
 
+function textMatches(text, item) {
+  const all = (item.all ?? []).every((p) => regex(p).test(text));
+  const any = !item.any?.length || item.any.some((p) => regex(p).test(text));
+  return (item.all?.length ?? 0) + (item.any?.length ?? 0) > 0 && all && any;
+}
+
 function blockMatches(block, item) {
-  const fromCheck = !!(block.check && item.check?.includes(block.check));
-  const all = (item.all ?? []).every((p) => regex(p).test(block.text));
-  const any = !item.any?.length || item.any.some((p) => regex(p).test(block.text));
-  const patterns = (item.all?.length ?? 0) + (item.any?.length ?? 0) > 0;
-  return fromCheck || (patterns && all && any);
+  if (block.check && item.check?.includes(block.check)) {
+    return true;
+  }
+  // `within: "sentence"`: the words must meet in one sentence, not just one paragraph
+  // (a conclusion naming "resets" and, a sentence later, "the port scan" doesn't link them).
+  return item.within === "sentence"
+    ? sentences(block.text).some((s) => textMatches(s, item))
+    : textMatches(block.text, item);
 }
 
 /**
@@ -146,6 +156,9 @@ export function caseProblems(cases) {
       }
       if (!(item.any?.length || item.all?.length || item.check?.length)) {
         problems.push(`${c.id}/${item.id}: nothing to match`);
+      }
+      if (item.within !== undefined && item.within !== "sentence") {
+        problems.push(`${c.id}/${item.id}: within ${item.within}`);
       }
       if (item.check && c.kind !== "triage")
         problems.push(`${c.id}/${item.id}: check outside triage`);

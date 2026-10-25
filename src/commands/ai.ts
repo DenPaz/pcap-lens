@@ -394,6 +394,17 @@ async function triageInChat(
     build(m);
     stream.markdown(m);
   };
+  // (The scans tshark found, above whatever the model made of them; escaped by scanNote.)
+  if (outcome.scans?.markdown) {
+    stream.markdown(outcome.scans.markdown);
+    for (const filter of outcome.scans.filters) {
+      stream.button({
+        command: "pcapViewer.applyFilter",
+        title: `Apply filter: ${shorten(filter)}`,
+        arguments: [filter],
+      });
+    }
+  }
   if (report.summary) {
     md((m) => m.appendText(report.summary).appendMarkdown("\n\n"));
   }
@@ -440,9 +451,13 @@ function triageMarkdown(outcome: TriageOutcome): string {
     return "";
   }
   // (Without the "Findings" heading: the document has its own.)
-  return reportMarkdown(
-    findingsBlocks(outcome.report, outcome.model ?? "language model").slice(1),
-  ).replace(/^/, "\n");
+  const scans = outcome.scans?.markdown ? `\n${outcome.scans.markdown}` : "";
+  return (
+    scans +
+    reportMarkdown(
+      findingsBlocks(outcome.report, outcome.model ?? "language model").slice(1),
+    ).replace(/^/, "\n")
+  );
 }
 
 /**

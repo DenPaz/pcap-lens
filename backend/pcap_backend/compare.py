@@ -25,7 +25,7 @@ import hashlib
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
-PROFILE_VERSION = 2
+PROFILE_VERSION = 3
 # Flows and endpoints kept per profile (by bytes); the rest are summed.
 MAX_PROFILE_ITEMS = 500
 # The rest are still known by a short hash (``member_id``), so a flow ranked
@@ -45,6 +45,13 @@ RATE_CHANGE = 1.5
 MIN_SCAN_PORTS = 4
 MIN_SWEEP_HOSTS = 8
 SCAN_PACKETS = 4
+# At most this many scans, each listing at most this many ports or servers
+# (``targets`` counts them all).
+MAX_SCANS = 20
+MAX_SCAN_TARGETS = 50
+# The fields of a TCP reset pass (``reset_counts``): the innermost addresses.
+RESET_FIELDS = ("ip.src", "ipv6.src", "tcp.srcport", "ip.dst", "ipv6.dst", "tcp.dstport")
+RESET_FILTER = "tcp.flags.reset == 1"
 
 
 def _cells(table: Mapping[str, Any] | None) -> tuple[list[str], list[dict[str, Any]]]:
@@ -120,21 +127,12 @@ def _top(
     return kept, rest, members
 
 
-def profile(
-    info: Mapping[str, Any],
-    phs: Mapping[str, Any] | None,
+def flows_of(
     conversations: Iterable[tuple[str, Mapping[str, Any] | None]],
-    endpoints: Iterable[Mapping[str, Any] | None],
-    triage: Mapping[str, Any] | None,
-    expert: Mapping[str, Any] | None,
-    missing: Sequence[str] = (),
-) -> dict[str, Any]:
-    """One capture's profile from its statistics tables (as ``stats`` returns
-    them), ``capture_info`` and ``triage``; ``missing`` names the parts
-    tshark couldn't compute."""
-    protocols = _protocols(phs)
-    depth0 = [v for k, v in protocols.items() if "/" not in k]
-    flows: dict[str, list[float]] = {}  # conversations, packets, bytes
+) -> dict[str, list[float]]:
+    """Conversation tables (``(protocol, stats table)``) as flows:
+    ``flow_key`` → connections, packets, bytes."""
+    flows: dict[str, list[float]] = {}
     for proto, table in conversations:
         ids, rows = _cells(table)
         if not {"a", "b", "packets", "bytes"} <= set(ids):
@@ -147,6 +145,44 @@ def profile(
             entry[0] += 1
             entry[1] += _num(cells[packets])
             entry[2] += _num(cells[size])
+    return flows
+
+
+def reset_counts(lines: Iterable[str]) -> dict[str, int]:
+    """TCP resets per flow from a ``RESET_FIELDS`` pass (tab-separated
+    lines, the last occurrence of each field: the innermost header)."""
+    out: dict[str, int] = {}
+    for line in lines:
+        cells = line.rstrip("\r").split("\t")
+        if len(cells) < len(RESET_FIELDS):
+            continue
+        src4, src6, sport, dst4, dst6, dport = cells[: len(RESET_FIELDS)]
+        src, dst = src6 or src4, dst6 or dst4
+        if not (src and dst and sport.isdigit() and dport.isdigit()):
+            continue
+        key = flow_key("tcp", f"{src}:{sport}", f"{dst}:{dport}")
+        out[key] = out.get(key, 0) + 1
+    return out
+
+
+def profile(
+    info: Mapping[str, Any],
+    phs: Mapping[str, Any] | None,
+    conversations: Iterable[tuple[str, Mapping[str, Any] | None]],
+    endpoints: Iterable[Mapping[str, Any] | None],
+    triage: Mapping[str, Any] | None,
+    expert: Mapping[str, Any] | None,
+    missing: Sequence[str] = (),
+    resets: Mapping[str, int] | None = None,
+) -> dict[str, Any]:
+    """One capture's profile from its statistics tables (as ``stats`` returns
+    them), ``capture_info``, ``triage`` and the resets per flow
+    (``reset_counts``); ``missing`` names the parts tshark couldn't compute.
+    Its ``scans`` come from every flow, before the profile keeps the largest."""
+    protocols = _protocols(phs)
+    depth0 = [v for k, v in protocols.items() if "/" not in k]
+    flows = flows_of(conversations)  # conversations, packets, bytes
+    found_scans = scans(flows, resets)
     hosts: dict[str, list[float]] = {}  # packets, bytes
     for table in endpoints:
         ids, rows = _cells(table)
@@ -201,6 +237,7 @@ def profile(
         "flows": kept_flows,
         "otherFlows": other_flows,
         "otherFlowIds": flow_members,
+        "scans": found_scans,
         "endpoints": kept_hosts,
         "otherEndpoints": other_hosts,
         "otherEndpointIds": host_members,
@@ -327,35 +364,46 @@ def _parse_flow(key: str) -> tuple[str, str, str, int] | None:
     return proto, client, server.removeprefix("[").removesuffix("]"), port
 
 
-def scans(flows: Mapping[str, Sequence[float]]) -> list[dict[str, Any]]:
+def scans(
+    flows: Mapping[str, Sequence[float]], resets: Mapping[str, int] | None = None
+) -> list[dict[str, Any]]:
     """Port scans (one client, one server, many ports) and host sweeps (one
-    client, one port, many servers) among a profile's flows with few packets
-    per connection. Only the profile's flows count (MAX_PROFILE_ITEMS by
-    bytes), so a scan in a very large capture can be missed."""
-    small: list[tuple[str, str, str, int, float]] = []
+    client, one port, many servers) among ``flows`` (``flows_of``) with few
+    packets per connection, most targets first (at most MAX_SCANS). With
+    ``resets`` (``reset_counts``; TCP only), ``reset`` counts the targets
+    whose flow saw a reset: refused (closed port) or cut off. A model read
+    the office scan's five resets as "server or network stability"."""
+    small: list[tuple[str, str, str, int, float, str]] = []
     for key, (connections, packets, _size) in flows.items():
         parsed = _parse_flow(key)
         if parsed and parsed[0] in ("tcp", "udp") and packets <= SCAN_PACKETS * max(connections, 1):
-            small.append((*parsed, packets))
+            small.append((*parsed, packets, key))
     groups: dict[tuple[str, str, str, str], dict[str, Any]] = {}
-    for proto, client, server, port, packets in small:
+    for proto, client, server, port, packets, key in small:
         for kind, target, value in (("port scan", server, port), ("host sweep", str(port), server)):
-            g = groups.setdefault((kind, proto, client, target), {"targets": set(), "packets": 0})
+            g = groups.setdefault(
+                (kind, proto, client, target), {"targets": set(), "packets": 0, "reset": 0}
+            )
             g["targets"].add(value)
             g["packets"] += int(packets)
+            g["reset"] += 1 if resets and resets.get(key) else 0
     out = []
     for (kind, proto, client, target), g in groups.items():
         if len(g["targets"]) < (MIN_SCAN_PORTS if kind == "port scan" else MIN_SWEEP_HOSTS):
             continue
         item: dict[str, Any] = {"kind": kind, "protocol": proto, "client": client}
+        listed = sorted(g["targets"])[:MAX_SCAN_TARGETS]
         if kind == "port scan":
-            item.update(server=target, ports=sorted(g["targets"]))
+            item.update(server=target, ports=listed)
         else:
-            item.update(port=int(target), servers=sorted(g["targets"]))
+            item.update(port=int(target), servers=listed)
+        item["targets"] = len(g["targets"])
         item["packets"] = g["packets"]
+        if resets is not None and proto == "tcp":
+            item["reset"] = g["reset"]
         out.append(item)
-    out.sort(key=lambda x: -len(x.get("ports") or x.get("servers") or []))
-    return out
+    out.sort(key=lambda x: -x["targets"])
+    return out[:MAX_SCANS]
 
 
 def _scan_key(item: Mapping[str, Any]) -> tuple[str, ...]:
@@ -368,7 +416,7 @@ def _scan_key(item: Mapping[str, Any]) -> tuple[str, ...]:
 
 
 def _scans(before: Mapping[str, Any], after: Mapping[str, Any], limit: int) -> dict[str, Any]:
-    b, a = scans(before["flows"]), scans(after["flows"])
+    b, a = before["scans"], after["scans"]
     b_keys, a_keys = {_scan_key(x) for x in b}, {_scan_key(x) for x in a}
     return {
         "new": [x for x in a if _scan_key(x) not in b_keys][:limit],

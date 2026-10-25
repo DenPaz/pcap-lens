@@ -77,6 +77,19 @@ suite("evals: cases and grader", () => {
     assert.deepEqual(textBlocks("Intro:\n- one\n- two\n## Head\nthree").length, 4);
   });
 
+  test('within: "sentence" needs the words in one sentence', () => {
+    const c = {
+      id: "t",
+      kind: "summary",
+      capture: "x",
+      expect: [{ id: "link", label: "l", all: ["reset"], any: ["scan"], within: "sentence" }],
+    };
+    assert.equal(grade(c, textBlocks("The resets are the scan's answers.")).score, 1);
+    // Same paragraph, different sentences: not linked.
+    const apart = grade(c, textBlocks("There were resets. The port scan is worrying."));
+    assert.deepEqual([apart.score, apart.missed], [0, ["link"]]);
+  });
+
   test("triage findings: a check id counts, severities are checked, maxSeverity caps", () => {
     const c = {
       id: "t",
@@ -119,7 +132,10 @@ suite("evals: cases and grader", () => {
         kind: "summary",
         capture: "x",
         maxSeverity: "huge",
-        expect: [{ id: "e", check: ["x"], severity: ["urgent"] }],
+        expect: [
+          { id: "e", check: ["x"], severity: ["urgent"] },
+          { id: "w", label: "w", any: ["x"], within: "word" },
+        ],
       },
     ]);
     for (const want of [
@@ -133,6 +149,7 @@ suite("evals: cases and grader", () => {
       /^d\/e: no label/,
       /^d\/e: check outside triage/,
       /^d\/e: severity urgent/,
+      /^d\/w: within word/,
     ]) {
       assert.ok(
         problems.some((p) => want.test(p)),

@@ -78,7 +78,7 @@ suite("aiCompare", () => {
     assert.match(prompt, /call them scans/);
     assert.match(
       prompt,
-      /## Scans tshark's numbers show[^\n]*\n- Port scan, only in the after capture: 10\.0\.0\.66 reached 2 TCP ports of 10\.0\.0\.80 \(22, 23\), 4 packets/,
+      /## Scans tshark's numbers show\n[\s\S]*?\n- Port scan, only in the after capture: 10\.0\.0\.66 reached 2 TCP ports of 10\.0\.0\.80 \(22, 23\), 4 packets/,
     );
     assert.match(prompt, /"scans":\{"new":\[\{"kind":"port scan"/);
     const json = JSON.parse(prompt.slice(prompt.indexOf("## Differences (JSON)\n") + 22));
