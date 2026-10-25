@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import struct
 import subprocess
 from pathlib import Path
 
@@ -180,6 +181,58 @@ def test_export_all_as_pcap_and_explicit_filter(
     with pytest.raises(FilterError):
         opened.export({"kind": "pcapng", "dest": str(tmp_path / "bad.pcapng"), "filter": "tcp.port =="}, ctx)  # fmt: skip
     assert not (tmp_path / "bad.pcapng").exists()
+
+
+@pytest.mark.tshark
+def test_export_as_pcap_refuses_mixed_link_types(
+    service: PcapService, fixtures: Path, ctx: RequestContext, tmp_path: Path
+) -> None:
+    # Ethernet and Bluetooth HCI in one pcapng: a pcap file holds one link type.
+    mixed = tmp_path / "mixed-links.pcapng"
+    subprocess.run(
+        [str(find_tool("mergecap")), "-w", str(mixed),
+         str(fixtures / "http.pcap"), str(fixtures / "formats" / "hci.btsnoop")],
+        check=True,
+    )  # fmt: skip
+    service.open({"path": str(mixed)}, ctx)
+    with pytest.raises(InvalidParamsError, match="as pcapng") as exc:
+        service.export({"kind": "pcap", "dest": str(tmp_path / "out.pcap"), "filter": ""}, ctx)
+    assert exc.value.data == {"format": "pcap", "pcapng": True}
+    with pytest.raises(InvalidParamsError, match="as pcapng"):  # a filtered export too
+        service.export({"kind": "pcap", "dest": str(tmp_path / "out.pcap"), "filter": "frame"}, ctx)
+    assert not (tmp_path / "out.pcap").exists()
+    res = service.export(
+        {"kind": "pcapng", "dest": str(tmp_path / "out.pcapng"), "filter": ""}, ctx
+    )
+    assert res["packets"] == _count(mixed)
+
+
+def _pcapng_block(kind: int, body: bytes) -> bytes:
+    body += b"\0" * (-len(body) % 4)
+    return struct.pack("<II", kind, 12 + len(body)) + body + struct.pack("<I", 12 + len(body))
+
+
+@pytest.mark.tshark
+def test_packets_wireshark_cannot_write_are_explained(
+    service: PcapService, ctx: RequestContext, tmp_path: Path
+) -> None:
+    # A link type Wireshark only reads as "Unknown" (Wireshark's
+    # gsmtap_um_lte.pcap has one, found by test/realworld): no format can
+    # hold these packets, so exports and editing say why.
+    capture = tmp_path / "unknown-link.pcapng"
+    capture.write_bytes(
+        _pcapng_block(0x0A0D0D0A, struct.pack("<IHHq", 0x1A2B3C4D, 1, 0, -1))
+        + _pcapng_block(1, struct.pack("<HHI", 65000, 0, 0))  # an unassigned link type
+        + _pcapng_block(6, struct.pack("<IIIII", 0, 0, 0, 4, 4) + b"\x01\x02\x03\x04")
+    )
+    service.open({"path": str(capture)}, ctx)
+    for kind in ("pcapng", "pcap"):
+        with pytest.raises(InvalidParamsError, match=f"as {kind}") as exc:
+            service.export({"kind": kind, "dest": str(tmp_path / f"out.{kind}"), "filter": ""}, ctx)
+        assert exc.value.data is not None and exc.value.data["format"] == kind
+    with pytest.raises(InvalidParamsError, match="can't write this capture's packets as pcapng"):
+        service.edit_capture({"operation": "dedup", "dest": str(tmp_path / "d.pcapng")}, ctx)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["unknown-link.pcapng"]
 
 
 @pytest.mark.tshark

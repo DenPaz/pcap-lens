@@ -19,6 +19,7 @@ from pcap_backend.export import (
     PacketListWriter,
     atomic_output,
     check_destination,
+    unwritable_error,
 )
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, param, str_list
 from pcap_backend.tshark import (
@@ -273,6 +274,8 @@ class ExportMixin(DetailMixin, PacketsMixin):
                     last_emit = now
                     ctx.progress({"phase": "export", "fraction": min(0.99, n / total)})
             truncated = any(h in result.stderr for h in _TRUNCATION_HINTS)
+            if refused := unwritable_error(result.stderr):
+                raise refused
             if result.returncode not in (0, None) and not (truncated and tmp.exists()):
                 raise f.tshark.error(
                     result.stderr, result.returncode, f"tshark exited with code {result.returncode}"
@@ -411,6 +414,10 @@ class ExportMixin(DetailMixin, PacketsMixin):
         fmt = param(params, "format", str, "text")
         if fmt not in DISSECTION_FORMATS:
             raise InvalidParamsError(f"format must be one of {', '.join(DISSECTION_FORMATS)}")
+        if fmt == "pdml" and params.get("bytes"):
+            # (tshark: "Raw packet hex data can only be printed as text, … or JSON";
+            # PDML already holds every field's bytes as its value.)
+            raise InvalidParamsError("PDML can't include hex dumps: choose text or JSON")
         filters, label, expected, user_filter = self._export_scope(f, params)
         if user_filter:
             error = f.tshark.validate_filter(user_filter, ctx.token)

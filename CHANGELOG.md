@@ -7,6 +7,42 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.24.2 — 2026-10-25
+
+### Fixed
+
+- Packet details highlight the right bytes when a protocol lives in another
+  buffer: decrypted TLS and DTLS, 6LoWPAN's decompressed IPv6 header, EAP
+  reassembled from RADIUS, compressed HTTP bodies and QUIC. [56a8807]
+  [4d537ca] [c06d6b0] [ab1d7dd] [500cb53]
+- Exporting or editing a capture that can't be written in the chosen format
+  explains why (several link types in a pcap, records that aren't packets,
+  link types Wireshark only reads) instead of showing tshark's message.
+  [840ca09] [27f2e3a] [136e47c]
+- Export Packet Dissections no longer offers hex dumps for PDML, which
+  tshark refuses. [c0d66a6]
+- The I/O graph works for captures spanning decades (a packet stamped 1970
+  beside today's), and Follow no longer offers a TLS stream for QUIC
+  packets. [0e1e415]
+- Captures of a link type tshark can't read open with that reason instead
+  of a tshark failure. [f2b8b7e]
+- Packet colors are saved with the capture's index even when coloring
+  starts before the index is saved, so the next open doesn't recompute
+  them. [5a86b1d]
+
+[56a8807]: https://github.com/DenPaz/pcap-lens/commit/56a8807
+[4d537ca]: https://github.com/DenPaz/pcap-lens/commit/4d537ca
+[c06d6b0]: https://github.com/DenPaz/pcap-lens/commit/c06d6b0
+[ab1d7dd]: https://github.com/DenPaz/pcap-lens/commit/ab1d7dd
+[500cb53]: https://github.com/DenPaz/pcap-lens/commit/500cb53
+[840ca09]: https://github.com/DenPaz/pcap-lens/commit/840ca09
+[27f2e3a]: https://github.com/DenPaz/pcap-lens/commit/27f2e3a
+[136e47c]: https://github.com/DenPaz/pcap-lens/commit/136e47c
+[c0d66a6]: https://github.com/DenPaz/pcap-lens/commit/c0d66a6
+[0e1e415]: https://github.com/DenPaz/pcap-lens/commit/0e1e415
+[f2b8b7e]: https://github.com/DenPaz/pcap-lens/commit/f2b8b7e
+[5a86b1d]: https://github.com/DenPaz/pcap-lens/commit/5a86b1d
+
 ## 0.24.1 — 2026-10-25
 
 ### Added

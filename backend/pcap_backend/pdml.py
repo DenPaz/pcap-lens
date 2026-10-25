@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -38,8 +38,17 @@ class PdmlError(ValueError):
     """tshark produced PDML we could not parse."""
 
 
-def parse_pdml(data: bytes, source_count: int = 1) -> list[TreeNode]:
-    """Parse the first ``<packet>`` of a PDML document into a list of tree nodes."""
+def parse_pdml(
+    data: bytes, source_count: int = 1, sources: Sequence[bytes] | None = None
+) -> list[TreeNode]:
+    """Parse the first ``<packet>`` of a PDML document into a list of tree nodes.
+
+    PDML doesn't say which byte source a field's ``pos`` refers to. Each
+    top-level item goes into the source its fields' bytes match (``sources``,
+    the ``-x`` buffers), else the one before it, moving on after reassembly
+    info (``*.segments``): 6LoWPAN's IPv6 header, for one, is only in the
+    "Decompressed 6LoWPAN IPHC" buffer, with no reassembly item before it.
+    """
     try:
         root = ET.fromstring(data)  # noqa: S314 - trusted producer, escaped content
     except ET.ParseError as exc:
@@ -62,10 +71,55 @@ def parse_pdml(data: bytes, source_count: int = 1) -> list[TreeNode]:
     for el in top:
         if _NEW_SOURCE_RE.search(el.get("name", "")) and src + 1 < source_count:
             src += 1
-        node = _convert(el, src, counter)
+        own = src
+        if sources and len(sources) > 1:
+            src = _matching_source(el, sources, src)
+            own = _own_source(el, sources, src, own)
+        node = _convert(el, src, counter, sources, own)
         if node is not None:
             nodes.append(node)
     return nodes
+
+
+# A bit field's label ("0001 00.. = DSCP: …"): its ``value`` is the masked
+# value, not the bytes, unless PDML adds ``unmaskedvalue``.
+_BITS_RE = re.compile(r"^[01.]{4}(?: [01.]{4})* = ")
+
+
+def _raw_value(el: ET.Element, size: int | None) -> bytes | None:
+    """The bytes an item covers, when PDML gives them (``unmaskedvalue``, else
+    ``value`` unless it's a bit field's masked value), else None."""
+    raw = el.get("unmaskedvalue")
+    if raw is None:
+        raw = el.get("value")
+        if raw is None or _BITS_RE.match(el.get("showname", "")):
+            return None
+    if not size or len(raw) != 2 * size:
+        return None
+    try:
+        return bytes.fromhex(raw)
+    except ValueError:
+        return None
+
+
+def _matching_source(el: ET.Element, sources: Sequence[bytes], default: int) -> int:
+    """The byte source whose bytes agree best with ``el``'s fields (each
+    field's raw ``value`` at its ``pos``), or ``default`` when none does better."""
+    checks: list[tuple[int, bytes]] = []
+    for node in el.iter():
+        pos, size = _int(node.get("pos")), _int(node.get("size"))
+        value = _raw_value(node, size) if size else None
+        if value is not None and pos is not None:
+            checks.append((pos, value))
+    if not checks:
+        return default
+
+    def score(data: bytes) -> int:
+        return sum(1 if data[pos : pos + len(b)] == b else -1 for pos, b in checks)
+
+    scores = [score(data) for data in sources]
+    best = max(range(len(sources)), key=lambda i: (scores[i], i == default))
+    return best if scores[best] > scores[min(default, len(sources) - 1)] else default
 
 
 class _Counter:
@@ -77,7 +131,66 @@ class _Counter:
         return self.value
 
 
-def _convert(el: ET.Element, src: int, counter: _Counter) -> TreeNode | None:
+def _locate_field(
+    el: ET.Element, sources: Sequence[bytes], src: int, pos: int, size: int
+) -> tuple[int, int]:
+    """An item's (source, position): as given while its raw value is there,
+    else where it is at that position in another source, else a source it
+    fills whole. tshark gives a decrypted TLS record's "TLS segment data" the
+    record's frame offset, though its bytes are a whole "Decrypted TLS"
+    buffer; an HTTP "Content-encoded entity body" holds the compressed body
+    (its own value) and, below it, the uncompressed one's fields."""
+    value = _raw_value(el, size)
+    if value is None:
+        # No bytes to compare: only a range that can't be in its source moves
+        # (to the first source it fits: QUIC CRYPTO data in a packet with
+        # several decrypted buffers).
+        if pos + size <= len(sources[src]):
+            return src, pos
+        fits = [i for i, data in enumerate(sources) if pos + size <= len(data)]
+        return (fits[0] if fits else src), pos
+    if sources[src][pos : pos + size] == value:
+        return src, pos
+    for i, data in enumerate(sources):
+        if data[pos : pos + size] == value:
+            return i, pos
+    for i, data in enumerate(sources):
+        if data == value:
+            return i, 0
+    return src, pos
+
+
+def _own_source(el: ET.Element, sources: Sequence[bytes], inner: int, outer: int) -> int:
+    """An item's own source: the one its fields are in, unless its
+    own range only fits the enclosing one (EAP reassembled from RADIUS
+    attributes: the item spans the attribute in the frame, its fields the
+    "Reassembled EAP" buffer)."""
+    pos, size = _int(el.get("pos")), _int(el.get("size"))
+    if pos is None or not size or pos + size <= len(sources[inner]):
+        return inner
+    # Else the enclosing source, or the first its range fits (a QUIC frame in
+    # a packet with several decrypted buffers); when none does (an EAP item
+    # spanning several attributes past the frame's end), the enclosing one if
+    # it starts there.
+    candidates: list[int] = [outer, *range(len(sources))]
+    for i in candidates:
+        if pos + size <= len(sources[i]):
+            return i
+    return outer if pos < len(sources[outer]) else inner
+
+
+def _convert(
+    el: ET.Element,
+    src: int,
+    counter: _Counter,
+    sources: Sequence[bytes] | None = None,
+    own: int | None = None,
+) -> TreeNode | None:
+    """``src`` is the byte source of ``el``'s fields, ``own`` its own (default
+    the same). A nested item (a protocol, or a field with children) whose
+    fields' bytes match another source (``sources``) moves its subtree there:
+    a decrypted DTLS alert's level and description are offsets in "Decrypted
+    DTLS", under a record that is in the frame."""
     if el.get("hide") == "yes":
         return None
     name = el.get("name", "")
@@ -89,7 +202,7 @@ def _convert(el: ET.Element, src: int, counter: _Counter) -> TreeNode | None:
         label = f"{name}: {show}"
     else:
         label = show or name or "(unnamed)"
-    node: TreeNode = {"id": counter.next(), "label": label, "src": src}
+    node: TreeNode = {"id": counter.next(), "label": label, "src": src if own is None else own}
     if name:
         node["name"] = name
     if show is not None:
@@ -100,6 +213,8 @@ def _convert(el: ET.Element, src: int, counter: _Counter) -> TreeNode | None:
     size = _int(el.get("size"))
     pos = _int(el.get("pos"))
     if size and pos is not None:
+        if sources and len(sources) > 1:  # (an item's own raw value decides too)
+            node["src"], pos = _locate_field(el, sources, node["src"], pos, size)
         node["pos"] = pos
         node["size"] = size
     if el.tag == "proto":
@@ -108,7 +223,11 @@ def _convert(el: ET.Element, src: int, counter: _Counter) -> TreeNode | None:
     for child in el:
         if child.tag not in ("field", "proto"):
             continue
-        converted = _convert(child, src, counter)
+        inner, child_own = src, None
+        if sources and len(sources) > 1 and len(child):
+            inner = _matching_source(child, sources, src)
+            child_own = _own_source(child, sources, inner, src)
+        converted = _convert(child, inner, counter, sources, child_own)
         if converted is not None:
             children.append(converted)
     if children:

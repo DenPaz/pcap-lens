@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import contextlib
+from pathlib import Path
+from typing import Any
+
 import pytest
 
+from pcap_backend.pcap_service import PcapService
 from pcap_backend.pdml import PdmlError, parse_hexdump, parse_pdml
+from pcap_backend.protocol import RequestContext
 
 PDML = b"""<?xml version="1.0" encoding="utf-8"?>
 <pdml version="0" creator="wireshark/4.2.2">
@@ -138,3 +144,142 @@ def test_parse_hexdump_ignores_ascii_lookalikes() -> None:
     text = "0000  41 42 43 44 45 46 30 31 32 33 34 35 36 37 38 39   ABCDEF0123456789\n"
     (src,) = parse_hexdump(text)
     assert bytes(src.data) == b"ABCDEF0123456789"
+
+
+def _find(nodes: list[dict[str, Any]], name: str) -> dict[str, Any]:
+    for node in nodes:
+        if node.get("name") == name:
+            return node
+        with contextlib.suppress(LookupError):
+            return _find(node.get("children", []), name)
+    raise LookupError(name)
+
+
+def _check_sources(detail: dict[str, Any]) -> None:
+    """Every field whose raw bytes are in some source has them at its position
+    in its own one (tshark makes up a few values found nowhere, such as
+    HPACK's 4-byte name lengths)."""
+    sources = [bytes.fromhex(s["hex"]) for s in detail["sources"]]
+
+    def walk(nodes: list[dict[str, Any]]) -> None:
+        for node in nodes:
+            raw = node.get("value", "")
+            if "pos" in node and len(raw) == 2 * node["size"]:
+                at = slice(node["pos"], node["pos"] + node["size"])
+                where = [i for i, data in enumerate(sources) if data[at].hex() == raw]
+                whole = [i for i, data in enumerate(sources) if data.hex() == raw]
+                if where or whole:
+                    assert sources[node["src"]][at].hex() == raw, node
+            walk(node.get("children", []))
+
+    walk(detail["tree"])
+
+
+@pytest.mark.tshark
+def test_detail_fields_lie_in_their_byte_source(
+    service: PcapService, fixtures: Path, ctx: RequestContext
+) -> None:
+    # 6LoWPAN: the IPv6 header exists only in the "Decompressed 6LoWPAN IPHC"
+    # buffer, and no reassembly item says so (found by test/realworld on
+    # tcpdump's 802_15_4-data.pcap: IPv6 was highlighted over the frame's bytes).
+    service.open({"path": str(fixtures / "sixlowpan.pcap")}, ctx)
+    detail = service.packet_detail({"number": 1}, ctx)
+    assert [s["name"] for s in detail["sources"]] == ["Frame", "Decompressed 6LoWPAN IPHC"]
+    top = {n["name"]: n["src"] for n in detail["tree"] if "name" in n}
+    assert (top["wpan"], top["6lowpan"], top["ipv6"], top["udp"], top["data"]) == (0, 0, 1, 1, 1)
+    _check_sources(detail)
+
+    # EAP reassembled from two RADIUS EAP-Message attributes is nested in
+    # RADIUS: its fields are on "Reassembled EAP", the item itself starts in
+    # the frame (found on Wireshark's coap-eap-failure.pcap).
+    service.open({"path": str(fixtures / "radius-eap.pcap")}, ctx)
+    detail = service.packet_detail({"number": 1}, ctx)
+    assert [s["name"] for s in detail["sources"]] == ["Frame", "Reassembled EAP"]
+    radius = next(n for n in detail["tree"] if n.get("name") == "radius")
+    eap = _find(radius["children"], "eap")
+    assert radius["src"] == 0 and eap["src"] == 0
+    assert {c["src"] for c in eap["children"]} == {1}
+    _check_sources(detail)
+
+
+def test_parse_pdml_picks_the_source_whose_bytes_match() -> None:
+    pdml = (
+        b'<pdml><packet><proto name="frame" pos="0" size="4"/>'
+        b'<proto name="a" pos="0" size="2">'
+        b'<field name="a.x" pos="0" size="2" value="0102"/></proto>'
+        b'<proto name="b" pos="1" size="2">'
+        b'<field name="b.y" pos="1" size="2" value="bbcc"/></proto>'
+        b'<proto name="c" pos="0" size="1"/>'
+        b"</packet></pdml>"
+    )
+    tree = parse_pdml(pdml, 2, [bytes.fromhex("01020304"), bytes.fromhex("aabbcc")])
+    # a matches the frame, b only the second buffer, c (no bytes to compare) follows b.
+    assert [n["src"] for n in tree] == [0, 0, 1, 1]
+    assert [n["src"] for n in parse_pdml(pdml, 2)] == [0, 0, 0, 0]  # without the buffers
+
+
+@pytest.mark.tshark
+def test_decrypted_tls_fields_lie_in_the_decrypted_buffers(
+    service: PcapService, ctx: RequestContext, tls_keylog: tuple[Path, Path]
+) -> None:
+    # Decrypted handshake messages are offsets in "Decrypted TLS" under a
+    # record in the frame, and tshark gives "TLS segment data" the record's
+    # frame offset though its bytes are a whole decrypted buffer (found by
+    # test/realworld on dtls12-aes128ccm8-dsb.pcapng's alert).
+    capture, keylog = tls_keylog
+    service.open({"path": str(capture), "prefs": {"tls.keylog_file": str(keylog)}}, ctx)
+    decrypted = 0
+    for number in range(1, service.capture_info({}, ctx)["frames"] + 1):
+        detail = service.packet_detail({"number": number}, ctx)
+        decrypted += any(s["name"] == "Decrypted TLS" for s in detail["sources"])
+        _check_sources(detail)
+    assert decrypted >= 3
+
+
+@pytest.mark.tshark
+@pytest.mark.parametrize("capture", ["objects.pcap", "streams.pcapng"])
+def test_every_field_lies_in_its_byte_source(
+    service: PcapService, fixtures: Path, ctx: RequestContext, capture: str
+) -> None:
+    # objects.pcap: a gzipped, chunked HTTP body ("Content-encoded entity
+    # body" holds the compressed bytes, its children the uncompressed ones);
+    # streams.pcapng: decrypted QUIC with several buffers per packet.
+    service.open({"path": str(fixtures / capture)}, ctx)
+    for number in range(1, service.capture_info({}, ctx)["frames"] + 1):
+        _check_sources(service.packet_detail({"number": number}, ctx))
+
+
+def test_parse_pdml_places_items_by_their_own_bytes_and_range() -> None:
+    sources = [bytes(range(100)), bytes.fromhex("1f8b0800"), b"plain text here"]
+    pdml = (
+        b'<pdml><packet><proto name="frame" pos="0" size="100"/>'
+        # An HTTP/2 body: its own value is the compressed buffer, its fields
+        # the uncompressed one (found on http2_follow_multistream.pcapng).
+        b'<proto name="http" pos="10" size="5">'
+        b'<field name="body" pos="0" size="4" value="1f8b0800">'
+        b'<field name="text" pos="0" size="5" value="706c61696e"/>'
+        b'<field name="more" pos="6" size="4" value="74657874"/></field>'
+        # A leaf without bytes to compare whose range can't be in the text
+        # buffer (QUIC CRYPTO data, http3-qpack-reassembly-anon.pcapng).
+        b'<field name="crypto" pos="40" size="30"/>'
+        b"</proto></packet></pdml>"
+    )
+    tree = parse_pdml(pdml, 3, sources)
+    body = _find(tree, "body")
+    assert (body["src"], body["pos"]) == (1, 0)
+    assert [c["src"] for c in body["children"]] == [2, 2]
+    assert _find(tree, "crypto")["src"] == 0  # (fits only the frame)
+
+
+def test_parse_pdml_ignores_masked_bit_field_values() -> None:
+    # "0001 00.. = DSCP" holds 0x04, the masked value, not the byte (0x10);
+    # the second buffer happens to have 04 there, which must not pull it over.
+    sources = [bytes.fromhex("4510"), bytes.fromhex("0004")]
+    pdml = (
+        b'<pdml><packet><proto name="ip" pos="0" size="2">'
+        b'<field name="ip.dsfield" pos="1" size="1" value="10">'
+        b'<field name="ip.dsfield.dscp" showname="0001 00.. = DSCP: 4"'
+        b' pos="1" size="1" value="04"/>'
+        b"</field></proto></packet></pdml>"
+    )
+    assert _find(parse_pdml(pdml, 2, sources), "ip.dsfield.dscp")["src"] == 0

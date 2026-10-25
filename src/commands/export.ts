@@ -455,17 +455,21 @@ export async function exportDissections(
   if (!format) {
     return undefined;
   }
-  const contents = await vscode.window.showQuickPick(
-    [
-      { label: "Packet details", bytes: false },
-      {
-        label: "Packet details and bytes",
-        description: "adds each packet's hex dump",
-        bytes: true,
-      },
-    ],
-    { title: `${title} (3/3)`, placeHolder: "Contents" },
-  );
+  // (tshark writes hex dumps only into text and JSON; PDML fields carry their bytes.)
+  const contents =
+    format.format === "pdml"
+      ? { bytes: false }
+      : await vscode.window.showQuickPick(
+          [
+            { label: "Packet details", bytes: false },
+            {
+              label: "Packet details and bytes",
+              description: "adds each packet's hex dump",
+              bytes: true,
+            },
+          ],
+          { title: `${title} (3/3)`, placeHolder: "Contents" },
+        );
   if (!contents) {
     return undefined;
   }

@@ -209,9 +209,19 @@ def test_coloring_is_saved_with_the_index(
         {"filter": "http", "background": "#e4ffc7"},
         {"filter": "tcp", "background": "#e7e6ff"},
     ]
+    # The index is saved in the background after the pass; coloring right
+    # away must wait for that entry, or its colors aren't kept (Windows CI
+    # was slower than the 0.5 s this test used to sleep).
+    save = IndexCache.save
+
+    def slow_save(*args: Any, **kwargs: Any) -> Any:
+        time.sleep(1.0)
+        return save(*args, **kwargs)
+
+    monkeypatch.setattr(IndexCache, "save", slow_save)
     service.open({"path": str(FIXTURES / "http.pcap"), "cache": cache}, ctx)
-    time.sleep(0.5)  # background save of the index
     colored = service.set_coloring({"rules": rules}, ctx)
+    monkeypatch.setattr(IndexCache, "save", save)
     colors = [r.get("color") for r in service.list_packets({"limit": 20}, ctx)["rows"]]
     assert colored["colored"] == 11
 

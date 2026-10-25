@@ -54,6 +54,7 @@ The `Makefile` wraps everything (`make` lists the targets):
 | `make update` / `make outdated` | Upgrade dev dependencies / list available updates                   |
 | `make coverage`                 | Backend and TS unit tests with coverage (HTML in `coverage/`)       |
 | `make evals`                    | Ask a model the AI cases and grade the answers (costs API calls)    |
+| `make realworld`                | Every backend feature over Wireshark's and tcpdump's test captures  |
 | `make package` / `make clean`   | Build the `.vsix` / remove build output                             |
 
 - Formatting: Prettier (TS, JS, CSS, HTML, JSON, YAML, Markdown) and ruff
@@ -82,6 +83,26 @@ The `Makefile` wraps everything (`make` lists the targets):
 
   Run it after changing a prompt, a limit or a check, with `--repeat` (answers
   vary), and compare the pass rate with the run before.
+
+- Real captures: the fixtures are small and tidy, so `test/realworld/run.py`
+  (`make realworld`, not in CI) downloads Wireshark's and tcpdump's own test
+  captures into `~/.cache/pcap-lens-realworld` and drives every backend
+  feature over each through the JSON-RPC server, as the extension does. It
+  reports internal errors, tshark failures, timeouts, tracebacks and broken
+  checks (packet counts, exports read back, each field's bytes in its byte
+  source); "expected" answers (no such stream…) and tshark's own odd field
+  positions ("notes") are listed in the `--out` JSON. Run it after a tshark
+  upgrade or a change to parsing:
+
+  ```sh
+  uv run python -u test/realworld/run.py --fetch wireshark -j 4 --out /tmp/ws.json
+  uv run python -u test/realworld/run.py --fetch tcpdump --quick -j 4
+  uv run python -u test/realworld/run.py ~/captures --only http   # your own
+  ```
+
+  A problem it finds gets a small generated fixture (`generate.py`) or a
+  capture written by the test itself; Wireshark's and tcpdump's files never
+  go into the repository.
 
 - TLS decryption sample:
   `uv run python test/fixtures/generate.py --tls-keylog /tmp/tls.pcap /tmp/tls-keys.log`,

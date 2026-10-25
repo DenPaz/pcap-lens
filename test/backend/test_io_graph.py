@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import struct
 from pathlib import Path
 
 import pytest
@@ -145,3 +146,23 @@ def test_series_errors(opened: PcapService, ctx: RequestContext) -> None:
     # tshark itself refuses SUM of addresses (and exits 0).
     with pytest.raises(ToolError, match="integral"):
         io({"metric": "sum", "field": "ip.src"})
+
+
+@pytest.mark.tshark
+def test_io_graph_of_a_capture_spanning_decades(
+    service: PcapService, ctx: RequestContext, tmp_path: Path
+) -> None:
+    # One packet stamped 1970 and one from 2021 (Wireshark's bt_attr.pcapng,
+    # found by test/realworld): the default interval is about 1/100 of the
+    # span, far over the day the IO graph used to allow.
+    frame = bytes(12) + b"\x08\x00" + bytes(46)  # an Ethernet frame
+    records = b"".join(
+        struct.pack("<IIII", seconds, 0, len(frame), len(frame)) + frame
+        for seconds in (59, 1_614_085_000)
+    )
+    capture = tmp_path / "decades.pcap"
+    capture.write_bytes(struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 1) + records)
+    service.open({"path": str(capture)}, ctx)
+    table = service.stats({"kind": "io"}, ctx)
+    assert table["interval"] == 20_000_000
+    assert sum(row["cells"][2] for row in table["rows"]) == 2

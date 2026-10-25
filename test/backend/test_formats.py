@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import struct
 from pathlib import Path
 
 import pytest
@@ -79,3 +80,20 @@ def test_not_a_capture(service: PcapService, ctx: RequestContext) -> None:
         service.open({"path": str(FORMATS / "notes.log")}, ctx)
     assert info.value.code == -32011
     assert "notes.log is not a capture file" in str(info.value)
+
+
+@pytest.mark.tshark
+@pytest.mark.parametrize("stream", [False, True])
+def test_packets_tshark_cannot_read(
+    service: PcapService, ctx: RequestContext, tmp_path: Path, stream: bool
+) -> None:
+    # A pcap of a link type tshark doesn't know (tcpdump's
+    # frf16_magic_ie-oobr.pcap, type 182; found by test/realworld) is an
+    # unsupported format with tshark's reason, not a tshark failure.
+    capture = tmp_path / "linktype-182.pcap"
+    header = struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 182)
+    capture.write_bytes(header + struct.pack("<IIII", 0, 0, 4, 4) + b"\x01\x02\x03\x04")
+    with pytest.raises(UnsupportedFormatError, match=r"tshark can't read \(pcap: network type 182"):
+        service.open({"path": str(capture), "stream": stream}, ctx)
+    probe = service.probe_file({"path": str(capture)}, ctx)
+    assert not probe["readable"] and "network type 182" in probe["message"]

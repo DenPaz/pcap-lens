@@ -272,14 +272,17 @@
   }
 
   /** Follow ▸'s streams: [packet_detail protocol names, label, follow kind]. */
+  // [protocols, label, proto, the protocol it needs]: TLS, HTTP, HTTP/2 and
+  // WebSocket follow a TCP stream, so QUIC's TLS handshake isn't one (found
+  // by test/realworld: "packet N is not part of a TCP stream").
   const FOLLOWS = /** @type {const} */ ([
-    [["tcp"], "TCP Stream", "tcp"],
-    [["udp"], "UDP Stream", "udp"],
-    [["tls", "ssl"], "TLS Stream", "tls"],
-    [["http"], "HTTP Stream", "http"],
-    [["http2"], "HTTP/2 Stream", "http2"],
-    [["quic", "http3"], "QUIC Stream", "quic"],
-    [["websocket"], "WebSocket Stream", "websocket"],
+    [["tcp"], "TCP Stream", "tcp", ""],
+    [["udp"], "UDP Stream", "udp", ""],
+    [["tls", "ssl"], "TLS Stream", "tls", "tcp"],
+    [["http"], "HTTP Stream", "http", "tcp"],
+    [["http2"], "HTTP/2 Stream", "http2", "tcp"],
+    [["quic", "http3"], "QUIC Stream", "quic", ""],
+    [["websocket"], "WebSocket Stream", "websocket", "tcp"],
   ]);
 
   /**
@@ -304,12 +307,9 @@
       }
     };
     walk(tree);
-    return FOLLOWS.filter(([protos]) => protos.some((p) => names.has(p))).map(
-      ([, label, proto]) => ({
-        label,
-        proto,
-      }),
-    );
+    return FOLLOWS.filter(
+      ([protos, , , needs]) => protos.some((p) => names.has(p)) && (!needs || names.has(needs)),
+    ).map(([, label, proto]) => ({ label, proto }));
   }
 
   /**

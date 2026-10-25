@@ -12,7 +12,7 @@ PACKETS ?= 1000000
 PERF_ARGS ?= --no-tcp-analysis
 
 .DEFAULT_GOAL := help
-.PHONY: help install update outdated compile watch lint format test test-backend \
+.PHONY: help install update outdated compile watch lint format test test-backend realworld \
 	test-acceptance test-unit test-extension coverage check fixtures large-fixture perf evals package \
 	release-prepare icon screenshots clean
 
@@ -93,6 +93,10 @@ large-fixture: ## Generate a large synthetic capture (PACKETS=1000000, LARGE=pat
 perf: ## Benchmark the backend on the large capture (made if missing; PERF_ARGS=...)
 	@test -f $(LARGE) || $(MAKE) --no-print-directory large-fixture
 	$(UV) run python -u test/perf/bench.py $(LARGE) $(PERF_ARGS)
+
+realworld: ## Run every backend feature over Wireshark's and tcpdump's test captures (downloaded; REALWORLD_ARGS=...)
+	$(UV) run python -u test/realworld/run.py --fetch wireshark $(REALWORLD_ARGS)
+	$(UV) run python -u test/realworld/run.py --fetch tcpdump --quick $(REALWORLD_ARGS)
 
 evals: compile ## Ask a model the AI cases in test/evals and grade the answers (costs API calls; EVAL_ARGS=...)
 	node scripts/evals/run.mjs $(EVAL_ARGS)

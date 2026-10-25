@@ -24,6 +24,7 @@ from .state import (
     _Resume,
     _ResumeMismatchError,
     _Store,
+    _unsupported_data,
 )
 
 DEFAULT_CACHE_BYTES = 1 << 30
@@ -42,6 +43,8 @@ def _index_error(tshark: Tshark, path: Path, result: StreamResult) -> Exception:
         return UnsupportedFormatError(
             f"{path.name} is not a capture file that tshark can read", data
         )
+    if why := _unsupported_data(result.stderr, path.name):
+        return UnsupportedFormatError(why, {"path": str(path), "stderr": result.stderr})
     return tshark.error(
         result.stderr, result.returncode, f"tshark exited with code {result.returncode}"
     )

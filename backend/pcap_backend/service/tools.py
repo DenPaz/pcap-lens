@@ -11,13 +11,18 @@ from typing import Any
 
 from pcap_backend import ber, comments, editing, hexdump, objects, plugins, wsprofile
 from pcap_backend.cancellation import CancelledError
-from pcap_backend.export import CAPTURE_FORMATS, atomic_output, check_destination
+from pcap_backend.export import (
+    CAPTURE_FORMATS,
+    atomic_output,
+    check_destination,
+    unwritable_error,
+)
 from pcap_backend.protocol import InvalidParamsError, RequestContext, param, str_list
 from pcap_backend.tshark import ToolError, ToolNotFoundError, find_tool, run
 
 from .base import ServiceBase
 from .helpers import _readable_capture, sniff_format
-from .state import _UNSUPPORTED_RE, _Open
+from .state import _UNSUPPORTED_RE, _Open, _unsupported_data
 
 # What a dissector may be called (`tshark -G dissectors`: "ber", "gsm_map", "x2ap"…).
 _DISSECTOR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$")
@@ -117,6 +122,8 @@ class ToolsMixin(ServiceBase):
         res = run(argv, ctx.token)
         if res.returncode == 0 and not _UNSUPPORTED_RE.search(res.stderr):
             return {"readable": True, "format": sniff_format(path)}
+        if why := _unsupported_data(res.stderr, path.name):
+            return {"readable": False, "message": why}
         if not _UNSUPPORTED_RE.search(res.stderr):
             raise tshark.error(res.stderr, res.returncode, f"tshark could not read {path.name}")
         records = ber.count_records(path)
@@ -233,7 +240,9 @@ class ToolsMixin(ServiceBase):
             argv = [str(editcap), "-F", "pcapng", *options, str(f.path), str(tmp), *selections]
             res = run(argv, ctx.token)
             if res.returncode != 0 or not tmp.exists():
-                raise ToolError(res.stderr.strip() or "editcap failed", res.stderr, res.returncode)
+                raise unwritable_error(res.stderr) or ToolError(
+                    res.stderr.strip() or "editcap failed", res.stderr, res.returncode
+                )
         result: dict[str, Any] = {"path": str(dest), "packets": comments.packet_count(dest)}
         if operation == "dedup":
             result["removed"] = editing.skipped_packets(res.stderr) or 0
@@ -262,7 +271,9 @@ class ToolsMixin(ServiceBase):
                       ctx.token)  # fmt: skip
             pieces = sorted(scratch.iterdir())
             if res.returncode != 0 or not pieces:
-                raise ToolError(res.stderr.strip() or "editcap failed", res.stderr, res.returncode)
+                raise unwritable_error(res.stderr) or ToolError(
+                    res.stderr.strip() or "editcap failed", res.stderr, res.returncode
+                )
             taken: set[str] = set()
             files = []
             for piece in pieces:
