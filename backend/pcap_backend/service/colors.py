@@ -6,6 +6,7 @@ import os
 import tempfile
 import time
 from array import array
+from concurrent.futures import wait
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,9 @@ from pcap_backend.tshark import StreamResult, stream_lines
 from .base import ServiceBase
 from .helpers import _parse_rules
 from .state import PROGRESS_INTERVAL_S, _Open
+
+# How long a coloring waits for its capture's index entry to be saved.
+INDEX_SAVE_WAIT_S = 30.0
 
 
 class ColoringMixin(ServiceBase):
@@ -57,6 +61,12 @@ class ColoringMixin(ServiceBase):
             colors, colored, compile_errors = self._coloring_pass(f, rules, ctx)
             errors.update(compile_errors)
             if f.cache is not None and f.cache_key is not None:
+                # The index entry is written in the background after the pass,
+                # and colors only join a complete one: wait for it (hard
+                # links, quick), or a capture colored at once keeps no colors.
+                pending = self._last_index
+                if pending is not None and not pending.done():
+                    wait([pending], timeout=INDEX_SAVE_WAIT_S)
                 extra = {"colored": colored, "errors": {str(i): m for i, m in errors.items()}}
                 f.cache.save_colors(f.cache_key, rules_id, colors, extra)
         with self._lock:
