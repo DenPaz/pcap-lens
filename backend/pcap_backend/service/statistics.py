@@ -70,8 +70,7 @@ class StatisticsMixin(ServiceBase):
                 table = stats.parse_sip_stat(self._tap(f, f"sip,stat{suffix}", ctx))
             case "credentials":
                 # (The tap takes no filter: rows outside it, or ignored, are left out here.)
-                # (Usernames are packet text: not numbers to convert.)
-                table = stats.parse_credentials(self._tap(f, "credentials", ctx, numbers=False))
+                table = stats.parse_credentials(self._tap(f, "credentials", ctx))
                 if counted:
                     table.rows = self._rows_matching(f, table.rows, counted, ctx)
             case "properties":
@@ -148,7 +147,7 @@ class StatisticsMixin(ServiceBase):
         spec = ",".join([f"io,stat,{step}", *scope, *(s.tap_arg(counted) for s in series)])
         argv = f.tshark.argv("-q", "-n", "-z", spec, capture=str(f.path))
         res = run(argv, ctx.token)
-        text = f.tshark.report_text(res.stdout.decode("utf-8", "replace"), ctx.token)
+        text = res.stdout.decode("utf-8", "replace")
         if "Interval" not in text:
             # (A field without numbers for SUM etc.: tshark says so and exits 0.)
             raise f.tshark.error(res.stderr, res.returncode, "tshark -z io,stat failed")
@@ -199,7 +198,7 @@ class StatisticsMixin(ServiceBase):
             passes = ["-2"] if two_pass else []
             argv = f.tshark.argv(*passes, "-q", "-n", "-z", spec, capture=str(f.path))
             res = run(argv, ctx.token)
-            text = f.tshark.report_text(res.stdout.decode("utf-8", "replace"), ctx.token)
+            text = res.stdout.decode("utf-8", "replace")
             if "Interval" not in text:
                 raise f.tshark.error(res.stderr, res.returncode, "tshark -z io,stat failed")
             table = stats.parse_io_stat(text, 0.0, series)
@@ -370,20 +369,11 @@ class StatisticsMixin(ServiceBase):
         table.extra["available"] = available
         return table
 
-    def _tap(
-        self,
-        f: _Open,
-        spec: str,
-        ctx: RequestContext,
-        extra: Sequence[str] = (),
-        numbers: bool = True,
-    ) -> str:
-        """A ``-z`` report's text; ``numbers``: with decimal points whatever
-        tshark's locale (``Tshark.report_text``)."""
+    def _tap(self, f: _Open, spec: str, ctx: RequestContext, extra: Sequence[str] = ()) -> str:
         # -n (after the name resolution options): report rows become address filters.
         argv = f.tshark.argv(*extra, "-q", "-n", "-z", spec, capture=str(f.path))
         res = run(argv, ctx.token)
         text = res.stdout.decode("utf-8", "replace")
         if res.returncode != 0 and not text.strip():
             raise f.tshark.error(res.stderr, res.returncode, f"tshark -z {spec} failed")
-        return f.tshark.report_text(text, ctx.token) if numbers else text
+        return text

@@ -1,6 +1,6 @@
 """Statistics whatever the user's locale: Wireshark's tools run with C number
 formatting on macOS and Linux (tool_env); on Windows, where they take the
-regional settings, a decimal comma is detected and converted."""
+regional settings, a decimal comma is detected and read in number cells."""
 
 from __future__ import annotations
 
@@ -12,10 +12,11 @@ from pathlib import Path
 
 import pytest
 
+from pcap_backend import stats
 from pcap_backend import tshark as tshark_module
 from pcap_backend.pcap_service import PcapService
 from pcap_backend.protocol import RequestContext
-from pcap_backend.tshark import IS_WINDOWS, Tshark, c_numbers, tool_env
+from pcap_backend.tshark import IS_WINDOWS, Tshark, find_tool, tool_env
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
@@ -30,10 +31,13 @@ WINDOWS_CONV = """\
 192.168.1.10:50000         <-> 93.184.216.34:80                 5 761 bytes       6 414 bytes      11 1175 bytes     0,000000000         0,0100
 """  # noqa: E501 - tshark's line
 WINDOWS_TREE = """\
+IPv4 Statistics / IP Protocol Types:
 Topic / Item                       Count         Average       Min Val       Max Val       Rate (ms)     Percent       Burst Rate    Burst Start
+--------------------------------------------------------------------------------------------------------------------------------------------------
+IPv4 Statistics/IP Protocol Types  103                                                     0,0606        100%          0,6000        0,000
  UDP                               91                                                      0,0535        88,35%        0,6000        0,000
- 10.0.0.1                          5 (2,5%) | 1,2,3 /ids=1,5 v1,5 1,5x
-"""  # noqa: E501 - tshark's line
+ 1,5                               12                                                      0,0071        11,65%        0,1000        1,000
+"""  # noqa: E501 - tshark's line (the last topic made up: a name is text)
 
 
 def _comma_locale() -> str | None:
@@ -65,13 +69,14 @@ def test_tool_env_sets_c_numbers() -> None:
     assert env == {"LANG": "pt_BR.UTF-8", "LC_NUMERIC": "C"}
 
 
-def test_decimal_commas_of_numbers_become_points() -> None:
-    assert c_numbers(WINDOWS_CONV).splitlines()[2].endswith("0.000000000         0.0100")
-    assert "1175 bytes" in c_numbers(WINDOWS_CONV)
-    tree = c_numbers(WINDOWS_TREE).splitlines()
-    assert tree[1].split() == ["UDP", "91", "0.0535", "88.35%", "0.6000", "0.000"]
-    # Whole numbers only: lists, URIs and names keep their commas.
-    assert tree[2].split() == ["10.0.0.1", "5", "(2.5%)", "|", "1,2,3", "/ids=1,5", "v1,5", "1,5x"]
+def test_number_cells_with_decimal_commas() -> None:
+    [conv] = stats.parse_conversations(WINDOWS_CONV, "tcp").rows
+    assert conv["cells"][3] == 1175 and conv["cells"][-2:] == [0, 0.01]
+    rows = stats.parse_stats_tree(WINDOWS_TREE, "ipv4_ptype").rows
+    assert [r["cells"] for r in rows[1:]] == [
+        ["UDP", 91, 0.0535, 88.35, 0.6, 0.0],
+        ["1,5", 12, 0.0071, 11.65, 0.1, 1.0],
+    ]
 
 
 def _service_results(ctx: RequestContext) -> list[object]:
@@ -134,6 +139,43 @@ def test_statistics_from_a_tshark_with_decimal_commas(
     tshark = Tshark.locate()
     assert tshark.decimal_comma() and tshark.decimal(0.005) == "0,005"
     assert _service_results(ctx) == expected
+
+
+@pytest.fixture
+def commented(tmp_path: Path) -> Path:
+    """http.pcap with a packet comment holding a number with a decimal comma."""
+    dest = tmp_path / "commented.pcapng"
+    editcap = find_tool("editcap", sibling_of=Tshark.locate().path)
+    argv = [str(editcap), "-F", "pcapng", "-a", "1:Measured 1,5 ms", str(FIXTURES / "http.pcap")]
+    subprocess.run([*argv, str(dest)], check=True, capture_output=True)
+    return dest
+
+
+@pytest.mark.tshark
+@pytest.mark.skipif(IS_WINDOWS, reason="LC_* can't give Windows' tshark a comma locale")
+def test_packet_text_keeps_its_commas(
+    comma_locale: Callable[[], None],
+    monkeypatch: pytest.MonkeyPatch,
+    commented: Path,
+    ctx: RequestContext,
+) -> None:
+    # Codex review: converting the whole expert report made the comment
+    # "Measured 1,5 ms" read "1.5" there but not in the pass that links
+    # messages to packets, so its row lost its packets.
+    monkeypatch.setattr(tshark_module, "_DECIMAL_COMMA", {})
+    monkeypatch.setattr(
+        tshark_module, "tool_env", lambda env=None: dict(os.environ if env is None else env)
+    )
+    comma_locale()
+    service = PcapService()
+    try:
+        service.initialize({}, ctx)
+        service.open({"path": str(commented), "names": {}}, ctx)
+        rows = service.stats({"kind": "expert"}, ctx)["rows"]
+    finally:
+        service.shutdown()
+    [comment] = [r for r in rows if r["cells"][0] == "Comment"]
+    assert comment["cells"][1] == "Measured 1,5 ms" and comment["frames"] == [1]
 
 
 @pytest.mark.tshark

@@ -563,16 +563,6 @@ _FOLDERS: dict[Path, str] = {}
 _DECIMAL_COMMA: dict[Path, bool] = {}
 _FOLDERS_LOCK = threading.Lock()
 
-# A number written with a decimal comma, as a whole token of a report:
-# "0,010000", "87,50%", "(9,1%)", "| 0,5 <>". Lists ("1,2,3") and text
-# around it (URIs, names) don't match.
-_DECIMAL_COMMA_NUMBER = re.compile(r"(?<![^\s(|])(\d+),(\d+)(?=%?\)?(?:[\s|]|$))", re.MULTILINE)
-
-
-def c_numbers(text: str) -> str:
-    """``text`` with the decimal commas of its numbers made points."""
-    return _DECIMAL_COMMA_NUMBER.sub(r"\1.\2", text)
-
 
 class Tshark:
     """A located tshark binary plus the dissection options for one capture."""
@@ -677,7 +667,9 @@ class Tshark:
         takes the user's regional settings (``setlocale(LC_ALL, ".UTF-8")``)
         and ignores LC_*. In a comma locale it refuses ``-z io,stat,0.5``
         (sscanf stops at the point), which is the question asked, once per
-        tshark. (No thousands separators there: Windows' printf lacks "%'".)
+        tshark. Its reports' number cells then hold decimal commas, which
+        the parsers read (``stats._point``); names and messages are left as
+        they are. (No thousands separators there: Windows' printf lacks "%'".)
         """
         with _FOLDERS_LOCK:
             cached = _DECIMAL_COMMA.get(self.path)
@@ -694,11 +686,6 @@ class Tshark:
         comma locale: io,stat's interval)."""
         text = f"{value:g}"
         return text.replace(".", ",") if self.decimal_comma(token) else text
-
-    def report_text(self, text: str, token: CancelToken | None = None) -> str:
-        """A ``-z`` report with its numbers as the parsers read them: decimal
-        commas become points when this tshark writes them (see decimal_comma)."""
-        return c_numbers(text) if self.decimal_comma(token) else text
 
     def version(self) -> str:
         res = run([str(self.path), "--version"])

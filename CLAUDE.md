@@ -896,15 +896,18 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   **Windows** ignores these variables (tshark sets `.UTF-8`, the user's
   regional settings), so `Tshark.decimal_comma` asks tshark once (a comma
   locale refuses `-z io,stat,0.5`); then io,stat's interval is written
-  `0,5` (`Tshark.decimal`) and `-z` reports go through `report_text`
-  (`c_numbers`: a decimal comma in a whole number token, `0,0100`, `88,35%`,
-  `(2,5%)`, becomes a point; lists and text keep theirs; credentials are
-  left alone). Windows prints no thousands separators (its printf lacks
-  `%'`), and io,stat and rtp,streams write points anyway (seen in a CI
-  probe). `test_locale.py` runs statistics under a comma locale (CI's Linux
-  job generates pt_BR.UTF-8; macOS has it) and plays Windows' tshark with
-  Linux's in pt_BR without tool_env; CI's Windows job ends by running the
-  statistics tests again after `Set-Culture pt-BR`.
+  `0,5` (`Tshark.decimal`) and the parsers read a decimal comma in number
+  cells only (`stats._point` in `_number` and `_tree_value`, `[\d.,]` in the
+  conversation, I/O graph and SRT patterns): names and messages keep theirs
+  (Codex review: converting whole reports turned a comment's "1,5" into
+  "1.5" in the expert summary, unlike the pass that links it to packets,
+  and would change a DNS name's row filter). Windows prints no thousands
+  separators (its printf lacks `%'`), and io,stat and rtp,streams write
+  points anyway (seen in a CI probe). `test_locale.py` runs statistics under
+  a comma locale (CI's Linux job generates pt_BR.UTF-8; macOS has it) and
+  plays Windows' tshark with Linux's in pt_BR without tool_env; CI's
+  Windows job ends by running the statistics tests again after
+  `Set-Culture pt-BR`.
 - **Never `str.splitlines()` on packet-derived text**: it also splits on
   `\x1c`–`\x1e`, `\x85`, `\u2028`… Stats parsers use `_lines()` (split on `\n`).
 - **Panels** (`src/panels/`) are separate webview panels beside the editor. They
