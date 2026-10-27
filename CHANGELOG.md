@@ -7,6 +7,18 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.24.3 — 2026-10-27
+
+### Fixed
+
+- Statistics work in locales with a decimal comma (Brazilian Portuguese,
+  German…): the I/O graph no longer fails and the conversations, endpoints
+  and response times tables have their rows. [cefd24f] [bf0047c] [5fa1fcb]
+
+[cefd24f]: https://github.com/DenPaz/pcap-lens/commit/cefd24f
+[bf0047c]: https://github.com/DenPaz/pcap-lens/commit/bf0047c
+[5fa1fcb]: https://github.com/DenPaz/pcap-lens/commit/5fa1fcb
+
 ## 0.24.2 — 2026-10-25
 
 ### Fixed

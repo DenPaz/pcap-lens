@@ -337,6 +337,26 @@ class ProcessRegistry:
 PROCESSES = ProcessRegistry()
 
 
+def tool_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
+    """``env`` (default: ours) with C number formatting for a Wireshark tool.
+
+    tshark formats and reads numbers by the locale: in pt_BR "1.175 bytes",
+    "0,000000" and a refused ``-z io,stat,0.5``, which no parser here reads.
+    LC_NUMERIC=C keeps the user's language and character set for the rest;
+    LC_ALL would override it, so its value moves to LANG (the other LC_*
+    variables go: LC_ALL overrode them too). Windows ignores these variables
+    (tshark takes the user's regional settings there: see decimal_comma).
+    """
+    out = dict(os.environ if env is None else env)
+    every = out.pop("LC_ALL", "")
+    if every:
+        for name in [n for n in out if n.startswith("LC_")]:
+            del out[name]
+        out["LANG"] = every
+    out["LC_NUMERIC"] = "C"
+    return out
+
+
 def _popen(
     argv: Sequence[str], env: Mapping[str, str] | None = None, stdin: int | None = None
 ) -> subprocess.Popen[bytes]:
@@ -348,7 +368,7 @@ def _popen(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         creationflags=flags,
-        env=None if env is None else dict(env),
+        env=tool_env(env),
     )
 
 
@@ -540,6 +560,7 @@ class _EmptyCapture:
 EMPTY_CAPTURE = _EmptyCapture()
 
 _FOLDERS: dict[Path, str] = {}
+_DECIMAL_COMMA: dict[Path, bool] = {}
 _FOLDERS_LOCK = threading.Lock()
 
 
@@ -638,6 +659,33 @@ class Tshark:
         if hint:
             message = f"{message}\n\n{hint}"
         return ToolError(message, stderr, returncode)
+
+    def decimal_comma(self, token: CancelToken | None = None) -> bool:
+        """Whether this tshark writes and reads numbers with a decimal comma.
+
+        tool_env makes it a point on macOS and Linux, but on Windows tshark
+        takes the user's regional settings (``setlocale(LC_ALL, ".UTF-8")``)
+        and ignores LC_*. In a comma locale it refuses ``-z io,stat,0.5``
+        (sscanf stops at the point), which is the question asked, once per
+        tshark. Its reports' number cells then hold decimal commas, which
+        the parsers read (``stats._point``); names and messages are left as
+        they are. (No thousands separators there: Windows' printf lacks "%'".)
+        """
+        with _FOLDERS_LOCK:
+            cached = _DECIMAL_COMMA.get(self.path)
+        if cached is None:
+            argv = [str(self.path), "-r", str(EMPTY_CAPTURE.get()), "-q", "-z", "io,stat,0.5"]
+            res = run(argv, token)
+            cached = res.returncode != 0 and "io,stat" in res.stderr
+            with _FOLDERS_LOCK:
+                _DECIMAL_COMMA[self.path] = cached
+        return cached
+
+    def decimal(self, value: float, token: CancelToken | None = None) -> str:
+        """``value`` as this tshark reads a number (``0.5``, or ``0,5`` in a
+        comma locale: io,stat's interval)."""
+        text = f"{value:g}"
+        return text.replace(".", ",") if self.decimal_comma(token) else text
 
     def version(self) -> str:
         res = run([str(self.path), "--version"])

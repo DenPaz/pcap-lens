@@ -887,6 +887,27 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   as an unsaved capture named after the file. Fixtures: `hexdump/*.txt`
   (generate.py: http.pcap's frames as Wireshark copies them, SIP payloads,
   timed IPv4).
+- **C numbers for the tools** (`tshark.tool_env`, every `Popen`): tshark
+  formats and reads numbers by the locale, so in pt_BR it refused
+  `-z io,stat,0.5` and wrote "1.175 bytes" and "0,000000" into the
+  conversation, endpoint and SRT tables (no rows; found on a Mac with
+  `LC_TYPE=pt_BR`). Children get `LC_NUMERIC=C` (an `LC_ALL` becomes `LANG`,
+  the other `LC_*` dropped), keeping the user's language and character set.
+  **Windows** ignores these variables (tshark sets `.UTF-8`, the user's
+  regional settings), so `Tshark.decimal_comma` asks tshark once (a comma
+  locale refuses `-z io,stat,0.5`); then io,stat's interval is written
+  `0,5` (`Tshark.decimal`) and the parsers read a decimal comma in number
+  cells only (`stats._point` in `_number` and `_tree_value`, `[\d.,]` in the
+  conversation, I/O graph and SRT patterns): names and messages keep theirs
+  (Codex review: converting whole reports turned a comment's "1,5" into
+  "1.5" in the expert summary, unlike the pass that links it to packets,
+  and would change a DNS name's row filter). Windows prints no thousands
+  separators (its printf lacks `%'`), and io,stat and rtp,streams write
+  points anyway (seen in a CI probe). `test_locale.py` runs statistics under
+  a comma locale (CI's Linux job generates pt_BR.UTF-8; macOS has it) and
+  plays Windows' tshark with Linux's in pt_BR without tool_env; CI's
+  Windows job ends by running the statistics tests again after
+  `Set-Culture pt-BR`.
 - **Never `str.splitlines()` on packet-derived text**: it also splits on
   `\x1c`–`\x1e`, `\x85`, `\u2028`… Stats parsers use `_lines()` (split on `\n`).
 - **Panels** (`src/panels/`) are separate webview panels beside the editor. They
@@ -2614,3 +2635,5 @@ drew: 0.24.1.
 Then the real-capture harness and what it found (byte sources, exports
 and editing of captures Wireshark can't write, IO graphs of long captures,
 Follow, unsupported link types): 0.24.2.
+Then statistics in locales with a decimal comma (Brazilian Portuguese,
+German…), on macOS, Linux and Windows: 0.24.3.

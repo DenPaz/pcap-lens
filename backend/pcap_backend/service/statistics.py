@@ -142,7 +142,9 @@ class StatisticsMixin(ServiceBase):
         series = self._io_series(f, params.get("series"), ctx)
         # (tshark refuses an empty last argument: "frame" is every packet too.)
         scope = [counted or "frame"] if counted or series else []
-        spec = ",".join([f"io,stat,{interval:g}", *scope, *(s.tap_arg(counted) for s in series)])
+        # (A comma locale's tshark reads "0,5": the comma is then part of the number.)
+        step = f.tshark.decimal(interval, ctx.token)
+        spec = ",".join([f"io,stat,{step}", *scope, *(s.tap_arg(counted) for s in series)])
         argv = f.tshark.argv("-q", "-n", "-z", spec, capture=str(f.path))
         res = run(argv, ctx.token)
         text = res.stdout.decode("utf-8", "replace")

@@ -69,9 +69,21 @@ def parse_size(text: str) -> int | float:
     return int(result) if result == int(result) else result
 
 
+# A number cell with a decimal comma: Windows' tshark writes "0,0100" and
+# "88,35%" in a comma locale (its regional settings; tshark.decimal_comma).
+# Only number cells are read this way: names and messages keep their commas.
+# Never a thousands separator: Windows' printf has none, and elsewhere the
+# tools run with LC_NUMERIC=C.
+_DECIMAL_COMMA = re.compile(r"\d+,\d+")
+
+
+def _point(text: str) -> str:
+    return text.replace(",", ".") if _DECIMAL_COMMA.fullmatch(text) else text
+
+
 def _number(text: str) -> int | float:
     try:
-        f = float(text)
+        f = float(_point(text))
     except ValueError:
         return 0
     return int(f) if f == int(f) else f
@@ -126,7 +138,7 @@ _CONV_ROW = re.compile(
     r"(?P<fba>\d+)\s+(?P<bba>[\d.,]+(?: \w+)?)\s+"
     r"(?P<fab>\d+)\s+(?P<bab>[\d.,]+(?: \w+)?)\s+"
     r"(?P<ft>\d+)\s+(?P<bt>[\d.,]+(?: \w+)?)\s+"
-    r"(?P<start>[\d.]+)\s+(?P<dur>[\d.]+)\s*$"
+    r"(?P<start>[\d.,]+)\s+(?P<dur>[\d.,]+)\s*$"
 )
 
 
@@ -274,7 +286,7 @@ def parse_protocol_hierarchy(text: str) -> Table:
 
 # ---------------------------------------------------------------------- IO graph
 
-_IO_INTERVAL = re.compile(r"^(?P<start>[\d.]+)\s*<>\s*(?P<end>[\d.]+|Dur)$")
+_IO_INTERVAL = re.compile(r"^(?P<start>[\d.,]+)\s*<>\s*(?P<end>[\d.,]+|Dur)$")
 
 # The IO graph's Y axis (Wireshark's "Y Field" units): packets, bytes and bits
 # count the packets matching the series' filter; the others are tshark's
@@ -532,7 +544,7 @@ _DNS_CLASSES = {"IN": 1, "CH": 3, "HS": 4}
 
 def _tree_value(text: str) -> int | float | None:
     """A stats_tree cell: ``'8'``, ``'30.00'``, ``'87.50%'``; ``'-'`` or blank = none."""
-    text = text.strip().removesuffix("%")
+    text = _point(text.strip().removesuffix("%"))
     if not text or text == "-":
         return None
     try:
@@ -783,13 +795,13 @@ SRT_PHS_NAMES = {"fc": ("fc", "fcp", "fcels"), "gtpv2": ("gtpv2",), "gtp": ("gtp
 
 _SRT_HEADER = re.compile(r"^Index\s+(?P<proc>.+?)\s+Calls\s+Min SRT")
 _SRT_ROW = re.compile(
-    r"^\s*(?P<index>\d+)\s+(?P<name>.+?)\s+(?P<calls>\d+)\s+(?P<min>[\d.]+)\s+"
-    r"(?P<max>[\d.]+)\s+(?P<avg>[\d.]+)\s+(?P<sum>[\d.]+)\s*$"
+    r"^\s*(?P<index>\d+)\s+(?P<name>.+?)\s+(?P<calls>\d+)\s+(?P<min>[\d.,]+)\s+"
+    r"(?P<max>[\d.,]+)\s+(?P<avg>[\d.,]+)\s+(?P<sum>[\d.,]+)\s*$"
 )
-_ICMP_COUNTS = re.compile(r"^(?P<req>\d+)\s+(?P<rep>\d+)\s+(?P<lost>\d+)\s+(?P<loss>[\d.]+)%\s*$")
+_ICMP_COUNTS = re.compile(r"^(?P<req>\d+)\s+(?P<rep>\d+)\s+(?P<lost>\d+)\s+(?P<loss>[\d.,]+)%\s*$")
 _ICMP_TIMES = re.compile(
-    r"^(?P<min>[\d.]+)\s+(?P<max>[\d.]+)\s+(?P<mean>[\d.]+)\s+(?P<median>[\d.]+)\s+"
-    r"(?P<sd>[\d.]+)\s+(?P<minf>\d+)?\s*(?P<maxf>\d+)?\s*$"
+    r"^(?P<min>[\d.,]+)\s+(?P<max>[\d.,]+)\s+(?P<mean>[\d.,]+)\s+(?P<median>[\d.,]+)\s+"
+    r"(?P<sd>[\d.,]+)\s+(?P<minf>\d+)?\s*(?P<maxf>\d+)?\s*$"
 )
 _FILTER_FIELD = re.compile(r"^[a-z][a-z0-9_.]*$")
 

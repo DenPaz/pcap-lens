@@ -35,7 +35,7 @@ from typing import IO, Any
 
 from . import extcap, procs
 from .cancellation import CancelledError, CancelToken
-from .tshark import IS_WINDOWS, PROCESSES, ToolError, clean_stderr, find_tool
+from .tshark import IS_WINDOWS, PROCESSES, ToolError, clean_stderr, find_tool, tool_env
 
 _SHB = 0x0A0D0D0A
 _PACKET_BLOCKS = frozenset({6, 3, 2})  # EPB, SPB, obsolete PB
@@ -312,6 +312,7 @@ class LiveCapture:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 creationflags=flags,
+                env=tool_env(),
             )
         except OSError as exc:
             out.close()
@@ -667,6 +668,7 @@ class FileCapture:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 creationflags=flags,
+                env=tool_env(),
             )
         except OSError as exc:
             raise start_error(exc, argv[0]) from exc
