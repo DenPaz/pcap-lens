@@ -887,6 +887,15 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   as an unsaved capture named after the file. Fixtures: `hexdump/*.txt`
   (generate.py: http.pcap's frames as Wireshark copies them, SIP payloads,
   timed IPv4).
+- **C numbers for the tools** (`tshark.tool_env`, every `Popen`): tshark
+  formats and reads numbers by the locale, so in pt_BR it refused
+  `-z io,stat,0.5` and wrote "1.175 bytes" and "0,000000" into the conversation,
+  endpoint and SRT tables (no rows; found on a Mac with `LC_TYPE=pt_BR`).
+  Children get `LC_NUMERIC=C` (an `LC_ALL` becomes `LANG`, the other `LC_*`
+  dropped), keeping the user's language and character set. Windows ignores
+  these variables (tshark sets `.UTF-8`, the user's regional settings): not
+  handled there yet. `test_locale.py` runs statistics under a comma locale
+  (CI's Linux job generates pt_BR.UTF-8; macOS has it).
 - **Never `str.splitlines()` on packet-derived text**: it also splits on
   `\x1c`–`\x1e`, `\x85`, `\u2028`… Stats parsers use `_lines()` (split on `\n`).
 - **Panels** (`src/panels/`) are separate webview panels beside the editor. They

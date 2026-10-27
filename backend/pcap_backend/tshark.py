@@ -337,6 +337,26 @@ class ProcessRegistry:
 PROCESSES = ProcessRegistry()
 
 
+def tool_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
+    """``env`` (default: ours) with C number formatting for a Wireshark tool.
+
+    tshark formats and reads numbers by the locale: in pt_BR "1.175 bytes",
+    "0,000000" and a refused ``-z io,stat,0.5``, which no parser here reads.
+    LC_NUMERIC=C keeps the user's language and character set for the rest;
+    LC_ALL would override it, so its value moves to LANG (the other LC_*
+    variables go: LC_ALL overrode them too). Windows ignores these variables
+    (tshark takes the user's regional settings there).
+    """
+    out = dict(os.environ if env is None else env)
+    every = out.pop("LC_ALL", "")
+    if every:
+        for name in [n for n in out if n.startswith("LC_")]:
+            del out[name]
+        out["LANG"] = every
+    out["LC_NUMERIC"] = "C"
+    return out
+
+
 def _popen(
     argv: Sequence[str], env: Mapping[str, str] | None = None, stdin: int | None = None
 ) -> subprocess.Popen[bytes]:
@@ -348,7 +368,7 @@ def _popen(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         creationflags=flags,
-        env=None if env is None else dict(env),
+        env=tool_env(env),
     )
 
 

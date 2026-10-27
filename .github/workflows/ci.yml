@@ -30,6 +30,8 @@ jobs:
             printf '%s\n' 'owner @{HOME}/** rw,' 'signal (receive) peer=unconfined,' | sudo tee -a /etc/apparmor.d/local/tshark
             sudo apparmor_parser -r /etc/apparmor.d/tshark
           fi
+          # A locale with a decimal comma for test_locale.py.
+          sudo locale-gen pt_BR.UTF-8
           # Let dumpcap capture (the loopback live-capture test), as
           # dpkg-reconfigure wireshark-common would for the wireshark group.
           sudo setcap cap_net_raw,cap_net_admin=eip /usr/bin/dumpcap
