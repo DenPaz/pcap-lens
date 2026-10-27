@@ -2632,3 +2632,5 @@ drew: 0.24.1.
 Then the real-capture harness and what it found (byte sources, exports
 and editing of captures Wireshark can't write, IO graphs of long captures,
 Follow, unsupported link types): 0.24.2.
+Then statistics in locales with a decimal comma (Brazilian Portuguese,
+German…), on macOS, Linux and Windows: 0.24.3.

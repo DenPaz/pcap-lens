@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.24.3 — 2026-10-27
+
 ### Fixed
 
 - Statistics work in locales with a decimal comma (Brazilian Portuguese,
