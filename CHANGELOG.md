@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.25.0 — 2026-10-28
+
 ### Added
 
 - Replay to Service: send a capture's client side again, with the recorded

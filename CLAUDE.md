@@ -2713,3 +2713,6 @@ and editing of captures Wireshark can't write, IO graphs of long captures,
 Follow, unsupported link types): 0.24.2.
 Then statistics in locales with a decimal comma (Brazilian Portuguese,
 German…), on macOS, Linux and Windows: 0.24.3.
+Then Replay to Service: a capture's client side sent again to local
+services (interception collectors, SIP servers), with presets, live counts,
+a log and a status bar item: 0.25.0.
