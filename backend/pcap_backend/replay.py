@@ -322,9 +322,15 @@ def is_local(address: str) -> bool:
     return ip.is_loopback or ip.is_private or ip.is_link_local
 
 
-def resolve_target(host: str, port: int, proto: str, allow_public: bool) -> tuple[Any, ...]:
-    """The socket address to send ``proto`` traffic for ``host``:``port`` to.
-    Every address the name resolves to must be local unless ``allow_public``."""
+# (family, protocol, socket address): one way to reach a destination.
+Address = tuple[int, int, Any]
+
+
+def resolve_target(host: str, port: int, proto: str, allow_public: bool) -> list[Address]:
+    """The socket addresses to send ``proto`` traffic for ``host``:``port`` to,
+    IPv4 first: ``localhost`` is often ``::1`` first, while most local services
+    listen on IPv4 (TCP tries the next address when one fails). Every address
+    the name resolves to must be local unless ``allow_public``."""
     host = host.strip().removeprefix("[").removesuffix("]")
     if not host:
         raise TargetError("the replay destination needs an IP address or host name")
@@ -344,8 +350,12 @@ def resolve_target(host: str, port: int, proto: str, allow_public: bool) -> tupl
                 f"{host} is not on this machine or a private network ({', '.join(public)}); "
                 "replaying to it must be allowed explicitly"
             )
-    family, _, proto_num, _, address = infos[0]
-    return (family, proto_num, address)
+    addresses: list[Address] = []
+    for family, _, proto_num, _, address in infos:
+        if (family, proto_num, address) not in addresses:
+            addresses.append((family, proto_num, address))
+    addresses.sort(key=lambda a: a[0] != socket.AF_INET)
+    return addresses
 
 
 @dataclass(slots=True)
@@ -396,9 +406,7 @@ class Destination:
     """Where a recorded target's traffic goes."""
 
     proto: str
-    family: int
-    proto_num: int
-    address: Any
+    addresses: list[Address]  # tried in order; the one that worked moves first
     label: str  # "127.0.0.1:11001"
 
 
@@ -414,6 +422,7 @@ class _Conn:
     write_shut: bool = False
     peer_closed: bool = False
     dead: bool = False
+    candidates: list[Address] = field(default_factory=list)  # TCP: still to try
 
 
 class StoppedError(Exception):
@@ -578,15 +587,45 @@ class Replayer:
 
     def _open(self, flow: tuple[int, int], dest: Destination, stats: TargetStats) -> None:
         stats.connections += 1
-        sock = socket.socket(dest.family, socket.SOCK_STREAM, dest.proto_num)
-        sock.setblocking(False)
-        conn = _Conn(flow, sock, stats)
+        conn = _Conn(flow, socket.socket(socket.AF_INET, socket.SOCK_STREAM), stats)
+        conn.candidates = list(dest.addresses)
         self._conns[flow] = conn
-        code = sock.connect_ex(dest.address)
+        self._connect(conn)
+
+    def _connect(self, conn: _Conn) -> None:
+        """Connect a new socket to the first address still to try."""
+        family, proto_num, address = conn.candidates[0]
+        conn.sock.close()
+        try:
+            conn.sock = socket.socket(family, socket.SOCK_STREAM, proto_num)
+            conn.sock.setblocking(False)
+            code = conn.sock.connect_ex(address)
+        except OSError as exc:  # (no IPv6 on this machine…)
+            code = exc.errno or errno.EADDRNOTAVAIL
         if code not in _CONNECTING:
-            self._fail(conn, f"connection to {dest.label} failed: {_error_text(code)}", code)
+            self._connect_failed(conn, code)
             return
-        self._sel.register(sock, selectors.EVENT_READ | selectors.EVENT_WRITE, conn)
+        self._sel.register(conn.sock, selectors.EVENT_READ | selectors.EVENT_WRITE, conn)
+
+    def _connect_failed(self, conn: _Conn, code: int) -> None:
+        """Try the destination's next address, else count the failure."""
+        dest = self._dest[conn.stats.key]
+        conn.candidates.pop(0)
+        if conn.candidates:
+            with contextlib.suppress(KeyError, ValueError):
+                self._sel.unregister(conn.sock)
+            self._connect(conn)
+            return
+        self._fail(conn, f"connection to {dest.label} failed: {_error_text(code)}", code)
+
+    def _connected(self, conn: _Conn) -> None:
+        conn.connected = True
+        conn.stats.opened += 1
+        dest = self._dest[conn.stats.key]
+        working = conn.candidates[0]
+        if dest.addresses[0] != working:  # (later connections try it first)
+            dest.addresses.remove(working)
+            dest.addresses.insert(0, working)
 
     def _datagram(
         self, flow: tuple[int, int], dest: Destination, stats: TargetStats, data: bytes
@@ -594,12 +633,13 @@ class Replayer:
         conn = self._conns.get(flow)
         if conn is None:
             stats.connections += 1
-            sock = socket.socket(dest.family, socket.SOCK_DGRAM, dest.proto_num)
+            family, proto_num, address = dest.addresses[0]
+            sock = socket.socket(family, socket.SOCK_DGRAM, proto_num)
             sock.setblocking(False)
             conn = _Conn(flow, sock, stats, udp=True, connected=True)
             self._conns[flow] = conn
             try:
-                sock.connect(dest.address)  # (a refused port then shows as an error)
+                sock.connect(address)  # (a refused port then shows as an error)
             except OSError as exc:
                 self._fail(conn, f"{dest.label}: {exc.strerror or exc}")
                 return
@@ -638,13 +678,9 @@ class Replayer:
             if not conn.connected and mask & selectors.EVENT_WRITE:
                 code = conn.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
                 if code:
-                    dest = self._dest[conn.stats.key]
-                    self._fail(
-                        conn, f"connection to {dest.label} failed: {_error_text(code)}", code
-                    )
+                    self._connect_failed(conn, code)
                     continue
-                conn.connected = True
-                conn.stats.opened += 1
+                self._connected(conn)
             if mask & selectors.EVENT_READ:
                 self._read(conn)
             if not conn.dead and conn.connected and not conn.udp:
@@ -659,6 +695,9 @@ class Replayer:
             if conn.udp:
                 conn.stats.refused += 1
                 conn.stats.error(f"{conn.stats.to}: nothing listens on this UDP port (refused)")
+                return
+            if not conn.connected:
+                self._connect_failed(conn, errno.ECONNREFUSED)
                 return
             self._fail(conn, f"connection to {conn.stats.to} refused", errno.ECONNREFUSED)
             return

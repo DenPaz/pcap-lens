@@ -2067,7 +2067,10 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   errors) and
   `replay_stop` (`Replayer.pass_token`, so a pass still looking for records
   ends too). Destinations must resolve to loopback, private or link-local
-  addresses unless `allowPublic` (`resolve_target`). `replay.pcap`
+  addresses unless `allowPublic` (`resolve_target`), IPv4 first; a TCP
+  connection tries the next address when one fails, and the one that worked
+  goes first (CI's `localhost` was `::1` first, the test server IPv4 only:
+  nothing arrived). `replay.pcap`
   (`generate.replay_packets`, synthetic: no real interception data or
   internal dissectors in the repository) has HI2/HI3-like connections that
   overlap, a retransmission, an overlap, a gap, a reset, one without a

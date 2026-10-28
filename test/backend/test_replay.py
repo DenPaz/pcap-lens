@@ -142,7 +142,12 @@ def test_destinations_stay_local_unless_allowed() -> None:
         replay.resolve_target(host, 11000, "tcp", allow_public=False)
     with pytest.raises(TargetError, match="not on this machine"):
         replay.resolve_target("8.8.8.8", 53, "udp", allow_public=False)
-    assert replay.resolve_target("8.8.8.8", 53, "udp", allow_public=True)[2][0] == "8.8.8.8"
+    assert replay.resolve_target("8.8.8.8", 53, "udp", allow_public=True)[0][2][0] == "8.8.8.8"
+    # localhost: IPv4 first (most local services listen there), then IPv6.
+    families = [a[0] for a in replay.resolve_target("localhost", 80, "tcp", allow_public=False)]
+    assert families[0] == socket.AF_INET and families == sorted(
+        families, key=lambda f: f != socket.AF_INET
+    )
     with pytest.raises(TargetError, match="between 1 and 65535"):
         replay.resolve_target("127.0.0.1", 0, "tcp", allow_public=False)
     with pytest.raises(TargetError, match="needs an IP"):
@@ -268,6 +273,28 @@ def _free_port() -> int:
 def _settle() -> None:
     """Let the servers' threads read what was sent before checking it."""
     time.sleep(0.2)
+
+
+def test_a_refused_address_falls_back_to_the_next(services: Any) -> None:
+    # As with localhost resolving to ::1 first and a service listening on IPv4.
+    hi2, _, _ = services
+    closed = (socket.AF_INET, socket.IPPROTO_TCP, ("127.0.0.1", _free_port()))
+    working = (socket.AF_INET, socket.IPPROTO_TCP, ("127.0.0.1", hi2.port))
+    dest = replay.Destination("tcp", [closed, working], "localhost:11000")
+    events = [
+        replay.Event("open", 0.0, 1, "t"),
+        replay.Event("data", 0.0, 1, "t", b"first"),
+        replay.Event("close", 0.0, 1, "t"),
+        replay.Event("open", 0.0, 2, "t"),
+        replay.Event("data", 0.0, 2, "t", b"second"),
+    ]
+    runner = replay.Replayer({"t": dest}, 0, CancelToken())
+    runner.run(lambda: iter(events))
+    _settle()
+    assert sorted(hi2.received) == [b"first", b"second"]
+    stats = runner.stats["t"]
+    assert (stats.connections, stats.opened, stats.refused, stats.errors) == (2, 2, 0, [])
+    assert dest.addresses[0] == working  # (tried first from then on)
 
 
 # -- replays of replay.pcap -------------------------------------------------------------

@@ -100,14 +100,12 @@ class ReplayMixin(ServiceBase):
             if not isinstance(ip, str) or isinstance(port, bool) or not isinstance(port, int):
                 raise InvalidParamsError(f"{key}: the destination needs an ip and a port number")
             try:
-                family, proto_num, address = engine.resolve_target(
-                    ip, port, protos[key], allow_public
-                )
+                addresses = engine.resolve_target(ip, port, protos[key], allow_public)
             except engine.TargetError as exc:
                 raise InvalidParamsError(f"{key}: {exc}", {"target": key}) from exc
             host = ip.strip().removeprefix("[").removesuffix("]")
             label = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
-            destinations[key] = engine.Destination(protos[key], family, proto_num, address, label)
+            destinations[key] = engine.Destination(protos[key], addresses, label)
         f = self._require_file()
         scope = self._replay_scope(f, flt, ctx)
         runner = engine.Replayer(
