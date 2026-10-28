@@ -90,6 +90,69 @@ def test_planner_sends_the_client_side_once() -> None:
     assert (info.retransmissions, info.gaps, info.first_frame) == (2, 1, 3)
 
 
+def test_planner_puts_out_of_order_segments_back_in_order() -> None:
+    # Captured out of order: held until the missing bytes come, not dropped.
+    planner, events = replay.plan(
+        [
+            _tcp(1, C, 40000, S, 9000, syn=True, seq=99),
+            _tcp(2, C, 40000, S, 9000, b"efgh", ack=True, seq=104),
+            _tcp(3, C, 40000, S, 9000, b"ijkl", ack=True, seq=108),
+            _tcp(4, C, 40000, S, 9000, b"abcd", ack=True, seq=100),
+            _tcp(5, C, 40000, S, 9000, b"efgh", ack=True, seq=104),  # retransmission
+            _tcp(6, C, 40000, S, 9000, fin=True, ack=True, seq=112),
+        ]
+    )
+    assert [(e.kind, e.data, e.time) for e in events] == [
+        ("open", b"", 0.01),
+        ("data", b"abcd", 0.04),
+        ("data", b"efgh", 0.04),
+        ("data", b"ijkl", 0.04),
+        ("close", b"", 0.06),
+    ]
+    info = planner.targets[f"tcp {S}:9000"]
+    assert (info.gaps, info.retransmissions, info.bytes) == (0, 1, 12)
+
+
+def test_planner_gives_up_on_a_gap_in_time() -> None:
+    # Bytes the capture lacks: the data after them waits REORDER_WINDOW_S at most.
+    late = 0.02 + replay.REORDER_WINDOW_S + 0.01
+    gap = Record(9, late, "udp", 7, C, 5000, S, 5004, b"x")  # (another flow's packet)
+    planner, events = replay.plan(
+        [
+            _tcp(1, C, 40000, S, 9000, b"abcd", ack=True, seq=100),
+            _tcp(2, C, 40000, S, 9000, b"ijkl", ack=True, seq=108),  # "efgh" never captured
+            gap,
+            _tcp(10, C, 40000, S, 9000, b"mn", ack=True, seq=112),
+        ]
+    )
+    data = [(e.data, e.time) for e in events if e.kind == "data"]
+    assert data == [(b"abcd", 0.01), (b"ijkl", late), (b"mn", 0.1)]
+    assert planner.targets[f"tcp {S}:9000"].gaps == 1
+    # At the end of the capture, held data goes when its window would have ended.
+    planner, events = replay.plan(
+        [
+            _tcp(1, C, 40000, S, 9000, b"abcd", ack=True, seq=100),
+            _tcp(2, C, 40000, S, 9000, b"ijkl", ack=True, seq=108),
+        ]
+    )
+    assert [(e.data, e.time) for e in events if e.kind == "data"] == [
+        (b"abcd", 0.01),
+        (b"ijkl", 0.02),
+    ]
+
+
+def test_planner_sends_a_syn_s_own_data() -> None:
+    # TCP Fast Open: the SYN carries data, which starts after the SYN's number.
+    _, events = replay.plan(
+        [
+            _tcp(1, C, 40000, S, 9000, b"abcd", syn=True, seq=99),
+            _tcp(2, C, 40000, S, 9000, b"efgh", ack=True, seq=104),
+            _tcp(3, C, 40000, S, 9000, b"x", ack=True, seq=103),  # already sent
+        ]
+    )
+    assert [e.data for e in events if e.kind == "data"] == [b"abcd", b"efgh"]
+
+
 def test_planner_finds_the_client_without_a_handshake() -> None:
     # Started before the capture: the higher port is the client, from either side.
     _, events = replay.plan(
@@ -299,6 +362,38 @@ def test_a_refused_address_falls_back_to_the_next(services: Any) -> None:
     assert dest.addresses[0] == working  # (tried first from then on)
 
 
+def test_data_a_service_does_not_read_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(replay, "DRAIN_S", 0.5)
+    monkeypatch.setattr(replay, "ANSWER_GRACE_S", 0.0)
+    server = socket.create_server(("127.0.0.1", 0))
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)  # (accepted ones inherit it)
+    accepted: list[socket.socket] = []
+    taker = threading.Thread(target=lambda: accepted.append(server.accept()[0]), daemon=True)
+    taker.start()
+    address = (socket.AF_INET, socket.IPPROTO_TCP, server.getsockname())
+    dest = replay.Destination("tcp", [address], "127.0.0.1:1")
+    size = 16 << 20  # more than the socket buffers on both sides hold (under MAX_BUFFERED)
+    events = [
+        replay.Event("open", 0.0, 1, "t"),
+        replay.Event("data", 0.0, 1, "t", bytes(size)),
+        replay.Event("close", 0.0, 1, "t"),
+    ]
+    runner = replay.Replayer({"t": dest}, 0, CancelToken())
+    try:
+        runner.run(lambda: iter(events))
+    finally:
+        taker.join(5)
+        for sock in accepted:
+            sock.close()
+        server.close()
+    stats = runner.stats["t"]
+    assert stats.bytes + stats.dropped == size and stats.dropped > 0
+    assert stats.error_count == 1
+    assert "not delivered" in stats.errors[0] and "stopped reading" in stats.errors[0]
+    last = runner.take_log()[-1]  # (earlier lines went out with progress reports)
+    assert (last["level"], last["text"]) == ("error", stats.errors[0])
+
+
 # -- replays of replay.pcap -------------------------------------------------------------
 
 
@@ -315,7 +410,8 @@ def test_recorded_targets(opened: PcapService, ctx: RequestContext) -> None:
     assert (udp["connections"], udp["packets"]) == (1, 3)
     assert hi2["protocol"] == "TCP" and targets[DNS]["protocol"] == "DNS"
     assert (hi2["proto"], hi2["ip"], hi2["port"]) == ("tcp", generate.REPLAY_COLLECTOR, 11000)
-    assert found["duration"] == pytest.approx(0.24)  # first data 0.01 (DNS), last 0.25
+    # First data 0.01 (DNS), last 0.26: D3 waited behind D's gap until D's FIN.
+    assert found["duration"] == pytest.approx(0.25)
     only = opened.replay_targets({"filter": "tcp.port == 11001"}, ctx)
     assert [t["key"] for t in only["targets"]] == [HI3] and only["filter"] == "tcp.port == 11001"
     with pytest.raises(FilterError):

@@ -49,8 +49,10 @@ if the operator were sending it now.
   start; connections open at their SYN (or first data) time; connections that
   overlapped in the recording overlap again.
 - **TCP data is deduplicated by sequence number**: retransmissions are skipped,
-  a partial overlap sends only the new bytes, a gap (data missing from the
-  capture) is counted and the data after it is still sent.
+  a partial overlap sends only the new bytes. Segments captured out of order
+  are put back in order: data after a gap waits for the missing bytes for up
+  to 0.5 s of capture time (or 4 MB, or the connection's end); then the gap
+  (data missing from the capture) is counted and the data after it is sent.
 - **A client FIN closes our sending side** (after its data); a client RST
   closes the connection.
 - **Local targets only by default**: loopback, private and link-local

@@ -75,6 +75,11 @@ PROGRESS_EVERY_S = 0.25
 # Errors kept per target (the rest are counted).
 MAX_ERRORS = 10
 MAX_LOG = 200  # log lines a progress report carries (the rest are counted)
+# TCP segments captured ahead of a gap wait for the missing bytes (captured
+# out of order) this long in capture time, or until this much waits; then
+# the gap is taken as bytes the capture lacks.
+REORDER_WINDOW_S = 0.5
+MAX_HELD = 4 << 20
 _CONNECTING = (0, errno.EINPROGRESS, errno.EWOULDBLOCK, errno.EALREADY, 10035)  # WSAEWOULDBLOCK
 
 
@@ -187,6 +192,9 @@ class _TcpFlow:
     next_seq: int | None = None
     opened: bool = False
     closed: bool = False
+    # Segments after a gap: sequence number → (capture time, frame, data).
+    held: dict[int, tuple[float, int, bytes]] = field(default_factory=dict)
+    held_bytes: int = 0
 
 
 @dataclass(slots=True)
@@ -213,6 +221,8 @@ class Planner:
     def __init__(self) -> None:
         self.targets: dict[str, TargetInfo] = {}
         self._tcp: dict[int, _TcpFlow] = {}
+        self._holding: dict[int, _TcpFlow] = {}  # flows with held segments, by flow number
+        self._now = 0.0
         self._udp: dict[int, _UdpFlow] = {}
         self._flows = 0
         self.first: float | None = None
@@ -225,24 +235,35 @@ class Planner:
             info = self.targets[key] = TargetInfo(key, proto, ip, port)
         return info
 
-    def _note(self, info: TargetInfo, rec: Record, size: int) -> None:
+    def _note(self, info: TargetInfo, time_: float, frame: int, size: int) -> None:
         info.packets += 1
         info.bytes += size
         if info.first is None:
-            info.first, info.first_frame = rec.time, rec.frame
-        info.last = rec.time
+            info.first, info.first_frame = time_, frame
+        info.last = time_
         if self.first is None:
-            self.first = rec.time
-        self.last = rec.time
+            self.first = time_
+        self.last = time_
 
     def _next_flow(self) -> int:
         self._flows += 1
         return self._flows
 
     def feed(self, rec: Record) -> list[Event]:
+        self._now = rec.time
+        events = self._expire(rec.time)
         if rec.proto == "udp":
-            return self._udp_event(rec)
-        return self._tcp_events(rec)
+            return events + self._udp_event(rec)
+        return events + self._tcp_events(rec)
+
+    def finish(self) -> list[Event]:
+        """The end of the capture: segments still waiting behind a gap go on."""
+        events: list[Event] = []
+        for flow in list(self._holding.values()):
+            # (When the window would have run out, had the capture gone on.)
+            oldest = min(t for t, _, _ in flow.held.values())
+            events += self._give_up(flow, min(self._now, oldest + REORDER_WINDOW_S))
+        return events
 
     def _udp_event(self, rec: Record) -> list[Event]:
         flow = self._udp.get(rec.stream)
@@ -254,7 +275,7 @@ class Planner:
             )
         if (rec.src, rec.sport) != flow.client:
             return []
-        self._note(self.targets[flow.target], rec, len(rec.payload))
+        self._note(self.targets[flow.target], rec.time, rec.frame, len(rec.payload))
         return [Event("datagram", rec.time, flow.flow, flow.target, rec.payload)]
 
     def _tcp_events(self, rec: Record) -> list[Event]:
@@ -280,27 +301,88 @@ class Planner:
             events.append(Event("open", rec.time, flow.flow, flow.target))
         if rec.syn and rec.seq is not None:
             flow.next_seq = (rec.seq + 1) % (1 << 32)
-        data = rec.payload
-        if data and rec.seq is not None:
+        if rec.payload and rec.seq is not None:
+            # (A SYN's own data, TCP Fast Open, starts after the SYN's sequence number.)
+            seq = (rec.seq + 1) % (1 << 32) if rec.syn else rec.seq
             if flow.next_seq is None:
-                flow.next_seq = rec.seq
-            diff = _seq_diff(rec.seq, flow.next_seq)
-            if diff > 0:
-                info.gaps += 1  # bytes the capture doesn't have
-            elif -diff >= len(data):
-                info.retransmissions += 1
-                data = b""
-            elif diff < 0:
-                info.retransmissions += 1
-                data = data[-diff:]
-            if data:
-                flow.next_seq = (rec.seq + len(rec.payload)) % (1 << 32)
-        if data and flow.opened:
-            self._note(info, rec, len(data))
-            events.append(Event("data", rec.time, flow.flow, flow.target, data))
+                flow.next_seq = seq
+            if _seq_diff(seq, flow.next_seq) > 0:
+                self._hold(flow, rec, seq)  # after a gap: wait for the missing bytes
+            else:
+                events += self._accept(flow, rec.time, rec.frame, seq, rec.payload)
+                events += self._release(flow, rec.time)
+        elif rec.payload:
+            events += self._accept(flow, rec.time, rec.frame, None, rec.payload)
         if (rec.fin or rec.rst) and flow.opened:
+            events += self._give_up(flow, rec.time)
             flow.closed = True
             events.append(Event("close", rec.time, flow.flow, flow.target, reset=rec.rst))
+        return events
+
+    def _accept(
+        self, flow: _TcpFlow, time_: float, frame: int, seq: int | None, data: bytes
+    ) -> list[Event]:
+        """Data starting at or before the next expected byte: its new part."""
+        info = self.targets[flow.target]
+        if seq is not None and flow.next_seq is not None:
+            diff = _seq_diff(seq, flow.next_seq)
+            if -diff >= len(data):
+                info.retransmissions += 1
+                return []
+            if diff < 0:
+                info.retransmissions += 1
+                data = data[-diff:]
+            flow.next_seq = (flow.next_seq + len(data)) % (1 << 32)
+        self._note(info, time_, frame, len(data))
+        return [Event("data", time_, flow.flow, flow.target, data)]
+
+    def _hold(self, flow: _TcpFlow, rec: Record, seq: int) -> None:
+        old = flow.held.get(seq)
+        if old is not None:
+            if len(old[2]) >= len(rec.payload):
+                self.targets[flow.target].retransmissions += 1
+                return
+            flow.held_bytes -= len(old[2])
+        flow.held[seq] = (rec.time, rec.frame, rec.payload)
+        flow.held_bytes += len(rec.payload)
+        self._holding[flow.flow] = flow
+
+    def _release(self, flow: _TcpFlow, time_: float) -> list[Event]:
+        """Held segments that the data so far reaches, in sequence order."""
+        events: list[Event] = []
+        while flow.held and flow.next_seq is not None:
+            base = flow.next_seq
+            ready = sorted(
+                (s for s in flow.held if _seq_diff(s, base) <= 0),
+                key=lambda s: _seq_diff(s, base),
+            )
+            if not ready:
+                break
+            for seq in ready:
+                _, frame, data = flow.held.pop(seq)
+                flow.held_bytes -= len(data)
+                events += self._accept(flow, time_, frame, seq, data)
+        if not flow.held:
+            self._holding.pop(flow.flow, None)
+        return events
+
+    def _give_up(self, flow: _TcpFlow, time_: float) -> list[Event]:
+        """The bytes before the held segments aren't in the capture: go on."""
+        events: list[Event] = []
+        while flow.held and flow.next_seq is not None:
+            base = flow.next_seq
+            flow.next_seq = min(flow.held, key=lambda s: _seq_diff(s, base))
+            self.targets[flow.target].gaps += 1
+            events += self._release(flow, time_)
+        return events
+
+    def _expire(self, now: float) -> list[Event]:
+        """Gaps that out-of-order segments haven't filled in time, or hold too much."""
+        events: list[Event] = []
+        for flow in list(self._holding.values()):
+            oldest = min(t for t, _, _ in flow.held.values())
+            if now - oldest > REORDER_WINDOW_S or flow.held_bytes > MAX_HELD:
+                events += self._give_up(flow, now)
         return events
 
 
@@ -308,7 +390,7 @@ def plan(records: Iterable[Record]) -> tuple[Planner, list[Event]]:
     """Every event of ``records`` (tests, small captures)."""
     planner = Planner()
     events = [ev for rec in records for ev in planner.feed(rec)]
-    return planner, events
+    return planner, events + planner.finish()
 
 
 class TargetError(ValueError):
@@ -555,6 +637,7 @@ class Replayer:
             if self._speed > 0:
                 self._wait_until(start + (ev.time - t0) / self._speed)
             while self._buffered > MAX_BUFFERED:
+                self._check()  # (a service that stops reading mustn't keep Stop waiting)
                 self._service(0.05)
             self._apply((loop, ev.flow), ev)
             self._service(0)
@@ -576,6 +659,16 @@ class Replayer:
         while any(c.out for c in self._conns.values() if not c.dead):
             self._check()
             if time.monotonic() > deadline:
+                # The service stopped reading: what it didn't take is lost.
+                for conn in self._conns.values():
+                    if conn.out and not conn.dead:
+                        conn.stats.dropped += len(conn.out)
+                        self._error(
+                            conn.stats,
+                            f"{len(conn.out):,} bytes not delivered: {conn.stats.to} "
+                            f"stopped reading for {DRAIN_S:g} s",
+                        )
+                        self._close(conn)
                 break
             self._service(0.05)
         grace = time.monotonic() + ANSWER_GRACE_S

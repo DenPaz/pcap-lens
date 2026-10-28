@@ -41,6 +41,7 @@ class ReplayMixin(ServiceBase):
         planner = engine.Planner()
         for rec in self._replay_records(f, scope, ctx.token):
             planner.feed(rec)
+        planner.finish()
         targets = sorted(
             (t for t in planner.targets.values() if t.connections),
             key=lambda t: (t.first is None, t.first or 0.0, t.key),
@@ -124,6 +125,7 @@ class ReplayMixin(ServiceBase):
             planner = engine.Planner()
             for rec in self._replay_records(f, scope, runner.pass_token):
                 yield from planner.feed(rec)
+            yield from planner.finish()
 
         try:
             runner.run(events, loops)

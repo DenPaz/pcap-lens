@@ -318,12 +318,16 @@ export class ReplayPanel {
     if (this.replaying === undefined || !client?.running) {
       return;
     }
+    let stopped = false;
     try {
-      await client.request("replay_stop", {});
+      ({ stopped } = await client.request<{ stopped: boolean }>("replay_stop", {}));
     } catch {
-      if (this.replaying !== undefined) {
-        client.cancel(this.replaying);
-      }
+      // (cancelled below)
+    }
+    // Still starting (reading the capture, resolving the destinations): nothing
+    // ran yet for replay_stop to end, so the request itself is cancelled.
+    if (!stopped && this.replaying !== undefined) {
+      client.cancel(this.replaying);
     }
   }
 

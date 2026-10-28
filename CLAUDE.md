@@ -2053,12 +2053,22 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   `parse_record` (booleans True/False or 1/0) → `Planner` (client = SYN
   sender, the SYN-ACK's receiver, else the higher port; UDP: the first
   sender; TCP data deduplicated by `tcp.seq_raw` in 32-bit space:
-  retransmissions skipped, overlaps trimmed, gaps counted; FIN/RST close;
+  retransmissions skipped, overlaps trimmed; a segment after a gap is held
+  (`_hold`) until the missing bytes come (captured out of order: released
+  in order, `_release`) or the gap is given up on (`_give_up`, counted):
+  after `REORDER_WINDOW_S` (0.5 s) of capture time, `MAX_HELD` (4 MB), the
+  flow's FIN/RST, or the end of the capture (`finish()`, which every caller
+  runs after the last record); a SYN's own data (TCP Fast Open) starts at
+  seq + 1 (Codex review: out-of-order segments were dropped as
+  retransmissions, a TFO SYN lost its first byte); FIN/RST close;
   server packets ignored) → `Replayer` (non-blocking sockets, one selector,
   each event at `(time - first) / speed` from the first event (not from
   tshark's start-up), `MAX_BUFFERED` back-pressure, the service's answers
   counted never awaited, a recorded RST = SO_LINGER 0, `DRAIN_S` then
-  `ANSWER_GRACE_S` at the end; `log()` lines: connections opened, closed by
+  `ANSWER_GRACE_S` at the end: data a service didn't read by the drain
+  deadline is counted `dropped` with an error, and the back-pressure wait
+  checks for Stop (Codex review: it was cleared silently); `log()` lines:
+  connections opened, closed by
   the service, the first `MAX_ERRORS` errors per target, loops). RPCs:
   `replay_targets {filter}` (recorded
   targets `"tcp 10.20.0.5:11001"` with counts and the packet list's Protocol
@@ -2099,7 +2109,9 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   progress updates a 2 px bar, the status (`lib.replayStatusText`), each
   row's Sent/Received/Result (`lib.replayOutcome`, error color when a
   target had errors) and the log (`#replay-log`, 2000 lines); Stop is
-  `replay_stop`, so the summary (`lib.replaySummary`) still comes; closing
+  `replay_stop`, so the summary (`lib.replaySummary`) still comes (while the
+  request is still starting, `{stopped: false}`, the request is cancelled
+  instead: Codex review); closing
   the panel cancels. `pcapViewer.replay.allowPublicTargets` (application
   scope: a workspace can't allow it) becomes `allowPublic`; the backend's
   refusal shows a notice with _Allow Public Destinations…_ (opens the

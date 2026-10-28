@@ -475,8 +475,8 @@ cleanly with a summary.
 
 How it works: every recorded TCP connection becomes a new connection to its
 destination, carrying the bytes its client sent, once and in order
-(retransmissions are sent once; data missing from the capture is skipped and
-noted); every UDP datagram is sent again. The service's answers are counted,
+(retransmissions are sent once, segments captured out of order are put back
+in order, and data missing from the capture is skipped and noted); every UDP datagram is sent again. The service's answers are counted,
 never waited for. Because these are new connections, not raw packets, no
 administrator rights are needed and it works with Docker Desktop on macOS,
 Windows and Linux (with host networking, or a published port). TLS traffic is
