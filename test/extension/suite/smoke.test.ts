@@ -257,7 +257,10 @@ suite("PCAP Lens smoke test", () => {
         { speed: 0, loops: 1, scope: "all" },
       );
       assert.equal(replay.result?.stopped, false);
-      assert.match(Buffer.concat(received).toString("latin1"), /^GET \/ HTTP\/1\.1\r\n/);
+      assert.match(
+        Buffer.concat(received).toString("latin1"),
+        /^GET \/index\.html HTTP\/1\.1\r\nHost: example\.com\r\n/,
+      );
     } finally {
       service.close();
     }
