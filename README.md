@@ -284,6 +284,10 @@ with the capture's filter), _Go to Packet_ and _Copy ›_.
 - **Export PDUs to File**: what one of tshark's export taps collects (each
   packet's transport payload, the SIP or Diameter messages, the IP
   packets…) from the displayed or all packets, as a new capture.
+- **Replay to Service** (_PCAP: Replay to Service…_): send what the capture's
+  clients sent again, with the recorded timing, to services on your machine
+  (a collector in Docker, a SIP server…), one IP and port per recorded
+  server. See [Replay to Service](#replay-to-service).
 - **Merge captures**, with an offer to merge a rotated capture's pieces.
 - **Import from Hex Dump** (text2pcap) from the editor, the clipboard or a file.
 
@@ -414,6 +418,7 @@ be set in user settings.
 | `nameResolution.mac` / `.network` / `.capturedDns` / `.transport`           | Which names to show                                                          |
 | `nameResolution.external`‡                                                  | Also ask your DNS server (off)                                               |
 | `capture.stopAfterPackets` / `Seconds` / `Megabytes`, `capture.promiscuous` | Live capture limits and mode                                                 |
+| `replay.presets`, `replay.allowPublicTargets`‡                              | Saved Replay to Service destinations; allow destinations beyond your network |
 | `indexCache.enabled`, `indexCache.maxSizeMB`                                | Saved indexes (on, 1 GB)                                                     |
 | `quickDetail.after`, `quickDetail.window`                                   | Quick view from packet 20,000, of 300 packets (`0`: never)                   |
 | `maxCachedFrames`, `requestTimeoutSeconds`                                  | Backend cache budget; timeout of quick requests                              |
@@ -444,6 +449,48 @@ Code session; prefer an SSH key or agent.
 
 Unsaved captures live in the extension's storage and are removed after 7 days
 if left behind.
+
+## Replay to Service
+
+Replays a capture's traffic to a live service, as if its clients were sending
+it now: for example an operator's lawful interception delivery (HI2/HI3 over
+TCP) to a collector you develop in Docker Desktop, or recorded SIP to a test
+server.
+
+1. Open the capture and run _PCAP: Replay to Service…_ (the ☰ menu's
+   Capture group, or the editor title's **…** menu).
+2. The panel lists the **recorded targets**: each server end of the
+   capture's TCP connections and UDP flows (`tcp 10.20.0.5:11001`), with its
+   protocol, connections, packets and bytes. Give each one the IP and port
+   to send to (it starts with the destination you used last for it, else
+   `127.0.0.1` and the recorded port); **Same IP for All** sets every IP at
+   once, and unchecked rows are left out.
+3. Choose all packets or the displayed ones, the speed (real time, faster,
+   or no pauses) and how many loops, then **Start Replay**.
+
+While it runs, each row shows what was sent and received and what happened
+(connections opened, refused, reset), a log lists each connection, and the
+viewer's status bar shows _Replaying…_ with a Stop button. **Stop** ends it
+cleanly with a summary.
+
+How it works: every recorded TCP connection becomes a new connection to its
+destination, carrying the bytes its client sent, once and in order
+(retransmissions are sent once; data missing from the capture is skipped and
+noted); every UDP datagram is sent again. The service's answers are counted,
+never waited for. Because these are new connections, not raw packets, no
+administrator rights are needed and it works with Docker Desktop on macOS,
+Windows and Linux (with host networking, or a published port). TLS traffic is
+sent as recorded, so it can't be replayed to a live TLS service.
+
+**Presets** keep destinations for later (**Save Preset…**, stored in the
+`pcapViewer.replay.presets` setting). A preset fills the rows it names, and
+for another capture of the same delivery recorded with a different server
+address, the rows with the same protocol and port.
+
+Only this machine, private networks (10/8, 172.16/12, 192.168/16, fc00::/7)
+and link-local addresses are accepted as destinations, so a capture isn't
+sent to a public service by mistake; `pcapViewer.replay.allowPublicTargets`
+(user settings only) lifts that.
 
 ## Wireshark plugins
 
@@ -583,6 +630,9 @@ _PCAP: Show Log_ shows backend and tshark messages.
   the same address always the same stand-in for one capture; answers and
   tool calls get the real values back. Packet bytes are then not sent at
   all, since addresses inside them can't be replaced.
+- **Replay to Service** sends capture contents over the network, so it only
+  sends to this machine, private networks and link-local addresses unless
+  `replay.allowPublicTargets` (user settings only) is on.
 - **The MCP server** reads only, and only captures inside the folders it was
   given; it opens no network port (the assistant starts it and talks to it
   over its standard input and output). What its results contain goes to the

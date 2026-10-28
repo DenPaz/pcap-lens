@@ -123,6 +123,7 @@ for (const [item, glyph] of /** @type {[HTMLElement, string][]} */ ([
   [el.statusLua, "file-code"],
   [el.statusNames, "globe"],
   [el.statusTime, "clock"],
+  [el.replayShow, "debug-rerun"],
 ])) {
   const text = document.createElement("span");
   text.className = "status-text";
@@ -132,6 +133,35 @@ for (const [item, glyph] of /** @type {[HTMLElement, string][]} */ ([
 /** The text of a status bar item (after its icon). @param {HTMLElement} item @param {string} text */
 export function setStatusText(item, text) {
   /** @type {HTMLElement} */ (item.querySelector(".status-text")).textContent = text;
+}
+
+el.replayShow.addEventListener("click", () => vscode.postMessage({ type: "showReplay" }));
+el.replayStop.addEventListener("click", () => vscode.postMessage({ type: "stopReplay" }));
+
+let replayTimer = 0;
+/**
+ * A replay of this capture started, reported progress or ended (null).
+ * @param {{targets: number, sent: number, received: number, seconds: number, loop: number, loops: number} | null} replay
+ */
+export function onReplay(replay) {
+  state.replay = replay && { ...replay, startedAt: Date.now() / 1000 - replay.seconds };
+  tickReplay();
+}
+
+/** Show the running replay in the status bar (and keep its clock running). */
+function tickReplay() {
+  clearTimeout(replayTimer);
+  const replay = state.replay;
+  el.statusReplay.classList.toggle("hidden", !replay);
+  if (!replay) {
+    return;
+  }
+  const seconds = Math.max(replay.seconds, Date.now() / 1000 - replay.startedAt);
+  setStatusText(el.replayShow, lib.replayStatusLabel({ ...replay, seconds }));
+  el.replayShow.title =
+    `${lib.formatBytes(replay.received)} received from the services. ` +
+    "Click to show the Replay to Service panel.";
+  replayTimer = window.setTimeout(tickReplay, 1000);
 }
 
 export function updateStatus() {

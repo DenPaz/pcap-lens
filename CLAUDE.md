@@ -2104,7 +2104,13 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   scope: a workspace can't allow it) becomes `allowPublic`; the backend's
   refusal shows a notice with _Allow Public Destinations…_ (opens the
   setting). The host waits for `whenIndexed()` before `replay_targets`.
-  `ReplayPanel.onDidChangeRunning` fires when a replay starts or ends. Tests:
+  `ReplayPanel.onDidChangeRunning` fires when a replay starts or ends. The
+  viewer's status bar shows a running replay (`#status-replay`, after
+  `#status-capture`: `lib.replayStatusLabel`, "Replaying to 2 targets · 0:12
+  · 4.7 KB sent", its own clock between reports): the panel posts
+  `session.showReplay(ReplayStatus | null)` → `replay`; the item posts
+  `showReplay` / `stopReplay`, which the session passes to
+  `session.replayControl` (set by the panel while it is open). Tests:
   the panels e2e test (presets, a bad port, a refused port, a public
   destination, Stop at real time, scope) into Node servers, and the smoke
   test replays http.pcap's GET into one through `ReplayPanel.start`.

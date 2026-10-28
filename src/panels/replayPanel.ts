@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { ErrorCodes, RpcError } from "../backendClient";
+import { ErrorCodes, Progress, RpcError } from "../backendClient";
 import type { PcapEditorSession } from "../pcapEditor";
 import {
   ReplayDestination,
@@ -121,6 +121,10 @@ export class ReplayPanel {
       },
     );
     this.panel.webview.html = panelHtml(this.panel.webview, root, "replay.js", title);
+    session.replayControl = {
+      reveal: () => this.panel.reveal(undefined, false),
+      stop: () => void this.stop(),
+    };
     this.disposables.push(
       this.panel.webview.onDidReceiveMessage((msg: FromPanel) => void this.onMessage(msg)),
       this.panel.onDidDispose(() => this.dispose()),
@@ -263,6 +267,24 @@ export class ReplayPanel {
       DESTINATIONS_KEY,
       rememberDestinations(this.context.globalState.get(DESTINATIONS_KEY), mapping),
     );
+    const started = Date.now();
+    const status = {
+      targets: Object.keys(mapping).length,
+      sent: 0,
+      received: 0,
+      seconds: 0,
+      loop: 1,
+      loops: opts.loops,
+    };
+    const onProgress = (p: Progress) => {
+      this.post({ type: "progress", progress: p });
+      const r = p as Progress & { loop?: number; sent?: number; received?: number };
+      status.sent = r.sent ?? status.sent;
+      status.received = r.received ?? status.received;
+      status.loop = r.loop ?? status.loop;
+      status.seconds = (Date.now() - started) / 1000;
+      this.session.showReplay({ ...status });
+    };
     const pending = client.send<ReplayResult>(
       "replay",
       {
@@ -272,11 +294,12 @@ export class ReplayPanel {
         loops: opts.loops,
         allowPublic: this.config().allowPublic,
       },
-      { timeoutMs: 0, onProgress: (p) => this.post({ type: "progress", progress: p }) },
+      { timeoutMs: 0, onProgress },
     );
     this.replaying = pending.id;
     ReplayPanel.runningEmitter.fire(this.session);
     this.post({ type: "started" });
+    this.session.showReplay({ ...status });
     try {
       this.result = await pending.promise;
       this.post({ type: "done", result: this.result });
@@ -284,6 +307,7 @@ export class ReplayPanel {
       this.postError("replay", err);
     } finally {
       this.replaying = undefined;
+      this.session.showReplay(null);
       ReplayPanel.runningEmitter.fire(this.session);
     }
   }
@@ -361,6 +385,7 @@ export class ReplayPanel {
 
   private dispose(): void {
     ReplayPanel.open.delete(this.session.id);
+    this.session.replayControl = undefined;
     const client = this.session.backend;
     if (this.listing !== undefined) {
       client?.cancel(this.listing);

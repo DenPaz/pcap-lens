@@ -1813,6 +1813,10 @@ suite("webview lib: empty list and filter builder", () => {
 
   test("replay helpers: status, outcome and summary", () => {
     assert.equal(
+      lib.replayStatusLabel({ targets: 1, sent: 0, seconds: 75, loop: 1, loops: 1 }),
+      "Replaying to 1 target · 1:15 · 0 B sent",
+    );
+    assert.equal(
       lib.replayStatusText({ fraction: 0.425, loop: 2, sent: 2048, received: 10, open: 1 }, 3),
       "Replaying… 43% · loop 2 of 3 · 2.0 KB sent · 10 B received · 1 connection open",
     );

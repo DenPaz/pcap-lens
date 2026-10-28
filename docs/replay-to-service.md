@@ -144,8 +144,8 @@ opens one panel per capture:
 
 ### Phase 3: polish and release
 
-- [ ] Status bar indicator in the viewer while replaying
-- [ ] README section, CHANGELOG entry
+- [x] Status bar indicator in the viewer while replaying
+- [x] README section, CHANGELOG entry
 - [ ] Release 0.25.0
 - [ ] Check against a real collector in Docker with a real capture (by the
       user, on their machine)

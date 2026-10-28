@@ -1245,6 +1245,21 @@ button.pd-cell:hover {
   display: none;
 }
 
+#status-replay {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--vscode-foreground);
+}
+
+#status-replay.hidden {
+  display: none;
+}
+
+#status-replay .status-link {
+  margin-right: 0;
+}
+
 .rec-dot {
   width: 8px;
   height: 8px;

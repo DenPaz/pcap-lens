@@ -3016,6 +3016,23 @@
   }
 
   /**
+   * The viewer's status bar item while a replay runs: "Replaying to 2 targets
+   * · 0:12 · 4.7 KB sent" (and the loop when there are several).
+   * @param {{targets: number, sent: number, seconds: number, loop: number, loops: number}} r
+   */
+  function replayStatusLabel(r) {
+    const parts = [
+      `Replaying to ${r.targets} ${r.targets === 1 ? "target" : "targets"}`,
+      formatDuration(r.seconds),
+    ];
+    if (r.loops > 1) {
+      parts.push(`loop ${r.loop} of ${r.loops}`);
+    }
+    parts.push(`${formatBytes(r.sent)} sent`);
+    return parts.join(" · ");
+  }
+
+  /**
    * What happened to one target's traffic, in a few words.
    * @param {{connections: number, opened: number, refused: number, reset: number, datagrams: number, errorCount: number}} s
    * @param {string} proto
@@ -3173,6 +3190,7 @@
     replayDestinationProblem,
     presetDestinations,
     replayStatusText,
+    replayStatusLabel,
     replayOutcome,
     replaySummary,
   };

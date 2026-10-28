@@ -147,6 +147,9 @@ export const el = {
   statusCapture: $("status-capture"),
   captureText: $("capture-text"),
   captureStop: $("capture-stop"),
+  statusReplay: $("status-replay"),
+  replayShow: $("replay-show"),
+  replayStop: $("replay-stop"),
   findBar: $("find-bar"),
   findMode: /** @type {HTMLSelectElement} */ ($("find-mode")),
   findIn: /** @type {HTMLSelectElement} */ ($("find-in")),
@@ -246,6 +249,12 @@ export const state = {
    * @type {{running: boolean, interfaces: string[], filter: string, startedAt: number, packets: number, bytes: number, seconds: number, dropped: number | null} | null}
    */
   capture: null,
+  /**
+   * A Replay to Service run of this capture (the host's ReplayStatus;
+   * ``startedAt`` in epoch seconds keeps the clock running between reports).
+   * @type {{targets: number, sent: number, received: number, seconds: number, loop: number, loops: number, startedAt: number} | null}
+   */
+  replay: null,
   /** @type {number | null} */ indexFraction: null,
   /** "catching-up" while a resumed open re-reads the rows it already shows, else "indexing". */
   indexPhase: "indexing",

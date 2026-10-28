@@ -180,7 +180,23 @@ export type WebviewToHost =
   | { type: "marks"; count: number }
   | { type: "copy"; text: string }
   | { type: "stopCapture" }
+  /** The status bar's replay item: show the Replay to Service panel, or stop the replay. */
+  | { type: "showReplay" }
+  | { type: "stopReplay" }
   | { type: "showLog" };
+
+/** What the status bar shows of a running replay (ReplayPanel). */
+export interface ReplayStatus {
+  /** Recorded targets replayed. */
+  targets: number;
+  /** Bytes sent and received so far. */
+  sent: number;
+  received: number;
+  /** Seconds since the replay started. */
+  seconds: number;
+  loop: number;
+  loops: number;
+}
 
 export type HostToWebview =
   | { type: "loading"; message: string }
@@ -247,6 +263,8 @@ export type HostToWebview =
     }
   /** A live capture's statistics, or its end. */
   | ({ type: "captureEvent" } & CaptureEvent)
+  /** A Replay to Service run of this capture (null when none runs). */
+  | { type: "replay"; replay: ReplayStatus | null }
   /** The index pass ended: the final capture info (with `error` if it stopped early). */
   | { type: "indexDone"; info: OpenResult; error?: string; view?: ViewCounts }
   /** A streaming filter (set_filter with `stream`): more matches, or its end. */
