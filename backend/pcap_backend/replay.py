@@ -74,6 +74,7 @@ ANSWER_GRACE_S = 0.5
 PROGRESS_EVERY_S = 0.25
 # Errors kept per target (the rest are counted).
 MAX_ERRORS = 10
+MAX_LOG = 200  # log lines a progress report carries (the rest are counted)
 _CONNECTING = (0, errno.EINPROGRESS, errno.EWOULDBLOCK, errno.EALREADY, 10035)  # WSAEWOULDBLOCK
 
 
@@ -377,10 +378,13 @@ class TargetStats:
     errors: list[str] = field(default_factory=list)
     error_count: int = 0
 
-    def error(self, text: str) -> None:
+    def error(self, text: str) -> bool:
+        """Count an error; True while it is one of the first MAX_ERRORS (kept)."""
         self.error_count += 1
         if len(self.errors) < MAX_ERRORS:
             self.errors.append(text)
+            return True
+        return False
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -422,6 +426,7 @@ class _Conn:
     write_shut: bool = False
     peer_closed: bool = False
     dead: bool = False
+    number: int = 0  # the target's connection number (1, 2…), for the log
     candidates: list[Address] = field(default_factory=list)  # TCP: still to try
 
 
@@ -457,10 +462,43 @@ class Replayer:
         self._conns: dict[tuple[int, int], _Conn] = {}
         self._buffered = 0
         self._last_progress = 0.0
+        self._started = time.monotonic()
+        self._log: list[dict[str, Any]] = []
+        self._log_dropped = 0
         self.stats = {
             key: TargetStats(key, d.label) for key, d in self._dest.items()
         }  # fmt: skip
         self.loops_done = 0
+
+    def log(self, text: str, target: str = "", level: str = "info") -> None:
+        """A line for the event log, sent with the next progress report."""
+        if len(self._log) >= MAX_LOG:
+            self._log_dropped += 1
+            return
+        line = {"time": round(time.monotonic() - self._started, 3), "level": level, "text": text}
+        if target:
+            line["target"] = target
+        self._log.append(line)
+
+    def take_log(self) -> list[dict[str, Any]]:
+        """The log lines not reported yet (and how many didn't fit)."""
+        lines, self._log = self._log, []
+        if self._log_dropped:
+            lines.append(
+                {
+                    "time": round(time.monotonic() - self._started, 3),
+                    "level": "info",
+                    "text": f"{self._log_dropped:,} more lines not shown",
+                }
+            )
+            self._log_dropped = 0
+        return lines
+
+    def _error(self, stats: TargetStats, text: str) -> None:
+        if stats.error(text):
+            self.log(text, stats.key, "error")
+        elif stats.error_count == MAX_ERRORS + 1:
+            self.log("further errors of this target are only counted", stats.key, "error")
 
     def stop(self) -> bool:
         """End the replay at the next step (connections are closed)."""
@@ -479,6 +517,8 @@ class Replayer:
         """Replay ``passes()`` (a fresh event iterator per loop) ``loops`` times."""
         try:
             for loop in range(loops):
+                if loops > 1:
+                    self.log(f"loop {loop + 1} of {loops}")
                 self._loop(loop, passes())
                 self.loops_done = loop + 1
             self._drain()
@@ -559,6 +599,8 @@ class Replayer:
                 "sent": sum(s.bytes for s in self.stats.values()),
                 "received": sum(s.received for s in self.stats.values()),
                 "open": sum(1 for c in self._conns.values() if not c.dead and not c.udp),
+                "targets": self.summary(),
+                "log": self.take_log(),
             }
         )
 
@@ -588,6 +630,7 @@ class Replayer:
     def _open(self, flow: tuple[int, int], dest: Destination, stats: TargetStats) -> None:
         stats.connections += 1
         conn = _Conn(flow, socket.socket(socket.AF_INET, socket.SOCK_STREAM), stats)
+        conn.number = stats.connections
         conn.candidates = list(dest.addresses)
         self._conns[flow] = conn
         self._connect(conn)
@@ -622,6 +665,7 @@ class Replayer:
         conn.connected = True
         conn.stats.opened += 1
         dest = self._dest[conn.stats.key]
+        self.log(f"connection {conn.number} to {dest.label} opened", conn.stats.key)
         working = conn.candidates[0]
         if dest.addresses[0] != working:  # (later connections try it first)
             dest.addresses.remove(working)
@@ -656,13 +700,13 @@ class Replayer:
         except ConnectionRefusedError:
             stats.refused += 1
             stats.dropped += len(data)
-            stats.error(f"{dest.label}: nothing listens on this UDP port (refused)")
+            self._error(stats, f"{dest.label}: nothing listens on this UDP port (refused)")
         except BlockingIOError:
             stats.dropped += len(data)
-            stats.error(f"{dest.label}: datagram dropped (send buffer full)")
+            self._error(stats, f"{dest.label}: datagram dropped (send buffer full)")
         except OSError as exc:
             stats.dropped += len(data)
-            stats.error(f"{dest.label}: {exc.strerror or exc}")
+            self._error(stats, f"{dest.label}: {exc.strerror or exc}")
 
     # -- sockets ----------------------------------------------------------------------
 
@@ -694,7 +738,8 @@ class Replayer:
         except ConnectionRefusedError:
             if conn.udp:
                 conn.stats.refused += 1
-                conn.stats.error(f"{conn.stats.to}: nothing listens on this UDP port (refused)")
+                text = f"{conn.stats.to}: nothing listens on this UDP port (refused)"
+                self._error(conn.stats, text)
                 return
             if not conn.connected:
                 self._connect_failed(conn, errno.ECONNREFUSED)
@@ -703,7 +748,7 @@ class Replayer:
             return
         except OSError as exc:
             if conn.udp:
-                conn.stats.error(f"{conn.stats.to}: {exc.strerror or exc}")
+                self._error(conn.stats, f"{conn.stats.to}: {exc.strerror or exc}")
                 return
             conn.stats.reset += 1
             self._fail(conn, f"{conn.stats.to} reset the connection")
@@ -717,6 +762,7 @@ class Replayer:
         if not conn.peer_closed:
             conn.peer_closed = True
             conn.stats.closed_by_peer += 1
+            self.log(f"{conn.stats.to} closed connection {conn.number}", conn.stats.key)
         self._update(conn)
 
     def _flush(self, conn: _Conn) -> None:
@@ -771,7 +817,7 @@ class Replayer:
     def _fail(self, conn: _Conn, text: str, code: int | None = None) -> None:
         if code in (errno.ECONNREFUSED, 10061):  # WSAECONNREFUSED
             conn.stats.refused += 1
-        conn.stats.error(text)
+        self._error(conn.stats, text)
         conn.stats.dropped += len(conn.out)
         self._close(conn)
 

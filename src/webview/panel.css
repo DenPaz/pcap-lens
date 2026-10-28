@@ -973,3 +973,117 @@ th > .codicon {
 :is(.vscode-high-contrast, .vscode-high-contrast-light) .packet-hex mark {
   outline: 1px solid var(--hc-active);
 }
+
+/* ------------------------------------------------------------------ replay to service */
+
+.replay-intro {
+  margin: 0;
+}
+
+.replay-targets {
+  overflow-x: auto;
+}
+
+table.replay th {
+  cursor: default;
+}
+
+table.replay td {
+  vertical-align: middle;
+}
+
+table.replay .replay-ip {
+  width: 16ch;
+}
+
+table.replay .replay-port {
+  width: 7ch;
+}
+
+table.replay input.invalid,
+#replay-loops[aria-invalid="true"] {
+  border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+}
+
+#replay-loops {
+  width: 9ch;
+}
+
+#replay-all-ip {
+  width: 16ch;
+}
+
+table.replay .replay-failed {
+  color: var(--vscode-errorForeground);
+}
+
+.replay-progress {
+  position: relative;
+  height: 2px;
+  overflow: hidden;
+}
+
+.replay-progress .progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--vscode-progressBar-background);
+  transition: width 0.15s linear;
+}
+
+.replay-progress.indeterminate .progress-fill {
+  width: 30%;
+  animation: replay-indeterminate 1.2s infinite ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .replay-progress.indeterminate .progress-fill {
+    width: 100%;
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+@keyframes replay-indeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(350%);
+  }
+}
+
+.replay-log {
+  margin: 0;
+  padding: 0;
+  max-height: 40vh;
+  overflow: auto;
+  list-style: none;
+  font-family: var(--mono);
+  font-size: var(--mono-size);
+}
+
+.replay-log:empty::before {
+  content: "Nothing yet.";
+  color: var(--vscode-descriptionForeground);
+}
+
+.replay-log li {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-1) 0;
+}
+
+.replay-log .log-time {
+  min-width: 9ch;
+  text-align: right;
+  color: var(--vscode-descriptionForeground);
+  font-variant-numeric: tabular-nums;
+}
+
+.replay-log .log-target {
+  color: var(--vscode-textPreformat-foreground, inherit);
+}
+
+.replay-log .log-error {
+  color: var(--vscode-errorForeground);
+}

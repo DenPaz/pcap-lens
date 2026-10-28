@@ -357,7 +357,12 @@ def test_replay_sends_the_operator_side(
     )  # fmt: skip
     assert (su["datagrams"], su["received"]) == (3, 6)
     assert progress and progress[0]["phase"] == "replay-targets"
-    assert any(p["phase"] == "replay" for p in progress)
+    reports = [p for p in progress if p["phase"] == "replay"]
+    assert reports and {t["key"] for t in reports[-1]["targets"]} == {HI2, HI3, UDP}
+    log = [line for p in reports for line in p["log"]] + result["log"]
+    opened_lines = [line["text"] for line in log if line.get("target") == HI2]
+    assert opened_lines[:1] == [f"connection 1 to 127.0.0.1:{hi2.port} opened"]
+    assert all(line["level"] == "info" for line in log)
 
 
 @pytest.mark.tshark
@@ -386,6 +391,8 @@ def test_replay_reports_refused_ports_and_loops(
     opened: PcapService, ctx: RequestContext, services: tuple[Collector, Collector, Datagrams]
 ) -> None:
     hi2, _, _ = services
+    progress: list[dict[str, Any]] = []
+    ctx.progress = progress.append
     result = opened.replay(
         {
             "speed": 0,
@@ -403,6 +410,11 @@ def test_replay_reports_refused_ports_and_loops(
     assert (stats[HI3]["connections"], stats[HI3]["opened"], stats[HI3]["refused"]) == (4, 0, 4)
     assert stats[HI3]["dropped"] == 2 * sum(map(len, generate.REPLAY_EXPECTED[HI3]))
     assert "refused" in stats[HI3]["errors"][0] and stats[HI3]["errorCount"] == 4
+    log = [line for p in progress if p["phase"] == "replay" for line in p["log"]] + result["log"]
+    loops = [line["text"] for line in log if line["text"].startswith("loop")]
+    assert loops == ["loop 1 of 2", "loop 2 of 2"]
+    refused = [line for line in log if line["level"] == "error"]
+    assert len(refused) == 4 and all(line["target"] == HI3 for line in refused)
 
 
 @pytest.mark.tshark

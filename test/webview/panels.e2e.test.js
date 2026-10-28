@@ -1895,6 +1895,225 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     assert.match(await page.textContent(".hex-row .hex-bytes"), /^0a 0d 0d 0a/);
   });
 
+  test("replay to service: targets, destinations, presets, replay, errors and stop", async () => {
+    const net = require("node:net");
+    const dgram = require("node:dgram");
+    /** A TCP server keeping what each connection sent (a stand-in collector). */
+    const collector = async () => {
+      const got = [];
+      const server = net.createServer((sock) => {
+        const chunks = [];
+        got.push(chunks);
+        sock.on("data", (d) => chunks.push(d));
+        sock.on("error", () => {}); // (the recorded reset)
+      });
+      await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+      return { server, got, port: server.address().port };
+    };
+    const hi2 = await collector();
+    const hi3 = await collector();
+    const udp = dgram.createSocket("udp4");
+    const datagrams = [];
+    udp.on("message", (m) => datagrams.push(m));
+    await new Promise((resolve) => udp.bind(0, "127.0.0.1", resolve));
+    const closed = await collector(); // a port nothing listens on
+    await new Promise((resolve) => closed.server.close(resolve));
+    const HI2 = "tcp 10.20.0.5:11000";
+    const HI3 = "tcp 10.20.0.5:11001";
+    const UDP = "udp 10.20.0.5:11002";
+    const DNS = "udp 10.0.0.53:53";
+    const replay = await startBackend(deps);
+    try {
+      await replay.request("open", { path: path.join(FIXTURES, "replay.pcap") }, { timeoutMs: 0 });
+      const { page, problems, post } = await newPage(browser);
+      const log = [];
+      // A stand-in for ReplayPanel (src/panels/replayPanel.ts).
+      await page.exposeFunction("__toHost", async (raw) => {
+        const msg = JSON.parse(raw);
+        log.push(msg);
+        const filter = (scope) => (scope === "filter" ? "tcp" : "");
+        if (msg.type === "ready") {
+          await post({
+            type: "init",
+            title: "Replay to Service · replay.pcap",
+            filter: "tcp",
+            destinations: { [HI2]: { ip: "127.0.0.1", port: hi2.port } },
+            options: { speed: 0, loops: 1, scope: "all" },
+            presets: [
+              {
+                name: "Local",
+                targets: {
+                  [HI2]: { ip: "127.0.0.1", port: hi2.port },
+                  "tcp 10.20.0.9:11001": { ip: "127.0.0.1", port: hi3.port }, // same port
+                  [UDP]: { ip: "127.0.0.1", port: udp.address().port },
+                },
+              },
+            ],
+            allowPublic: false,
+            running: false,
+          });
+        } else if (msg.type === "targets") {
+          replay.request("replay_targets", { filter: filter(msg.scope) }, { timeoutMs: 0 }).then(
+            (res) => post({ type: "targets", ...res }),
+            (err) => post({ type: "error", where: "targets", message: err.message }),
+          );
+        } else if (msg.type === "start") {
+          await post({ type: "started" });
+          const onProgress = (p) => void post({ type: "progress", progress: p });
+          const params = {
+            filter: filter(msg.scope),
+            targets: msg.targets,
+            speed: msg.speed,
+            loops: msg.loops,
+            allowPublic: false,
+          };
+          replay.request("replay", params, { timeoutMs: 0, onProgress }).then(
+            (result) => post({ type: "done", result }),
+            (err) =>
+              post({
+                type: "error",
+                where: "replay",
+                message: err.message,
+                target: err.data?.target,
+                publicTarget: /must be allowed explicitly/.test(err.message),
+              }),
+          );
+        } else if (msg.type === "stop") {
+          await replay.request("replay_stop", {});
+        }
+      });
+      await page.setContent(renderPanelHtml(origin, "replay.js"), { waitUntil: "load" });
+      pages.push(problems);
+      await waitRows(page, 4);
+      const all = await rows(page);
+      assert.deepEqual(
+        all.map((r) => [r[1], r[2], r[3], r[4]]),
+        [
+          [DNS, "DNS", "1", "1"],
+          [HI2, "TCP", "3", "6"],
+          [UDP, "UDP", "1", "3"],
+          [HI3, "TCP", "2", "5"],
+        ],
+      );
+      assert.match(all[3][10], /1 retransmitted \(sent once\), 1 gap/);
+      const dest = (key) =>
+        page.$eval(`tr[data-key="${key}"]`, (tr) =>
+          [...tr.querySelectorAll("input[type=text]")].map((i) => i.value),
+        );
+      assert.deepEqual(await dest(HI2), ["127.0.0.1", String(hi2.port)], "remembered");
+      assert.deepEqual(await dest(DNS), ["127.0.0.1", "53"], "the recorded port");
+      assert.match(await page.textContent("#replay-status"), /^4 recorded targets, 0:00 of/);
+
+      // The preset: the same key, or the same protocol and port; the others are unchecked.
+      await page.selectOption("#replay-preset", "Local");
+      assert.deepEqual(await dest(HI3), ["127.0.0.1", String(hi3.port)]);
+      assert.equal(await page.isChecked(`tr[data-key="${DNS}"] input[type=checkbox]`), false);
+      assert.match(await page.textContent("#replay-status"), /"Local": 3 of 4 recorded targets/);
+
+      // A bad port blocks Start, with the reason.
+      const port3 = `tr[data-key="${HI3}"] .replay-port`;
+      await page.fill(port3, "70000");
+      assert.ok(await page.isDisabled("#replay-start"));
+      assert.equal(await page.getAttribute(port3, "aria-invalid"), "true");
+      assert.match(await page.getAttribute("#replay-start", "title"), /port between 1 and 65535/);
+      await page.fill(port3, String(hi3.port));
+      assert.ok(!(await page.isDisabled("#replay-start")));
+
+      await page.click("#replay-start");
+      const start = await lastOfType(log, "start");
+      assert.deepEqual(start, {
+        type: "start",
+        targets: {
+          [HI2]: { ip: "127.0.0.1", port: hi2.port },
+          [UDP]: { ip: "127.0.0.1", port: udp.address().port },
+          [HI3]: { ip: "127.0.0.1", port: hi3.port },
+        },
+        speed: 0,
+        loops: 1,
+        scope: "all",
+      });
+      await page.waitForFunction(() =>
+        /^Done in/.test(document.querySelector("#replay-status")?.textContent ?? ""),
+      );
+      assert.match(await page.textContent("#replay-status"), /no errors\.$/);
+      assert.equal(hi2.got.length, 3);
+      assert.equal(hi3.got.length, 2);
+      assert.equal(datagrams.length, 3);
+      const result = (key) => page.textContent(`tr[data-key="${key}"] td:last-child`);
+      assert.equal(await result(HI2), "3 of 3 opened");
+      assert.equal(await result(UDP), "3 datagrams");
+      assert.equal(await result(DNS), "Not replayed");
+      const hi3Bytes = hi3.got.flat().reduce((n, b) => n + b.length, 0);
+      assert.equal(
+        await page.getAttribute(`tr[data-key="${HI3}"] td:nth-child(9)`, "title"),
+        `${hi3Bytes.toLocaleString()} bytes`,
+      );
+      assert.ok(
+        (await page.$$eval("#replay-log li", (lis) => lis.map((li) => li.textContent))).some((t) =>
+          t.includes(`connection 1 to 127.0.0.1:${hi3.port} opened`),
+        ),
+      );
+
+      // Nothing listening: the row says so, in the error color, and the log has why.
+      await page.fill(port3, String(closed.port));
+      await page.click("#replay-start");
+      await page.waitForFunction(() =>
+        /^Done in/.test(document.querySelector("#replay-status")?.textContent ?? ""),
+      );
+      assert.match(await page.textContent("#replay-status"), /2 errors \(see the log\)\.$/);
+      assert.equal(await result(HI3), "0 of 2 opened, 2 refused");
+      assert.ok(await page.$(`tr[data-key="${HI3}"] td.replay-failed`));
+      assert.equal(await page.locator("#replay-log li.log-error").count(), 2);
+
+      // A public destination is refused: the notice offers the setting.
+      await page.fill(`tr[data-key="${HI3}"] .replay-ip`, "8.8.8.8");
+      await page.click("#replay-start");
+      await page.waitForSelector(".notice.error:not(.hidden)");
+      assert.match(await page.textContent(".notice.error"), /must be allowed explicitly/);
+      await page.click("button:has-text('Allow Public Destinations…')");
+      await expectLast(log, { type: "openSetting" });
+
+      // Real time, many loops: Stop ends it with a summary.
+      await page.fill(`tr[data-key="${HI3}"] .replay-ip`, "127.0.0.1");
+      await page.fill(port3, String(hi3.port));
+      await page.selectOption("#replay-speed", "1");
+      await page.fill("#replay-loops", "1000");
+      await page.click("#replay-start");
+      await page.waitForFunction(() =>
+        /^Replaying/.test(document.querySelector("#replay-status")?.textContent ?? ""),
+      );
+      assert.ok(await page.isDisabled(port3), "no edits while replaying");
+      await page.click("#replay-stop");
+      await page.waitForFunction(() =>
+        /^Stopped after .* \(\d+ of 1000 loops\)/.test(
+          document.querySelector("#replay-status")?.textContent ?? "",
+        ),
+      );
+      assert.ok(!(await page.isDisabled(port3)));
+
+      // Save Preset, the row menu, and the displayed packets only.
+      await page.click("#replay-save-preset");
+      const saved = await lastOfType(log, "savePreset");
+      assert.equal(saved.name, "Local");
+      assert.deepEqual(Object.keys(saved.targets).sort(), [HI2, HI3, UDP].sort());
+      await page.click(`tr[data-key="${HI3}"] td:nth-child(2)`, { button: "right" });
+      assert.deepEqual(await menuLabels(page), ["Go to Packet 20", "Copy"]);
+      await pickMenu(page, "Go to Packet 20");
+      await expectLast(log, { type: "goto", frame: 20 });
+      await page.selectOption("#replay-scope", "filter");
+      await waitRows(page, 2);
+      assert.deepEqual(
+        (await rows(page)).map((r) => r[1]),
+        [HI2, HI3],
+      );
+    } finally {
+      await replay.dispose();
+      hi2.server.close();
+      hi3.server.close();
+      udp.close();
+    }
+  });
+
   // PCAP_SCREENSHOTS=<folder>: every panel as its test left it, in a VS Code theme
   // (PCAP_SCREENSHOTS_THEME: dark, light or hc), for checking the styling.
   test("screenshots of every panel (only with PCAP_SCREENSHOTS)", async function () {

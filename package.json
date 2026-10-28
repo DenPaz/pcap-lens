@@ -673,6 +673,12 @@
         "icon": "$(files)"
       },
       {
+        "command": "pcapViewer.replay",
+        "title": "Replay to Service…",
+        "category": "PCAP",
+        "icon": "$(debug-rerun)"
+      },
+      {
         "command": "pcapViewer.stopCapture",
         "title": "Stop Capture",
         "category": "PCAP",
@@ -999,6 +1005,10 @@
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
         },
         {
+          "command": "pcapViewer.replay",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow || activeWebviewPanelId == pcapViewer.replay"
+        },
+        {
           "command": "pcapViewer.captureReport",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
         },
@@ -1263,6 +1273,11 @@
           "command": "pcapViewer.reload",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/",
           "group": "1_capture@1"
+        },
+        {
+          "command": "pcapViewer.replay",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/",
+          "group": "1_capture@2"
         },
         {
           "command": "pcapViewer.exportFiltered",
@@ -1916,6 +1931,49 @@
             }
           ],
           "markdownDescription": "Named capture (BPF) filters, e.g. `{ \"name\": \"No SSH\", \"filter\": \"not port 22\" }`: the bookmark button of *Start Capture*'s filter box offers them, and its save button adds one. *Import from Wireshark Profile* brings a profile's capture filters (`cfilters`)."
+        },
+        "pcapViewer.replay.presets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "targets": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "ip": {
+                      "type": "string"
+                    },
+                    "port": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 65535
+                    }
+                  },
+                  "required": [
+                    "ip",
+                    "port"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "name",
+              "targets"
+            ]
+          },
+          "default": [],
+          "markdownDescription": "Saved destinations of *Replay to Service*, e.g. `{ \"name\": \"Local collector\", \"targets\": { \"tcp 10.20.0.5:11000\": { \"ip\": \"127.0.0.1\", \"port\": 11000 } } }`: each recorded target (protocol, server address and port of the capture) goes to an IP and port. A preset applies to the captures with the same recorded targets, or the same protocol and port. Save them with the panel's **Save Preset…**."
+        },
+        "pcapViewer.replay.allowPublicTargets": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "markdownDescription": "Let *Replay to Service* send to addresses outside this machine and private networks. Off: only loopback, private (10/8, 172.16/12, 192.168/16, fc00::/7) and link-local destinations, so a capture can't be replayed to a public service by mistake."
         },
         "pcapViewer.capture.promiscuous": {
           "type": "boolean",

@@ -197,7 +197,8 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   `src/extcapModel.ts` extcap options' values, checks and labels (pure).
   `src/captureReport.ts` the capture report as Markdown or HTML (pure);
   `src/commands/report.ts`. `src/commands/compare.ts` the other capture of
-  a comparison (picking it, its profile).
+  a comparison (picking it, its profile). `src/replayModel.ts` Replay to
+  Service's presets, remembered destinations and options (pure).
 - `src/webview/` plain JS/CSS/HTML (no build step). `lib.js` = pure helpers
   shared with Node tests (a classic script, `window.PcapLib`, like the panels'
   scripts and `worldmap.js`, the Endpoints map's land outline that
@@ -218,11 +219,11 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   (`scripts/sync-codicons.mjs`). CSS: `base.css` (tokens and controls, loaded
   by the editor and the panels), `styles.css` (the viewer), `panel.css`.
 - `src/panels/` statistics, follow-stream, coloring-rules, export-objects,
-  flow-graph, TCP-graph, VoIP, compare-packets, packet-bytes and packet window webview
-  panels (`panelHtml.ts` builds their CSP'd HTML); their UIs are
-  `src/webview/stats.js`, `follow.js`, `coloring.js`, `objects.js`,
-  `flowgraph.js`, `tcpgraph.js`, `voip.js`, `compare.js`, `bytes.js` and
-  `packet.js` with `panel.css`.
+  flow-graph, TCP-graph, VoIP, compare-packets, packet-bytes, packet window
+  and replay webview panels (`panelHtml.ts` builds their CSP'd HTML); their
+  UIs are `src/webview/stats.js`, `follow.js`, `coloring.js`, `objects.js`,
+  `flowgraph.js`, `tcpgraph.js`, `voip.js`, `compare.js`, `bytes.js`,
+  `packet.js` and `replay.js` with `panel.css`.
 - `backend/pcap_backend/` Python package run as `python -m pcap_backend`
   with `PYTHONPATH=backend`. `server.py` (JSON-RPC), `pcap_service.py`
   (`PcapService`, assembled from the `service/` mixins, `rpc_methods`, and
@@ -2057,14 +2058,17 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   each event at `(time - first) / speed` from the first event (not from
   tshark's start-up), `MAX_BUFFERED` back-pressure, the service's answers
   counted never awaited, a recorded RST = SO_LINGER 0, `DRAIN_S` then
-  `ANSWER_GRACE_S` at the end). RPCs: `replay_targets {filter}` (recorded
+  `ANSWER_GRACE_S` at the end; `log()` lines: connections opened, closed by
+  the service, the first `MAX_ERRORS` errors per target, loops). RPCs:
+  `replay_targets {filter}` (recorded
   targets `"tcp 10.20.0.5:11001"` with counts and the packet list's Protocol
   of the first data packet; cached per scope, cleared on close; needs a
   complete index; ignored packets left out), `replay` (`filter`; `targets`
   = key → `{ip, port}`; `speed`, 0 = no pauses; `loops`; `allowPublic`;
-  progress phase `"replay"`; a summary per target: connections, opened,
+  progress phase `"replay"` with every target's counts and the new `log`
+  lines (`MAX_LOG` per report); a summary per target: connections, opened,
   refused, reset, closedByPeer, bytes, dropped, received, datagrams,
-  errors) and
+  errors; the log lines left) and
   `replay_stop` (`Replayer.pass_token`, so a pass still looking for records
   ends too). Destinations must resolve to loopback, private or link-local
   addresses unless `allowPublic` (`resolve_target`), IPv4 first; a TCP
@@ -2076,6 +2080,34 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   overlap, a retransmission, an overlap, a gap, a reset, one without a
   handshake and a UDP flow; `REPLAY_EXPECTED` is what each server must get.
   Tests replay into local TCP/UDP servers (`test_replay.py`).
+  **Panel** (`pcapViewer.replay`, _Replay to Service…_: ☰ Capture, the
+  editor title's overflow; `ReplayPanel`, `replay.js`, one per editor): a
+  table of the recorded targets (checkbox, counts, retransmissions and gaps
+  as notes) with an IP and a port input per row, filled from the
+  destination used last for that key (globalState
+  `pcapViewer.replay.destinations`, `rememberDestinations`, 200), else
+  127.0.0.1 and the recorded port; _Same IP for All_; Packets (all, or the
+  viewer's filter, which the panel follows); Speed (1×…100×, No pauses)
+  and Loops, kept in globalState (`pcapViewer.replay.options`). Presets are
+  the setting `pcapViewer.replay.presets` (`{name, targets: {key: {ip,
+port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
+  trash button deletes after a modal); `lib.presetDestinations` matches a
+  key, else the one entry with the same protocol and port (another capture
+  of the same delivery), and unchecks the rest. Start is disabled with the
+  reason as its tooltip (`lib.replayDestinationProblem`: a bad IP or port
+  marks the input `aria-invalid`); while it runs the inputs are disabled,
+  progress updates a 2 px bar, the status (`lib.replayStatusText`), each
+  row's Sent/Received/Result (`lib.replayOutcome`, error color when a
+  target had errors) and the log (`#replay-log`, 2000 lines); Stop is
+  `replay_stop`, so the summary (`lib.replaySummary`) still comes; closing
+  the panel cancels. `pcapViewer.replay.allowPublicTargets` (application
+  scope: a workspace can't allow it) becomes `allowPublic`; the backend's
+  refusal shows a notice with _Allow Public Destinations…_ (opens the
+  setting). The host waits for `whenIndexed()` before `replay_targets`.
+  `ReplayPanel.onDidChangeRunning` fires when a replay starts or ends. Tests:
+  the panels e2e test (presets, a bad port, a refused port, a public
+  destination, Stop at real time, scope) into Node servers, and the smoke
+  test replays http.pcap's GET into one through `ReplayPanel.start`.
 - **Real-capture testing** (`test/realworld/run.py`, `make realworld`, not
   CI): `--fetch wireshark` (Wireshark's `test/captures` through GitLab's API,
   one file at a time: parallel raw requests get an HTML page; its synthetic

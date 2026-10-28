@@ -81,13 +81,41 @@ if the operator were sending it now.
     left out are skipped.
   - `speed`: 1 = real time, 0 = no pauses (at most 1000); `loops`: 1–1000.
   - Progress notifications: `phase` `"replay"`, `fraction`, `loop`, `sent`,
-    `received`, `open`.
-  - Returns `{filter, stopped, seconds, loops, speed, targets}`; each target:
-    `key`, `to`, `connections`, `opened`, `refused`, `reset`,
+    `received`, `open`, `targets` (each target's counts, as in the result)
+    and `log` (new lines `{time, level, text, target?}`: connections
+    opened, closed by the service, errors, loops).
+  - Returns `{filter, stopped, seconds, loops, speed, targets, log}`; each
+    target: `key`, `to`, `connections`, `opened`, `refused`, `reset`,
     `closedByPeer`, `packets`, `bytes`, `dropped`, `received`, `datagrams`,
-    `errors`, `errorCount`.
+    `errors`, `errorCount`; `log` holds the lines not reported yet.
 - `replay_stop` → `{stopped}`: ends the running replay cleanly, including a
   tshark pass still looking for packets.
+
+## The panel (phase 2)
+
+_PCAP: Replay to Service…_ (☰ Capture, or the editor title's overflow menu)
+opens one panel per capture:
+
+- **Packets**: all, or the packets the viewer's filter shows.
+- **Targets table**: one row per recorded target, with its protocol (as the
+  packet list names it), connections, packets and bytes, and notes about
+  retransmissions (sent once) and gaps (data missing from the capture).
+  Each row has a checkbox, a destination IP and a port. A row starts with
+  the destination used last for that recorded target, else `127.0.0.1` and
+  the recorded port. _Same IP for All_ sets every row's IP.
+- **Presets**: named mappings in the `pcapViewer.replay.presets` setting
+  (user settings, editable in settings.json). Picking one fills the rows
+  whose recorded target it names, or, for a capture recorded with another
+  server address, the rows with the same protocol and port; the other rows
+  are unchecked. _Save Preset…_ stores the checked rows.
+- **Speed** (real time, 2×, 5×, 10×, 100×, no pauses) and **loops**.
+- **Start / Stop**; while running: a progress bar, totals, each row's sent
+  and received bytes and result (opened, refused, reset, errors), and a
+  log. The summary says how long it took, what was sent, what wasn't
+  delivered and how many errors there were.
+- Public destinations are refused unless
+  `pcapViewer.replay.allowPublicTargets` is on (application scope); the
+  refusal links to the setting.
 
 ## Phases
 
@@ -106,13 +134,13 @@ if the operator were sending it now.
 
 ### Phase 2: the Replay panel
 
-- [ ] Command `pcapViewer.replay` (☰ Capture group, editor title overflow)
-- [ ] Panel: targets table with editable IP and port per row, "same IP for
+- [x] Command `pcapViewer.replay` (☰ Capture group, editor title overflow)
+- [x] Panel: targets table with editable IP and port per row, "same IP for
       all", scope (all / current filter), speed, loops
-- [ ] Presets (saved mappings), `pcapViewer.replay.allowPublicTargets`
+- [x] Presets (saved mappings), `pcapViewer.replay.allowPublicTargets`
       (application scope)
-- [ ] Live progress per target, event log, Stop, summary
-- [ ] Panel e2e test with axe, smoke test of the command
+- [x] Live progress per target, event log, Stop, summary
+- [x] Panel e2e test with axe, smoke test of the command
 
 ### Phase 3: polish and release
 

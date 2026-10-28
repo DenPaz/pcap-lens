@@ -70,11 +70,14 @@ class ReplayMixin(ServiceBase):
         (retransmissions once), each UDP datagram a datagram, at the recorded
         times divided by ``speed`` (0: no pauses), ``loops`` times.
         Destinations must be on this machine or a private network unless
-        ``allowPublic``. Reports progress (``phase: "replay"``); runs until
+        ``allowPublic``. Reports progress (``phase: "replay"``, ``fraction``,
+        ``loop``, ``sent``, ``received``, ``open``, ``targets`` as below and
+        the new ``log`` lines ``{time, level, text, target?}``); runs until
         done, replay_stop (``stopped``) or cancelled. Returns ``{filter,
         stopped, seconds, loops, speed, targets: [{key, to, connections,
         opened, refused, reset, closedByPeer, packets, bytes, dropped,
-        received, datagrams, errors, errorCount}]}``."""
+        received, datagrams, errors, errorCount}], log}`` (the log lines not
+        reported yet)."""
         flt = param(params, "filter", str, "").strip()
         speed = param(params, "speed", float, 1.0)
         if not 0 <= speed <= MAX_SPEED:
@@ -134,6 +137,7 @@ class ReplayMixin(ServiceBase):
             "loops": runner.loops_done,
             "speed": speed,
             "targets": runner.summary(),
+            "log": runner.take_log(),
         }
 
     def replay_stop(self, _params: dict[str, Any], _ctx: RequestContext) -> dict[str, Any]:

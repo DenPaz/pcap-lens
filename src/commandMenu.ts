@@ -132,6 +132,7 @@ const GROUP_OF: Readonly<Record<string, CommandGroup>> = {
   "pcapViewer.captureReport": "Export",
   "pcapViewer.startCapture": "Capture",
   "pcapViewer.captureToFiles": "Capture",
+  "pcapViewer.replay": "Capture",
   "pcapViewer.stopCapture": "Capture",
   "pcapViewer.mergeCaptures": "Capture",
   "pcapViewer.importHexDump": "Capture",

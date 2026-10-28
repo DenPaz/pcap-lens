@@ -2932,6 +2932,138 @@
     );
   }
 
+  // ------------------------------------------------------------------ replay to service
+
+  /**
+   * A port typed in the Replay panel: the number, or null unless it is a
+   * whole number from 1 to 65535.
+   * @param {string} text
+   */
+  function replayPort(text) {
+    const t = String(text).trim();
+    if (!/^\d{1,5}$/.test(t)) {
+      return null;
+    }
+    const n = Number(t);
+    return n >= 1 && n <= 65535 ? n : null;
+  }
+
+  /**
+   * Why a destination typed in the Replay panel can't be used, or "" (the
+   * backend checks that it resolves, and that it is local).
+   * @param {string} ip @param {string} port
+   */
+  function replayDestinationProblem(ip, port) {
+    const host = String(ip).trim();
+    if (!host) {
+      return "Enter an IP address or host name";
+    }
+    if (/\s/.test(host)) {
+      return "An IP address or host name has no spaces";
+    }
+    return replayPort(port) === null ? "Enter a port between 1 and 65535" : "";
+  }
+
+  /**
+   * The destinations a preset gives the recorded targets: its entry for the
+   * same key, else its one entry with the same protocol and port (another
+   * capture of the same delivery, recorded with another server address).
+   * @param {{targets: Record<string, {ip: string, port: number}>}} preset
+   * @param {{key: string, proto: string, port: number}[]} targets
+   * @returns {Record<string, {ip: string, port: number}>}
+   */
+  function presetDestinations(preset, targets) {
+    /** @type {Map<string, {ip: string, port: number}[]>} */
+    const byPort = new Map();
+    for (const [key, dest] of Object.entries(preset.targets)) {
+      const m = /^(tcp|udp) .*:(\d+)$/.exec(key);
+      if (m) {
+        const k = `${m[1]} ${m[2]}`;
+        byPort.set(k, [...(byPort.get(k) ?? []), dest]);
+      }
+    }
+    /** @type {Record<string, {ip: string, port: number}>} */
+    const out = {};
+    for (const t of targets) {
+      const same = preset.targets[t.key];
+      const samePort = byPort.get(`${t.proto} ${t.port}`) ?? [];
+      const dest = same ?? (samePort.length === 1 ? samePort[0] : undefined);
+      if (dest) {
+        out[t.key] = { ip: dest.ip, port: dest.port };
+      }
+    }
+    return out;
+  }
+
+  /**
+   * The status line while a replay runs.
+   * @param {{fraction?: number | null, loop?: number, sent?: number, received?: number, open?: number}} p
+   * @param {number} loops
+   */
+  function replayStatusText(p, loops) {
+    const parts = [
+      p.fraction === null || p.fraction === undefined
+        ? "Replaying…"
+        : `Replaying… ${Math.round(p.fraction * 100)}%`,
+    ];
+    if (loops > 1 && p.loop) {
+      parts.push(`loop ${p.loop} of ${loops}`);
+    }
+    parts.push(`${formatBytes(p.sent ?? 0)} sent`, `${formatBytes(p.received ?? 0)} received`);
+    const open = p.open ?? 0;
+    parts.push(`${open} ${open === 1 ? "connection" : "connections"} open`);
+    return parts.join(" · ");
+  }
+
+  /**
+   * What happened to one target's traffic, in a few words.
+   * @param {{connections: number, opened: number, refused: number, reset: number, datagrams: number, errorCount: number}} s
+   * @param {string} proto
+   */
+  function replayOutcome(s, proto) {
+    const parts = [];
+    if (proto === "udp") {
+      parts.push(`${s.datagrams.toLocaleString()} ${s.datagrams === 1 ? "datagram" : "datagrams"}`);
+    } else {
+      parts.push(`${s.opened.toLocaleString()} of ${s.connections.toLocaleString()} opened`);
+    }
+    if (s.refused) {
+      parts.push(`${s.refused.toLocaleString()} refused`);
+    }
+    if (s.reset) {
+      parts.push(`${s.reset.toLocaleString()} reset`);
+    }
+    const others = s.errorCount - s.refused - s.reset;
+    if (others > 0) {
+      parts.push(`${others.toLocaleString()} ${others === 1 ? "error" : "errors"}`);
+    }
+    return parts.join(", ");
+  }
+
+  /**
+   * The sentence that sums a replay up.
+   * @param {{stopped: boolean, seconds: number, loops: number, targets: {bytes: number, dropped: number, errorCount: number}[]}} r
+   * @param {number} loops the loops asked for
+   */
+  function replaySummary(r, loops) {
+    const sent = r.targets.reduce((n, t) => n + t.bytes, 0);
+    const dropped = r.targets.reduce((n, t) => n + t.dropped, 0);
+    const errors = r.targets.reduce((n, t) => n + t.errorCount, 0);
+    const time = r.seconds < 60 ? `${r.seconds.toFixed(1)} s` : formatDuration(r.seconds);
+    let text = r.stopped ? `Stopped after ${time}` : `Done in ${time}`;
+    if (loops > 1) {
+      text += ` (${r.loops} of ${loops} loops)`;
+    }
+    text += `: ${formatBytes(sent)} sent`;
+    if (dropped) {
+      text += `, ${formatBytes(dropped)} not delivered`;
+    }
+    text += errors
+      ? `, ${errors.toLocaleString()} ${errors === 1 ? "error" : "errors"} (see the log).`
+      : ", no errors.";
+    return text;
+  }
+
   const api = {
     COMMAND_GROUP_ORDER,
     COMMAND_GROUP_ICONS,
@@ -3037,6 +3169,12 @@
     parseHexBytes,
     toBase64,
     formatBytesAs,
+    replayPort,
+    replayDestinationProblem,
+    presetDestinations,
+    replayStatusText,
+    replayOutcome,
+    replaySummary,
   };
 
   if (typeof module === "object" && module.exports) {
