@@ -440,9 +440,10 @@ def test_replay_sends_the_operator_side(
     assert result["stopped"] is False and result["loops"] == 1
     stats = {t["key"]: t for t in result["targets"]}
     assert set(stats) == {HI2, HI3, UDP}  # (DNS not asked for: not sent)
-    # Every connection's operator bytes, once, in order; E's reset may lose its PDU.
-    expected_hi2 = sorted(generate.REPLAY_EXPECTED[HI2])
-    assert sorted(hi2.received) in (expected_hi2, sorted([*expected_hi2[:-1], b""]))
+    # Every connection's operator bytes, once, in order. E's reset may take its PDU
+    # with it (Windows drops data the service hasn't read yet when a reset comes).
+    a, e, c = generate.REPLAY_EXPECTED[HI2]
+    assert sorted(hi2.received) in (sorted([a, e, c]), sorted([a, b"", c]))
     assert len(hi2.received) == 3
     assert sorted(hi3.received) == sorted(generate.REPLAY_EXPECTED[HI3])
     assert udp.received == generate.REPLAY_EXPECTED[UDP]
