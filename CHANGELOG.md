@@ -7,6 +7,20 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- Replay to Service: send a capture's client side again, with the recorded
+  timing, to services on your machine (an interception collector in Docker,
+  a SIP server…): an IP and port per recorded server, presets, speed and
+  loops, live counts per target, a log, and a status bar item with Stop.
+  Only local and private destinations unless you allow others. [32b079a]
+  [ffd67c6] [c0bced8] [06f71e9]
+
+[32b079a]: https://github.com/DenPaz/pcap-lens/commit/32b079a
+[ffd67c6]: https://github.com/DenPaz/pcap-lens/commit/ffd67c6
+[c0bced8]: https://github.com/DenPaz/pcap-lens/commit/c0bced8
+[06f71e9]: https://github.com/DenPaz/pcap-lens/commit/06f71e9
+
 ## 0.24.3 — 2026-10-27
 
 ### Fixed
