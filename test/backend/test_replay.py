@@ -168,6 +168,7 @@ class Collector:
         self.port = self.sock.getsockname()[1]
         self.answer = answer
         self.received: list[bytes] = []
+        self.times: list[float] = []  # when each chunk of data arrived (monotonic)
         self._threads: list[threading.Thread] = []
         self._done = threading.Event()
         self._lock = threading.Lock()
@@ -202,6 +203,7 @@ class Collector:
                     return
                 with self._lock:
                     self.received[index] += data
+                    self.times.append(time.monotonic())
                 if self.answer and not answered:
                     answered = True
                     try:
@@ -375,15 +377,20 @@ def test_replay_keeps_the_recorded_timing(
     monkeypatch.setattr(replay, "ANSWER_GRACE_S", 0.0)
     hi2, _, _ = services
 
-    def run(speed: float) -> float:
+    def spread(speed: float) -> float:
+        """Seconds between the first and the last data the service got."""
+        hi2.times.clear()
         params = {"speed": speed, "targets": {HI2: {"ip": "127.0.0.1", "port": hi2.port}}}
-        return float(opened.replay(params, ctx)["seconds"])
+        opened.replay(params, ctx)
+        _settle()
+        return max(hi2.times) - min(hi2.times)
 
-    fast = run(0)
-    # HI2's events run from 0.000 (A's SYN) to 0.300 (A's FIN); the clock starts
-    # with the first event, so tshark's start-up delays nothing.
-    assert run(1) - fast >= 0.25
-    assert run(2) - fast >= 0.1
+    # HI2's data was recorded from 0.05 s to 0.25 s. Measured where the service
+    # sees it, not as the request's duration, which includes tshark's start-up
+    # (0.22 s for a first, cold run on Windows CI, then less).
+    assert spread(1) >= 0.18
+    assert spread(2) >= 0.08
+    assert spread(0) < spread(1)
 
 
 @pytest.mark.tshark
