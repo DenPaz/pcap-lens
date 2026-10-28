@@ -1231,6 +1231,118 @@ def services_packets() -> list[Packet]:
     return [pkt for _, pkt in timed]
 
 
+# Replay to Service (replay.pcap): an operator's delivery function sending to a
+# collector, as lawful interception handover does (HI2 on one port, HI3 on
+# another). Synthetic data; the expected bytes per recorded target, one entry
+# per connection (in the order they open) or per UDP datagram.
+REPLAY_OPERATOR, REPLAY_COLLECTOR = "10.10.0.1", "10.20.0.5"
+REPLAY_HI2, REPLAY_HI3, REPLAY_UDP = 11000, 11001, 11002
+
+
+def _pdu(label: str, size: int) -> bytes:
+    """A BER SEQUENCE of ``size`` content bytes: the label repeated."""
+    body = (f"{label};" * (size // (len(label) + 1) + 1)).encode()[:size]
+    return b"\x30\x82" + size.to_bytes(2, "big") + body
+
+
+REPLAY_PDUS = {
+    name: _pdu(name, size)
+    for name, size in (
+        ("A1", 120), ("A2", 200), ("A3", 80), ("B1", 1200), ("B2", 1200), ("B3", 900),
+        ("C1", 60), ("C2", 60), ("D1", 300), ("D2", 300), ("D3", 300), ("E1", 50),
+        ("U1", 100), ("U2", 100), ("U3", 100),
+    )
+}  # fmt: skip
+_P = REPLAY_PDUS
+REPLAY_EXPECTED = {
+    f"tcp {REPLAY_COLLECTOR}:{REPLAY_HI2}": [
+        _P["A1"] + _P["A2"] + _P["A3"], _P["E1"], _P["C1"] + _P["C2"],
+    ],
+    f"tcp {REPLAY_COLLECTOR}:{REPLAY_HI3}": [_P["B1"] + _P["B2"] + _P["B3"], _P["D1"] + _P["D3"]],
+    f"udp {REPLAY_COLLECTOR}:{REPLAY_UDP}": [_P["U1"], _P["U2"], _P["U3"]],
+}  # fmt: skip
+REPLAY_KEEPALIVE = b"\x30\x03ack"  # the collector's answer on connection A
+
+
+def replay_packets() -> list[Packet]:
+    """``replay.pcap``: connections to two collector ports that overlap in
+    time. A: data with pauses, a collector reply, a retransmission, a FIN.
+    B: large PDUs and a segment overlapping the previous one. C: started
+    before the capture (no SYN, no FIN). D: a segment missing from the
+    capture (a gap). E: closed with a reset. A UDP flow with a reply, and
+    unrelated DNS and ARP packets."""
+    timed: list[tuple[float, Packet]] = []
+    op, coll = REPLAY_OPERATOR, REPLAY_COLLECTOR
+
+    def at(t: float, s: _TcpSession, step: Any) -> None:
+        n = len(s.packets)
+        step()
+        timed.extend((t + 0.001 * j, pkt) for j, pkt in enumerate(s.packets[n:]))
+
+    a = _TcpSession(op, coll, 40100, REPLAY_HI2)
+    at(0.000, a, a.handshake)
+    at(0.050, a, lambda: a.client_send(_P["A1"]))
+    at(0.060, a, lambda: a.server_send(REPLAY_KEEPALIVE))
+    at(0.150, a, lambda: a.client_send(_P["A2"]))
+    at(0.170, a, lambda: a.packets.append(a.packets[-2].copy()))  # A2 again
+    at(0.250, a, lambda: a.client_send(_P["A3"]))
+    at(0.300, a, a.close)
+
+    b = _TcpSession(op, coll, 40101, REPLAY_HI3)
+    at(0.020, b, b.handshake)
+    at(0.080, b, lambda: b.client_send(_P["B1"]))
+    at(0.120, b, lambda: b.client_send(_P["B2"]))
+
+    def overlap() -> None:
+        b.cseq -= 100  # the end of B2 again, then B3
+        b.client_send(_P["B2"][-100:] + _P["B3"])
+
+    at(0.200, b, overlap)
+    at(0.280, b, b.close)
+
+    c = _TcpSession(op, coll, 40102, REPLAY_HI2)
+    at(0.100, c, lambda: c.client_send(_P["C1"]))
+    at(0.220, c, lambda: c.client_send(_P["C2"]))
+
+    d = _TcpSession(op, coll, 40103, REPLAY_HI3)
+    at(0.030, d, d.handshake)
+    at(0.090, d, lambda: d.client_send(_P["D1"]))
+
+    def lost() -> None:
+        d.cseq += len(_P["D2"])  # sent, but not in the capture
+
+    at(0.140, d, lost)
+    at(0.180, d, lambda: d.client_send(_P["D3"]))
+    at(0.260, d, d.close)
+
+    e = _TcpSession(op, coll, 40104, REPLAY_HI2)
+    at(0.040, e, e.handshake)
+    at(0.110, e, lambda: e.client_send(_P["E1"]))
+    at(0.130, e, lambda: e._c("R"))
+
+    def udp(t: float, src: str, dst: str, sport: int, dport: int, data: bytes) -> None:
+        pkt = (
+            Ether(src=CLIENT_MAC, dst=SERVER_MAC)
+            / IP(src=src, dst=dst)
+            / UDP(sport=sport, dport=dport)
+        )
+        timed.append((t, pkt / Raw(data)))
+
+    for i, name in enumerate(("U1", "U2", "U3")):
+        udp(0.050 + 0.050 * i, op, coll, 40200, REPLAY_UDP, _P[name])
+    udp(0.105, coll, op, REPLAY_UDP, 40200, b"udp-ack")
+
+    dns = Ether(src=CLIENT_MAC, dst=SERVER_MAC) / IP(src=op, dst="10.0.0.53")
+    timed.append(
+        (0.010, dns / UDP(sport=43000, dport=53) / DNS(id=7, rd=1, qd=DNSQR(qname="collector.lab")))
+    )
+    timed.append((0.005, Ether(src=CLIENT_MAC, dst="ff:ff:ff:ff:ff:ff") / ARP(psrc=op, pdst=coll)))
+    timed.sort(key=lambda tp: tp[0])
+    for t, pkt in timed:
+        pkt.time = BASE_TS + t
+    return [pkt for _, pkt in timed]
+
+
 def office_packets(problems: bool) -> list[Packet]:
     """A small office network for comparing captures and for the answer-quality
     test set (test/eval): ``office-before.pcap`` is healthy; ``office-after.pcap``
@@ -1932,6 +2044,7 @@ def main() -> None:
     wrpcap(str(HERE / "radius-eap.pcap"), radius_eap_packets())
     wrpcap(str(HERE / "office-before.pcap"), office_packets(problems=False))
     wrpcap(str(HERE / "office-after.pcap"), office_packets(problems=True))
+    wrpcap(str(HERE / "replay.pcap"), replay_packets())
     geoip_fixtures()
     hexdump_fixtures()
     (HERE / "comments.pcapng").write_bytes(

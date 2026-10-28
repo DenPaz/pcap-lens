@@ -235,7 +235,8 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   (follow, TCP graphs), `statistics` → `telephony` (VoIP), `colors`,
   `exporting`, `tools` (merge, hex import, probe, plugins, editing),
   `flow`, `exported_objects`, `filterhelp` (empty-filter hints, field
-  values), `comparing` (capture profiles and their diff); plus `state.py` (constants and the per-capture
+  values), `comparing` (capture profiles and their diff), `replaying` (Replay to
+  Service); plus `state.py` (constants and the per-capture
   dataclasses `_Open`, `_View`…), `indexing.py` (the index pass's
   module-level helpers) and `helpers.py`), `tshark.py` (discovery/argv/process helpers), `cache.py`
   (row store, frame index, LRU), `pdml.py` (PDML + hexdump parsing),
@@ -252,6 +253,7 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   G.726-32 and L16 decoders), `triage.py` (the AI triage's checks),
   `compare.py` (capture profiles and diffs),
   `mcp.py` (the MCP server) and `standins.py` (its address stand-ins),
+  `replay.py` (Replay to Service: records, planner, socket engine),
   `filterhelp.py` (a filter's
   field names, case hints, value counts), `plugins.py` (`tshark -G
 plugins` and the plugin folders), `decryption.py` (decryption keys and
@@ -2038,6 +2040,39 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   without and with problems: resets, refused connections, unanswered ICMP
   and DNS, DNS errors, HTTP 5xx, a retransmission and 10.0.0.66 scanning
   10.0.0.80's ports 22, 23, 445, 3389 and 5900.
+- **Replay to Service** (`replay.py`, `service/replaying.py`; tracking and
+  definitions in `docs/replay-to-service.md`, not packaged): the client side
+  of a capture sent again to live services, e.g. an operator's lawful
+  interception delivery (HI2/HI3 over TCP) to a collector in Docker Desktop.
+  _Content_, not packets: a live TCP stack resets recorded segments (their
+  sequence numbers), and raw injection needs admin rights and doesn't reach
+  Docker Desktop's VM; so one new connection per recorded connection,
+  carrying the bytes its client sent. One tshark fields pass (`FIELDS`,
+  `-E occurrence=l`, `FILTER` leaves out ICMP-quoted headers) →
+  `parse_record` (booleans True/False or 1/0) → `Planner` (client = SYN
+  sender, the SYN-ACK's receiver, else the higher port; UDP: the first
+  sender; TCP data deduplicated by `tcp.seq_raw` in 32-bit space:
+  retransmissions skipped, overlaps trimmed, gaps counted; FIN/RST close;
+  server packets ignored) → `Replayer` (non-blocking sockets, one selector,
+  each event at `(time - first) / speed` from the first event (not from
+  tshark's start-up), `MAX_BUFFERED` back-pressure, the service's answers
+  counted never awaited, a recorded RST = SO_LINGER 0, `DRAIN_S` then
+  `ANSWER_GRACE_S` at the end). RPCs: `replay_targets {filter}` (recorded
+  targets `"tcp 10.20.0.5:11001"` with counts and the packet list's Protocol
+  of the first data packet; cached per scope, cleared on close; needs a
+  complete index; ignored packets left out), `replay` (`filter`; `targets`
+  = key → `{ip, port}`; `speed`, 0 = no pauses; `loops`; `allowPublic`;
+  progress phase `"replay"`; a summary per target: connections, opened,
+  refused, reset, closedByPeer, bytes, dropped, received, datagrams,
+  errors) and
+  `replay_stop` (`Replayer.pass_token`, so a pass still looking for records
+  ends too). Destinations must resolve to loopback, private or link-local
+  addresses unless `allowPublic` (`resolve_target`). `replay.pcap`
+  (`generate.replay_packets`, synthetic: no real interception data or
+  internal dissectors in the repository) has HI2/HI3-like connections that
+  overlap, a retransmission, an overlap, a gap, a reset, one without a
+  handshake and a UDP flow; `REPLAY_EXPECTED` is what each server must get.
+  Tests replay into local TCP/UDP servers (`test_replay.py`).
 - **Real-capture testing** (`test/realworld/run.py`, `make realworld`, not
   CI): `--fetch wireshark` (Wireshark's `test/captures` through GitLab's API,
   one file at a time: parallel raw requests get an HTML page; its synthetic

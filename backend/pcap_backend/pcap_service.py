@@ -38,6 +38,7 @@ from .service.flow import FlowGraphMixin
 from .service.helpers import sniff_format
 from .service.indexing import parse_capinfos
 from .service.navigation import NavigationMixin
+from .service.replaying import ReplayMixin
 from .service.state import BASE_COLUMNS, MAX_PAGE, MAX_SELECTION, UNRESOLVED_FIELDS
 from .service.streams import StreamsMixin, parse_tcp_graph
 from .service.telephony import TelephonyMixin
@@ -56,6 +57,7 @@ class PcapService(
     ObjectsMixin,
     FilterHelpMixin,
     ComparingMixin,
+    ReplayMixin,
 ):
     """Every request handler; one instance serves one capture (see the module docstring)."""
 
@@ -71,6 +73,9 @@ def rpc_methods(service: PcapService) -> dict[str, Callable[[dict[str, Any], Req
         "capture_stop": service.capture_stop,
         "capture_to_files": service.capture_to_files,
         "capture_files_stop": service.capture_files_stop,
+        "replay_targets": service.replay_targets,
+        "replay": service.replay,
+        "replay_stop": service.replay_stop,
         "capture_info": service.capture_info,
         "validate_filter": service.validate_filter,
         "filter_hints": service.filter_hints,

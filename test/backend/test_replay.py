@@ -1,0 +1,445 @@
+"""Replay to Service: the planner, destination checks, and replays of
+replay.pcap (an operator delivering HI2/HI3-like data) into local servers."""
+
+from __future__ import annotations
+
+import socket
+import sys
+import threading
+import time
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from pcap_backend import replay
+from pcap_backend.cancellation import CancelledError, CancelToken
+from pcap_backend.pcap_service import PcapService
+from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext
+from pcap_backend.replay import Record, TargetError
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+sys.path.insert(0, str(FIXTURES))
+import generate  # noqa: E402 - the fixture's PDUs and expected bytes
+
+HI2 = f"tcp {generate.REPLAY_COLLECTOR}:{generate.REPLAY_HI2}"
+HI3 = f"tcp {generate.REPLAY_COLLECTOR}:{generate.REPLAY_HI3}"
+UDP = f"udp {generate.REPLAY_COLLECTOR}:{generate.REPLAY_UDP}"
+DNS = "udp 10.0.0.53:53"
+
+
+# -- the planner ------------------------------------------------------------------------
+
+
+def test_parse_record() -> None:
+    addresses = ["15", "0.05", "10.10.0.1", "", "10.20.0.5", "", "0", "40100", "11000"]
+    tcp = "\t".join([*addresses, "False", "True", "False", "False", "1000", "", "", "", "3082", ""])
+    assert replay.parse_record(tcp) == Record(
+        15, 0.05, "tcp", 0, "10.10.0.1", 40100, "10.20.0.5", 11000, b"\x30\x82", ack=True, seq=1000
+    )
+    udp = "16\t0.05\t\tfd00::1\t\tfd00::5\t\t\t\t\t\t\t\t\t1\t40200\t11002\t\t0102"
+    rec = replay.parse_record(udp)
+    assert rec is not None and (rec.proto, rec.src, rec.dst, rec.payload) == (
+        "udp", "fd00::1", "fd00::5", b"\x01\x02",
+    )  # fmt: skip
+    assert replay.target_key("udp", rec.dst, rec.dport) == "udp [fd00::5]:11002"
+    # tshark 4.6 prints booleans as 1/0.
+    syn = "1\t0\t10.0.0.1\t\t10.0.0.2\t\t0\t5000\t80\t1\t0\t0\t0\t7\t\t\t\t\t"
+    assert replay.parse_record(syn) == Record(
+        1, 0.0, "tcp", 0, "10.0.0.1", 5000, "10.0.0.2", 80, syn=True, seq=7
+    )
+    assert replay.parse_record("4\t0.005\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t") is None  # ARP
+    assert replay.parse_record("garbage") is None
+
+
+def _tcp(
+    frame: int, src: str, sport: int, dst: str, dport: int, payload: bytes = b"", **kw: Any
+) -> Record:
+    return Record(frame, frame / 100, "tcp", 0, src, sport, dst, dport, payload, **kw)
+
+
+C, S = "10.0.0.1", "10.0.0.2"
+
+
+def test_planner_sends_the_client_side_once() -> None:
+    planner, events = replay.plan(
+        [
+            _tcp(1, C, 40000, S, 9000, syn=True, seq=99),
+            _tcp(2, S, 9000, C, 40000, syn=True, ack=True, seq=499),
+            _tcp(3, C, 40000, S, 9000, b"abcd", ack=True, seq=100),
+            _tcp(4, S, 9000, C, 40000, b"answer", ack=True, seq=500),  # the server: ignored
+            _tcp(5, C, 40000, S, 9000, b"abcd", ack=True, seq=100),  # retransmission
+            _tcp(6, C, 40000, S, 9000, b"cdef", ack=True, seq=102),  # overlaps by 2
+            _tcp(7, C, 40000, S, 9000, b"xyz", ack=True, seq=110),  # 4 bytes missing
+            _tcp(8, C, 40000, S, 9000, fin=True, ack=True, seq=113),
+            _tcp(9, C, 40000, S, 9000, b"late", ack=True, seq=114),  # after the FIN
+        ]
+    )
+    key = f"tcp {S}:9000"
+    assert [(e.kind, e.data, e.reset) for e in events] == [
+        ("open", b"", False),
+        ("data", b"abcd", False),
+        ("data", b"ef", False),
+        ("data", b"xyz", False),
+        ("close", b"", False),
+    ]
+    assert all(e.target == key for e in events) and events[0].time == 0.01
+    info = planner.targets[key]
+    assert (info.connections, info.packets, info.bytes) == (1, 3, 9)
+    assert (info.retransmissions, info.gaps, info.first_frame) == (2, 1, 3)
+
+
+def test_planner_finds_the_client_without_a_handshake() -> None:
+    # Started before the capture: the higher port is the client, from either side.
+    _, events = replay.plan(
+        [
+            _tcp(1, S, 11000, C, 40102, b"ack", ack=True, seq=5),
+            _tcp(2, C, 40102, S, 11000, b"PDU", ack=True, seq=4294967294),  # wraps
+            _tcp(3, C, 40102, S, 11000, b"!", ack=True, seq=1),
+            _tcp(4, C, 40102, S, 11000, rst=True, seq=2),
+        ]
+    )
+    assert [(e.kind, e.target, e.data, e.reset) for e in events] == [
+        ("open", f"tcp {S}:11000", b"", False),
+        ("data", f"tcp {S}:11000", b"PDU", False),
+        ("data", f"tcp {S}:11000", b"!", False),
+        ("close", f"tcp {S}:11000", b"", True),
+    ]
+    # A SYN-ACK seen first: its receiver is the client.
+    _, events = replay.plan(
+        [
+            _tcp(1, S, 80, C, 50000, syn=True, ack=True, seq=0),
+            _tcp(2, C, 50000, S, 80, b"GET", ack=True, seq=1),
+        ]
+    )
+    assert [(e.kind, e.target) for e in events] == [
+        ("open", f"tcp {S}:80"),
+        ("data", f"tcp {S}:80"),
+    ]
+
+
+def test_planner_udp_flows() -> None:
+    def udp(frame: int, src: str, sport: int, dst: str, dport: int, data: bytes) -> Record:
+        return Record(frame, frame / 10, "udp", 3, src, sport, dst, dport, data)
+
+    planner, events = replay.plan(
+        [
+            udp(1, C, 5060, S, 5070, b"INVITE"),
+            udp(2, S, 5070, C, 5060, b"100"),
+            udp(3, C, 5060, S, 5070, b"ACK"),
+        ]
+    )
+    assert [(e.kind, e.target, e.data) for e in events] == [
+        ("datagram", f"udp {S}:5070", b"INVITE"),
+        ("datagram", f"udp {S}:5070", b"ACK"),
+    ]
+    assert planner.targets[f"udp {S}:5070"].connections == 1
+
+
+def test_destinations_stay_local_unless_allowed() -> None:
+    for host in ("127.0.0.1", "localhost", "10.1.2.3", "192.168.65.2", "::1", "[::1]"):
+        replay.resolve_target(host, 11000, "tcp", allow_public=False)
+    with pytest.raises(TargetError, match="not on this machine"):
+        replay.resolve_target("8.8.8.8", 53, "udp", allow_public=False)
+    assert replay.resolve_target("8.8.8.8", 53, "udp", allow_public=True)[2][0] == "8.8.8.8"
+    with pytest.raises(TargetError, match="between 1 and 65535"):
+        replay.resolve_target("127.0.0.1", 0, "tcp", allow_public=False)
+    with pytest.raises(TargetError, match="needs an IP"):
+        replay.resolve_target(" ", 80, "tcp", allow_public=False)
+    assert replay.is_local("::ffff:10.0.0.1") and not replay.is_local("::ffff:8.8.8.8")
+
+
+# -- local services ---------------------------------------------------------------------
+
+
+class Collector:
+    """A TCP server on 127.0.0.1 keeping each connection's bytes (in accept
+    order); it answers ``answer`` to each connection's first data."""
+
+    def __init__(self, answer: bytes = b"") -> None:
+        self.sock = socket.create_server(("127.0.0.1", 0))
+        self.sock.settimeout(0.1)
+        self.port = self.sock.getsockname()[1]
+        self.answer = answer
+        self.received: list[bytes] = []
+        self._threads: list[threading.Thread] = []
+        self._done = threading.Event()
+        self._lock = threading.Lock()
+        self._accept = threading.Thread(target=self._loop, daemon=True)
+        self._accept.start()
+
+    def _loop(self) -> None:
+        while not self._done.is_set():
+            try:
+                conn, _ = self.sock.accept()
+            except TimeoutError:
+                continue
+            except OSError:
+                return
+            with self._lock:
+                index = len(self.received)
+                self.received.append(b"")
+            t = threading.Thread(target=self._serve, args=(conn, index), daemon=True)
+            t.start()
+            self._threads.append(t)
+
+    def _serve(self, conn: socket.socket, index: int) -> None:
+        answered = False
+        with conn:
+            conn.settimeout(10)
+            while True:
+                try:
+                    data = conn.recv(65536)
+                except OSError:
+                    return  # (reset)
+                if not data:
+                    return
+                with self._lock:
+                    self.received[index] += data
+                if self.answer and not answered:
+                    answered = True
+                    try:
+                        conn.sendall(self.answer)
+                    except OSError:
+                        return  # (the replay reset it, as the recording did)
+
+    def close(self) -> None:
+        self._done.set()
+        self._accept.join(5)
+        self.sock.close()
+        for t in self._threads:
+            t.join(5)
+
+
+class Datagrams:
+    """A UDP socket on 127.0.0.1 keeping what arrives and answering each."""
+
+    def __init__(self) -> None:
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.settimeout(0.1)
+        self.port = self.sock.getsockname()[1]
+        self.received: list[bytes] = []
+        self._done = threading.Event()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def _loop(self) -> None:
+        while not self._done.is_set():
+            try:
+                data, peer = self.sock.recvfrom(65536)
+            except TimeoutError:
+                continue
+            except OSError:
+                return
+            self.received.append(data)
+            self.sock.sendto(b"ok", peer)
+
+    def close(self) -> None:
+        self._done.set()
+        self._thread.join(5)
+        self.sock.close()
+
+
+@pytest.fixture
+def services() -> Iterator[tuple[Collector, Collector, Datagrams]]:
+    hi2, hi3, udp = Collector(answer=b"\x30\x03ack"), Collector(), Datagrams()
+    try:
+        yield hi2, hi3, udp
+    finally:
+        hi2.close()
+        hi3.close()
+        udp.close()
+
+
+@pytest.fixture
+def opened(service: PcapService, ctx: RequestContext) -> PcapService:
+    service.open({"path": str(FIXTURES / "replay.pcap"), "names": {}}, ctx)
+    return service
+
+
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
+def _settle() -> None:
+    """Let the servers' threads read what was sent before checking it."""
+    time.sleep(0.2)
+
+
+# -- replays of replay.pcap -------------------------------------------------------------
+
+
+@pytest.mark.tshark
+def test_recorded_targets(opened: PcapService, ctx: RequestContext) -> None:
+    found = opened.replay_targets({}, ctx)
+    targets = {t["key"]: t for t in found["targets"]}
+    assert list(targets) == [DNS, HI2, UDP, HI3]  # by first data
+    hi2, hi3, udp = targets[HI2], targets[HI3], targets[UDP]
+    assert (hi2["connections"], hi2["retransmissions"], hi2["gaps"]) == (3, 1, 0)
+    assert hi2["bytes"] == sum(map(len, generate.REPLAY_EXPECTED[HI2]))
+    assert (hi3["connections"], hi3["retransmissions"], hi3["gaps"]) == (2, 1, 1)
+    assert hi3["bytes"] == sum(map(len, generate.REPLAY_EXPECTED[HI3]))
+    assert (udp["connections"], udp["packets"]) == (1, 3)
+    assert hi2["protocol"] == "TCP" and targets[DNS]["protocol"] == "DNS"
+    assert (hi2["proto"], hi2["ip"], hi2["port"]) == ("tcp", generate.REPLAY_COLLECTOR, 11000)
+    assert found["duration"] == pytest.approx(0.24)  # first data 0.01 (DNS), last 0.25
+    only = opened.replay_targets({"filter": "tcp.port == 11001"}, ctx)
+    assert [t["key"] for t in only["targets"]] == [HI3] and only["filter"] == "tcp.port == 11001"
+    with pytest.raises(FilterError):
+        opened.replay_targets({"filter": "tcp.port =="}, ctx)
+
+
+@pytest.mark.tshark
+def test_replay_sends_the_operator_side(
+    opened: PcapService, ctx: RequestContext, services: tuple[Collector, Collector, Datagrams]
+) -> None:
+    hi2, hi3, udp = services
+    progress: list[dict[str, Any]] = []
+    ctx.progress = progress.append
+    result = opened.replay(
+        {
+            "speed": 0,
+            "targets": {
+                HI2: {"ip": "127.0.0.1", "port": hi2.port},
+                HI3: {"ip": "localhost", "port": hi3.port},
+                UDP: {"ip": "127.0.0.1", "port": udp.port},
+            },
+        },
+        ctx,
+    )
+    _settle()
+    assert result["stopped"] is False and result["loops"] == 1
+    stats = {t["key"]: t for t in result["targets"]}
+    assert set(stats) == {HI2, HI3, UDP}  # (DNS not asked for: not sent)
+    # Every connection's operator bytes, once, in order; E's reset may lose its PDU.
+    expected_hi2 = sorted(generate.REPLAY_EXPECTED[HI2])
+    assert sorted(hi2.received) in (expected_hi2, sorted([*expected_hi2[:-1], b""]))
+    assert len(hi2.received) == 3
+    assert sorted(hi3.received) == sorted(generate.REPLAY_EXPECTED[HI3])
+    assert udp.received == generate.REPLAY_EXPECTED[UDP]
+    s2, s3, su = stats[HI2], stats[HI3], stats[UDP]
+    assert (s2["connections"], s2["opened"], s2["refused"]) == (3, 3, 0)
+    assert s2["bytes"] == sum(map(len, generate.REPLAY_EXPECTED[HI2]))
+    assert s2["received"] > 0 and s2["to"] == f"127.0.0.1:{hi2.port}"
+    assert (s3["connections"], s3["opened"], s3["bytes"], s3["received"]) == (
+        2, 2, sum(map(len, generate.REPLAY_EXPECTED[HI3])), 0,
+    )  # fmt: skip
+    assert (su["datagrams"], su["received"]) == (3, 6)
+    assert progress and progress[0]["phase"] == "replay-targets"
+    assert any(p["phase"] == "replay" for p in progress)
+
+
+@pytest.mark.tshark
+def test_replay_keeps_the_recorded_timing(
+    opened: PcapService,
+    ctx: RequestContext,
+    services: tuple[Collector, Collector, Datagrams],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(replay, "ANSWER_GRACE_S", 0.0)
+    hi2, _, _ = services
+
+    def run(speed: float) -> float:
+        params = {"speed": speed, "targets": {HI2: {"ip": "127.0.0.1", "port": hi2.port}}}
+        return float(opened.replay(params, ctx)["seconds"])
+
+    fast = run(0)
+    # HI2's events run from 0.000 (A's SYN) to 0.300 (A's FIN); the clock starts
+    # with the first event, so tshark's start-up delays nothing.
+    assert run(1) - fast >= 0.25
+    assert run(2) - fast >= 0.1
+
+
+@pytest.mark.tshark
+def test_replay_reports_refused_ports_and_loops(
+    opened: PcapService, ctx: RequestContext, services: tuple[Collector, Collector, Datagrams]
+) -> None:
+    hi2, _, _ = services
+    result = opened.replay(
+        {
+            "speed": 0,
+            "loops": 2,
+            "targets": {
+                HI2: {"ip": "127.0.0.1", "port": hi2.port},
+                HI3: {"ip": "127.0.0.1", "port": _free_port()},
+            },
+        },
+        ctx,
+    )
+    _settle()
+    stats = {t["key"]: t for t in result["targets"]}
+    assert result["loops"] == 2 and len(hi2.received) == 6
+    assert (stats[HI3]["connections"], stats[HI3]["opened"], stats[HI3]["refused"]) == (4, 0, 4)
+    assert stats[HI3]["dropped"] == 2 * sum(map(len, generate.REPLAY_EXPECTED[HI3]))
+    assert "refused" in stats[HI3]["errors"][0] and stats[HI3]["errorCount"] == 4
+
+
+@pytest.mark.tshark
+def test_replay_stop(
+    opened: PcapService, ctx: RequestContext, services: tuple[Collector, Collector, Datagrams]
+) -> None:
+    hi2, _, _ = services
+    assert opened.replay_stop({}, ctx) == {"stopped": False}
+    opened.replay_targets({}, ctx)  # (so the replay starts at once)
+    params = {"speed": 0.02, "targets": {HI2: {"ip": "127.0.0.1", "port": hi2.port}}}
+    out: dict[str, Any] = {}
+    worker = threading.Thread(target=lambda: out.update(opened.replay(params, ctx)))
+    worker.start()
+    time.sleep(0.5)
+    with pytest.raises(InvalidParamsError, match="already running"):
+        opened.replay(params, ctx)
+    assert opened.replay_stop({}, ctx) == {"stopped": True}
+    worker.join(10)
+    assert out["stopped"] is True and out["seconds"] < 5  # (15 s at that speed)
+    assert out["targets"][0]["opened"] >= 1
+
+
+@pytest.mark.tshark
+def test_replay_parameters(opened: PcapService, ctx: RequestContext) -> None:
+    local = {"ip": "127.0.0.1", "port": 11000}
+    with pytest.raises(InvalidParamsError, match="at least one"):
+        opened.replay({"targets": {}}, ctx)
+    with pytest.raises(InvalidParamsError, match="not a recorded target"):
+        opened.replay({"targets": {"tcp 10.9.9.9:1": local}}, ctx)
+    with pytest.raises(InvalidParamsError, match="not on this machine") as public:
+        opened.replay({"targets": {HI2: {"ip": "8.8.8.8", "port": 11000}}}, ctx)
+    assert public.value.data == {"target": HI2}
+    with pytest.raises(InvalidParamsError, match="ip and a port"):
+        opened.replay({"targets": {HI2: {"ip": "127.0.0.1", "port": "11000"}}}, ctx)
+    with pytest.raises(InvalidParamsError, match="speed"):
+        opened.replay({"speed": -1, "targets": {HI2: local}}, ctx)
+    with pytest.raises(InvalidParamsError, match="loops"):
+        opened.replay({"loops": 0, "targets": {HI2: local}}, ctx)
+
+
+@pytest.mark.tshark
+def test_replay_stop_while_tshark_looks_for_packets(
+    opened: PcapService,
+    ctx: RequestContext,
+    services: tuple[Collector, Collector, Datagrams],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A big capture with few packets in scope: the pass reads a long time
+    # before its first record. Stop must end it, and still give the summary.
+    hi2, _, _ = services
+    opened.replay_targets({}, ctx)
+
+    def searching(_f: Any, _scope: str, token: CancelToken) -> Iterator[Record]:
+        while not token.cancelled:
+            time.sleep(0.01)
+        raise CancelledError("request cancelled")  # (as stream_lines does)
+        yield  # (a generator)
+
+    monkeypatch.setattr(opened, "_replay_records", searching)
+    params = {"speed": 1, "targets": {HI2: {"ip": "127.0.0.1", "port": hi2.port}}}
+    out: dict[str, Any] = {}
+    worker = threading.Thread(target=lambda: out.update(opened.replay(params, ctx)))
+    worker.start()
+    time.sleep(0.3)
+    assert opened.replay_stop({}, ctx) == {"stopped": True}
+    worker.join(10)
+    assert out["stopped"] is True and out["targets"][0]["connections"] == 0

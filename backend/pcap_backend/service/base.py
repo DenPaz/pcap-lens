@@ -27,6 +27,7 @@ from pcap_backend.protocol import (
     RequestContext,
 )
 from pcap_backend.protocols import ProtocolList
+from pcap_backend.replay import Replayer
 from pcap_backend.tshark import EMPTY_CAPTURE, Tshark
 
 from .state import MAX_FILTER_ARG, _Indexing, _Open, _View
@@ -85,6 +86,9 @@ class ServiceBase:
         self._pdu_taps: LruCache[str, list[dict[str, str]]] = LruCache(2)
         self._extcap_tools: dict[str, Path] = {}  # extcap interface → its helper
         self._file_capture: FileCapture | None = None  # capture_to_files running
+        # Replay to Service: the running replay, and the recorded targets by scope.
+        self._replay: Replayer | None = None
+        self._replay_targets: LruCache[str, dict[str, Any]] = LruCache(4)
         # Wireshark's preferences with their defaults, by (tshark, Lua scripts).
         self._default_prefs: LruCache[tuple[str, tuple[str, ...]], dict[str, Preference]] = (
             LruCache(2)
@@ -147,6 +151,8 @@ class ServiceBase:
             self._geo = None
 
     def _close_file(self) -> None:
+        if self._replay is not None:
+            self._replay.stop()  # (it reads the capture: its request ends soon)
         live = self._view.live if self._view is not None else None
         self._view = None  # (so a stopped filter pass reports nothing)
         if live is not None and live.running:
@@ -184,6 +190,7 @@ class ServiceBase:
             self._rtp_streams,
             self._filter_hints,
             self._field_values,
+            self._replay_targets,
         ):
             cache.clear()
         if self._work_dir is not None:
