@@ -933,7 +933,7 @@ def _replay(run: Run, path: Path) -> None:
         f"{len(sink.datagrams)} datagrams arrived, {datagrams} sent",
     )
     pool = Counter(udp)
-    pool.subtract(sink.datagrams)
+    pool.subtract(d for d in sink.datagrams if d)  # Follow shows no empty datagram
     extra = -sum(n for n in pool.values() if n < 0)
     run.check("replay udp = follow", not extra, f"{extra} datagrams Follow doesn't show")
 
