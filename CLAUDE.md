@@ -2365,7 +2365,10 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   never tagged; v0.4.0 made the GitHub release, but the Marketplace refused
   the display name (see _Name_), so 0.4.1 is the first Marketplace/Open VSX
   version. A tag that reached a store is never moved: the next patch version
-  ships instead. The maintainer pushes tags; a Claude Code session can push
+  ships instead. A ruleset refuses deleting or moving any tag, so a tag is
+  pushed only after the release PR is merged (0.25.3's went out before and
+  named the previous release's code; `check` refused it, 0.25.4 shipped
+  instead). The maintainer pushes tags; a Claude Code session can push
   branches (`dev`, its `claude/…` branch) but not tags (the proxy refuses
   them and the API's ref writes), so it prepares the release PR and hands
   over the tag commands. A
@@ -2804,4 +2807,5 @@ pcap's 2038 limit, a retransmitted SYN's data replayed once): 0.25.1.
 Then Replay to… with several captures (one after another or merged by time),
 jitter, UDP loss, until stopped and setup files: 0.25.2.
 Then Save Results… for a replay, and Go to Packet only for the open capture's
-targets: 0.25.3.
+targets: 0.25.4 (0.25.3's tag went out before its merge and names 0.25.2's
+code; tags can't move, so it was skipped).
