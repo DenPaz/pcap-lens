@@ -667,6 +667,22 @@ def test_targets_of_several_captures(
     moved = opened.replay_targets({"files": [str(later), str(notes)], "openAt": 1}, ctx)
     assert [s["name"] for s in moved["sources"]] == ["later.pcap", "replay.pcap", "notes.pcap"]
     assert [t["key"] for t in moved["targets"]] == list(targets)  # (by first data)
+    # A shared target keeps the open capture's frame and protocol, even when
+    # another capture plays first: Go to Packet goes to the viewer's packet.
+    no_arp = tmp_path / "no-arp.pcap"  # (frame 4 left out: DNS is frame 4 there)
+    subprocess.run(
+        [str(find_tool("editcap")), str(FIXTURES / "replay.pcap"), str(no_arp), "4"],
+        check=True,
+        capture_output=True,
+    )
+    other = opened.replay_targets({"capture": False, "files": [str(no_arp)]}, ctx)
+    assert [(t["firstFrame"], t["protocol"]) for t in other["targets"] if t["key"] == DNS] == [
+        (4, "UDP")
+    ]
+    for open_at in (0, 1):
+        both = opened.replay_targets({"files": [str(no_arp)], "openAt": open_at}, ctx)
+        dns = next(t for t in both["targets"] if t["key"] == DNS)
+        assert (dns["firstFrame"], dns["protocol"]) == (5, "DNS"), open_at
 
 
 @pytest.mark.tshark

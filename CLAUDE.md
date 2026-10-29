@@ -2099,7 +2099,9 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
 mtime_ns)`), merged by key, plus `sources` rows (`error` when tshark
   can't read one) and `span`; `openAt` (0…len(files), default 0) puts the
   open capture among the files (targets stay sorted by first data, so
-  moving a capture doesn't change them). `replay`: `order` sequence (the generator
+  moving a capture doesn't change them; merged with the open capture's
+  first, so a shared target keeps its `firstFrame` and dissected `protocol`
+  wherever it plays: Codex review). `replay`: `order` sequence (the generator
   yields a `start` event per capture; the timeline restarts its clock and
   logs "Playing x (i of n)", and `_offset` keeps the fraction across
   captures) or merged (`merge_by_time`, heapq over each capture's planner

@@ -120,10 +120,12 @@ class ReplayMixin(ServiceBase):
         f = self._require_file()
         sources = self._replay_sources(f, params, ctx)
         merged: dict[str, dict[str, Any]] = {}
-        rows: list[dict[str, Any]] = []
-        for source in sources:
-            plan = self._source_targets(f, source, ctx)
-            rows.append(plan["source"])
+        plans = [self._source_targets(f, source, ctx) for source in sources]
+        rows = [plan["source"] for plan in plans]  # (in play order)
+        # The open capture's targets first, wherever it plays: a shared
+        # target keeps its firstFrame (Go to Packet in the viewer) and its
+        # dissected protocol. The sums, minimums and maximums don't mind.
+        for plan in sorted(plans, key=lambda plan: plan["source"]["file"] is not None):
             for t in plan["targets"]:
                 have = merged.get(t["key"])
                 if have is None:
