@@ -2112,10 +2112,14 @@ mtime_ns)`), merged by key, plus `sources` rows (`error` when tshark
   event forces a progress report (`capture {index, count, name}`).
   **Panel** (`pcapViewer.replay`, _Replay to…_ (was "Replay to Service…"):
   ☰ Capture, the editor title's overflow; `ReplayPanel`, `replay.js`, one
-  per editor): a Captures list (the open capture's checkbox, then
-  `filesAdded` from _Add Captures…_ (checked) and _Add Folder…_
-  (`isCaptureFileName`, unchecked), ↑/↓/✕, each row's targets/packets/time
-  or error, _Play_ one after another / merged), _Until stopped_, _Jitter
+  per editor): `details#replay-more` _More captures…_, folded by default
+  (the open capture alone, as before 0.25.2; the summary's
+  `#replay-more-count` says what was added and plays, or that the open
+  capture is left out; a loaded setup with other captures opens it), holds
+  _Add Captures…_ (`filesAdded`, checked), _Add Folder…_
+  (`isCaptureFileName`, unchecked), the Captures list (the open capture's
+  checkbox, then the files, ↑/↓/✕, each row's targets/packets/time or
+  error) and _Play_ one after another / merged; then _Until stopped_, _Jitter
   (ms)_ (disabled at no pauses), _UDP loss (%)_, and setup files
   (`replayModel.setupToJson`/`parseSetup`: `format` `pcap-lens-replay`,
   paths relative to the file's folder; `missing` captures unchecked; loading

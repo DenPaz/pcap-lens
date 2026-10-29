@@ -2010,6 +2010,12 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       await page.setContent(renderPanelHtml(origin, "replay.js"), { waitUntil: "load" });
       pages.push(problems);
       await waitRows(page, 4);
+      // The open capture alone: other captures wait in a folded section.
+      const moreOpen = () => page.$eval("#replay-more", (d) => d.open);
+      assert.equal(await moreOpen(), false);
+      assert.ok(!(await page.isVisible("#replay-add-captures")));
+      assert.ok(!(await page.isVisible(".replay-capture-list")));
+      assert.equal(await page.textContent("#replay-more-count"), "");
       const all = await rows(page);
       assert.deepEqual(
         all.map((r) => [r[1], r[2], r[3], r[4]]),
@@ -2124,6 +2130,9 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       // Another capture of the same delivery: its targets add up, it plays too.
       await page.selectOption("#replay-speed", "0");
       await page.fill("#replay-loops", "1");
+      await page.click("#replay-more > summary");
+      assert.equal(await moreOpen(), true);
+      assert.ok(await page.isVisible(".replay-capture-list"));
       assert.ok(await page.isDisabled("#replay-order"), "one capture: no order to choose");
       assert.ok(await page.isDisabled("#replay-jitter"), "no pauses: no jitter");
       await page.click("#replay-add-captures");
@@ -2141,6 +2150,8 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         ["replay.pcap (open in the viewer)", "later.pcap"],
       );
       assert.match((await captureRows())[1][1], /^4 targets · 15 packets · 0:00$/);
+      assert.equal(await page.textContent("#replay-more-count"), " (1 added, 1 plays)");
+      assert.deepEqual(await axeViolations(page), [], "the section open, its list filled");
       assert.equal((await rows(page)).find((r) => r[1] === HI2)?.[3], "6");
       await page.selectOption("#replay-order", "merged");
       assert.match(await page.textContent("#replay-status"), /\(merged\)\.$/);
@@ -2203,6 +2214,9 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         problems: [],
         missing: [path.join(tmp, "gone.pcap")],
       };
+      await page.click("#replay-more > summary"); // (folded: the setup opens it)
+      assert.equal(await moreOpen(), false);
+      assert.equal(await page.textContent("#replay-more-count"), " (1 added, 0 play)");
       await page.click("#replay-load-setup");
       await page.waitForSelector(".notice.error:not(.hidden)");
       assert.match(await page.textContent(".notice.error"), /gone\.pcap wasn't found/);
@@ -2215,12 +2229,22 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       assert.ok(!(await page.isChecked("#replay-forever")));
       assert.ok(await page.isDisabled(".replay-capture-list tbody tr:nth-child(3) input"));
       assert.match((await captureRows())[2][1], /^File not found$/);
+      assert.equal(await moreOpen(), true, "a setup with other captures opens the section");
       // (Back to the open capture alone, its destinations as before.)
       await page.click(`.replay-capture-list button[aria-label="Remove gone.pcap"]`);
       await page.click(`.replay-capture-list button[aria-label="Remove later.pcap"]`);
-      await page.fill(`tr[data-key="${HI3}"] .replay-ip`, "127.0.0.1");
-      await page.fill(port3, String(hi3.port));
-      await page.check(`tr[data-key="${HI3}"] input[type=checkbox]`);
+      assert.equal(await page.textContent("#replay-more-count"), "");
+      // A setup of the open capture alone leaves the section as it is.
+      await page.click("#replay-more > summary");
+      setupToLoad = { setup: { ...setup, captures: [] }, problems: [], missing: [] };
+      await page.click("#replay-load-setup");
+      await page.waitForFunction(
+        (key) => document.querySelector(`tr[data-key="${key}"] .replay-ip`)?.value === "127.0.0.1",
+        HI3,
+      ); // (the setup's destination, as saved)
+      assert.equal(await moreOpen(), false);
+      assert.equal(await page.inputValue(port3), String(hi3.port));
+      assert.ok(await page.isChecked(`tr[data-key="${HI3}"] input[type=checkbox]`));
       await page.selectOption("#replay-preset", "Local"); // (a loaded setup cleared it)
 
       // Save Preset, the row menu, and the displayed packets only.

@@ -1,10 +1,10 @@
 // @ts-check
 /**
- * Replay to Service panel: the captures to replay (the open one and others,
- * one after another or merged by time), their recorded targets (the server
+ * Replay to Service panel: the open capture's recorded targets (the server
  * ends of TCP connections and UDP flows), an IP and port for each, presets,
  * setup files, speed, loops, jitter and UDP loss; then the replay's live
- * counts per target, a log and a summary.
+ * counts per target, a log and a summary. Other captures (played one after
+ * another or merged by time) sit in a collapsed "More captures…" section.
  * The backend reads the capture and owns the sockets (replay.py). Addresses
  * and protocol names come from the capture, so they only go through
  * textContent and input values.
@@ -135,7 +135,6 @@
     saveSetupBtn,
     refreshBtn,
   ]);
-  const capturesHead = h("h2", { class: "panel-subtitle-h" }, ["Captures"]);
   const capturesBox = h("div", { class: "replay-captures" });
   const addCapturesBtn = kit.withIcon(
     h("button", { type: "button", class: "secondary", id: "replay-add-captures" }, [
@@ -158,6 +157,15 @@
     addFolderBtn,
     h("label", {}, ["Play ", orderSelect]),
   ]);
+  // Other captures: folded away, so the panel shows the open capture alone until asked.
+  const moreCount = h("span", { class: "replay-dim", id: "replay-more-count" });
+  const more = /** @type {HTMLDetailsElement} */ (
+    h("details", { id: "replay-more", class: "replay-more" }, [
+      h("summary", {}, ["More captures…", moreCount]),
+      capturesBar,
+      capturesBox,
+    ])
+  );
   const allIp = /** @type {HTMLInputElement} */ (
     h("input", {
       id: "replay-all-ip",
@@ -259,21 +267,7 @@
     "aria-label": "Replay log",
     tabindex: "0",
   });
-  app.append(
-    title,
-    intro,
-    toolbar,
-    capturesHead,
-    capturesBox,
-    capturesBar,
-    tableBox,
-    options,
-    notice,
-    status,
-    bar,
-    logHead,
-    log,
-  );
+  app.append(title, intro, toolbar, more, tableBox, options, notice, status, bar, logHead, log);
 
   for (const s of SPEEDS) {
     speedSelect.append(h("option", { value: String(s.value) }, [s.label]));
@@ -529,7 +523,25 @@
       body,
     ]);
     capturesBox.replaceChildren(table);
+    moreCount.textContent = moreText();
     updateActions();
+  }
+
+  /** What the folded section changes, so it isn't missed while closed. */
+  function moreText() {
+    const added = state.files.length;
+    if (!added && state.includeOpen) {
+      return "";
+    }
+    const parts = [];
+    if (added) {
+      const played = playedFiles().length;
+      parts.push(`${added} added, ${played} ${played === 1 ? "plays" : "play"}`);
+    }
+    if (!state.includeOpen) {
+      parts.push("the open capture is left out");
+    }
+    return ` (${parts.join("; ")})`;
   }
 
   function captureChanged() {
@@ -842,6 +854,9 @@
     }));
     state.setupTargets = setup.targets;
     presetSelect.value = ""; // (the setup's destinations, not a preset's)
+    if (state.files.length || !state.includeOpen) {
+      more.open = true;
+    }
     setOptions(setup.options);
     renderCaptures();
     requestTargets();

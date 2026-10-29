@@ -459,25 +459,28 @@ server.
 
 1. Open the capture and run _PCAP: Replay to…_ (the ☰ menu's Capture group,
    or the editor title's **…** menu).
-2. **Captures**: the open capture plays, and **Add Captures…** adds others
-   (several calls of one delivery, say); **Add Folder…** lists a folder's
-   captures for you to check the ones to play. They play one after another,
-   in the list's order (the arrows move them), or **merged by recorded
-   time**, as if they had been one capture. Each shows its targets, packets
-   and recorded time, or why it can't be read.
-3. The panel lists the **recorded targets**: each server end of the
-   capture's TCP connections and UDP flows (`tcp 10.20.0.5:11001`), with its
+2. The panel lists the open capture's **recorded targets**: each server end
+   of its TCP connections and UDP flows (`tcp 10.20.0.5:11001`), with its
    protocol, connections, packets and bytes. Give each one the IP and port
    to send to (it starts with the destination you used last for it, else
    `127.0.0.1` and the recorded port); **Same IP for All** sets every IP at
    once, and unchecked rows are left out.
-   The targets of every capture that plays are listed together.
-4. Choose all packets or the displayed ones (of the open capture), the speed
-   (real time, faster, or no pauses), how many loops or **Until stopped**,
-   and optionally **Jitter** (each paced packet moves by a random amount
-   within ± that many milliseconds) and **UDP loss** (that share of UDP
-   datagrams is left out at random; TCP data is always sent, since the
-   network stack would send lost data again), then **Start Replay**.
+3. Choose all packets or the displayed ones, the speed (real time, faster,
+   or no pauses), how many loops or **Until stopped**, and optionally
+   **Jitter** (each paced packet moves by a random amount within ± that
+   many milliseconds) and **UDP loss** (that share of UDP datagrams is left
+   out at random; TCP data is always sent, since the network stack would
+   send lost data again), then **Start Replay**.
+
+**More captures…** (folded until you open it) plays others with the open
+one, several calls of one delivery, say: **Add Captures…** adds them and
+**Add Folder…** lists a folder's captures for you to check the ones to play
+(the open capture's own checkbox can leave it out). They play one after
+another, in the list's order (the arrows move them), or **merged by
+recorded time**, as if they had been one capture. Each shows its targets,
+packets and recorded time, or why it can't be read, and the targets of
+every capture that plays are listed together. The section opens by itself
+when a setup you load has other captures.
 
 While it runs, each row shows what was sent and received and what happened
 (connections opened, refused, reset), a log lists each connection and which

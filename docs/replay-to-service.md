@@ -118,11 +118,16 @@ Phase 4 (several captures, 0.25.2) adds to both requests:
 _PCAP: Replay to…_ (☰ Capture, or the editor title's overflow menu; titled
 "Replay to Service…" until 0.25.2) opens one panel per capture:
 
-- **Captures** (phase 4): the open capture (its checkbox can leave it out)
-  and others added with _Add Captures…_ (checked) or _Add Folder…_ (every
-  capture file of the folder, unchecked), with ↑/↓ to reorder and ✕ to
-  remove; each row shows its targets, packets and recorded time, or why it
-  can't be read. _Play_: one after another or merged by recorded time.
+- **More captures…** (phase 4): a section folded by default, so the panel
+  shows the open capture alone, as before 0.25.2. It holds _Add Captures…_
+  (checked) and _Add Folder…_ (every capture file of the folder, unchecked),
+  the captures list (the open capture, whose checkbox can leave it out, then
+  the others, with ↑/↓ to reorder and ✕ to remove; each row shows its
+  targets, packets and recorded time, or why it can't be read) and _Play_:
+  one after another or merged by recorded time. Folded, its heading still
+  says how many captures were added and play, and when the open one is left
+  out. It opens by itself when a loaded setup has other captures (or leaves
+  the open one out).
 
 - **Packets**: all, or the packets the viewer's filter shows.
 - **Targets table**: one row per recorded target, with its protocol (as the
@@ -190,6 +195,8 @@ _PCAP: Replay to…_ (☰ Capture, or the editor title's overflow menu; titled
 
 - [x] Several captures in one replay: one after another or merged by time
 - [x] Add Captures…, Add Folder…, reorder, remove, per-capture rows
+- [x] Folded into a _More captures…_ section (open capture alone by default;
+      opens for a setup with other captures)
 - [x] Jitter, UDP loss, until stopped, a log line per capture
 - [x] Setup files (save and load), relative paths
 - [x] Menu entry renamed _Replay to…_

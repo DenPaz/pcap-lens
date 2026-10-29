@@ -1013,6 +1013,27 @@ table.replay input.invalid,
   width: 9ch;
 }
 
+/* "More captures…": folded by default, the summary styled like a section heading. */
+.replay-more {
+  margin: var(--space-4) 0 0;
+}
+
+.replay-more > summary {
+  cursor: pointer;
+  width: fit-content;
+  padding: var(--space-1) 0;
+  font-weight: 600;
+}
+
+.replay-more > summary:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.replay-more > summary .replay-dim {
+  font-weight: normal;
+}
+
 .replay-captures {
   overflow-x: auto;
 }
