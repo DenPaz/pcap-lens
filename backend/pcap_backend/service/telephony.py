@@ -8,7 +8,7 @@ from typing import Any
 from pcap_backend import voip, voip_protocols
 from pcap_backend.export import atomic_output, check_destination
 from pcap_backend.protocol import InvalidParamsError, RequestContext, param
-from pcap_backend.tshark import StreamResult, stream_lines
+from pcap_backend.tshark import StreamResult, failed, stream_lines
 
 from .helpers import _fields_args, _rejected_fields
 from .state import _Open
@@ -95,7 +95,7 @@ class TelephonyMixin(StatisticsMixin):
                     cells[body] = ""
                 lines.append("\t".join(cells))
             ctx.token.raise_if_cancelled()
-            if not lines and result.returncode not in (0, None):
+            if not lines and failed(result.returncode, result.stderr):
                 rejected = [r for r in _rejected_fields(result.stderr) if r in others]
                 if rejected:  # (an older or newer tshark without one of them)
                     f.rejected.update(rejected)
@@ -252,7 +252,7 @@ class TelephonyMixin(StatisticsMixin):
         for raw in stream_lines(argv, result, ctx.token):
             lines += 1
             yield raw.decode("utf-8", "replace")
-        if lines == 0 and result.returncode not in (0, None):
+        if lines == 0 and failed(result.returncode, result.stderr):
             raise f.tshark.error(result.stderr, result.returncode, "reading the RTP stream failed")
 
     def _iax2_pass(
@@ -272,5 +272,5 @@ class TelephonyMixin(StatisticsMixin):
         for line in voip_protocols.iax2_as_rtp(raw_lines, key.codec, fields):
             lines += 1
             yield line
-        if lines == 0 and result.returncode not in (0, None):
+        if lines == 0 and failed(result.returncode, result.stderr):
             raise f.tshark.error(result.stderr, result.returncode, "reading the IAX2 voice failed")

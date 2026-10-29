@@ -207,6 +207,30 @@ def test_export_as_pcap_refuses_mixed_link_types(
     assert res["packets"] == _count(mixed)
 
 
+@pytest.mark.tshark
+def test_export_as_pcap_refuses_packets_after_2038(
+    service: PcapService, ctx: RequestContext, tmp_path: Path
+) -> None:
+    # pcap stores seconds in 31 bits for tshark (Wireshark's
+    # arp_coverage.pcap.gz has packets from 2040 on, found by test/realworld).
+    frame = bytes(12) + b"\x08\x00" + bytes(46)
+    records = b"".join(
+        struct.pack("<IIII", seconds, 0, len(frame), len(frame)) + frame
+        for seconds in (1_700_000_000, 2_236_871_114)
+    )
+    capture = tmp_path / "future.pcap"
+    capture.write_bytes(struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 1) + records)
+    service.open({"path": str(capture)}, ctx)
+    with pytest.raises(InvalidParamsError, match="after January 2038") as exc:
+        service.export({"kind": "pcap", "dest": str(tmp_path / "out.pcap"), "filter": ""}, ctx)
+    assert exc.value.data == {"format": "pcap", "pcapng": True}
+    assert not (tmp_path / "out.pcap").exists()
+    res = service.export(
+        {"kind": "pcapng", "dest": str(tmp_path / "out.pcapng"), "filter": ""}, ctx
+    )
+    assert res["packets"] == 2
+
+
 def _pcapng_block(kind: int, body: bytes) -> bytes:
     body += b"\0" * (-len(body) % 4)
     return struct.pack("<II", kind, 12 + len(body)) + body + struct.pack("<I", 12 + len(body))

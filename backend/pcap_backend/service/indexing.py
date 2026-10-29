@@ -11,7 +11,16 @@ from pcap_backend.cache import RowStore
 from pcap_backend.capture import LiveCapture
 from pcap_backend.index_cache import IndexCache
 from pcap_backend.protocol import InvalidParamsError, RequestContext, UnsupportedFormatError
-from pcap_backend.tshark import EMPTY_CAPTURE, StreamResult, ToolError, Tshark, run, stream_lines
+from pcap_backend.tshark import (
+    CRASH_HINT,
+    EMPTY_CAPTURE,
+    StreamResult,
+    ToolError,
+    Tshark,
+    crash,
+    run,
+    stream_lines,
+)
 
 from .helpers import _parse_rules, _stderr_warnings
 from .state import (
@@ -196,8 +205,11 @@ def _finish_index_pass(
     if result.returncode is not None and result.returncode < 0:
         # Killed by a signal (not by us: that raises CancelledError): its
         # output ended early, so this is not the whole capture.
+        what = crash(result.returncode)
         raise ToolError(
-            f"tshark was stopped (signal {-result.returncode}) after {frames:,} packets"
+            f"tshark crashed ({what}) after {frames:,} packets. {CRASH_HINT}"
+            if what
+            else f"tshark was stopped (signal {-result.returncode}) after {frames:,} packets"
         )
     if bad_lines:
         info.warnings.append(f"{bad_lines} unparseable line(s) in tshark output skipped")

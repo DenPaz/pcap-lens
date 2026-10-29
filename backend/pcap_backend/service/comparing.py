@@ -9,7 +9,7 @@ from typing import Any
 
 from pcap_backend import compare
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext
-from pcap_backend.tshark import StreamResult, ToolError, stream_lines
+from pcap_backend.tshark import StreamResult, ToolError, failed, stream_lines
 
 from .opening import OpeningMixin
 from .statistics import StatisticsMixin
@@ -98,7 +98,7 @@ class ComparingMixin(OpeningMixin, StatisticsMixin):
         lines = stream_lines(f.tshark.argv(*args, capture=str(f.path)), result, ctx.token)
         counts = compare.reset_counts(raw.decode("utf-8", "replace") for raw in lines)
         ctx.token.raise_if_cancelled()
-        if not counts and result.returncode not in (0, None):
+        if not counts and failed(result.returncode, result.stderr):
             raise f.tshark.error(result.stderr, result.returncode, "counting TCP resets failed")
         return counts
 

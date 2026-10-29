@@ -297,7 +297,13 @@ class Run:
             result = self.server.call(method, params or {}, self.timeout)
         except RpcError as exc:
             took = time.monotonic() - start
-            status = "expected" if exc.code in EXPECTED_CODES else "problem"
+            status = (
+                "expected"
+                if exc.code in EXPECTED_CODES
+                else "note"  # (Wireshark's newer test captures crash tshark 4.2.2)
+                if exc.message.startswith("tshark crashed (")
+                else "problem"
+            )
             data = f" {json.dumps(exc.data)[:300]}" if exc.data else ""
             self.report.steps.append(Step(name, status, took, f"[{exc.code}] {exc.message}{data}"))
             return None

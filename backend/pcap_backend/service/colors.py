@@ -14,7 +14,7 @@ from pcap_backend import coloring
 from pcap_backend.cancellation import CancelledError
 from pcap_backend.index_cache import rules_key
 from pcap_backend.protocol import InvalidParamsError, NotOpenError, RequestContext
-from pcap_backend.tshark import StreamResult, stream_lines
+from pcap_backend.tshark import StreamResult, failed, stream_lines
 
 from .base import ServiceBase
 from .helpers import _parse_rules
@@ -115,6 +115,6 @@ class ColoringMixin(ServiceBase):
                 if now - last_emit >= PROGRESS_INTERVAL_S:
                     last_emit = now
                     ctx.progress({"phase": "color", "fraction": min(0.99, n / total)})
-        if result.returncode not in (0, None) and result.lines == 0:
+        if failed(result.returncode, result.stderr) and result.lines == 0:
             raise f.tshark.error(result.stderr, result.returncode, "tshark coloring pass failed")
         return colors, colored, coloring.parse_compile_errors(result.stderr)

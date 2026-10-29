@@ -169,6 +169,14 @@ class DetailMixin(DissectionMixin):
             raise
         hex_res = hex_future.result()
         if not pdml_res.stdout.strip():
+            if "isn't a capture file in a format TShark understands" in pdml_res.stderr:
+                # (Its reader knows pcap, pcapng and a few others, not text
+                # dumps or Sniffer files: Wireshark's test captures.)
+                raise InvalidParamsError(
+                    "Wireshark can't show the file format of this kind of capture:"
+                    " Show File Format reads pcap, pcapng and a few other formats, not this one.",
+                    {"unsupported": True},
+                )
             raise f.tshark.error(pdml_res.stderr, pdml_res.returncode, "tshark can't read the file")
         sources = pdml.parse_hexdump(hex_res.stdout.decode("utf-8", "replace"))
         tree = pdml.parse_pdml(

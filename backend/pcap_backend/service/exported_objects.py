@@ -11,7 +11,7 @@ from pcap_backend import objects
 from pcap_backend.export import atomic_output, check_destination
 from pcap_backend.objects import ExportedObject
 from pcap_backend.protocol import InvalidParamsError, NotOpenError, RequestContext, param
-from pcap_backend.tshark import StreamResult, ToolError, stream_lines
+from pcap_backend.tshark import StreamResult, ToolError, failed, stream_lines
 
 from .base import ServiceBase
 from .helpers import _fields_args, _rejected_fields, sniff_format
@@ -66,7 +66,7 @@ class ObjectsMixin(ServiceBase):
                     if now - last > 0.2:
                         last = now
                         ctx.progress({"phase": "objects", "fraction": min(1.0, seen / size)})
-            if result.returncode not in (0, None) and result.lines == 0:
+            if failed(result.returncode, result.stderr) and result.lines == 0:
                 rejected = [r for r in _rejected_fields(result.stderr) if r in wanted[2:]]
                 if rejected:  # (an older tshark without one of the linking fields)
                     wanted = [w for w in wanted if w not in rejected]

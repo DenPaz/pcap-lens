@@ -8,7 +8,7 @@ from typing import Any
 from pcap_backend import stats, triage
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, param
 from pcap_backend.stats import IoSeries, Table
-from pcap_backend.tshark import ToolError, run
+from pcap_backend.tshark import ToolError, failed, run
 
 from .base import ServiceBase
 from .state import _FIELD_NAME_RE, _Open
@@ -343,7 +343,7 @@ class StatisticsMixin(ServiceBase):
         for name in stats.MULTICAST_FIELDS:
             args += ["-e", name]
         res = run(f.tshark.argv(*args, capture=str(f.path)), ctx.token)
-        if res.returncode != 0 and not res.stdout:
+        if failed(res.returncode, res.stderr) and not res.stdout:
             raise f.tshark.error(res.stderr, res.returncode, "tshark failed")
         return stats.multicast_streams(res.stdout.decode("utf-8", "replace").split("\n"))
 
@@ -374,6 +374,6 @@ class StatisticsMixin(ServiceBase):
         argv = f.tshark.argv(*extra, "-q", "-n", "-z", spec, capture=str(f.path))
         res = run(argv, ctx.token)
         text = res.stdout.decode("utf-8", "replace")
-        if res.returncode != 0 and not text.strip():
+        if failed(res.returncode, res.stderr) and not text.strip():
             raise f.tshark.error(res.stderr, res.returncode, f"tshark -z {spec} failed")
         return text

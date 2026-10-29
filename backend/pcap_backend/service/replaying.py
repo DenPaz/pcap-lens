@@ -9,7 +9,7 @@ from typing import Any
 from pcap_backend import replay as engine
 from pcap_backend.cancellation import CancelToken
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, param
-from pcap_backend.tshark import StreamResult, stream_lines
+from pcap_backend.tshark import StreamResult, failed, stream_lines
 
 from .base import ServiceBase
 from .state import _Open
@@ -167,5 +167,5 @@ class ReplayMixin(ServiceBase):
             rec = engine.parse_record(raw.decode("utf-8", "replace"))
             if rec is not None:
                 yield rec
-        if result.returncode not in (0, None) and not result.lines:
+        if failed(result.returncode, result.stderr) and not result.lines:
             raise f.tshark.error(result.stderr, result.returncode, "tshark failed")

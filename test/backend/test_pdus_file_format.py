@@ -89,6 +89,18 @@ def test_file_format(
 
 
 @pytest.mark.tshark
+def test_file_format_of_a_format_tshark_cannot_show(
+    service: PcapService, ctx: RequestContext
+) -> None:
+    # The MIME Files reader knows pcap, pcapng, btsnoop… but not snoop, ERF
+    # or text dumps (Wireshark's ascend_coverage.txt.gz, found by test/realworld).
+    service.open({"path": str(FIXTURES / "formats" / "http.snoop")}, ctx)
+    with pytest.raises(InvalidParamsError, match="can't show the file format") as exc:
+        service.file_format({}, ctx)
+    assert exc.value.data == {"unsupported": True}
+
+
+@pytest.mark.tshark
 def test_file_format_of_a_large_file_shows_its_start(
     service: PcapService,
     ctx: RequestContext,

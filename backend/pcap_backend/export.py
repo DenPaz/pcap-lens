@@ -40,11 +40,20 @@ _FORMULA_START = ("=", "+", "@", "\t", "\r")
 # link type Wireshark can only read ("Unknown"), which no format can store.
 # Found by test/realworld.
 _UNWRITABLE_RE = re.compile(r"can't be (?:written as|saved in) an? \"(?P<format>[\w-]+)\" file")
+# pcap stores a packet's seconds in 31 bits: nothing after January 2038
+# (arp_coverage.pcap.gz, Wireshark's test captures).
+_UNWRITABLE_TIME = "We don't support writing that record's time stamp to that file type"
 
 
 def unwritable_error(stderr: str) -> InvalidParamsError | None:
     """An explanation for a tool's refusal to write the capture's packets in a
     format (None for any other failure)."""
+    if _UNWRITABLE_TIME in stderr:
+        return InvalidParamsError(
+            "These packets can't be saved as pcap: some are dated after January 2038 (or before "
+            "1970), which a pcap file can't store. Export them as pcapng instead.",
+            {"format": "pcap", "pcapng": True},
+        )
     match = _UNWRITABLE_RE.search(stderr)
     if match is None:
         return None
