@@ -101,6 +101,8 @@ Phase 4 (several captures, 0.25.2) adds to both requests:
   packet of all) and `sources` (per capture: `name`, `file` (null for the
   open one), `targets`, `packets`, `bytes`, `first`, `last`, `duration`,
   `error` when tshark can't read it). Cached per capture (path, size, time).
+  `openAt` (0 to the number of `files`, default 0: first) puts the open
+  capture at that position among the files, so it can play after some.
 - `replay`: `order` `"sequence"` (one after another: each capture's clock
   starts at its first packet) or `"merged"` (in recorded-time order: the
   tshark pass now reads `frame.time_epoch`); `jitter` (ms, 0–60,000: each
@@ -121,12 +123,13 @@ _PCAP: Replay to…_ (☰ Capture, or the editor title's overflow menu; titled
 - **More captures…** (phase 4): a section folded by default, so the panel
   shows the open capture alone, as before 0.25.2. It holds _Add Captures…_
   (checked) and _Add Folder…_ (every capture file of the folder, unchecked),
-  the captures list (the open capture, whose checkbox can leave it out, then
-  the others, with ↑/↓ to reorder and ✕ to remove; each row shows its
-  targets, packets and recorded time, or why it can't be read) and _Play_:
-  one after another or merged by recorded time. Folded, its heading still
-  says how many captures were added and play, and when the open one is left
-  out. It opens by itself when a loaded setup has other captures (or leaves
+  the captures list (the open capture, whose checkbox can leave it out, and
+  the others, every one with ↑/↓ to reorder, the others with ✕ to remove;
+  each row shows its targets, packets and recorded time, or why it can't be
+  read) and _Play_: one after another or merged by recorded time. The open
+  capture starts first; moved, it is sent as `openAt` (the captures that
+  play before it). Folded, its heading still says how many captures were
+  added and play, and when the open one is left out or plays after others. It opens by itself when a loaded setup has other captures (or leaves
   the open one out).
 
 - **Packets**: all, or the packets the viewer's filter shows.
@@ -145,8 +148,10 @@ _PCAP: Replay to…_ (☰ Capture, or the editor title's overflow menu; titled
   **Until stopped**, **Jitter (ms)** (paced replays only) and **UDP loss
   (%)**.
 - **Setups** (phase 4): _Save Setup…_ writes a JSON file (`format`
-  `"pcap-lens-replay"`, `version` 1, `includeOpenCapture`, `captures`
-  `[{path, enabled}]` relative to the file's folder when they can be,
+  `"pcap-lens-replay"`, `version` 1, `includeOpenCapture`,
+  `openCapturePosition` (how many of `captures` come before the open one;
+  missing = 0, first), `captures` `[{path, enabled}]` relative to the
+  file's folder when they can be,
   `targets` `{key: {ip, port, enabled}}`, `options`); _Load Setup…_ reads
   one back (`replayModel.parseSetup`: entries that can't be used are named,
   missing captures are left unchecked). Loading clears the preset choice.
@@ -195,6 +200,8 @@ _PCAP: Replay to…_ (☰ Capture, or the editor title's overflow menu; titled
 
 - [x] Several captures in one replay: one after another or merged by time
 - [x] Add Captures…, Add Folder…, reorder, remove, per-capture rows
+- [x] The open capture moves like the others (`openAt`,
+      `openCapturePosition`)
 - [x] Folded into a _More captures…_ section (open capture alone by default;
       opens for a setup with other captures)
 - [x] Jitter, UDP loss, until stopped, a log line per capture

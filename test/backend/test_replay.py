@@ -584,6 +584,10 @@ def test_replay_parameters(opened: PcapService, ctx: RequestContext) -> None:
         opened.replay({"files": ["/nowhere/x.pcap"], "targets": {HI2: local}}, ctx)
     with pytest.raises(InvalidParamsError, match="at least one capture"):
         opened.replay({"capture": False, "targets": {HI2: local}}, ctx)
+    with pytest.raises(InvalidParamsError, match="openAt must be between 0"):
+        opened.replay({"openAt": 1, "targets": {HI2: local}}, ctx)  # (no other capture)
+    with pytest.raises(InvalidParamsError, match="openAt"):
+        opened.replay({"openAt": -1, "targets": {HI2: local}}, ctx)
 
 
 @pytest.mark.tshark
@@ -659,6 +663,10 @@ def test_targets_of_several_captures(
     alone = opened.replay_targets({"capture": False, "files": [str(later)]}, ctx)
     assert [s["name"] for s in alone["sources"]] == ["later.pcap"]
     assert {t["key"] for t in alone["targets"]} == {DNS, HI2, UDP, HI3}
+    # The open capture anywhere in the list.
+    moved = opened.replay_targets({"files": [str(later), str(notes)], "openAt": 1}, ctx)
+    assert [s["name"] for s in moved["sources"]] == ["later.pcap", "replay.pcap", "notes.pcap"]
+    assert [t["key"] for t in moved["targets"]] == list(targets)  # (by first data)
 
 
 @pytest.mark.tshark
@@ -691,6 +699,13 @@ def test_replay_plays_captures_one_after_another(
     ]
     captures = [p["capture"] for p in progress if p["phase"] == "replay" and p["capture"]]
     assert captures and captures[-1] == {"index": 2, "count": 2, "name": "later.pcap"}
+    # The open capture second: it plays after the other one.
+    progress.clear()
+    params = {"speed": 0, "files": [str(later)], "openAt": 1, "targets": targets}
+    result = opened.replay(params, ctx)
+    assert [s["name"] for s in result["sources"]] == ["later.pcap", "replay.pcap"]
+    log = _log(progress, result)
+    assert log.index("Playing later.pcap (1 of 2)") < log.index("Playing replay.pcap (2 of 2)")
 
 
 @pytest.mark.tshark

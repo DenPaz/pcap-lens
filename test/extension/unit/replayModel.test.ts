@@ -11,6 +11,7 @@ import {
   normalizeDestinations,
   normalizeOptions,
   normalizePresets,
+  openPosition,
   parseSetup,
   rememberDestinations,
   setupToJson,
@@ -145,6 +146,7 @@ suite("replay model", () => {
     const dir = path.resolve("/work/samples");
     const setup: ReplaySetup = {
       includeOpen: false,
+      openAt: 1,
       captures: [
         { path: path.join(dir, "ETSI", "llamada_MT.pcap"), enabled: true },
         { path: path.resolve("/elsewhere/other.pcapng"), enabled: false },
@@ -157,6 +159,7 @@ suite("replay model", () => {
     assert.equal(doc.format, "pcap-lens-replay");
     assert.equal(doc.captures[0].path, "ETSI/llamada_MT.pcap");
     assert.equal(doc.captures[1].path, "../../elsewhere/other.pcapng");
+    assert.equal(doc.openCapturePosition, 1);
     const back = parseSetup(text, dir);
     assert.ok("setup" in back);
     assert.deepEqual(back.setup, setup);
@@ -201,10 +204,37 @@ suite("replay model", () => {
       "tcp 10.0.0.1:80": { ip: "127.0.0.1", port: 8080, enabled: false },
     });
     assert.equal(parsed.setup.includeOpen, true);
+    assert.equal(parsed.setup.openAt, 0, "files from 0.25.2 play the open capture first");
     assert.deepEqual(parsed.setup.options, { ...DEFAULT_OPTIONS, speed: 2 });
     assert.deepEqual(parsed.problems, [
       "a capture without a path was left out",
       "tcp 10.0.0.1:81: not a recorded target with an IP and port",
     ]);
+  });
+
+  test("setup files: the open capture's position follows the captures kept", () => {
+    const read = (openCapturePosition: unknown, captures: unknown[]) => {
+      const doc = { format: "pcap-lens-replay", version: 1, openCapturePosition, captures };
+      const parsed = parseSetup(JSON.stringify(doc), path.resolve("/x"));
+      assert.ok("setup" in parsed);
+      return [parsed.setup.openAt, parsed.problems.length];
+    };
+    const abc = [{ path: "a.pcap" }, { path: "b.pcap" }, { path: "c.pcap" }];
+    assert.deepEqual(read(2, abc), [2, 0]);
+    assert.deepEqual(read(3, abc), [3, 0], "last");
+    assert.deepEqual(read(9, abc), [3, 0], "past the end: last");
+    // An entry before it is left out: it stays before the same capture.
+    assert.deepEqual(read(2, [{ path: "a.pcap" }, { enabled: true }, { path: "c.pcap" }]), [1, 1]);
+    assert.deepEqual(read(1, [{}, { path: "b.pcap" }]), [0, 1]);
+    assert.deepEqual(read(-1, abc), [0, 1], "not a position: first, and said");
+    assert.deepEqual(read(1.5, abc), [0, 1]);
+  });
+
+  test("openPosition: a whole number within the list, else first", () => {
+    assert.equal(openPosition(2, 3), 2);
+    assert.equal(openPosition(5, 3), 3);
+    for (const bad of [-1, 1.5, "1", null, undefined]) {
+      assert.equal(openPosition(bad, 3), 0, String(bad));
+    }
   });
 });

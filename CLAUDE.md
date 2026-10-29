@@ -2097,7 +2097,9 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   tshark options); `_Source` per capture, targets cached per source
   (`_replay_targets` keyed `("open", scope)` or `("file", path, size,
 mtime_ns)`), merged by key, plus `sources` rows (`error` when tshark
-  can't read one) and `span`. `replay`: `order` sequence (the generator
+  can't read one) and `span`; `openAt` (0…len(files), default 0) puts the
+  open capture among the files (targets stay sorted by first data, so
+  moving a capture doesn't change them). `replay`: `order` sequence (the generator
   yields a `start` event per capture; the timeline restarts its clock and
   logs "Playing x (i of n)", and `_offset` keeps the fraction across
   captures) or merged (`merge_by_time`, heapq over each capture's planner
@@ -2117,12 +2119,16 @@ mtime_ns)`), merged by key, plus `sources` rows (`error` when tshark
   `#replay-more-count` says what was added and plays, or that the open
   capture is left out; a loaded setup with other captures opens it), holds
   _Add Captures…_ (`filesAdded`, checked), _Add Folder…_
-  (`isCaptureFileName`, unchecked), the Captures list (the open capture's
-  checkbox, then the files, ↑/↓/✕, each row's targets/packets/time or
-  error) and _Play_ one after another / merged; then _Until stopped_, _Jitter
+  (`isCaptureFileName`, unchecked), the Captures list (`listed()`: the
+  files with the open capture at `state.openAt`; ↑/↓ on every row,
+  `moveCapture`, ✕ on the files; each row's targets/packets/time or error;
+  `playedOpenAt()` = the backend's `openAt`, the played files before it)
+  and _Play_ one after another / merged; then _Until stopped_, _Jitter
   (ms)_ (disabled at no pauses), _UDP loss (%)_, and setup files
   (`replayModel.setupToJson`/`parseSetup`: `format` `pcap-lens-replay`,
-  paths relative to the file's folder; `missing` captures unchecked; loading
+  paths relative to the file's folder, `openCapturePosition` (`openPosition`:
+  missing or bad = first; counted in the file's list, so dropped entries
+  before it keep it before the same capture); `missing` captures unchecked; loading
   clears the preset choice, else the preset overwrote the setup's
   destinations); then a
   table of the recorded targets (checkbox, counts, retransmissions and gaps

@@ -195,11 +195,14 @@ export interface SetupTarget extends ReplayDestination {
 
 /**
  * Everything a replay needs besides the open capture: the other captures in
- * order, whether the open one plays, the destinations and the options. Saved
- * as a JSON file (`setupToJson`) to keep next to the captures and share.
+ * order, whether the open one plays and where it goes among them, the
+ * destinations and the options. Saved as a JSON file (`setupToJson`) to keep
+ * next to the captures and share.
  */
 export interface ReplaySetup {
   includeOpen: boolean;
+  /** How many of `captures` come before the open capture (0: it plays first). */
+  openAt: number;
   captures: SetupCapture[];
   targets: Record<string, SetupTarget>;
   options: ReplayOptions;
@@ -208,6 +211,14 @@ export interface ReplaySetup {
 /** The format's name and version in a setup file. */
 export const SETUP_FORMAT = "pcap-lens-replay";
 export const SETUP_VERSION = 1;
+
+/**
+ * Where the open capture goes among `count` other captures: a whole number
+ * from 0 (first) to `count` (last); anything else puts it first.
+ */
+export function openPosition(raw: unknown, count: number): number {
+  return typeof raw === "number" && Number.isInteger(raw) && raw >= 0 ? Math.min(raw, count) : 0;
+}
 
 /** A path as a setup file keeps it: relative to the file's folder (forward slashes) when it can be. */
 function storedPath(file: string, baseDir: string): string {
@@ -221,6 +232,7 @@ export function setupToJson(setup: ReplaySetup, baseDir: string): string {
     format: SETUP_FORMAT,
     version: SETUP_VERSION,
     includeOpenCapture: setup.includeOpen,
+    openCapturePosition: openPosition(setup.openAt, setup.captures.length),
     captures: setup.captures.map((c) => ({
       path: storedPath(c.path, baseDir),
       enabled: c.enabled,
@@ -258,7 +270,17 @@ export function parseSetup(
   }
   const problems: string[] = [];
   const captures: SetupCapture[] = [];
-  for (const c of Array.isArray(d.captures) ? d.captures : []) {
+  // (Counted in the file's list; entries left out before it move it up. Files
+  // without it, from 0.25.2, play the open capture first.)
+  const wanted = openPosition(d.openCapturePosition, Number.MAX_SAFE_INTEGER);
+  if (d.openCapturePosition !== undefined && wanted !== d.openCapturePosition) {
+    problems.push("openCapturePosition isn't a whole number from 0: the open capture plays first");
+  }
+  let openAt: number | undefined;
+  for (const [i, c] of (Array.isArray(d.captures) ? d.captures : []).entries()) {
+    if (i === wanted) {
+      openAt = captures.length;
+    }
     const item = c && typeof c === "object" ? (c as Record<string, unknown>) : {};
     if (typeof item.path !== "string" || !item.path.trim()) {
       problems.push("a capture without a path was left out");
@@ -274,6 +296,7 @@ export function parseSetup(
     }
     captures.push({ path: full, enabled: item.enabled !== false });
   }
+  openAt ??= captures.length; // (past the list's end: after every capture kept)
   const targets: Record<string, SetupTarget> = {};
   const rawTargets = d.targets && typeof d.targets === "object" ? d.targets : {};
   for (const [key, value] of Object.entries(rawTargets as Record<string, unknown>)) {
@@ -288,6 +311,7 @@ export function parseSetup(
   return {
     setup: {
       includeOpen: d.includeOpenCapture !== false,
+      openAt,
       captures,
       targets,
       options: normalizeOptions(d.options),

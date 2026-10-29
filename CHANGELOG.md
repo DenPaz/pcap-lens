@@ -15,8 +15,9 @@ commit) that made it. The format follows
   or merged by their recorded times (Add Captures…, Add Folder…, in a
   folded _More captures…_ section: the panel shows the open capture alone
   until asked), with jitter, random UDP loss, Until stopped, a log line per
-  capture, and setups saved as JSON files to share. [163d7d3] [ce54722]
-  [8ce0175]
+  capture, and setups saved as JSON files to share. The open capture moves
+  in the list like the others, so it can play after them. [163d7d3]
+  [ce54722] [8ce0175]
 
 ### Changed
 
