@@ -16,6 +16,7 @@ commit) that made it. The format follows
   folded _More captures…_ section: the panel shows the open capture alone
   until asked), with jitter, random UDP loss, Until stopped, a log line per
   capture, and setups saved as JSON files to share. [163d7d3] [ce54722]
+  [8ce0175]
 
 ### Changed
 
@@ -23,6 +24,7 @@ commit) that made it. The format follows
 
 [163d7d3]: https://github.com/DenPaz/pcap-lens/commit/163d7d3
 [ce54722]: https://github.com/DenPaz/pcap-lens/commit/ce54722
+[8ce0175]: https://github.com/DenPaz/pcap-lens/commit/8ce0175
 
 ## 0.25.1 — 2026-10-29
 
