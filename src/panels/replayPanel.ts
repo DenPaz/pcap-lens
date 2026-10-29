@@ -336,6 +336,7 @@ export class ReplayPanel {
       DESTINATIONS_KEY,
       rememberDestinations(this.context.globalState.get(DESTINATIONS_KEY), mapping),
     );
+    const filter = this.scopeFilter(opts.scope);
     const started = Date.now();
     // The whole log, for Save Results… (the panel keeps the last lines only).
     const log: ReplayLogLine[] = [];
@@ -370,7 +371,7 @@ export class ReplayPanel {
     const pending = client.send<ReplayResult>(
       "replay",
       {
-        filter: this.scopeFilter(opts.scope),
+        filter,
         capture: sources.capture,
         files,
         openAt: openPosition(sources.openAt, files.length),
@@ -396,7 +397,7 @@ export class ReplayPanel {
         started: new Date(started).toISOString(),
         ended: new Date().toISOString(),
         options: opts,
-        filter: this.scopeFilter(opts.scope),
+        filter, // (as sent: the viewer's filter may change meanwhile)
         files,
         includeOpen: sources.capture,
         openAt: openPosition(sources.openAt, files.length),
