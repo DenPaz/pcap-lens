@@ -17,7 +17,7 @@ commit) that made it. The format follows
   until asked), with jitter, random UDP loss, Until stopped, a log line per
   capture, and setups saved as JSON files to share. The open capture moves
   in the list like the others, so it can play after them. [163d7d3]
-  [ce54722] [8ce0175]
+  [ce54722] [8ce0175] [c86a898]
 
 ### Changed
 
@@ -26,6 +26,7 @@ commit) that made it. The format follows
 [163d7d3]: https://github.com/DenPaz/pcap-lens/commit/163d7d3
 [ce54722]: https://github.com/DenPaz/pcap-lens/commit/ce54722
 [8ce0175]: https://github.com/DenPaz/pcap-lens/commit/8ce0175
+[c86a898]: https://github.com/DenPaz/pcap-lens/commit/c86a898
 
 ## 0.25.1 — 2026-10-29
 
