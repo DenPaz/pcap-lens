@@ -2803,3 +2803,5 @@ Then what the real captures found (cut-short captures, tshark crashes named,
 pcap's 2038 limit, a retransmitted SYN's data replayed once): 0.25.1.
 Then Replay to… with several captures (one after another or merged by time),
 jitter, UDP loss, until stopped and setup files: 0.25.2.
+Then Save Results… for a replay, and Go to Packet only for the open capture's
+targets: 0.25.3.

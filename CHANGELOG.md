@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.25.3 — 2026-10-29
+
 ### Added
 
 - Replay to…: Save Results… writes the last replay's summary, each capture's
