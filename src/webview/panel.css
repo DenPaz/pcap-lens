@@ -1055,6 +1055,14 @@ table.replay-capture-list .replay-failed {
   text-align: right;
 }
 
+/* The Log heading with Save Results… on its right. */
+.replay-log-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
 #replay-all-ip {
   width: 16ch;
 }

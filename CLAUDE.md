@@ -2101,7 +2101,9 @@ mtime_ns)`), merged by key, plus `sources` rows (`error` when tshark
   open capture among the files (targets stay sorted by first data, so
   moving a capture doesn't change them; merged with the open capture's
   first, so a shared target keeps its `firstFrame` and dissected `protocol`
-  wherever it plays: Codex review). `replay`: `order` sequence (the generator
+  wherever it plays: Codex review; a target only other captures record has
+  `firstFrame: null` and `recordedIn`, so the panel's row offers no Go to
+  Packet, whose frame would be another capture's, and names the capture). `replay`: `order` sequence (the generator
   yields a `start` event per capture; the timeline restarts its clock and
   logs "Playing x (i of n)", and `_offset` keeps the fraction across
   captures) or merged (`merge_by_time`, heapq over each capture's planner
@@ -2149,7 +2151,11 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   marks the input `aria-invalid`); while it runs the inputs are disabled,
   progress updates a 2 px bar, the status (`lib.replayStatusText`), each
   row's Sent/Received/Result (`lib.replayOutcome`, error color when a
-  target had errors) and the log (`#replay-log`, 2000 lines); Stop is
+  target had errors) and the log (`#replay-log`, 2000 lines; the host
+  keeps the whole log, `MAX_SAVED_LOG`, for _Save Results…_ beside the Log
+  heading: `ReplayPanel.lastRun` → `replayModel.resultsToText`, or
+  `resultsToJson` for a `.json` name; `saveResults(uri)` skips the dialog
+  in the smoke test); Stop is
   `replay_stop`, so the summary (`lib.replaySummary`) still comes (while the
   request is still starting, `{stopped: false}`, the request is cancelled
   instead: Codex review); closing
@@ -2202,6 +2208,18 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   ending early is not a failure; used wherever a pass may find nothing),
   pcap's 2038 limit and Show File Format's unknown formats. tcpdump's
   612 (`--quick`) found the retransmitted SYN's data sent twice.
+  `_replay_several` (after a clean single replay, which returns a
+  `Baseline`): `scope_copy` writes `REPLAY_SCOPE`'s packets with `tshark
+-w`, then the open capture plus that copy are replayed one after another
+  (`openAt` 1: the copy first) and merged by time (identical times: every
+  flow twice at once). Each must send exactly twice the baseline's bytes
+  and deliver twice its connections' contents and datagrams (a multiset;
+  datagrams a loopback buffer drops are a note), and the merged targets
+  must be twice the baseline's with the open capture's `firstFrame`. When
+  tshark itself reads fewer replayable packets in the copy (`replayable`: a
+  pcapng lost an ATM Sniffer file's LANE details), that is a note, not a
+  check. Wireshark's 290: 212 captures replayed twice; tcpdump's 612
+  (`--quick`): 246; no problems.
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage
@@ -2785,3 +2803,5 @@ Then what the real captures found (cut-short captures, tshark crashes named,
 pcap's 2038 limit, a retransmitted SYN's data replayed once): 0.25.1.
 Then Replay to… with several captures (one after another or merged by time),
 jitter, UDP loss, until stopped and setup files: 0.25.2.
+Then Save Results… for a replay, and Go to Packet only for the open capture's
+targets: 0.25.3.

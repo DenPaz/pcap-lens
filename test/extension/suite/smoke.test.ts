@@ -261,6 +261,26 @@ suite("PCAP Lens smoke test", () => {
         Buffer.concat(received).toString("latin1"),
         /^GET \/index\.html HTTP\/1\.1\r\nHost: example\.com\r\n/,
       );
+      // Save Results… as text and as JSON (by the name's extension).
+      const out = fs.mkdtempSync(path.join(os.tmpdir(), "pcap-smoke-results-"));
+      try {
+        await replay.saveResults(vscode.Uri.file(path.join(out, "run.txt")));
+        const text = fs.readFileSync(path.join(out, "run.txt"), "utf8");
+        assert.match(text, /^PCAP Lens replay results\n/);
+        assert.match(
+          text,
+          new RegExp(
+            `tcp 93\\.184\\.216\\.34:80 → 127\\.0\\.0\\.1:${port}: 1 of 1 connection opened`,
+          ),
+        );
+        await replay.saveResults(vscode.Uri.file(path.join(out, "run.json")));
+        const json = JSON.parse(fs.readFileSync(path.join(out, "run.json"), "utf8"));
+        assert.equal(json.format, "pcap-lens-replay-results");
+        assert.equal(json.targets[0].opened, 1);
+        assert.ok(json.log.length > 0);
+      } finally {
+        removeDir(out);
+      }
     } finally {
       service.close();
     }
@@ -679,7 +699,10 @@ suite("PCAP Lens smoke test", () => {
         "pcapViewer.importWiresharkProfile",
         { profile: shipped.name, kinds: ["coloringRules"] },
       );
-      assert.ok(imported?.coloringRules, "its coloring rules were imported");
+      assert.ok(
+        imported?.coloringRules,
+        `its coloring rules were imported (${shipped.name}: ${JSON.stringify(imported)})`,
+      );
       const rules = vscode.workspace.getConfiguration("pcapViewer").get<unknown[]>("coloringRules");
       assert.equal(rules?.length, imported.coloringRules);
     } finally {

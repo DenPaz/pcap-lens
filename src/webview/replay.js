@@ -31,7 +31,7 @@
   /**
    * @typedef {{key: string, proto: string, ip: string, port: number, connections: number,
    *   packets: number, bytes: number, retransmissions: number, gaps: number,
-   *   firstFrame: number, protocol: string}} Target
+   *   firstFrame: number | null, recordedIn?: string, protocol: string}} Target
    * @typedef {{ip: string, port: number}} Destination
    * @typedef {{name: string, targets: Record<string, Destination>}} Preset
    * @typedef {{key: string, connections: number, opened: number, refused: number, reset: number,
@@ -53,6 +53,8 @@
     /** @type {string | null} */ selected: null,
     running: false,
     loading: false,
+    /** A replay finished: its results can be saved. */
+    finished: false,
     /** The loops of the running (or last) replay (0: until stopped). */
     loops: 1,
     /** The open capture plays too. */
@@ -261,7 +263,16 @@
     [fill],
   );
   const tableBox = h("div", { class: "replay-targets" });
-  const logHead = h("h2", { class: "panel-subtitle-h" }, ["Log"]);
+  const saveResultsBtn = kit.withIcon(
+    h("button", { type: "button", class: "secondary", id: "replay-save-results", disabled: "" }, [
+      "Save Results…",
+    ]),
+    "save",
+  );
+  const logHead = h("div", { class: "replay-log-head" }, [
+    h("h2", { class: "panel-subtitle-h" }, ["Log"]),
+    saveResultsBtn,
+  ]);
   // (Focusable: it scrolls, and keyboard users must reach what it holds.)
   const log = h("ol", {
     id: "replay-log",
@@ -300,6 +311,7 @@
   addCapturesBtn.addEventListener("click", () => vscode.postMessage({ type: "addCaptures" }));
   addFolderBtn.addEventListener("click", () => vscode.postMessage({ type: "addFolder" }));
   loadSetupBtn.addEventListener("click", () => vscode.postMessage({ type: "loadSetup" }));
+  saveResultsBtn.addEventListener("click", () => vscode.postMessage({ type: "saveResults" }));
   saveSetupBtn.addEventListener("click", () =>
     vscode.postMessage({ type: "saveSetup", setup: currentSetup() }),
   );
@@ -339,6 +351,8 @@
       addFiles(msg.files ?? [], !!msg.enabled);
     } else if (msg.type === "setup") {
       applySetup(msg);
+    } else if (msg.type === "resultsSaved") {
+      statusText.textContent = `Results saved as ${msg.name}.`;
     } else if (msg.type === "setupSaved") {
       statusText.textContent = `Setup saved as ${msg.name}.`;
     } else if (msg.type === "filter") {
@@ -737,7 +751,12 @@
       const tr = /** @type {HTMLTableRowElement} */ (
         h("tr", { "data-key": t.key }, [
           h("td", {}, [use]),
-          h("td", {}, [t.key]),
+          t.recordedIn
+            ? h("td", { title: `Recorded in ${t.recordedIn}, not in the open capture's packets` }, [
+                t.key,
+                h("span", { class: "replay-dim" }, [` (${t.recordedIn})`]),
+              ])
+            : h("td", {}, [t.key]),
           h("td", {}, [t.protocol]),
           h("td", { class: "num" }, [t.connections.toLocaleString()]),
           packets,
@@ -963,6 +982,10 @@
     orderSelect.toggleAttribute("disabled", state.running || playedCount() < 2);
     savePresetBtn.toggleAttribute("disabled", state.running || !chosen);
     deletePresetBtn.toggleAttribute("disabled", state.running || !presetSelect.value);
+    saveResultsBtn.toggleAttribute("disabled", state.running || !state.finished);
+    saveResultsBtn.title = state.finished
+      ? "Save the last replay's summary, counts and whole log (text or JSON)"
+      : "Run a replay first";
     for (const row of state.rows.values()) {
       for (const input of [row.use, row.ip, row.port]) {
         input.toggleAttribute("disabled", state.running);
@@ -1072,6 +1095,7 @@
   /** @param {any} result */
   function done(result) {
     state.running = false;
+    state.finished = true;
     bar.classList.add("hidden");
     showStats(result.targets);
     appendLog(result.log ?? []);
@@ -1130,13 +1154,22 @@
         return null;
       }
       const dest = `${row.ip.value.trim()}:${row.port.value.trim()}`;
+      const frame = t.firstFrame;
+      // (Only the open capture's packets can be shown: another capture's
+      // frame numbers would go to an unrelated packet.)
+      const goto =
+        frame === null
+          ? []
+          : [
+              {
+                label: `Go to Packet ${frame}`,
+                icon: "go-to-file",
+                action: () => vscode.postMessage({ type: "goto", frame }),
+              },
+              "-",
+            ];
       return [
-        {
-          label: `Go to Packet ${t.firstFrame}`,
-          icon: "go-to-file",
-          action: () => vscode.postMessage({ type: "goto", frame: t.firstFrame }),
-        },
-        "-",
+        ...goto,
         {
           label: "Copy",
           icon: "copy",

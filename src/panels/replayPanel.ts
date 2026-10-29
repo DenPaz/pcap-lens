@@ -4,9 +4,14 @@ import { ErrorCodes, Progress, RpcError } from "../backendClient";
 import type { PcapEditorSession } from "../pcapEditor";
 import {
   MAX_FILES,
+  MAX_SAVED_LOG,
   ReplayDestination,
+  ReplayLogLine,
   ReplayOptions,
+  ReplayRun,
   ReplaySetup,
+  ReplaySourceResult,
+  ReplayTargetResult,
   isCaptureFileName,
   normalizeDestinations,
   normalizeOptions,
@@ -14,6 +19,8 @@ import {
   openPosition,
   parseSetup,
   rememberDestinations,
+  resultsToJson,
+  resultsToText,
   setupToJson,
   withPreset,
   withoutPreset,
@@ -38,7 +45,10 @@ export interface ReplayTarget {
   gaps: number;
   first: number | null;
   last: number | null;
-  firstFrame: number;
+  /** A packet of the open capture; null when only other captures record the target. */
+  firstFrame: number | null;
+  /** The capture that records it, when the open one doesn't. */
+  recordedIn?: string;
   protocol: string;
 }
 
@@ -60,6 +70,7 @@ export interface ReplayResult {
   loops: number;
   speed: number;
   targets: Record<string, unknown>[];
+  sources?: Record<string, unknown>[];
   log: Record<string, unknown>[];
 }
 
@@ -74,6 +85,7 @@ type FromPanel =
   | { type: "addCaptures" }
   | { type: "addFolder" }
   | { type: "saveSetup"; setup: ReplaySetup }
+  | { type: "saveResults" }
   | { type: "loadSetup" }
   | { type: "stop" }
   | { type: "savePreset"; name: string; targets: Record<string, ReplayDestination> }
@@ -119,6 +131,8 @@ export class ReplayPanel {
   /** The last targets and replay result (for tests). */
   targets: ReplayTarget[] | undefined;
   result: ReplayResult | undefined;
+  /** The last finished replay, for Save Results…. */
+  lastRun: ReplayRun | undefined;
   private listing: number | undefined;
   /** Bumped per targets request: an older one's answer is dropped. */
   private listSeq = 0;
@@ -200,6 +214,8 @@ export class ReplayPanel {
         return this.addFolder();
       case "saveSetup":
         return this.saveSetup(msg.setup);
+      case "saveResults":
+        return this.saveResults();
       case "loadSetup":
         return this.loadSetup();
       case "stop":
@@ -320,7 +336,20 @@ export class ReplayPanel {
       DESTINATIONS_KEY,
       rememberDestinations(this.context.globalState.get(DESTINATIONS_KEY), mapping),
     );
+    const filter = this.scopeFilter(opts.scope);
     const started = Date.now();
+    // The whole log, for Save Results… (the panel keeps the last lines only).
+    const log: ReplayLogLine[] = [];
+    let logOmitted = 0;
+    const keepLog = (lines: unknown) => {
+      for (const line of Array.isArray(lines) ? (lines as ReplayLogLine[]) : []) {
+        if (log.length < MAX_SAVED_LOG) {
+          log.push(line);
+        } else {
+          logOmitted += 1;
+        }
+      }
+    };
     const status = {
       targets: Object.keys(mapping).length,
       sent: 0,
@@ -331,6 +360,7 @@ export class ReplayPanel {
     };
     const onProgress = (p: Progress) => {
       this.post({ type: "progress", progress: p });
+      keepLog((p as { log?: unknown }).log);
       const r = p as Progress & { loop?: number; sent?: number; received?: number };
       status.sent = r.sent ?? status.sent;
       status.received = r.received ?? status.received;
@@ -341,7 +371,7 @@ export class ReplayPanel {
     const pending = client.send<ReplayResult>(
       "replay",
       {
-        filter: this.scopeFilter(opts.scope),
+        filter,
         capture: sources.capture,
         files,
         openAt: openPosition(sources.openAt, files.length),
@@ -361,6 +391,24 @@ export class ReplayPanel {
     this.session.showReplay({ ...status });
     try {
       this.result = await pending.promise;
+      keepLog(this.result.log);
+      this.lastRun = {
+        capture: this.session.uri.fsPath,
+        started: new Date(started).toISOString(),
+        ended: new Date().toISOString(),
+        options: opts,
+        filter, // (as sent: the viewer's filter may change meanwhile)
+        files,
+        includeOpen: sources.capture,
+        openAt: openPosition(sources.openAt, files.length),
+        stopped: this.result.stopped,
+        seconds: this.result.seconds,
+        loops: this.result.loops,
+        targets: this.result.targets as unknown as ReplayTargetResult[],
+        sources: (this.result.sources ?? []) as unknown as ReplaySourceResult[],
+        log,
+        logOmitted,
+      };
       this.post({ type: "done", result: this.result });
     } catch (err) {
       this.postError("replay", err);
@@ -454,6 +502,34 @@ export class ReplayPanel {
     const text = setupToJson(setup, path.dirname(uri.fsPath));
     await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(text));
     this.post({ type: "setupSaved", name: path.basename(uri.fsPath) });
+  }
+
+  /**
+   * Save the last replay's summary, counts and whole log: text, or JSON when
+   * the name ends in .json (`dest` skips the dialog: the smoke test).
+   */
+  async saveResults(dest?: vscode.Uri): Promise<void> {
+    const run = this.lastRun;
+    if (!run) {
+      return;
+    }
+    const stamp = run.started.replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
+    const stem = path.basename(run.capture).replace(/\.[^.]+$/, "");
+    const uri =
+      dest ??
+      (await vscode.window.showSaveDialog({
+        title: "Save Replay Results",
+        defaultUri: vscode.Uri.joinPath(this.folder, `replay-${stem}-${stamp}.txt`),
+        filters: { Text: ["txt"], JSON: ["json"] },
+      }));
+    if (!uri) {
+      return;
+    }
+    const text = uri.fsPath.toLowerCase().endsWith(".json")
+      ? resultsToJson(run)
+      : resultsToText(run);
+    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(text));
+    this.post({ type: "resultsSaved", name: path.basename(uri.fsPath) });
   }
 
   private async loadSetup(): Promise<void> {

@@ -319,3 +319,176 @@ export function parseSetup(
     problems,
   };
 }
+
+// --- results ---------------------------------------------------------------
+
+/** Log lines a run keeps for Save Results… (the first ones; the rest are counted). */
+export const MAX_SAVED_LOG = 100_000;
+
+/** One line of a replay's log, as the backend reports it. */
+export interface ReplayLogLine {
+  time: number;
+  level: string;
+  text: string;
+  target?: string;
+}
+
+/** A target's counts after a replay (replay.TargetStats). */
+export interface ReplayTargetResult {
+  key: string;
+  to: string;
+  connections: number;
+  opened: number;
+  refused: number;
+  reset: number;
+  closedByPeer: number;
+  packets: number;
+  bytes: number;
+  dropped: number;
+  received: number;
+  datagrams: number;
+  lost: number;
+  errors: string[];
+  errorCount: number;
+}
+
+/** A capture's counts after a replay (replay.SourceStats). */
+export interface ReplaySourceResult {
+  name: string;
+  packets: number;
+  bytes: number;
+  lost: number;
+  retransmissions: number;
+  gaps: number;
+}
+
+/** One finished replay, as Save Results… writes it. */
+export interface ReplayRun {
+  /** The open capture's path. */
+  capture: string;
+  /** ISO times. */
+  started: string;
+  ended: string;
+  options: ReplayOptions;
+  /** The display filter of the open capture's packets ("" = all). */
+  filter: string;
+  /** Other captures played, in order, and where the open one went among them. */
+  files: string[];
+  includeOpen: boolean;
+  openAt: number;
+  stopped: boolean;
+  seconds: number;
+  /** Loops completed. */
+  loops: number;
+  targets: ReplayTargetResult[];
+  sources: ReplaySourceResult[];
+  log: ReplayLogLine[];
+  /** Log lines past MAX_SAVED_LOG. */
+  logOmitted: number;
+}
+
+export const RESULTS_FORMAT = "pcap-lens-replay-results";
+
+/** A run as JSON (`format` pcap-lens-replay-results, version 1). */
+export function resultsToJson(run: ReplayRun): string {
+  return JSON.stringify({ format: RESULTS_FORMAT, version: 1, ...run }, null, 2) + "\n";
+}
+
+function size(bytes: number): string {
+  const units = ["B", "KB", "MB", "GB"];
+  let n = bytes;
+  let unit = 0;
+  while (n >= 1000 && unit < units.length - 1) {
+    n /= 1000;
+    unit += 1;
+  }
+  return unit ? `${n.toFixed(1)} ${units[unit]}` : `${n} B`;
+}
+
+const plural = (n: number, one: string, many = `${one}s`) =>
+  `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
+
+/** What happened to one target, in words (like the panel's Result column). */
+export function targetOutcome(t: ReplayTargetResult): string {
+  const parts: string[] = [];
+  if (t.key.startsWith("udp")) {
+    parts.push(plural(t.datagrams, "datagram"));
+    if (t.lost) {
+      parts.push(`${plural(t.lost, "datagram")} lost on purpose`);
+    }
+  } else {
+    parts.push(
+      `${t.opened.toLocaleString("en-US")} of ${plural(t.connections, "connection")} opened`,
+    );
+    if (t.refused) {
+      parts.push(`${t.refused.toLocaleString("en-US")} refused`);
+    }
+    if (t.reset) {
+      parts.push(`${t.reset.toLocaleString("en-US")} reset`);
+    }
+    if (t.closedByPeer) {
+      parts.push(`${t.closedByPeer.toLocaleString("en-US")} closed by the service`);
+    }
+  }
+  parts.push(`${size(t.bytes)} sent`, `${size(t.received)} received`);
+  if (t.dropped) {
+    parts.push(`${size(t.dropped)} not read by the service`);
+  }
+  if (t.errorCount) {
+    parts.push(plural(t.errorCount, "error"));
+  }
+  return parts.join(", ");
+}
+
+/** A run as plain text: what ran, then each capture and target, then the log. */
+export function resultsToText(run: ReplayRun): string {
+  const o = run.options;
+  const lines = [
+    "PCAP Lens replay results",
+    "",
+    `Capture:  ${run.capture}`,
+    `Started:  ${run.started}`,
+    `Ended:    ${run.ended} (${run.seconds.toFixed(1)} s${run.stopped ? ", stopped" : ""})`,
+    "Options:  " +
+      [
+        o.speed > 0 ? `speed ${o.speed}×` : "no pauses",
+        o.loops === 0
+          ? `until stopped (${plural(run.loops, "loop")} played)`
+          : `${plural(run.loops, "loop")} of ${o.loops}`,
+        run.files.length ? (o.order === "merged" ? "merged by time" : "one after another") : "",
+        o.speed > 0 && o.jitter ? `jitter ±${o.jitter} ms` : "",
+        o.loss ? `UDP loss ${o.loss}%` : "",
+        run.filter ? `packets: ${run.filter}` : "packets: all",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    "",
+    "Captures:",
+  ];
+  for (const s of run.sources) {
+    const notes = [
+      `${plural(s.packets, "packet")} sent (${size(s.bytes)})`,
+      s.lost ? `${plural(s.lost, "datagram")} lost on purpose` : "",
+      s.retransmissions ? `${plural(s.retransmissions, "retransmission")} skipped` : "",
+      s.gaps ? `${plural(s.gaps, "gap")} in the capture` : "",
+    ].filter(Boolean);
+    lines.push(`  ${s.name}: ${notes.join(", ")}`);
+  }
+  lines.push("", "Targets:");
+  for (const t of run.targets) {
+    lines.push(`  ${t.key} → ${t.to}: ${targetOutcome(t)}`);
+    for (const e of t.errors) {
+      lines.push(`    error: ${e}`);
+    }
+  }
+  lines.push("", "Log:");
+  for (const l of run.log) {
+    const target = l.target ? `${l.target}  ` : "";
+    const level = l.level === "error" ? "ERROR " : "";
+    lines.push(`  ${l.time.toFixed(3).padStart(10)} s  ${level}${target}${l.text}`);
+  }
+  if (run.logOmitted) {
+    lines.push(`  (${plural(run.logOmitted, "more line")} not kept)`);
+  }
+  return lines.join("\n") + "\n";
+}

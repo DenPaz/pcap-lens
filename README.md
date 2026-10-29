@@ -488,6 +488,9 @@ While it runs, each row shows what was sent and received and what happened
 capture plays, with a line per capture when it ends (packets sent, lost on
 purpose, retransmissions skipped), and the viewer's status bar shows
 _Replaying…_ with a Stop button. **Stop** ends it cleanly with a summary.
+**Save Results…** (beside the log) writes the last replay's summary, each
+capture's and target's counts and the whole log, as text or JSON, to keep
+with a test run or attach to a report.
 
 How it works: every recorded TCP connection becomes a new connection to its
 destination, carrying the bytes its client sent, once and in order

@@ -115,8 +115,12 @@ class ReplayMixin(ServiceBase):
         first to the last packet of all (merged by time); a capture that
         can't be read has an ``error`` and no targets. ``protocol`` is the
         packet list's Protocol column of the first data packet (the open
-        capture's; another capture's targets show the transport). Cached per
-        capture and scope. The open capture must be completely indexed."""
+        capture's; another capture's targets show the transport).
+        ``firstFrame`` is a packet of the open capture: a target it doesn't
+        record (or every target, with ``capture`` false) has ``firstFrame:
+        null`` and ``recordedIn``, the first capture in play order that has
+        it. Cached per capture and scope. The open capture must be
+        completely indexed."""
         f = self._require_file()
         sources = self._replay_sources(f, params, ctx)
         merged: dict[str, dict[str, Any]] = {}
@@ -126,10 +130,13 @@ class ReplayMixin(ServiceBase):
         # target keeps its firstFrame (Go to Packet in the viewer) and its
         # dissected protocol. The sums, minimums and maximums don't mind.
         for plan in sorted(plans, key=lambda plan: plan["source"]["file"] is not None):
+            other = plan["source"]["file"] is not None
             for t in plan["targets"]:
                 have = merged.get(t["key"])
                 if have is None:
                     merged[t["key"]] = dict(t)
+                    if other:  # (its frame numbers aren't the viewer's)
+                        merged[t["key"]].update(firstFrame=None, recordedIn=plan["source"]["name"])
                     continue
                 for k in ("connections", "packets", "bytes", "retransmissions", "gaps"):
                     have[k] += t[k]

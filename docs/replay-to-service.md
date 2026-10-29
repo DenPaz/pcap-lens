@@ -159,6 +159,13 @@ _PCAP: Replay to…_ (☰ Capture, or the editor title's overflow menu; titled
   and received bytes and result (opened, refused, reset, errors), and a
   log. The summary says how long it took, what was sent, what wasn't
   delivered and how many errors there were.
+- **Save Results…** (after 0.25.2; beside the Log heading, once a replay
+  ended): the host keeps the whole log from the progress reports (the panel
+  shows the last 2000 lines; `MAX_SAVED_LOG` 100,000, the rest counted) and
+  writes `replayModel.resultsToText` (what ran, each capture and target,
+  the log) or, for a `.json` name, `resultsToJson` (`format`
+  `"pcap-lens-replay-results"`, version 1: the capture, times, options,
+  captures and `openAt`, per-target and per-capture counts, the log).
 - Public destinations are refused unless
   `pcapViewer.replay.allowPublicTargets` is on (application scope); the
   refusal links to the setting.
@@ -210,6 +217,13 @@ _PCAP: Replay to…_ (☰ Capture, or the editor title's overflow menu; titled
 - [x] Tests: backend (several captures, merged timing, loss, jitter, until
       stopped, unreadable files), model (options, setup files), lib, panel
       e2e with axe
+
+### After 0.25.2
+
+- [x] Go to Packet only for the open capture's targets (`firstFrame: null`
+      and `recordedIn` for the others)
+- [x] Save Results… (text or JSON)
+- [x] Real-capture harness: two captures one after another and merged
 
 ## Later
 
