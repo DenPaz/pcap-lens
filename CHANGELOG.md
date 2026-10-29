@@ -11,7 +11,9 @@ commit) that made it. The format follows
 
 - Replay to…: a recorded target only another capture holds no longer offers
   Go to Packet, which went to an unrelated packet of the open capture; its row
-  names the capture it was recorded in.
+  names the capture it was recorded in. [de58c3c]
+
+[de58c3c]: https://github.com/DenPaz/pcap-lens/commit/de58c3c
 
 ## 0.25.2 — 2026-10-29
 
