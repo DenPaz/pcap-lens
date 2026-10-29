@@ -14,7 +14,10 @@ pcap-viewer-backend = "pcap_backend.server:main"
 
 [dependency-groups]
 dev = [
-    "pytest>=8",
+    # pytest-bdd 9.0.0 (its latest) reads FixtureManager._arg2fixturedefs, which
+    # pytest 9.2 renamed: every acceptance scenario fails. Lift the cap when a
+    # pytest-bdd release supports 9.2.
+    "pytest>=8,<9.2",
     "ruff>=0.6",
     "mypy>=1.11",
     "scapy>=2.5",
