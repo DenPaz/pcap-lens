@@ -7,6 +7,11 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- Replay to…: Save Results… writes the last replay's summary, each capture's
+  and target's counts and the whole log, as text or JSON.
+
 ### Fixed
 
 - Replay to…: a recorded target only another capture holds no longer offers

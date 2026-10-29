@@ -2151,7 +2151,11 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   marks the input `aria-invalid`); while it runs the inputs are disabled,
   progress updates a 2 px bar, the status (`lib.replayStatusText`), each
   row's Sent/Received/Result (`lib.replayOutcome`, error color when a
-  target had errors) and the log (`#replay-log`, 2000 lines); Stop is
+  target had errors) and the log (`#replay-log`, 2000 lines; the host
+  keeps the whole log, `MAX_SAVED_LOG`, for _Save Results…_ beside the Log
+  heading: `ReplayPanel.lastRun` → `replayModel.resultsToText`, or
+  `resultsToJson` for a `.json` name; `saveResults(uri)` skips the dialog
+  in the smoke test); Stop is
   `replay_stop`, so the summary (`lib.replaySummary`) still comes (while the
   request is still starting, `{stopped: false}`, the request is cancelled
   instead: Codex review); closing

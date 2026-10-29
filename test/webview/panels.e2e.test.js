@@ -2003,6 +2003,8 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
           await replay.request("replay_stop", {});
         } else if (msg.type === "addCaptures") {
           await post({ type: "filesAdded", files: [later], enabled: true });
+        } else if (msg.type === "saveResults") {
+          await post({ type: "resultsSaved", name: "run.txt" });
         } else if (msg.type === "loadSetup" && setupToLoad) {
           await post({ type: "setup", name: "replay-setup.json", ...setupToLoad });
         }
@@ -2049,6 +2051,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       assert.match(await page.getAttribute("#replay-start", "title"), /port between 1 and 65535/);
       await page.fill(port3, String(hi3.port));
       assert.ok(!(await page.isDisabled("#replay-start")));
+      assert.ok(await page.isDisabled("#replay-save-results"), "nothing to save yet");
 
       await page.click("#replay-start");
       const start = await lastOfType(log, "start");
@@ -2089,6 +2092,13 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         (await page.$$eval("#replay-log li", (lis) => lis.map((li) => li.textContent))).some((t) =>
           t.includes(`connection 1 to 127.0.0.1:${hi3.port} opened`),
         ),
+      );
+      // Save Results… once a replay ended (the host writes the file).
+      assert.ok(!(await page.isDisabled("#replay-save-results")));
+      await page.click("#replay-save-results");
+      await expectLast(log, { type: "saveResults" });
+      await page.waitForFunction(
+        () => document.querySelector("#replay-status")?.textContent === "Results saved as run.txt.",
       );
 
       // Nothing listening: the row says so, in the error color, and the log has why.

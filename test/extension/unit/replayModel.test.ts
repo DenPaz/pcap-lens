@@ -14,7 +14,11 @@ import {
   openPosition,
   parseSetup,
   rememberDestinations,
+  ReplayRun,
+  resultsToJson,
+  resultsToText,
   setupToJson,
+  targetOutcome,
   withPreset,
   withoutPreset,
 } from "../../../src/replayModel";
@@ -236,5 +240,86 @@ suite("replay model", () => {
     for (const bad of [-1, 1.5, "1", null, undefined]) {
       assert.equal(openPosition(bad, 3), 0, String(bad));
     }
+  });
+
+  test("results: text and JSON of a finished replay", () => {
+    const tcp = {
+      key: "tcp 10.20.0.5:11001",
+      to: "127.0.0.1:2325",
+      connections: 3,
+      opened: 2,
+      refused: 1,
+      reset: 0,
+      closedByPeer: 0,
+      packets: 6,
+      bytes: 1500,
+      dropped: 0,
+      received: 0,
+      datagrams: 0,
+      lost: 0,
+      errors: ["connection 3: refused"],
+      errorCount: 1,
+    };
+    const udp = { ...tcp, key: "udp 10.20.0.5:11002", connections: 1, opened: 0, refused: 0 };
+    Object.assign(udp, { datagrams: 3, lost: 1, bytes: 24, errors: [], errorCount: 0 });
+    const run: ReplayRun = {
+      capture: "/work/delivery.pcap",
+      started: "2026-10-29T14:00:00.000Z",
+      ended: "2026-10-29T14:00:12.500Z",
+      options: { ...DEFAULT_OPTIONS, loops: 0, jitter: 5, loss: 25, order: "merged" },
+      filter: "tcp || udp",
+      files: ["/work/later.pcap"],
+      includeOpen: true,
+      openAt: 1,
+      stopped: true,
+      seconds: 12.5,
+      loops: 3,
+      targets: [tcp, udp],
+      sources: [
+        { name: "later.pcap", packets: 9, bytes: 762, lost: 1, retransmissions: 0, gaps: 0 },
+        { name: "delivery.pcap", packets: 9, bytes: 762, lost: 0, retransmissions: 2, gaps: 1 },
+      ],
+      log: [
+        { time: 0, level: "info", text: "loop 1" },
+        { time: 0.25, level: "error", text: "connection 3: refused", target: tcp.key },
+      ],
+      logOmitted: 4,
+    };
+    assert.equal(
+      targetOutcome(tcp),
+      "2 of 3 connections opened, 1 refused, 1.5 KB sent, 0 B received, 1 error",
+    );
+    assert.equal(
+      targetOutcome(udp),
+      "3 datagrams, 1 datagram lost on purpose, 24 B sent, 0 B received",
+    );
+    const text = resultsToText(run);
+    assert.equal(
+      text.split("\n").slice(0, 6).join("\n"),
+      [
+        "PCAP Lens replay results",
+        "",
+        "Capture:  /work/delivery.pcap",
+        "Started:  2026-10-29T14:00:00.000Z",
+        "Ended:    2026-10-29T14:00:12.500Z (12.5 s, stopped)",
+        "Options:  speed 1× · until stopped (3 loops played) · merged by time · jitter ±5 ms · UDP loss 25% · packets: tcp || udp",
+      ].join("\n"),
+    );
+    assert.match(text, /\n {2}later\.pcap: 9 packets sent \(762 B\), 1 datagram lost on purpose\n/);
+    assert.match(
+      text,
+      /delivery\.pcap: 9 packets sent \(762 B\), 2 retransmissions skipped, 1 gap in the capture/,
+    );
+    assert.match(
+      text,
+      /\n {2}tcp 10\.20\.0\.5:11001 → 127\.0\.0\.1:2325: 2 of 3 .*\n {4}error: connection 3: refused\n/,
+    );
+    assert.match(text, /\n {7}0\.250 s {2}ERROR tcp 10\.20\.0\.5:11001 {2}connection 3: refused\n/);
+    assert.match(text, /\(4 more lines not kept\)\n$/);
+    const doc = JSON.parse(resultsToJson(run));
+    assert.equal(doc.format, "pcap-lens-replay-results");
+    assert.equal(doc.version, 1);
+    assert.deepEqual(doc.targets, run.targets);
+    assert.equal(doc.openAt, 1);
   });
 });
