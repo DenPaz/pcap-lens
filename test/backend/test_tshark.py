@@ -70,6 +70,61 @@ def test_argv_is_a_list_with_options_first() -> None:
     assert t.argv("-G", "fields", dissect=False) == [str(exe), "-G", "fields"]
 
 
+@pytest.mark.parametrize(
+    ("code", "what"),
+    [
+        (-11, "a segmentation fault"),
+        (-6, "a failed internal check"),
+        (0xC0000005, "an access violation"),
+        (-9, None),  # killed (by us, or out of memory)
+        (-15, None),
+        (1, None),
+        (2, None),
+        (None, None),
+    ],
+)
+def test_crash(code: int | None, what: str | None) -> None:
+    assert ts.crash(code) == what
+
+
+def test_error_explains_a_crash() -> None:
+    err = Tshark(Path("tshark")).error("", -11, "tshark -z io,phs failed")
+    assert str(err).startswith("tshark crashed (a segmentation fault) while reading")
+    assert ts.CRASH_HINT in str(err)
+    abort = Tshark(Path("tshark")).error("ERROR:packet-x.c:12: assertion failed", -6, "x")
+    assert str(abort).endswith("\n\nERROR:packet-x.c:12: assertion failed")
+
+
+@pytest.mark.parametrize(
+    ("code", "stderr", "result"),
+    [
+        (0, "", False),
+        (None, "", False),
+        (
+            2,
+            'tshark: The file "x" appears to have been cut short in the middle of a packet.',
+            False,
+        ),
+        (
+            2,
+            'tshark: The file "x" appears to be damaged or corrupt.\n(pcap: bad record)',
+            False,
+        ),
+        (2, "", True),
+        (1, 'tshark: "ip.bogus" isn\'t a valid field.', True),
+        (2, 'Running as user "root" and group "root". This could be dangerous.', True),
+        (
+            2,
+            "tshark: Some fields aren't valid: x\ntshark: cut short in the middle of a packet.",
+            True,
+        ),
+        (-11, "", True),
+    ],
+)
+def test_failed(code: int | None, stderr: str, result: bool) -> None:
+    assert ts.failed(code, stderr) is result
+
+
 def test_clean_stderr_drops_root_warning() -> None:
     text = 'Running as user "root" and group "root". This could be dangerous.\n\ntshark: boom\n'
     assert clean_stderr(text) == "tshark: boom"

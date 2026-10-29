@@ -33,6 +33,8 @@ import json
 import os
 import queue
 import re
+import selectors
+import socket
 import subprocess
 import sys
 import tempfile
@@ -295,7 +297,13 @@ class Run:
             result = self.server.call(method, params or {}, self.timeout)
         except RpcError as exc:
             took = time.monotonic() - start
-            status = "expected" if exc.code in EXPECTED_CODES else "problem"
+            status = (
+                "expected"
+                if exc.code in EXPECTED_CODES
+                else "note"  # (Wireshark's newer test captures crash tshark 4.2.2)
+                if exc.message.startswith("tshark crashed (")
+                else "problem"
+            )
             data = f" {json.dumps(exc.data)[:300]}" if exc.data else ""
             self.report.steps.append(Step(name, status, took, f"[{exc.code}] {exc.message}{data}"))
             return None
@@ -401,6 +409,8 @@ def _exercise(run: Run, path: Path, cache: Path) -> None:
         _statistics(run)
         _other(run, frames)
         _exports(run, path, frames)
+    if frames:
+        _replay(run, path)
     # Reopening reads the saved index: same rows.
     again = run.call(
         "reopen (saved index)",
@@ -745,6 +755,268 @@ def _exports(run: Run, path: Path, frames: int) -> None:
     )
     if path.suffix != ".gz":
         run.call("probe file", "probe_file", {"path": str(path)})
+
+
+# --- replay to service -------------------------------------------------------
+
+# Streams a replay check sends: tshark's Follow runs once for each of them.
+REPLAY_STREAMS = 30
+REPLAY_SCOPE = f"tcp.stream < {REPLAY_STREAMS} || udp.stream < {REPLAY_STREAMS}"
+# Follow's stand-in for bytes the capture lacks (a replay leaves them out).
+MISSING = re.compile(rb"\[\d+ bytes missing in capture file\]\x00?")
+
+
+class Sink:
+    """A local TCP server and UDP socket keeping what each connection and
+    datagram brought (the services a replay check sends to)."""
+
+    def __init__(self) -> None:
+        self.tcp = socket.create_server(("127.0.0.1", 0), backlog=1024)
+        self.tcp.setblocking(False)
+        self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.udp.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 << 20)
+        self.udp.bind(("127.0.0.1", 0))
+        self.udp.setblocking(False)
+        self.connections: list[bytearray] = []
+        self.reset: list[bool] = []
+        self.datagrams: list[bytes] = []
+        self._sel = selectors.DefaultSelector()
+        self._sel.register(self.tcp, selectors.EVENT_READ)
+        self._sel.register(self.udp, selectors.EVENT_READ)
+        self._open = 0
+        self._last = time.monotonic()
+        self._stopping = threading.Event()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def port(self, proto: str) -> int:
+        return int((self.tcp if proto == "tcp" else self.udp).getsockname()[1])
+
+    def _loop(self) -> None:
+        deadline = 0.0
+        while True:
+            now = time.monotonic()
+            if self._stopping.is_set():
+                deadline = deadline or now + 10
+                if now > deadline or (not self._open and now - self._last > 0.5):
+                    break
+            for key, _ in self._sel.select(0.05):
+                self._last = time.monotonic()
+                sock = key.fileobj
+                assert isinstance(sock, socket.socket)
+                if sock is self.tcp:
+                    with contextlib.suppress(BlockingIOError):
+                        conn, _ = self.tcp.accept()
+                        conn.setblocking(False)
+                        self._sel.register(conn, selectors.EVENT_READ, len(self.connections))
+                        self.connections.append(bytearray())
+                        self.reset.append(False)
+                        self._open += 1
+                elif sock is self.udp:
+                    with contextlib.suppress(BlockingIOError):
+                        self.datagrams.append(self.udp.recv(65536))
+                else:
+                    self._read(sock, key.data)
+        for key in list(self._sel.get_map().values()):
+            self._sel.unregister(key.fileobj)
+            key.fileobj.close()  # type: ignore[union-attr]
+        self._sel.close()
+
+    def _read(self, sock: socket.socket, i: int) -> None:
+        try:
+            chunk = sock.recv(1 << 16)
+        except BlockingIOError:
+            return
+        except OSError:
+            self.reset[i] = True
+            chunk = b""
+        if chunk:
+            self.connections[i] += chunk
+            return
+        self._sel.unregister(sock)
+        sock.close()
+        self._open -= 1
+
+    def close(self) -> None:
+        """Wait for the connections to end (10 s at most), then close everything."""
+        self._stopping.set()
+        self._thread.join()
+
+
+def follow_payloads(path: Path) -> list[bytes]:
+    """What tshark's Follow says each direction of the first REPLAY_STREAMS
+    TCP streams carried."""
+    args = ["tshark", "-n", "-q", "-r", str(path)]
+    for i in range(REPLAY_STREAMS):
+        args += ["-z", f"follow,tcp,raw,{i}"]
+    try:
+        out = subprocess.run(
+            args, capture_output=True, timeout=600, check=False, text=True, errors="replace"
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    sides: list[bytearray] = []
+    found: list[bytearray] = []
+    for line in out.split("\n"):
+        if line.startswith("Follow: "):
+            sides = [bytearray(), bytearray()]
+            found += sides
+        elif line.startswith(("=", "Filter:", "Node ")) or not line.strip():
+            continue
+        elif sides:
+            with contextlib.suppress(ValueError):
+                data = bytes.fromhex(line.strip())
+                if not MISSING.fullmatch(data):
+                    sides[1 if line.startswith("\t") else 0] += data
+    return [bytes(t) for t in found if t]
+
+
+def segment_payloads(path: Path) -> tuple[list[bytes], list[bytes]]:
+    """Each direction of the first REPLAY_STREAMS TCP streams as its
+    segments' payloads in sequence order, every byte once (the first copy;
+    a packet cut by the snapshot length gives the bytes captured),
+    and the payload of each datagram of the first UDP streams. (Follow
+    UDP Stream would do for the datagrams, but tshark 4.2.2 crashes on some
+    exported PDUs.)"""
+    n = REPLAY_STREAMS
+    args = [
+        "tshark",
+        "-n",
+        "-r",
+        str(path),
+        "-Y",
+        f"(tcp.stream < {n} && tcp.payload) || udp.stream < {n}",
+    ]
+    args += ["-T", "fields", "-E", "occurrence=l"]
+    for name in (
+        "tcp.stream",
+        "ip.src",
+        "ipv6.src",
+        "tcp.srcport",
+        "tcp.seq_raw",
+        "tcp.payload",
+        "udp.payload",
+    ):
+        args += ["-e", name]
+    try:
+        out = subprocess.run(
+            args, capture_output=True, timeout=600, check=False, text=True, errors="replace"
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return [], []
+    sides: dict[tuple[str, ...], dict[int, bytes]] = {}
+    udp: list[bytes] = []
+    for line in out.split("\n"):
+        cells = line.split("\t")
+        if len(cells) != 7:
+            continue
+        with contextlib.suppress(ValueError):
+            if cells[6]:
+                udp.append(bytes.fromhex(cells[6].replace(":", "")))
+            elif cells[4] and cells[5]:
+                side = sides.setdefault((cells[0], cells[1] or cells[2], cells[3]), {})
+                side.setdefault(int(cells[4]), bytes.fromhex(cells[5].replace(":", "")))
+    tcp = []
+    for segments in sides.values():
+        data = bytearray()
+        end: int | None = None
+        for seq in sorted(segments):  # (no wrap-around: these are short test captures)
+            payload = segments[seq]
+            if end is None:
+                end = seq
+            if seq + len(payload) > end:
+                data += payload[max(0, end - seq) :]
+                end = seq + len(payload)
+        tcp.append(bytes(data))
+    return tcp, udp
+
+
+def _replay(run: Run, path: Path) -> None:
+    """Replay the first streams' client side into local servers, at no
+    pauses, and check what arrived against tshark's Follow."""
+    known = run.call("replay targets", "replay_targets", {"filter": REPLAY_SCOPE})
+    targets = (known or {}).get("targets") or []
+    if not targets:
+        return
+    sink = Sink()
+    try:
+        res = run.call(
+            "replay",
+            "replay",
+            {
+                "filter": REPLAY_SCOPE,
+                "speed": 0,
+                "targets": {
+                    t["key"]: {"ip": "127.0.0.1", "port": sink.port(t["proto"])} for t in targets
+                },
+            },
+        )
+    finally:
+        sink.close()
+    if res is None:
+        return
+    sent = {t["key"]: t for t in res.get("targets") or []}
+    planned = sum(t["bytes"] for t in targets)
+    run.check(
+        "replay sent = planned",
+        sum(t["bytes"] for t in sent.values()) == planned,
+        f"{sum(t['bytes'] for t in sent.values())} bytes sent, {planned} planned",
+    )
+    errors = [f"{k}: {e}" for k, t in sent.items() for e in t.get("errors") or []]
+    run.check("replay errors", not errors, "; ".join(errors)[:600])
+    tcp_sent = sum(t["bytes"] - t["dropped"] for t in sent.values() if t["key"].startswith("tcp"))
+    tcp_got = sum(len(c) for c in sink.connections)
+    if tcp_got < tcp_sent and any(sink.reset):
+        # A recorded reset, replayed at no pauses: the receiver drops what
+        # its server hadn't read yet (mptcp-v0.pcap).
+        run.report.steps.append(
+            Step("replay tcp received", "note", 0.0, f"{tcp_sent - tcp_got} bytes lost to resets")
+        )
+    else:
+        run.check(
+            "replay tcp received",
+            tcp_got == tcp_sent,
+            f"{tcp_got} bytes arrived, {tcp_sent} sent",
+        )
+    tcp = follow_payloads(path)
+    segments, udp = segment_payloads(path)
+
+    def matches(i: int, sides: list[bytes]) -> bool:
+        c = sink.connections[i]
+        return any(f == c or (sink.reset[i] and f.startswith(c)) for f in sides)
+
+    wrong = [i for i, c in enumerate(sink.connections) if c and not matches(i, tcp)]
+    # Follow shows what a dissector hands its tap, which isn't always the
+    # segments' payload (DTN's TCPCLv4 transfers): those count when they
+    # equal the payloads put in sequence order.
+    upstream = [i for i in wrong if matches(i, segments)] if wrong else []
+    wrong = [i for i in wrong if i not in upstream]
+    if upstream:
+        run.report.steps.append(
+            Step(
+                "replay tcp = follow",
+                "note",
+                0.0,
+                f"{len(upstream)} connections equal their segments' payloads, not Follow",
+            )
+        )
+    first = bytes(sink.connections[wrong[0]]) if wrong else b""
+    run.check(
+        "replay tcp = segments",
+        not wrong,
+        f"{len(wrong)} of {len(sink.connections)} connections differ from every Follow direction"
+        f" and the segments' payloads, e.g. {len(first)} bytes {first[:24].hex()}",
+    )
+    datagrams = sum(t["datagrams"] for t in sent.values())
+    run.check(
+        "replay udp received",
+        len(sink.datagrams) == datagrams,
+        f"{len(sink.datagrams)} datagrams arrived, {datagrams} sent",
+    )
+    pool = Counter(udp)
+    pool.subtract(d for d in sink.datagrams if d)  # (an empty one has no udp.payload)
+    extra = -sum(n for n in pool.values() if n < 0)
+    run.check("replay udp = payloads", not extra, f"{extra} datagrams the capture doesn't hold")
 
 
 # --- main --------------------------------------------------------------------

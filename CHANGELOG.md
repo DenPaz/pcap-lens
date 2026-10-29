@@ -7,6 +7,20 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.25.1 — 2026-10-29
+
+### Fixed
+
+- A capture cut short in the middle of a packet no longer fails VoIP Calls,
+  Multicast Streams and other views that find nothing in it; a crash of
+  tshark itself is named as one; pcap exports of packets after 2038 and Show
+  File Format of formats it can't read are explained. [519ecaf]
+- Replay to Service sends a retransmitted SYN's data (TCP Fast Open) once,
+  not again with each copy of the SYN. [a37a525]
+
+[519ecaf]: https://github.com/DenPaz/pcap-lens/commit/519ecaf
+[a37a525]: https://github.com/DenPaz/pcap-lens/commit/a37a525
+
 ## 0.25.0 — 2026-10-28
 
 ### Added

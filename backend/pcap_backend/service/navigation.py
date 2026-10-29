@@ -9,7 +9,7 @@ from typing import Any
 from pcap_backend import navigation
 from pcap_backend.cache import FrameIndex
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, param, str_list
-from pcap_backend.tshark import StreamResult, stream_lines
+from pcap_backend.tshark import StreamResult, failed, stream_lines
 
 from .filtering import FilteringMixin
 from .helpers import _frame_list
@@ -223,7 +223,7 @@ class NavigationMixin(FilteringMixin):
             if frame % 1000 == 0:
                 ctx.progress({"phase": "find", "fraction": min(frame / max(total, 1), 1.0)})
         ctx.token.raise_if_cancelled()
-        if not seen and result.returncode not in (0, None):
+        if not seen and failed(result.returncode, result.stderr):
             raise f.tshark.error(
                 result.stderr, result.returncode, "searching the packet details failed"
             )

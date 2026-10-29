@@ -6,7 +6,7 @@ from typing import Any
 
 from pcap_backend import stats
 from pcap_backend.protocol import InvalidParamsError, RequestContext, param
-from pcap_backend.tshark import StreamResult, run, stream_lines
+from pcap_backend.tshark import StreamResult, failed, run, stream_lines
 
 from .helpers import _fields_args
 from .packets import PacketsMixin
@@ -172,7 +172,7 @@ class StreamsMixin(PacketsMixin):
                 truncated = True
                 break  # closing the generator kills tshark
             lines.append(line)
-        if not lines and result.returncode not in (0, None):
+        if not lines and failed(result.returncode, result.stderr):
             raise f.tshark.error(result.stderr, result.returncode, "tshark follow failed")
         followed = stats.parse_follow_raw("\n".join(lines))
         followed.update({"proto": proto, "stream": stream, "truncated": truncated, **extra})
@@ -206,7 +206,7 @@ class StreamsMixin(PacketsMixin):
             "-Y", flt, *_fields_args(("frame.number", sub)), capture=str(f.path)
         )  # fmt: skip
         res = run(argv, ctx.token)
-        if res.returncode != 0 and not res.stdout:
+        if failed(res.returncode, res.stderr) and not res.stdout:
             raise f.tshark.error(res.stderr, res.returncode, "reading the sub-streams failed")
         by_frame: list[tuple[int, list[int]]] = []
         for line in res.stdout.decode("utf-8", "replace").split("\n"):
@@ -238,7 +238,7 @@ class StreamsMixin(PacketsMixin):
             "-Y", f"tcp.stream == {stream}", *_fields_args(_TCP_GRAPH_FIELDS), capture=str(f.path)
         )  # fmt: skip
         res = run(argv, ctx.token)
-        if res.returncode != 0 and not res.stdout:
+        if failed(res.returncode, res.stderr) and not res.stdout:
             raise f.tshark.error(res.stderr, res.returncode, "reading the TCP stream failed")
         result = {"stream": stream, **parse_tcp_graph(res.stdout.decode("utf-8", "replace"))}
         self._tcp_graphs.put(stream, result)

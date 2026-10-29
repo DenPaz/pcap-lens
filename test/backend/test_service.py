@@ -207,6 +207,20 @@ def test_truncated_capture_is_usable(
     assert any("cut short" in w for w in info["warnings"])
 
 
+def test_truncated_capture_finds_nothing_without_failing(
+    service: PcapService, fixtures: Path, ctx: RequestContext
+) -> None:
+    """tshark exits with 2 after reading a capture that ends in the middle of
+    a packet: a pass that finds nothing in the packets before it has found
+    nothing (found by Wireshark's trunc.pcap: VoIP and multicast failed)."""
+    service.open({"path": str(fixtures / "truncated.pcap")}, ctx)
+    voip = service.voip_calls({}, ctx)
+    assert voip["calls"] == [] and voip["streams"] == []
+    assert service.stats({"kind": "multicast"}, ctx)["rows"] == []
+    assert service.field_values({"field": "dns.qry.name"}, ctx)["values"] == []
+    assert service.replay_targets({"filter": "udp"}, ctx)["targets"] == []
+
+
 def test_decode_as_changes_dissection(
     service: PcapService, fixtures: Path, ctx: RequestContext
 ) -> None:

@@ -294,6 +294,51 @@ def clean_stderr(text: str) -> str:
     return "\n".join(lines)
 
 
+# Why a tool's exit code means it crashed: a signal on POSIX (a negative
+# code; numbered here, since Windows' signal module numbers SIGABRT 22), an
+# exception's NTSTATUS on Windows.
+_CRASH_SIGNALS = {
+    11: "a segmentation fault",
+    10 if sys.platform == "darwin" else 7: "a bus error",
+    6: "a failed internal check",
+    8: "an arithmetic error",
+    4: "an illegal instruction",
+}
+_CRASH_STATUSES = {
+    0xC0000005: "an access violation",
+    0xC00000FD: "a stack overflow",
+    0xC0000409: "a failed internal check",
+}
+CRASH_HINT = (
+    "That is a bug in tshark (Wireshark's dissectors), not in the capture or PCAP Lens: "
+    "a newer Wireshark may read it."
+)
+
+
+def crash(returncode: int | None) -> str | None:
+    """What crashed a tool ("a segmentation fault"), or None when its exit
+    code isn't a crash (an error, or killed by SIGKILL/SIGTERM)."""
+    if returncode is None:
+        return None
+    if returncode < 0:
+        return _CRASH_SIGNALS.get(-returncode)
+    return _CRASH_STATUSES.get(returncode)
+
+
+_ENDS_EARLY_RE = re.compile(r"cut short in the middle of a packet|appears to be damaged or corrupt")
+
+
+def failed(returncode: int | None, stderr: str) -> bool:
+    """Whether a pass that wrote nothing failed. tshark exits with 2 when the
+    capture ends in the middle of a packet or is damaged further on, after
+    reading the packets before that (the ones the viewer shows): when that
+    is all it says, the pass just found nothing in them."""
+    if returncode in (0, None):
+        return False
+    said = [ln for ln in clean_stderr(stderr).split("\n") if not ln.startswith("(")]
+    return not said or not all(_ENDS_EARLY_RE.search(ln) for ln in said)
+
+
 class ProcessRegistry:
     """Every live child process, so shutdown can guarantee no orphans."""
 
@@ -653,8 +698,13 @@ class Tshark:
         return name, folder
 
     def error(self, stderr: str, returncode: int | None, default: str) -> ToolError:
-        """A ToolError for a failed run, explaining sandbox permission problems."""
+        """A ToolError for a failed run, explaining crashes and sandbox
+        permission problems."""
         message = stderr or default
+        if what := crash(returncode):
+            message = f"tshark crashed ({what}) while reading this capture. {CRASH_HINT}"
+            if stderr.strip():
+                message += f"\n\n{stderr.strip()}"
         hint = permission_hint(self.path, stderr)
         if hint:
             message = f"{message}\n\n{hint}"

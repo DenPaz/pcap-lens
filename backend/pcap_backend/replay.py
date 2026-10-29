@@ -299,7 +299,8 @@ class Planner:
             flow.opened = True
             info.connections += 1
             events.append(Event("open", rec.time, flow.flow, flow.target))
-        if rec.syn and rec.seq is not None:
+        if rec.syn and rec.seq is not None and flow.next_seq is None:
+            # (Only the first: a retransmitted SYN's Fast Open data is a retransmission.)
             flow.next_seq = (rec.seq + 1) % (1 << 32)
         if rec.payload and rec.seq is not None:
             # (A SYN's own data, TCP Fast Open, starts after the SYN's sequence number.)
