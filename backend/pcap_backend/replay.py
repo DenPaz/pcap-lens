@@ -16,16 +16,21 @@ Three parts, all stdlib:
   deduplicates TCP data by sequence number (retransmissions skipped, overlaps
   trimmed, gaps counted) and keeps per-target counts.
 * :class:`Replayer` carries the events out with non-blocking sockets and one
-  selector: each event at its recorded time (divided by ``speed``), the
-  service's answers read and counted but never waited on.
+  selector: each event at its recorded time (divided by ``speed``, with
+  optional jitter), the service's answers read and counted but never waited
+  on. Several captures play one after another (a ``start`` event begins each,
+  and its clock) or merged by their recorded times (events in time order).
 """
 
 from __future__ import annotations
 
 import contextlib
 import errno
+import heapq
 import ipaddress
+import itertools
 import os
+import random
 import selectors
 import socket
 import struct
@@ -45,7 +50,7 @@ IS_WINDOWS = sys.platform == "win32"
 FILTER = "(tcp || udp) && !icmp && !icmpv6"
 FIELDS = (
     "frame.number",
-    "frame.time_relative",
+    "frame.time_epoch",  # (absolute: captures merged by time line up)
     "ip.src",
     "ipv6.src",
     "ip.dst",
@@ -140,14 +145,15 @@ def target_key(proto: str, ip: str, port: int) -> str:
 
 @dataclass(frozen=True, slots=True)
 class Event:
-    """What the replay does at ``time`` (capture time, seconds)."""
+    """What the replay does at ``time`` (capture time, seconds since the epoch)."""
 
-    kind: str  # "open" | "data" | "close" | "datagram"
+    kind: str  # "open" | "data" | "close" | "datagram" | "start" (the next capture)
     time: float
     flow: int  # the recorded connection or UDP flow (planner numbering)
     target: str
     data: bytes = b""
     reset: bool = False
+    source: int = 0  # the capture it comes from (several play in one replay)
 
 
 @dataclass(slots=True)
@@ -218,7 +224,8 @@ class Planner:
     client's data is replayed; the server's packets are ignored.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, source: int = 0) -> None:
+        self.source = source
         self.targets: dict[str, TargetInfo] = {}
         self._tcp: dict[int, _TcpFlow] = {}
         self._holding: dict[int, _TcpFlow] = {}  # flows with held segments, by flow number
@@ -249,6 +256,17 @@ class Planner:
         self._flows += 1
         return self._flows
 
+    def _event(
+        self,
+        kind: str,
+        time_: float,
+        flow: int,
+        target: str,
+        data: bytes = b"",
+        reset: bool = False,
+    ) -> Event:
+        return Event(kind, time_, flow, target, data, reset, self.source)
+
     def feed(self, rec: Record) -> list[Event]:
         self._now = rec.time
         events = self._expire(rec.time)
@@ -276,7 +294,7 @@ class Planner:
         if (rec.src, rec.sport) != flow.client:
             return []
         self._note(self.targets[flow.target], rec.time, rec.frame, len(rec.payload))
-        return [Event("datagram", rec.time, flow.flow, flow.target, rec.payload)]
+        return [self._event("datagram", rec.time, flow.flow, flow.target, rec.payload)]
 
     def _tcp_events(self, rec: Record) -> list[Event]:
         flow = self._tcp.get(rec.stream)
@@ -298,7 +316,7 @@ class Planner:
         if not flow.opened and (rec.syn or rec.payload):
             flow.opened = True
             info.connections += 1
-            events.append(Event("open", rec.time, flow.flow, flow.target))
+            events.append(self._event("open", rec.time, flow.flow, flow.target))
         if rec.syn and rec.seq is not None and flow.next_seq is None:
             # (Only the first: a retransmitted SYN's Fast Open data is a retransmission.)
             flow.next_seq = (rec.seq + 1) % (1 << 32)
@@ -317,7 +335,7 @@ class Planner:
         if (rec.fin or rec.rst) and flow.opened:
             events += self._give_up(flow, rec.time)
             flow.closed = True
-            events.append(Event("close", rec.time, flow.flow, flow.target, reset=rec.rst))
+            events.append(self._event("close", rec.time, flow.flow, flow.target, reset=rec.rst))
         return events
 
     def _accept(
@@ -335,7 +353,7 @@ class Planner:
                 data = data[-diff:]
             flow.next_seq = (flow.next_seq + len(data)) % (1 << 32)
         self._note(info, time_, frame, len(data))
-        return [Event("data", time_, flow.flow, flow.target, data)]
+        return [self._event("data", time_, flow.flow, flow.target, data)]
 
     def _hold(self, flow: _TcpFlow, rec: Record, seq: int) -> None:
         old = flow.held.get(seq)
@@ -387,11 +405,23 @@ class Planner:
         return events
 
 
-def plan(records: Iterable[Record]) -> tuple[Planner, list[Event]]:
+def plan(records: Iterable[Record], source: int = 0) -> tuple[Planner, list[Event]]:
     """Every event of ``records`` (tests, small captures)."""
-    planner = Planner()
+    planner = Planner(source)
     events = [ev for rec in records for ev in planner.feed(rec)]
     return planner, events + planner.finish()
+
+
+def merge_by_time(streams: list[Iterator[Event]]) -> Iterator[Event]:
+    """Several captures' events in recorded-time order (each stream is in
+    capture order); every stream is closed when the merge ends or stops."""
+    try:
+        yield from heapq.merge(*streams, key=lambda ev: ev.time)
+    finally:
+        for stream in streams:
+            close = getattr(stream, "close", None)
+            if close is not None:
+                close()
 
 
 class TargetError(ValueError):
@@ -458,6 +488,7 @@ class TargetStats:
     dropped: int = 0
     received: int = 0
     datagrams: int = 0
+    lost: int = 0  # datagrams left out on purpose (the replay's loss)
     errors: list[str] = field(default_factory=list)
     error_count: int = 0
 
@@ -483,8 +514,58 @@ class TargetStats:
             "dropped": self.dropped,
             "received": self.received,
             "datagrams": self.datagrams,
+            "lost": self.lost,
             "errors": self.errors,
             "errorCount": self.error_count,
+        }
+
+
+@dataclass(slots=True)
+class SourceStats:
+    """One capture of the replay: what it planned and what was sent from it."""
+
+    name: str
+    duration: float = 0.0  # recorded time from its first to its last event
+    packets: int = 0  # TCP segments and UDP datagrams handed to the sockets
+    bytes: int = 0
+    lost: int = 0
+    retransmissions: int = 0  # skipped (sent once), per pass over the capture
+    gaps: int = 0
+    # This pass (the log's line when the capture ends).
+    pass_packets: int = 0
+    pass_bytes: int = 0
+    pass_lost: int = 0
+
+    def begin(self) -> None:
+        self.pass_packets = self.pass_bytes = self.pass_lost = 0
+
+    def count(self, size: int) -> None:
+        self.packets += 1
+        self.bytes += size
+        self.pass_packets += 1
+        self.pass_bytes += size
+
+    def line(self) -> str:
+        text = (
+            f"Finished {self.name}: {self.pass_packets:,} "
+            f"{'packet' if self.pass_packets == 1 else 'packets'} sent"
+        )
+        if self.pass_lost:
+            text += f", {self.pass_lost:,} lost on purpose"
+        retrans = self.retransmissions
+        text += f", {retrans:,} {'retransmission' if retrans == 1 else 'retransmissions'} skipped"
+        if self.gaps:
+            text += f", {self.gaps:,} {'gap' if self.gaps == 1 else 'gaps'} in the capture"
+        return text
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "packets": self.packets,
+            "bytes": self.bytes,
+            "lost": self.lost,
+            "retransmissions": self.retransmissions,
+            "gaps": self.gaps,
         }
 
 
@@ -499,7 +580,7 @@ class Destination:
 
 @dataclass(eq=False, slots=True)
 class _Conn:
-    flow: tuple[int, int]  # (loop, planner flow)
+    flow: tuple[int, int, int]  # (loop, capture, planner flow)
     sock: socket.socket
     stats: TargetStats
     udp: bool = False
@@ -521,7 +602,12 @@ class Replayer:
     """Carries out the planner's events against live services.
 
     ``destinations`` maps recorded target keys to where they go; events for
-    other targets are skipped. ``speed`` divides the recorded pauses (0: none).
+    other targets are skipped. ``speed`` divides the recorded pauses (0: none);
+    ``jitter`` (seconds) moves each paced event by a random amount within ±it;
+    ``loss`` (0 to 1) leaves that share of UDP datagrams out (TCP data can't be
+    lost: the network stack would send it again). ``sources`` are the
+    captures' names and durations; ``merged``: their events come in time
+    order, else one capture after another, each begun by a ``start`` event.
     """
 
     def __init__(
@@ -531,9 +617,22 @@ class Replayer:
         token: CancelToken,
         progress: Callable[[dict[str, Any]], None] = lambda _p: None,
         duration: float | None = None,
+        *,
+        sources: list[SourceStats] | None = None,
+        merged: bool = False,
+        jitter: float = 0.0,
+        loss: float = 0.0,
+        seed: int | None = None,
     ) -> None:
         self._dest = destinations
         self._speed = speed
+        self._jitter = jitter if speed > 0 else 0.0
+        self._loss = loss
+        self._rng = random.Random(seed)  # noqa: S311 (timing noise, not security)
+        self.sources = sources or [SourceStats("capture")]
+        self._merged = merged
+        self._current = 0  # the capture playing (one after another)
+        self._offset = 0.0  # recorded time of the captures before it in this loop
         self._token = token
         self._progress = progress
         self._duration = duration
@@ -542,7 +641,7 @@ class Replayer:
         self.pass_token = CancelToken()
         token.on_cancel(self.pass_token.cancel)
         self._sel = selectors.DefaultSelector()
-        self._conns: dict[tuple[int, int], _Conn] = {}
+        self._conns: dict[tuple[int, int, int], _Conn] = {}
         self._buffered = 0
         self._last_progress = 0.0
         self._started = time.monotonic()
@@ -577,6 +676,13 @@ class Replayer:
             self._log_dropped = 0
         return lines
 
+    def planned(self, source: int, planner: Planner) -> None:
+        """A capture's records ended: what its planner skipped and found missing."""
+        if 0 <= source < len(self.sources):
+            chosen = [t for key, t in planner.targets.items() if key in self._dest]
+            self.sources[source].retransmissions = sum(t.retransmissions for t in chosen)
+            self.sources[source].gaps = sum(t.gaps for t in chosen)
+
     def _error(self, stats: TargetStats, text: str) -> None:
         if stats.error(text):
             self.log(text, stats.key, "error")
@@ -597,10 +703,13 @@ class Replayer:
     # -- the timeline -----------------------------------------------------------------
 
     def run(self, passes: Callable[[], Iterator[Event]], loops: int = 1) -> None:
-        """Replay ``passes()`` (a fresh event iterator per loop) ``loops`` times."""
+        """Replay ``passes()`` (a fresh event iterator per loop) ``loops`` times
+        (0: until stopped)."""
         try:
-            for loop in range(loops):
-                if loops > 1:
+            for loop in itertools.count() if loops == 0 else range(loops):
+                if loops == 0:
+                    self.log(f"loop {loop + 1}")
+                elif loops > 1:
                     self.log(f"loop {loop + 1} of {loops}")
                 self._loop(loop, passes())
                 self.loops_done = loop + 1
@@ -628,22 +737,50 @@ class Replayer:
 
     def _timeline(self, loop: int, events: Iterator[Event]) -> None:
         start = t0 = None
+        announce = False  # (a report as each capture begins, whatever the rate)
+        self._current, self._offset = 0, 0.0
+        for source in self.sources:
+            source.begin()
+        if self._merged and len(self.sources) > 1:
+            self.log(f"Playing {len(self.sources)} captures merged by their recorded times")
         for ev in events:
             self._check()
+            if ev.kind == "start":
+                # The next capture (one after another): it starts its own clock.
+                if start is not None:
+                    self.log(self.sources[self._current].line())
+                start = t0 = None
+                self._offset = sum(s.duration for s in self.sources[: ev.source])
+                self._current = ev.source
+                self.sources[ev.source].begin()
+                n = len(self.sources)
+                where = f" ({ev.source + 1} of {n})" if n > 1 else ""
+                self.log(f"Playing {self.sources[ev.source].name}{where}")
+                announce = True
+                continue
             if ev.target not in self._dest:
                 continue
             if start is None or t0 is None:
                 # The clock starts with the first event (not before tshark's start-up).
                 start, t0 = time.monotonic(), ev.time
             if self._speed > 0:
-                self._wait_until(start + (ev.time - t0) / self._speed)
+                due = start + (ev.time - t0) / self._speed
+                if self._jitter:
+                    due += self._rng.uniform(-self._jitter, self._jitter)
+                self._wait_until(due)
             while self._buffered > MAX_BUFFERED:
                 self._check()  # (a service that stops reading mustn't keep Stop waiting)
                 self._service(0.05)
-            self._apply((loop, ev.flow), ev)
+            self._apply((loop, ev.source, ev.flow), ev)
             self._service(0)
-            self._report(ev.time, t0, loop)
+            self._report(ev.time, t0, loop, force=announce)
+            announce = False
         # (Connections left open by the recording stay open until the end.)
+        if self._merged:
+            for source in self.sources:
+                self.log(source.line())
+        elif start is not None or len(self.sources) == 1:
+            self.log(self.sources[self._current].line())
 
     def _wait_until(self, due: float) -> None:
         while True:
@@ -684,12 +821,20 @@ class Replayer:
         self._last_progress = now
         fraction = None
         if self._duration:
-            fraction = min(1.0, max(0.0, (at - t0) / self._duration))
+            fraction = min(1.0, max(0.0, (self._offset + at - t0) / self._duration))
+        capture = None
+        if not self._merged and len(self.sources) > 1:
+            capture = {
+                "index": self._current + 1,
+                "count": len(self.sources),
+                "name": self.sources[self._current].name,
+            }
         self._progress(
             {
                 "phase": "replay",
                 "fraction": fraction,
                 "loop": loop + 1,
+                "capture": capture,
                 "sent": sum(s.bytes for s in self.stats.values()),
                 "received": sum(s.received for s in self.stats.values()),
                 "open": sum(1 for c in self._conns.values() if not c.dead and not c.udp),
@@ -700,9 +845,10 @@ class Replayer:
 
     # -- events -----------------------------------------------------------------------
 
-    def _apply(self, flow: tuple[int, int], ev: Event) -> None:
+    def _apply(self, flow: tuple[int, int, int], ev: Event) -> None:
         dest = self._dest[ev.target]
         stats = self.stats[ev.target]
+        source = self.sources[ev.source] if ev.source < len(self.sources) else self.sources[0]
         conn = self._conns.get(flow)
         if ev.kind == "open":
             self._open(flow, dest, stats)
@@ -711,6 +857,7 @@ class Replayer:
                 stats.dropped += len(ev.data)
                 return
             stats.packets += 1
+            source.count(len(ev.data))
             conn.out += ev.data
             self._buffered += len(ev.data)
             self._flush(conn)
@@ -719,9 +866,15 @@ class Replayer:
                 conn.after = "rst" if ev.reset else "fin"
                 self._flush(conn)
         elif ev.kind == "datagram":
-            self._datagram(flow, dest, stats, ev.data)
+            if self._loss and self._rng.random() < self._loss:
+                stats.lost += 1
+                source.lost += 1
+                source.pass_lost += 1
+                return
+            if self._datagram(flow, dest, stats, ev.data):
+                source.count(len(ev.data))
 
-    def _open(self, flow: tuple[int, int], dest: Destination, stats: TargetStats) -> None:
+    def _open(self, flow: tuple[int, int, int], dest: Destination, stats: TargetStats) -> None:
         stats.connections += 1
         conn = _Conn(flow, socket.socket(socket.AF_INET, socket.SOCK_STREAM), stats)
         conn.number = stats.connections
@@ -766,8 +919,9 @@ class Replayer:
             dest.addresses.insert(0, working)
 
     def _datagram(
-        self, flow: tuple[int, int], dest: Destination, stats: TargetStats, data: bytes
-    ) -> None:
+        self, flow: tuple[int, int, int], dest: Destination, stats: TargetStats, data: bytes
+    ) -> bool:
+        """Send one datagram; True when the socket took it."""
         conn = self._conns.get(flow)
         if conn is None:
             stats.connections += 1
@@ -780,17 +934,13 @@ class Replayer:
                 sock.connect(address)  # (a refused port then shows as an error)
             except OSError as exc:
                 self._fail(conn, f"{dest.label}: {exc.strerror or exc}")
-                return
+                return False
             self._sel.register(sock, selectors.EVENT_READ, conn)
         if conn.dead:
             stats.dropped += len(data)
-            return
+            return False
         try:
-            sock = conn.sock
-            sock.send(data)
-            stats.datagrams += 1
-            stats.packets += 1
-            stats.bytes += len(data)
+            conn.sock.send(data)
         except ConnectionRefusedError:
             stats.refused += 1
             stats.dropped += len(data)
@@ -801,6 +951,12 @@ class Replayer:
         except OSError as exc:
             stats.dropped += len(data)
             self._error(stats, f"{dest.label}: {exc.strerror or exc}")
+        else:
+            stats.datagrams += 1
+            stats.packets += 1
+            stats.bytes += len(data)
+            return True
+        return False
 
     # -- sockets ----------------------------------------------------------------------
 

@@ -4,6 +4,7 @@ replay.pcap (an operator delivering HI2/HI3-like data) into local servers."""
 from __future__ import annotations
 
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -18,6 +19,7 @@ from pcap_backend.cancellation import CancelledError, CancelToken
 from pcap_backend.pcap_service import PcapService
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext
 from pcap_backend.replay import Record, TargetError
+from pcap_backend.tshark import find_tool
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 sys.path.insert(0, str(FIXTURES))
@@ -571,7 +573,17 @@ def test_replay_parameters(opened: PcapService, ctx: RequestContext) -> None:
     with pytest.raises(InvalidParamsError, match="speed"):
         opened.replay({"speed": -1, "targets": {HI2: local}}, ctx)
     with pytest.raises(InvalidParamsError, match="loops"):
-        opened.replay({"loops": 0, "targets": {HI2: local}}, ctx)
+        opened.replay({"loops": -1, "targets": {HI2: local}}, ctx)  # (0: until stopped)
+    with pytest.raises(InvalidParamsError, match="jitter"):
+        opened.replay({"jitter": -5, "targets": {HI2: local}}, ctx)
+    with pytest.raises(InvalidParamsError, match="loss"):
+        opened.replay({"loss": 101, "targets": {HI2: local}}, ctx)
+    with pytest.raises(InvalidParamsError, match="order"):
+        opened.replay({"order": "random", "targets": {HI2: local}}, ctx)
+    with pytest.raises(InvalidParamsError, match="not found"):
+        opened.replay({"files": ["/nowhere/x.pcap"], "targets": {HI2: local}}, ctx)
+    with pytest.raises(InvalidParamsError, match="at least one capture"):
+        opened.replay({"capture": False, "targets": {HI2: local}}, ctx)
 
 
 @pytest.mark.tshark
@@ -586,7 +598,7 @@ def test_replay_stop_while_tshark_looks_for_packets(
     hi2, _, _ = services
     opened.replay_targets({}, ctx)
 
-    def searching(_f: Any, _scope: str, token: CancelToken) -> Iterator[Record]:
+    def searching(_t: Any, _path: Any, _scope: str, token: CancelToken) -> Iterator[Record]:
         while not token.cancelled:
             time.sleep(0.01)
         raise CancelledError("request cancelled")  # (as stream_lines does)
@@ -601,3 +613,164 @@ def test_replay_stop_while_tshark_looks_for_packets(
     assert opened.replay_stop({}, ctx) == {"stopped": True}
     worker.join(10)
     assert out["stopped"] is True and out["targets"][0]["connections"] == 0
+
+
+# -- several captures, jitter, loss, until stopped ------------------------------------
+
+
+def _shifted(tmp_path: Path, seconds: float, name: str) -> Path:
+    """replay.pcap again, ``seconds`` later (another capture of the same delivery)."""
+    out = tmp_path / name
+    subprocess.run(
+        [str(find_tool("editcap")), "-t", str(seconds), str(FIXTURES / "replay.pcap"), str(out)],
+        check=True,
+        capture_output=True,
+    )
+    return out
+
+
+def _log(progress: list[dict[str, Any]], result: dict[str, Any]) -> list[str]:
+    lines = [line for p in progress if p["phase"] == "replay" for line in p["log"]]
+    return [line["text"] for line in lines + result["log"]]
+
+
+@pytest.mark.tshark
+def test_targets_of_several_captures(
+    opened: PcapService, ctx: RequestContext, tmp_path: Path
+) -> None:
+    later = _shifted(tmp_path, 100, "later.pcap")
+    notes = tmp_path / "notes.pcap"
+    notes.write_text("not a capture\n")
+    found = opened.replay_targets({"files": [str(later), str(notes)]}, ctx)
+    targets = {t["key"]: t for t in found["targets"]}
+    assert list(targets) == [DNS, HI2, UDP, HI3]  # (the open capture's come first)
+    assert (targets[HI2]["connections"], targets[HI2]["retransmissions"]) == (6, 2)
+    assert targets[HI2]["bytes"] == 2 * sum(map(len, generate.REPLAY_EXPECTED[HI2]))
+    names = [(s["name"], s["file"], s["targets"]) for s in found["sources"]]
+    assert names == [
+        ("replay.pcap", None, 4),
+        ("later.pcap", str(later), 4),
+        ("notes.pcap", str(notes), 0),
+    ]
+    assert found["sources"][2]["error"]  # (read with tshark: not a capture)
+    assert found["duration"] == pytest.approx(0.5)  # one after another
+    assert found["span"] == pytest.approx(100.25)  # first to last of all
+    # Without the open capture: only the other file's.
+    alone = opened.replay_targets({"capture": False, "files": [str(later)]}, ctx)
+    assert [s["name"] for s in alone["sources"]] == ["later.pcap"]
+    assert {t["key"] for t in alone["targets"]} == {DNS, HI2, UDP, HI3}
+
+
+@pytest.mark.tshark
+def test_replay_plays_captures_one_after_another(
+    opened: PcapService,
+    ctx: RequestContext,
+    services: tuple[Collector, Collector, Datagrams],
+    tmp_path: Path,
+) -> None:
+    hi2, _, udp = services
+    later = _shifted(tmp_path, 100, "later.pcap")
+    progress: list[dict[str, Any]] = []
+    ctx.progress = progress.append
+    targets = {
+        HI2: {"ip": "127.0.0.1", "port": hi2.port},
+        UDP: {"ip": "127.0.0.1", "port": udp.port},
+    }
+    result = opened.replay({"speed": 0, "files": [str(later)], "targets": targets}, ctx)
+    _settle()
+    assert len(hi2.received) == 6 and len(udp.received) == 6
+    assert [s["name"] for s in result["sources"]] == ["replay.pcap", "later.pcap"]
+    first, second = result["sources"]
+    assert first["packets"] == second["packets"] > 0 and first["retransmissions"] == 1
+    log = _log(progress, result)
+    assert "Playing replay.pcap (1 of 2)" in log and "Playing later.pcap (2 of 2)" in log
+    done = [line for line in log if line.startswith("Finished")]
+    assert done == [
+        f"Finished {name}: {first['packets']} packets sent, 1 retransmission skipped"
+        for name in ("replay.pcap", "later.pcap")
+    ]
+    captures = [p["capture"] for p in progress if p["phase"] == "replay" and p["capture"]]
+    assert captures and captures[-1] == {"index": 2, "count": 2, "name": "later.pcap"}
+
+
+@pytest.mark.tshark
+def test_replay_merges_captures_by_time(
+    opened: PcapService,
+    ctx: RequestContext,
+    services: tuple[Collector, Collector, Datagrams],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(replay, "ANSWER_GRACE_S", 0.0)
+    hi2, _, _ = services
+    later = _shifted(tmp_path, 0.1, "later.pcap")
+    targets = {HI2: {"ip": "127.0.0.1", "port": hi2.port}}
+
+    def spread(order: str) -> float:
+        hi2.times.clear()
+        hi2.received.clear()
+        progress: list[dict[str, Any]] = []
+        ctx.progress = progress.append
+        params = {"speed": 1, "files": [str(later)], "order": order, "targets": targets}
+        result = opened.replay(params, ctx)
+        _settle()
+        assert len(hi2.received) == 6
+        merged = "Playing 2 captures merged by their recorded times" in _log(progress, result)
+        assert merged == (order == "merged")
+        return max(hi2.times) - min(hi2.times)
+
+    # HI2's data: 0.05 s to 0.25 s in each capture, the second 0.1 s later:
+    # interleaved it ends at 0.35 s; one after another, after both.
+    assert spread("merged") < spread("sequence")
+
+
+@pytest.mark.tshark
+def test_replay_loses_datagrams_on_purpose(
+    opened: PcapService, ctx: RequestContext, services: tuple[Collector, Collector, Datagrams]
+) -> None:
+    hi2, _, udp = services
+    targets = {
+        HI2: {"ip": "127.0.0.1", "port": hi2.port},
+        UDP: {"ip": "127.0.0.1", "port": udp.port},
+    }
+    result = opened.replay({"speed": 0, "loss": 100, "targets": targets}, ctx)
+    _settle()
+    stats = {t["key"]: t for t in result["targets"]}
+    assert udp.received == [] and (stats[UDP]["lost"], stats[UDP]["datagrams"]) == (3, 0)
+    assert len(hi2.received) == 3 and stats[HI2]["lost"] == 0  # (TCP data is never lost)
+    assert result["sources"][0]["lost"] == 3
+    assert any("3 lost on purpose" in line["text"] for line in result["log"])
+
+
+@pytest.mark.tshark
+def test_replay_with_jitter_keeps_each_connection_in_order(
+    opened: PcapService, ctx: RequestContext, services: tuple[Collector, Collector, Datagrams]
+) -> None:
+    hi2, hi3, _ = services
+    targets = {
+        HI2: {"ip": "127.0.0.1", "port": hi2.port},
+        HI3: {"ip": "127.0.0.1", "port": hi3.port},
+    }
+    opened.replay({"speed": 1, "jitter": 40, "seed": 7, "targets": targets}, ctx)
+    _settle()
+    a, e, c = generate.REPLAY_EXPECTED[HI2]
+    assert sorted(hi2.received) in (sorted([a, e, c]), sorted([a, b"", c]))
+    assert sorted(hi3.received) == sorted(generate.REPLAY_EXPECTED[HI3])
+
+
+@pytest.mark.tshark
+def test_replay_until_stopped(
+    opened: PcapService, ctx: RequestContext, services: tuple[Collector, Collector, Datagrams]
+) -> None:
+    hi2, _, _ = services
+    opened.replay_targets({}, ctx)
+    params = {"speed": 0, "loops": 0, "targets": {HI2: {"ip": "127.0.0.1", "port": hi2.port}}}
+    out: dict[str, Any] = {}
+    worker = threading.Thread(target=lambda: out.update(opened.replay(params, ctx)))
+    worker.start()
+    deadline = time.monotonic() + 10
+    while len(hi2.received) < 9 and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert opened.replay_stop({}, ctx) == {"stopped": True}
+    worker.join(10)
+    assert out["stopped"] is True and out["loops"] >= 2
