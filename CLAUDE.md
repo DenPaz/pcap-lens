@@ -2149,6 +2149,17 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   capture (`MAX_IO_INTERVAL_S`), Follow › TLS on QUIC, and link types tshark
   can't read (`_unsupported_data`). Each fix has a generated fixture or a
   capture the test writes itself.
+  0.25.0 added a replay step (`_replay`: the first `REPLAY_STREAMS` TCP and
+  UDP streams at no pauses into a local `Sink`, each connection compared
+  with Follow TCP Stream's directions, else with the segments' payloads in
+  sequence order (a "note": DTN's TCPCLv4 hands Follow other bytes), each
+  datagram with `udp.payload`). Its run over Wireshark's captures (now
+  290, with ~100 `*_coverage` ones) found: tshark 4.2.2 segfaulting on
+  several (`tshark.crash`: the message says tshark crashed; the harness
+  counts it as a note), passes failing on exit code 2 after a capture cut
+  short (`tshark.failed`: an exit whose only complaint is the capture
+  ending early is not a failure; used wherever a pass may find nothing),
+  pcap's 2038 limit and Show File Format's unknown formats.
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage

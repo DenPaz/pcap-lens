@@ -21,7 +21,16 @@ commit) that made it. The format follows
 [32b079a]: https://github.com/DenPaz/pcap-lens/commit/32b079a
 [ffd67c6]: https://github.com/DenPaz/pcap-lens/commit/ffd67c6
 [c0bced8]: https://github.com/DenPaz/pcap-lens/commit/c0bced8
+
+### Fixed
+
+- A capture cut short in the middle of a packet no longer fails VoIP Calls,
+  Multicast Streams and other views that find nothing in it; a crash of
+  tshark itself is named as one; pcap exports of packets after 2038 and Show
+  File Format of formats it can't read are explained. [519ecaf]
+
 [06f71e9]: https://github.com/DenPaz/pcap-lens/commit/06f71e9
+[519ecaf]: https://github.com/DenPaz/pcap-lens/commit/519ecaf
 
 ## 0.24.3 — 2026-10-27
 
