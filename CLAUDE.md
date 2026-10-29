@@ -2772,4 +2772,4 @@ a log and a status bar item: 0.25.0.
 Then what the real captures found (cut-short captures, tshark crashes named,
 pcap's 2038 limit, a retransmitted SYN's data replayed once): 0.25.1.
 Then Replay to… with several captures (one after another or merged by time),
-jitter, UDP loss, until stopped and setup files: 0.25.2 (unreleased).
+jitter, UDP loss, until stopped and setup files: 0.25.2.

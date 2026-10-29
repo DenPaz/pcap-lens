@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.25.2 — 2026-10-29
+
 ### Added
 
 - Replay to Service plays several captures in one replay, one after another
