@@ -7,7 +7,11 @@ commit) that made it. The format follows
 
 ## Unreleased
 
-## 0.25.3 — 2026-10-29
+## 0.25.4 — 2026-10-29
+
+0.25.3 was never published: its tag was pushed before the release PR was
+merged, so it names 0.25.2's code, and the repository's rules keep tags
+from moving. 0.25.4 holds what 0.25.3 was to ship.
 
 ### Added
 
@@ -19,9 +23,12 @@ commit) that made it. The format follows
 - Replay to…: a recorded target only another capture holds no longer offers
   Go to Packet, which went to an unrelated packet of the open capture; its row
   names the capture it was recorded in. [de58c3c]
+- Import from Wireshark Profile writes why an import failed to the PCAP Lens
+  log. [d7c06b9]
 
 [698963e]: https://github.com/DenPaz/pcap-lens/commit/698963e
 [de58c3c]: https://github.com/DenPaz/pcap-lens/commit/de58c3c
+[d7c06b9]: https://github.com/DenPaz/pcap-lens/commit/d7c06b9
 
 ## 0.25.2 — 2026-10-29
 
