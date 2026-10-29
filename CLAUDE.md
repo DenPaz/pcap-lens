@@ -2211,7 +2211,10 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   flow twice at once). Each must send exactly twice the baseline's bytes
   and deliver twice its connections' contents and datagrams (a multiset;
   datagrams a loopback buffer drops are a note), and the merged targets
-  must be twice the baseline's with the open capture's `firstFrame`.
+  must be twice the baseline's with the open capture's `firstFrame`. When
+  tshark itself reads fewer replayable packets in the copy (`replayable`: a
+  pcapng lost an ATM Sniffer file's LANE details), that is a note, not a
+  check. Wireshark's 290: 212 captures replayed twice, no problems.
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage

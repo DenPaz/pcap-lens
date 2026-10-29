@@ -1059,6 +1059,21 @@ def scope_copy(path: Path, work: Path) -> Path | None:
     return out if done.returncode == 0 and out.exists() else None
 
 
+# What a replay reads of a capture (replay.FILTER: no ICMP-quoted headers).
+REPLAYED = "(tcp || udp) && !icmp && !icmpv6"
+
+
+def replayable(path: Path, flt: str) -> int | None:
+    """How many packets of a capture matching ``flt`` tshark reads as replayable."""
+    args = ["tshark", "-n", "-r", str(path), "-Y", f"({flt}) && ({REPLAYED})"]
+    args += ["-T", "fields", "-e", "frame.number"]
+    try:
+        out = subprocess.run(args, capture_output=True, timeout=600, check=False).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return len(out.split())
+
+
 def _replay_several(run: Run, path: Path, base: Baseline) -> None:
     """Replay the open capture together with a copy of what it replays, one
     after another (the copy first) and merged by time (the same times: every
@@ -1078,9 +1093,20 @@ def _replay_several(run: Run, path: Path, base: Baseline) -> None:
     if known is None:
         return
     rows = known.get("sources") or []
+    same = len(rows) == 2 and not rows[1]["error"] and rows[0]["packets"] == rows[1]["packets"]
+    if not same and len(rows) == 2 and not rows[1]["error"]:
+        # tshark may not read its own copy the same way: a pcapng can't
+        # always hold the original's link-layer details (an ATM Sniffer
+        # file's LANE packets stop decoding as UDP). Then there is no
+        # "twice the same" to check.
+        here, there = replayable(path, REPLAY_SCOPE), replayable(copy, "frame")
+        if here is not None and there is not None and here != there:
+            detail = f"tshark reads {there} replayable packets in the copy, {here} here"
+            run.report.steps.append(Step("replay 2 captures", "note", 0.0, detail))
+            return
     run.check(
         "2 captures: same packets",
-        len(rows) == 2 and not rows[1]["error"] and rows[0]["packets"] == rows[1]["packets"],
+        same,
         json.dumps([{k: r.get(k) for k in ("name", "packets", "error")} for r in rows])[:400],
     )
     got = {t["key"]: t for t in known.get("targets") or []}
