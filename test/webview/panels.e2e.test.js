@@ -2154,6 +2154,27 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       assert.equal(await page.textContent("#replay-more-count"), " (1 added, 1 plays)");
       assert.deepEqual(await axeViolations(page), [], "the section open, its list filled");
       assert.equal((await rows(page)).find((r) => r[1] === HI2)?.[3], "6");
+      // A target only later.pcap records (the open capture limited to TCP):
+      // its frame numbers aren't the viewer's, so there is no Go to Packet.
+      const protocolIs = (key, name) =>
+        page.waitForFunction(
+          ([k, n]) =>
+            document.querySelector(`tr[data-key="${k}"] td:nth-child(3)`)?.textContent === n,
+          [key, name],
+        );
+      await page.selectOption("#replay-scope", "filter");
+      await protocolIs(DNS, "UDP"); // (later.pcap's: the transport)
+      const dnsCell = `tr[data-key="${DNS}"] td:nth-child(2)`;
+      assert.equal(await page.textContent(dnsCell), `${DNS} (later.pcap)`);
+      assert.match(await page.getAttribute(dnsCell, "title"), /^Recorded in later\.pcap, not in/);
+      await page.click(dnsCell, { button: "right" });
+      assert.deepEqual(await menuLabels(page), ["Copy"]);
+      await page.keyboard.press("Escape");
+      await page.click(`tr[data-key="${HI2}"] td:nth-child(2)`, { button: "right" });
+      assert.match((await menuLabels(page))[0], /^Go to Packet \d+$/);
+      await page.keyboard.press("Escape");
+      await page.selectOption("#replay-scope", "all");
+      await protocolIs(DNS, "DNS"); // (the open capture's again)
       // The open capture can play later too: it moves like the others.
       assert.ok(await page.isDisabled('button[aria-label="Play replay.pcap earlier"]'));
       await page.click('button[aria-label="Play replay.pcap later"]');

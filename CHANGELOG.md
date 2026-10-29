@@ -7,6 +7,12 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- Replay to…: a recorded target only another capture holds no longer offers
+  Go to Packet, which went to an unrelated packet of the open capture; its row
+  names the capture it was recorded in.
+
 ## 0.25.2 — 2026-10-29
 
 ### Added

@@ -2101,7 +2101,9 @@ mtime_ns)`), merged by key, plus `sources` rows (`error` when tshark
   open capture among the files (targets stay sorted by first data, so
   moving a capture doesn't change them; merged with the open capture's
   first, so a shared target keeps its `firstFrame` and dissected `protocol`
-  wherever it plays: Codex review). `replay`: `order` sequence (the generator
+  wherever it plays: Codex review; a target only other captures record has
+  `firstFrame: null` and `recordedIn`, so the panel's row offers no Go to
+  Packet, whose frame would be another capture's, and names the capture). `replay`: `order` sequence (the generator
   yields a `start` event per capture; the timeline restarts its clock and
   logs "Playing x (i of n)", and `_offset` keeps the fraction across
   captures) or merged (`merge_by_time`, heapq over each capture's planner

@@ -38,7 +38,10 @@ export interface ReplayTarget {
   gaps: number;
   first: number | null;
   last: number | null;
-  firstFrame: number;
+  /** A packet of the open capture; null when only other captures record the target. */
+  firstFrame: number | null;
+  /** The capture that records it, when the open one doesn't. */
+  recordedIn?: string;
   protocol: string;
 }
 

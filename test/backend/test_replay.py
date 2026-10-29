@@ -663,6 +663,14 @@ def test_targets_of_several_captures(
     alone = opened.replay_targets({"capture": False, "files": [str(later)]}, ctx)
     assert [s["name"] for s in alone["sources"]] == ["later.pcap"]
     assert {t["key"] for t in alone["targets"]} == {DNS, HI2, UDP, HI3}
+    # (Its frame numbers aren't the viewer's: no Go to Packet, but where it was.)
+    assert {(t["firstFrame"], t["recordedIn"]) for t in alone["targets"]} == {(None, "later.pcap")}
+    assert all("recordedIn" not in t for t in found["targets"])
+    # A target only another capture records (the open one limited to TCP).
+    tcp = opened.replay_targets({"filter": "tcp", "files": [str(later)]}, ctx)
+    frames = {t["key"]: (t["firstFrame"], t.get("recordedIn")) for t in tcp["targets"]}
+    assert frames[DNS] == (None, "later.pcap") and frames[UDP] == (None, "later.pcap")
+    assert frames[HI2][0] == targets[HI2]["firstFrame"] and frames[HI2][1] is None
     # The open capture anywhere in the list.
     moved = opened.replay_targets({"files": [str(later), str(notes)], "openAt": 1}, ctx)
     assert [s["name"] for s in moved["sources"]] == ["later.pcap", "replay.pcap", "notes.pcap"]
@@ -676,8 +684,8 @@ def test_targets_of_several_captures(
         capture_output=True,
     )
     other = opened.replay_targets({"capture": False, "files": [str(no_arp)]}, ctx)
-    assert [(t["firstFrame"], t["protocol"]) for t in other["targets"] if t["key"] == DNS] == [
-        (4, "UDP")
+    assert [(t["recordedIn"], t["protocol"]) for t in other["targets"] if t["key"] == DNS] == [
+        ("no-arp.pcap", "UDP")
     ]
     for open_at in (0, 1):
         both = opened.replay_targets({"files": [str(no_arp)], "openAt": open_at}, ctx)

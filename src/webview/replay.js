@@ -31,7 +31,7 @@
   /**
    * @typedef {{key: string, proto: string, ip: string, port: number, connections: number,
    *   packets: number, bytes: number, retransmissions: number, gaps: number,
-   *   firstFrame: number, protocol: string}} Target
+   *   firstFrame: number | null, recordedIn?: string, protocol: string}} Target
    * @typedef {{ip: string, port: number}} Destination
    * @typedef {{name: string, targets: Record<string, Destination>}} Preset
    * @typedef {{key: string, connections: number, opened: number, refused: number, reset: number,
@@ -737,7 +737,12 @@
       const tr = /** @type {HTMLTableRowElement} */ (
         h("tr", { "data-key": t.key }, [
           h("td", {}, [use]),
-          h("td", {}, [t.key]),
+          t.recordedIn
+            ? h("td", { title: `Recorded in ${t.recordedIn}, not in the open capture's packets` }, [
+                t.key,
+                h("span", { class: "replay-dim" }, [` (${t.recordedIn})`]),
+              ])
+            : h("td", {}, [t.key]),
           h("td", {}, [t.protocol]),
           h("td", { class: "num" }, [t.connections.toLocaleString()]),
           packets,
@@ -1130,13 +1135,22 @@
         return null;
       }
       const dest = `${row.ip.value.trim()}:${row.port.value.trim()}`;
+      const frame = t.firstFrame;
+      // (Only the open capture's packets can be shown: another capture's
+      // frame numbers would go to an unrelated packet.)
+      const goto =
+        frame === null
+          ? []
+          : [
+              {
+                label: `Go to Packet ${frame}`,
+                icon: "go-to-file",
+                action: () => vscode.postMessage({ type: "goto", frame }),
+              },
+              "-",
+            ];
       return [
-        {
-          label: `Go to Packet ${t.firstFrame}`,
-          icon: "go-to-file",
-          action: () => vscode.postMessage({ type: "goto", frame: t.firstFrame }),
-        },
-        "-",
+        ...goto,
         {
           label: "Copy",
           icon: "copy",
