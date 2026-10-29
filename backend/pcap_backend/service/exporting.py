@@ -15,10 +15,12 @@ from pcap_backend.export import (
     DISSECTION_FORMATS,
     EXPORT_KINDS,
     LIST_FORMATS,
+    PCAP_TIME_LIMIT_NS,
     DissectionWriter,
     PacketListWriter,
     atomic_output,
     check_destination,
+    pcap_time_error,
     unwritable_error,
 )
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, param, str_list
@@ -27,6 +29,7 @@ from pcap_backend.tshark import (
     StreamResult,
     ToolError,
     ToolNotFoundError,
+    failed,
     find_tool,
     run,
     stream_lines,
@@ -276,6 +279,12 @@ class ExportMixin(DetailMixin, PacketsMixin):
             truncated = any(h in result.stderr for h in _TRUNCATION_HINTS)
             if refused := unwritable_error(result.stderr):
                 raise refused
+            if (
+                fmt == "pcap"
+                and failed(result.returncode, result.stderr)
+                and self._undatable_in_pcap(f, ctx)
+            ):
+                raise pcap_time_error()
             if result.returncode not in (0, None) and not (truncated and tmp.exists()):
                 raise f.tshark.error(
                     result.stderr, result.returncode, f"tshark exited with code {result.returncode}"
@@ -289,6 +298,17 @@ class ExportMixin(DetailMixin, PacketsMixin):
             "filter": flt,
             "warnings": _stderr_warnings(result.stderr),
         }
+
+    def _undatable_in_pcap(self, f: _Open, ctx: RequestContext) -> bool:
+        """Whether a packet is dated where a pcap file can't store it."""
+        self._ensure_columns(f, ["frame.time_epoch"], ctx)
+        loc = self._locate(f, "frame.time_epoch")
+        assert loc is not None
+        rows, idx = loc
+        return any(
+            (ns := navigation.parse_ns(v)) is not None and not 0 <= ns < PCAP_TIME_LIMIT_NS
+            for v in rows.column(idx)
+        )
 
     def _export_frames(
         self, f: _Open, fmt: str, dest: Path, frames: list[int], label: str, ctx: RequestContext

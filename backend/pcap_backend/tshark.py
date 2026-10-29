@@ -13,7 +13,6 @@ import os
 import re
 import selectors
 import shutil
-import signal
 import subprocess
 import sys
 import tempfile
@@ -296,13 +295,14 @@ def clean_stderr(text: str) -> str:
 
 
 # Why a tool's exit code means it crashed: a signal on POSIX (a negative
-# code), an exception's NTSTATUS on Windows.
+# code; numbered here, since Windows' signal module numbers SIGABRT 22), an
+# exception's NTSTATUS on Windows.
 _CRASH_SIGNALS = {
-    "SIGSEGV": "a segmentation fault",
-    "SIGBUS": "a bus error",
-    "SIGABRT": "a failed internal check",
-    "SIGFPE": "an arithmetic error",
-    "SIGILL": "an illegal instruction",
+    11: "a segmentation fault",
+    10 if sys.platform == "darwin" else 7: "a bus error",
+    6: "a failed internal check",
+    8: "an arithmetic error",
+    4: "an illegal instruction",
 }
 _CRASH_STATUSES = {
     0xC0000005: "an access violation",
@@ -321,10 +321,7 @@ def crash(returncode: int | None) -> str | None:
     if returncode is None:
         return None
     if returncode < 0:
-        try:
-            return _CRASH_SIGNALS.get(signal.Signals(-returncode).name)
-        except ValueError:
-            return None
+        return _CRASH_SIGNALS.get(-returncode)
     return _CRASH_STATUSES.get(returncode)
 
 

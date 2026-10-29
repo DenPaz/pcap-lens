@@ -7,6 +7,7 @@ import io
 import json
 import struct
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -208,11 +209,20 @@ def test_export_as_pcap_refuses_mixed_link_types(
 
 
 @pytest.mark.tshark
+@pytest.mark.parametrize("says_why", [True, False])
 def test_export_as_pcap_refuses_packets_after_2038(
-    service: PcapService, ctx: RequestContext, tmp_path: Path
+    service: PcapService,
+    ctx: RequestContext,
+    tmp_path: Path,
+    patch_service: Callable[[str, object], None],
+    says_why: bool,
 ) -> None:
     # pcap stores seconds in 31 bits for tshark (Wireshark's
     # arp_coverage.pcap.gz has packets from 2040 on, found by test/realworld).
+    # tshark 4.2 says why; 4.6 says "Undefined error: 0", so the packets'
+    # times are checked (played here by not reading 4.2's message).
+    if not says_why:
+        patch_service("unwritable_error", lambda _stderr: None)
     frame = bytes(12) + b"\x08\x00" + bytes(46)
     records = b"".join(
         struct.pack("<IIII", seconds, 0, len(frame), len(frame)) + frame
