@@ -33,6 +33,8 @@ import json
 import os
 import queue
 import re
+import selectors
+import socket
 import subprocess
 import sys
 import tempfile
@@ -401,6 +403,8 @@ def _exercise(run: Run, path: Path, cache: Path) -> None:
         _statistics(run)
         _other(run, frames)
         _exports(run, path, frames)
+    if frames:
+        _replay(run, path)
     # Reopening reads the saved index: same rows.
     again = run.call(
         "reopen (saved index)",
@@ -745,6 +749,193 @@ def _exports(run: Run, path: Path, frames: int) -> None:
     )
     if path.suffix != ".gz":
         run.call("probe file", "probe_file", {"path": str(path)})
+
+
+# --- replay to service -------------------------------------------------------
+
+# Streams a replay check sends: tshark's Follow runs once for each of them.
+REPLAY_STREAMS = 30
+REPLAY_SCOPE = f"tcp.stream < {REPLAY_STREAMS} || udp.stream < {REPLAY_STREAMS}"
+# Follow's stand-in for bytes the capture lacks (a replay leaves them out).
+MISSING = re.compile(rb"\[\d+ bytes missing in capture file\]\x00?")
+
+
+class Sink:
+    """A local TCP server and UDP socket keeping what each connection and
+    datagram brought (the services a replay check sends to)."""
+
+    def __init__(self) -> None:
+        self.tcp = socket.create_server(("127.0.0.1", 0), backlog=1024)
+        self.tcp.setblocking(False)
+        self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.udp.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 << 20)
+        self.udp.bind(("127.0.0.1", 0))
+        self.udp.setblocking(False)
+        self.connections: list[bytearray] = []
+        self.reset: list[bool] = []
+        self.datagrams: list[bytes] = []
+        self._sel = selectors.DefaultSelector()
+        self._sel.register(self.tcp, selectors.EVENT_READ)
+        self._sel.register(self.udp, selectors.EVENT_READ)
+        self._open = 0
+        self._last = time.monotonic()
+        self._stopping = threading.Event()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def port(self, proto: str) -> int:
+        return int((self.tcp if proto == "tcp" else self.udp).getsockname()[1])
+
+    def _loop(self) -> None:
+        deadline = 0.0
+        while True:
+            now = time.monotonic()
+            if self._stopping.is_set():
+                deadline = deadline or now + 10
+                if now > deadline or (not self._open and now - self._last > 0.5):
+                    break
+            for key, _ in self._sel.select(0.05):
+                self._last = time.monotonic()
+                sock = key.fileobj
+                assert isinstance(sock, socket.socket)
+                if sock is self.tcp:
+                    with contextlib.suppress(BlockingIOError):
+                        conn, _ = self.tcp.accept()
+                        conn.setblocking(False)
+                        self._sel.register(conn, selectors.EVENT_READ, len(self.connections))
+                        self.connections.append(bytearray())
+                        self.reset.append(False)
+                        self._open += 1
+                elif sock is self.udp:
+                    with contextlib.suppress(BlockingIOError):
+                        self.datagrams.append(self.udp.recv(65536))
+                else:
+                    self._read(sock, key.data)
+        for key in list(self._sel.get_map().values()):
+            self._sel.unregister(key.fileobj)
+            key.fileobj.close()  # type: ignore[union-attr]
+        self._sel.close()
+
+    def _read(self, sock: socket.socket, i: int) -> None:
+        try:
+            chunk = sock.recv(1 << 16)
+        except BlockingIOError:
+            return
+        except OSError:
+            self.reset[i] = True
+            chunk = b""
+        if chunk:
+            self.connections[i] += chunk
+            return
+        self._sel.unregister(sock)
+        sock.close()
+        self._open -= 1
+
+    def close(self) -> None:
+        """Wait for the connections to end (10 s at most), then close everything."""
+        self._stopping.set()
+        self._thread.join()
+
+
+def follow_payloads(path: Path) -> tuple[list[bytes], list[bytes]]:
+    """What tshark's Follow says each direction of the first REPLAY_STREAMS
+    TCP streams carried, and every UDP datagram of the first UDP streams."""
+    args = ["tshark", "-n", "-q", "-r", str(path)]
+    for proto in ("tcp", "udp"):
+        for i in range(REPLAY_STREAMS):
+            args += ["-z", f"follow,{proto},raw,{i}"]
+    try:
+        out = subprocess.run(
+            args, capture_output=True, timeout=600, check=False, text=True, errors="replace"
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return [], []
+    udp: list[bytes] = []
+    proto = ""
+    sides: list[bytearray] = []
+    tcp_sides: list[bytearray] = []
+    for line in out.split("\n"):
+        if line.startswith("Follow: "):
+            proto = line.split()[1].split(",")[0]
+            sides = [bytearray(), bytearray()]
+            if proto == "tcp":
+                tcp_sides.extend(sides)
+        elif line.startswith(("=", "Filter:", "Node ")) or not line.strip():
+            continue
+        elif sides:
+            with contextlib.suppress(ValueError):
+                data = bytes.fromhex(line.strip())
+                if MISSING.fullmatch(data):
+                    continue
+                if proto == "udp":
+                    udp.append(data)
+                else:
+                    sides[1 if line.startswith("\t") else 0] += data
+    return [bytes(t) for t in tcp_sides if t], udp
+
+
+def _replay(run: Run, path: Path) -> None:
+    """Replay the first streams' client side into local servers, at no
+    pauses, and check what arrived against tshark's Follow."""
+    known = run.call("replay targets", "replay_targets", {"filter": REPLAY_SCOPE})
+    targets = (known or {}).get("targets") or []
+    if not targets:
+        return
+    sink = Sink()
+    try:
+        res = run.call(
+            "replay",
+            "replay",
+            {
+                "filter": REPLAY_SCOPE,
+                "speed": 0,
+                "targets": {
+                    t["key"]: {"ip": "127.0.0.1", "port": sink.port(t["proto"])} for t in targets
+                },
+            },
+        )
+    finally:
+        sink.close()
+    if res is None:
+        return
+    sent = {t["key"]: t for t in res.get("targets") or []}
+    planned = sum(t["bytes"] for t in targets)
+    run.check(
+        "replay sent = planned",
+        sum(t["bytes"] for t in sent.values()) == planned,
+        f"{sum(t['bytes'] for t in sent.values())} bytes sent, {planned} planned",
+    )
+    errors = [f"{k}: {e}" for k, t in sent.items() for e in t.get("errors") or []]
+    run.check("replay errors", not errors, "; ".join(errors)[:600])
+    tcp_sent = sum(t["bytes"] - t["dropped"] for t in sent.values() if t["key"].startswith("tcp"))
+    tcp_got = sum(len(c) for c in sink.connections)
+    run.check(
+        "replay tcp received",
+        tcp_got == tcp_sent,
+        f"{tcp_got} bytes arrived, {tcp_sent} sent",
+    )
+    tcp, udp = follow_payloads(path)
+    wrong = [
+        (i, bytes(c))
+        for i, c in enumerate(sink.connections)
+        if c and not any(f == c or (sink.reset[i] and f.startswith(c)) for f in tcp)
+    ]
+    run.check(
+        "replay tcp = follow",
+        not wrong,
+        f"{len(wrong)} of {len(sink.connections)} connections differ from every Follow direction,"
+        f" e.g. {len(wrong[0][1]) if wrong else 0} bytes {wrong[0][1][:24].hex() if wrong else ''}",
+    )
+    datagrams = sum(t["datagrams"] for t in sent.values())
+    run.check(
+        "replay udp received",
+        len(sink.datagrams) == datagrams,
+        f"{len(sink.datagrams)} datagrams arrived, {datagrams} sent",
+    )
+    pool = Counter(udp)
+    pool.subtract(sink.datagrams)
+    extra = -sum(n for n in pool.values() if n < 0)
+    run.check("replay udp = follow", not extra, f"{extra} datagrams Follow doesn't show")
 
 
 # --- main --------------------------------------------------------------------
