@@ -410,7 +410,9 @@ def _exercise(run: Run, path: Path, cache: Path) -> None:
         _other(run, frames)
         _exports(run, path, frames)
     if frames:
-        _replay(run, path)
+        base = _replay(run, path)
+        if base is not None:
+            _replay_several(run, path, base)
     # Reopening reads the saved index: same rows.
     again = run.call(
         "reopen (saved index)",
@@ -931,13 +933,25 @@ def segment_payloads(path: Path) -> tuple[list[bytes], list[bytes]]:
     return tcp, udp
 
 
-def _replay(run: Run, path: Path) -> None:
+@dataclass
+class Baseline:
+    """What a clean replay of one capture sent and what arrived: a replay of
+    two copies must send and deliver each of it twice."""
+
+    targets: dict[str, dict[str, Any]]
+    sent: int
+    connections: Counter[bytes]
+    datagrams: Counter[bytes]
+
+
+def _replay(run: Run, path: Path) -> Baseline | None:
     """Replay the first streams' client side into local servers, at no
-    pauses, and check what arrived against tshark's Follow."""
+    pauses, and check what arrived against tshark's Follow. Returns what
+    a clean replay (no errors, nothing lost to resets) sent and delivered."""
     known = run.call("replay targets", "replay_targets", {"filter": REPLAY_SCOPE})
     targets = (known or {}).get("targets") or []
     if not targets:
-        return
+        return None
     sink = Sink()
     try:
         res = run.call(
@@ -954,7 +968,7 @@ def _replay(run: Run, path: Path) -> None:
     finally:
         sink.close()
     if res is None:
-        return
+        return None
     sent = {t["key"]: t for t in res.get("targets") or []}
     planned = sum(t["bytes"] for t in targets)
     run.check(
@@ -1017,6 +1031,129 @@ def _replay(run: Run, path: Path) -> None:
     pool.subtract(d for d in sink.datagrams if d)  # (an empty one has no udp.payload)
     extra = -sum(n for n in pool.values() if n < 0)
     run.check("replay udp = payloads", not extra, f"{extra} datagrams the capture doesn't hold")
+    clean = (
+        not errors
+        and not any(sink.reset)
+        and tcp_got == tcp_sent
+        and len(sink.datagrams) == datagrams
+    )
+    if not clean:
+        return None
+    return Baseline(
+        {t["key"]: t for t in targets},
+        sum(t["bytes"] for t in sent.values()),
+        Counter(bytes(c) for c in sink.connections),
+        Counter(sink.datagrams),
+    )
+
+
+def scope_copy(path: Path, work: Path) -> Path | None:
+    """The packets a replay check reads (REPLAY_SCOPE) as a capture of their
+    own, written by tshark; None when it can't write them as pcapng."""
+    out = work / f"replayed-{path.stem}.pcapng"
+    args = ["tshark", "-n", "-r", str(path), "-Y", REPLAY_SCOPE, "-F", "pcapng", "-w", str(out)]
+    try:
+        done = subprocess.run(args, capture_output=True, timeout=600, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return out if done.returncode == 0 and out.exists() else None
+
+
+def _replay_several(run: Run, path: Path, base: Baseline) -> None:
+    """Replay the open capture together with a copy of what it replays, one
+    after another (the copy first) and merged by time (the same times: every
+    flow twice at once), and check that each sends and delivers exactly
+    twice what one replay did. The targets merge by key and keep the open
+    capture's packets (Go to Packet)."""
+    copy = scope_copy(path, run.work)
+    if copy is None:
+        run.report.steps.append(
+            Step("replay 2 captures", "note", 0.0, "tshark can't write the replayed packets")
+        )
+        return
+    files = [str(copy)]
+    known = run.call(
+        "replay targets (2 captures)", "replay_targets", {"filter": REPLAY_SCOPE, "files": files}
+    )
+    if known is None:
+        return
+    rows = known.get("sources") or []
+    run.check(
+        "2 captures: same packets",
+        len(rows) == 2 and not rows[1]["error"] and rows[0]["packets"] == rows[1]["packets"],
+        json.dumps([{k: r.get(k) for k in ("name", "packets", "error")} for r in rows])[:400],
+    )
+    got = {t["key"]: t for t in known.get("targets") or []}
+    wrong = sorted(
+        k
+        for k in set(got) | set(base.targets)
+        if k not in got
+        or k not in base.targets
+        or got[k]["bytes"] != 2 * base.targets[k]["bytes"]
+        or got[k]["firstFrame"] != base.targets[k]["firstFrame"]
+    )
+    run.check(
+        "2 captures: targets",
+        not wrong,
+        f"{len(wrong)} targets differ from twice one capture's, e.g. "
+        + json.dumps([got.get(wrong[0]), base.targets.get(wrong[0])] if wrong else [])[:400],
+    )
+    want_tcp = Counter({c: 2 * n for c, n in base.connections.items()})
+    want_udp = Counter({d: 2 * n for d, n in base.datagrams.items()})
+    for order, open_at in (("sequence", 1), ("merged", 0)):
+        name = f"replay 2 captures ({order})"
+        sink = Sink()
+        try:
+            res = run.call(
+                name,
+                "replay",
+                {
+                    "filter": REPLAY_SCOPE,
+                    "files": files,
+                    "openAt": open_at,
+                    "order": order,
+                    "speed": 0,
+                    "targets": {
+                        k: {"ip": "127.0.0.1", "port": sink.port(t["proto"])}
+                        for k, t in base.targets.items()
+                    },
+                },
+            )
+        finally:
+            sink.close()
+        if res is None:
+            continue
+        played = [s["name"] for s in res.get("sources") or []]
+        if order == "sequence":
+            run.check(
+                f"{name}: order",
+                played == [copy.name, path.name],
+                f"played {played}, the open capture second",
+            )
+        sent = sum(t["bytes"] for t in res.get("targets") or [])
+        run.check(f"{name}: sent", sent == 2 * base.sent, f"{sent} bytes, {2 * base.sent} expected")
+        errors = [
+            f"{t['key']}: {e}" for t in res.get("targets") or [] for e in t.get("errors") or []
+        ]
+        run.check(f"{name}: errors", not errors, "; ".join(errors)[:600])
+        conns = Counter(bytes(c) for c in sink.connections)
+        missing, extra = want_tcp - conns, conns - want_tcp
+        run.check(
+            f"{name}: tcp",
+            not missing and not extra,
+            f"{sum(missing.values())} expected connections missing, {sum(extra.values())} others"
+            f" ({sum(conns.values())} arrived, {sum(want_tcp.values())} expected)",
+        )
+        got_udp = Counter(sink.datagrams)
+        extra_udp = got_udp - want_udp
+        run.check(f"{name}: udp", not extra_udp, f"{sum(extra_udp.values())} unexpected datagrams")
+        lost = sum((want_udp - got_udp).values())
+        if lost:
+            # (Twice the datagrams at no pauses: the loopback socket's buffer
+            # can overflow; the replay's own count says what was sent.)
+            run.report.steps.append(
+                Step(f"{name}: udp received", "note", 0.0, f"{lost} datagrams not received")
+            )
 
 
 # --- main --------------------------------------------------------------------

@@ -2204,6 +2204,14 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   ending early is not a failure; used wherever a pass may find nothing),
   pcap's 2038 limit and Show File Format's unknown formats. tcpdump's
   612 (`--quick`) found the retransmitted SYN's data sent twice.
+  `_replay_several` (after a clean single replay, which returns a
+  `Baseline`): `scope_copy` writes `REPLAY_SCOPE`'s packets with `tshark
+-w`, then the open capture plus that copy are replayed one after another
+  (`openAt` 1: the copy first) and merged by time (identical times: every
+  flow twice at once). Each must send exactly twice the baseline's bytes
+  and deliver twice its connections' contents and datagrams (a multiset;
+  datagrams a loopback buffer drops are a note), and the merged targets
+  must be twice the baseline's with the open capture's `firstFrame`.
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage
