@@ -7,6 +7,19 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- Replay to Service plays several captures in one replay, one after another
+  or merged by their recorded times (Add Captures…, Add Folder…), with
+  jitter, random UDP loss, Until stopped, a log line per capture, and setups
+  saved as JSON files to share. [163d7d3]
+
+### Changed
+
+- The command is now _PCAP: Replay to…_. [163d7d3]
+
+[163d7d3]: https://github.com/DenPaz/pcap-lens/commit/163d7d3
+
 ## 0.25.1 — 2026-10-29
 
 ### Fixed

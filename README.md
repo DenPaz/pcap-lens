@@ -284,10 +284,10 @@ with the capture's filter), _Go to Packet_ and _Copy ›_.
 - **Export PDUs to File**: what one of tshark's export taps collects (each
   packet's transport payload, the SIP or Diameter messages, the IP
   packets…) from the displayed or all packets, as a new capture.
-- **Replay to Service** (_PCAP: Replay to Service…_): send what the capture's
-  clients sent again, with the recorded timing, to services on your machine
-  (a collector in Docker, a SIP server…), one IP and port per recorded
-  server. See [Replay to Service](#replay-to-service).
+- **Replay to Service** (_PCAP: Replay to…_): send what the capture's clients
+  sent again, with the recorded timing, to services on your machine (a
+  collector in Docker, a SIP server…), one IP and port per recorded server,
+  from one capture or several. See [Replay to Service](#replay-to-service).
 - **Merge captures**, with an offer to merge a rotated capture's pieces.
 - **Import from Hex Dump** (text2pcap) from the editor, the clipboard or a file.
 
@@ -457,21 +457,33 @@ it now: for example an operator's lawful interception delivery (HI2/HI3 over
 TCP) to a collector you develop in Docker Desktop, or recorded SIP to a test
 server.
 
-1. Open the capture and run _PCAP: Replay to Service…_ (the ☰ menu's
-   Capture group, or the editor title's **…** menu).
-2. The panel lists the **recorded targets**: each server end of the
+1. Open the capture and run _PCAP: Replay to…_ (the ☰ menu's Capture group,
+   or the editor title's **…** menu).
+2. **Captures**: the open capture plays, and **Add Captures…** adds others
+   (several calls of one delivery, say); **Add Folder…** lists a folder's
+   captures for you to check the ones to play. They play one after another,
+   in the list's order (the arrows move them), or **merged by recorded
+   time**, as if they had been one capture. Each shows its targets, packets
+   and recorded time, or why it can't be read.
+3. The panel lists the **recorded targets**: each server end of the
    capture's TCP connections and UDP flows (`tcp 10.20.0.5:11001`), with its
    protocol, connections, packets and bytes. Give each one the IP and port
    to send to (it starts with the destination you used last for it, else
    `127.0.0.1` and the recorded port); **Same IP for All** sets every IP at
    once, and unchecked rows are left out.
-3. Choose all packets or the displayed ones, the speed (real time, faster,
-   or no pauses) and how many loops, then **Start Replay**.
+   The targets of every capture that plays are listed together.
+4. Choose all packets or the displayed ones (of the open capture), the speed
+   (real time, faster, or no pauses), how many loops or **Until stopped**,
+   and optionally **Jitter** (each paced packet moves by a random amount
+   within ± that many milliseconds) and **UDP loss** (that share of UDP
+   datagrams is left out at random; TCP data is always sent, since the
+   network stack would send lost data again), then **Start Replay**.
 
 While it runs, each row shows what was sent and received and what happened
-(connections opened, refused, reset), a log lists each connection, and the
-viewer's status bar shows _Replaying…_ with a Stop button. **Stop** ends it
-cleanly with a summary.
+(connections opened, refused, reset), a log lists each connection and which
+capture plays, with a line per capture when it ends (packets sent, lost on
+purpose, retransmissions skipped), and the viewer's status bar shows
+_Replaying…_ with a Stop button. **Stop** ends it cleanly with a summary.
 
 How it works: every recorded TCP connection becomes a new connection to its
 destination, carrying the bytes its client sent, once and in order
@@ -486,6 +498,12 @@ sent as recorded, so it can't be replayed to a live TLS service.
 `pcapViewer.replay.presets` setting). A preset fills the rows it names, and
 for another capture of the same delivery recorded with a different server
 address, the rows with the same protocol and port.
+
+**Setups** keep everything as a JSON file to put next to the captures and
+share with your team: **Save Setup…** writes the captures (relative to the
+file's folder), which ones play, the destinations and the options, and
+**Load Setup…** brings them back (a capture that isn't there any more is
+named and left unchecked).
 
 Only this machine, private networks (10/8, 172.16/12, 192.168/16, fc00::/7)
 and link-local addresses are accepted as destinations, so a capture isn't

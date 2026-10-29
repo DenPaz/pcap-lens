@@ -1,8 +1,10 @@
 // @ts-check
 /**
- * Replay to Service panel: the capture's recorded targets (the server ends of
- * its TCP connections and UDP flows), an IP and port for each, presets, speed
- * and loops; then the replay's live counts per target, a log and a summary.
+ * Replay to Service panel: the captures to replay (the open one and others,
+ * one after another or merged by time), their recorded targets (the server
+ * ends of TCP connections and UDP flows), an IP and port for each, presets,
+ * setup files, speed, loops, jitter and UDP loss; then the replay's live
+ * counts per target, a log and a summary.
  * The backend reads the capture and owns the sockets (replay.py). Addresses
  * and protocol names come from the capture, so they only go through
  * textContent and input values.
@@ -36,6 +38,10 @@
    *   bytes: number, dropped: number, received: number, datagrams: number, errorCount: number}} Stats
    * @typedef {{tr: HTMLTableRowElement, use: HTMLInputElement, ip: HTMLInputElement,
    *   port: HTMLInputElement, sent: HTMLElement, received: HTMLElement, result: HTMLElement}} Row
+   * @typedef {{name: string, file: string | null, targets: number, packets: number,
+   *   bytes: number, duration: number, error: string | null}} SourceInfo
+   * @typedef {{path: string, enabled: boolean, missing?: boolean, info?: SourceInfo}} CaptureFile
+   * @typedef {{ip: string, port: number, enabled: boolean}} SetupTarget
    */
   const state = {
     /** @type {Target[] | null} */ targets: null,
@@ -47,8 +53,14 @@
     /** @type {string | null} */ selected: null,
     running: false,
     loading: false,
-    /** The loops of the running (or last) replay. */
+    /** The loops of the running (or last) replay (0: until stopped). */
     loops: 1,
+    /** The open capture plays too. */
+    includeOpen: true,
+    /** @type {SourceInfo | null} */ openInfo: null,
+    /** @type {CaptureFile[]} other captures, in the order they play */ files: [],
+    /** @type {Record<string, SetupTarget>} a loaded setup's destinations, kept for later lists */
+    setupTargets: {},
   };
 
   const app = /** @type {HTMLElement} */ (document.getElementById("app"));
@@ -105,13 +117,46 @@
     h("button", { type: "button", class: "secondary", id: "replay-refresh" }, ["Refresh"]),
     "refresh",
   );
+  const loadSetupBtn = kit.withIcon(
+    h("button", { type: "button", class: "secondary", id: "replay-load-setup" }, ["Load Setup…"]),
+    "folder-opened",
+  );
+  const saveSetupBtn = kit.withIcon(
+    h("button", { type: "button", class: "secondary", id: "replay-save-setup" }, ["Save Setup…"]),
+    "save-as",
+  );
   const toolbar = h("div", { class: "toolbar", role: "toolbar", "aria-label": "Targets" }, [
     h("label", {}, ["Packets ", scopeSelect]),
     h("label", {}, ["Preset ", presetSelect]),
     savePresetBtn,
     deletePresetBtn,
     h("span", { class: "spacer" }),
+    loadSetupBtn,
+    saveSetupBtn,
     refreshBtn,
+  ]);
+  const capturesHead = h("h2", { class: "panel-subtitle-h" }, ["Captures"]);
+  const capturesBox = h("div", { class: "replay-captures" });
+  const addCapturesBtn = kit.withIcon(
+    h("button", { type: "button", class: "secondary", id: "replay-add-captures" }, [
+      "Add Captures…",
+    ]),
+    "add",
+  );
+  const addFolderBtn = kit.withIcon(
+    h("button", { type: "button", class: "secondary", id: "replay-add-folder" }, ["Add Folder…"]),
+    "new-folder",
+  );
+  const orderSelect = /** @type {HTMLSelectElement} */ (
+    h("select", { id: "replay-order", "aria-label": "Order of the captures" }, [
+      h("option", { value: "sequence" }, ["One after another"]),
+      h("option", { value: "merged" }, ["Merged by recorded time"]),
+    ])
+  );
+  const capturesBar = h("div", { class: "toolbar", role: "toolbar", "aria-label": "Captures" }, [
+    addCapturesBtn,
+    addFolderBtn,
+    h("label", {}, ["Play ", orderSelect]),
   ]);
   const allIp = /** @type {HTMLInputElement} */ (
     h("input", {
@@ -138,6 +183,33 @@
       "aria-label": "Loops",
     })
   );
+  const forever = /** @type {HTMLInputElement} */ (
+    h("input", { id: "replay-forever", type: "checkbox" })
+  );
+  const jitterInput = /** @type {HTMLInputElement} */ (
+    h("input", {
+      id: "replay-jitter",
+      type: "number",
+      min: "0",
+      max: "60000",
+      value: "0",
+      "aria-label": "Jitter in milliseconds",
+      title: "Each packet's pause moves by a random amount within ± this many ms",
+    })
+  );
+  const lossInput = /** @type {HTMLInputElement} */ (
+    h("input", {
+      id: "replay-loss",
+      type: "number",
+      min: "0",
+      max: "100",
+      step: "any",
+      value: "0",
+      "aria-label": "UDP loss in percent",
+      title:
+        "This share of UDP datagrams is left out at random. TCP data is always sent: the network stack would send lost data again.",
+    })
+  );
   const startBtn = kit.withIcon(
     h("button", { type: "button", id: "replay-start" }, ["Start Replay"]),
     "debug-start",
@@ -151,6 +223,9 @@
     allIpBtn,
     h("label", {}, ["Speed ", speedSelect]),
     h("label", {}, ["Loops ", loopsInput]),
+    h("label", {}, [forever, " Until stopped"]),
+    h("label", {}, ["Jitter (ms) ", jitterInput]),
+    h("label", {}, ["UDP loss (%) ", lossInput]),
     h("span", { class: "spacer" }),
     startBtn,
     stopBtn,
@@ -177,8 +252,28 @@
   );
   const tableBox = h("div", { class: "replay-targets" });
   const logHead = h("h2", { class: "panel-subtitle-h" }, ["Log"]);
-  const log = h("ol", { id: "replay-log", class: "replay-log", "aria-label": "Replay log" });
-  app.append(title, intro, toolbar, tableBox, options, notice, status, bar, logHead, log);
+  // (Focusable: it scrolls, and keyboard users must reach what it holds.)
+  const log = h("ol", {
+    id: "replay-log",
+    class: "replay-log",
+    "aria-label": "Replay log",
+    tabindex: "0",
+  });
+  app.append(
+    title,
+    intro,
+    toolbar,
+    capturesHead,
+    capturesBox,
+    capturesBar,
+    tableBox,
+    options,
+    notice,
+    status,
+    bar,
+    logHead,
+    log,
+  );
 
   for (const s of SPEEDS) {
     speedSelect.append(h("option", { value: String(s.value) }, [s.label]));
@@ -202,7 +297,16 @@
     validate();
   });
   allIp.addEventListener("input", () => updateActions());
-  loopsInput.addEventListener("input", () => updateActions());
+  for (const input of [loopsInput, forever, jitterInput, lossInput, speedSelect, orderSelect]) {
+    input.addEventListener("input", () => updateActions());
+  }
+  orderSelect.addEventListener("change", () => showDuration());
+  addCapturesBtn.addEventListener("click", () => vscode.postMessage({ type: "addCaptures" }));
+  addFolderBtn.addEventListener("click", () => vscode.postMessage({ type: "addFolder" }));
+  loadSetupBtn.addEventListener("click", () => vscode.postMessage({ type: "loadSetup" }));
+  saveSetupBtn.addEventListener("click", () =>
+    vscode.postMessage({ type: "saveSetup", setup: currentSetup() }),
+  );
   startBtn.addEventListener("click", () => start());
   stopBtn.addEventListener("click", () => {
     vscode.postMessage({ type: "stop" });
@@ -223,12 +327,9 @@
       state.filter = msg.filter ?? "";
       state.remembered = msg.destinations ?? {};
       setConfig(msg);
-      const o = msg.options ?? {};
-      setSpeed(typeof o.speed === "number" ? o.speed : 1);
-      loopsInput.value = String(o.loops ?? 1);
-      scopeSelect.value = o.scope === "filter" && state.filter ? "filter" : "all";
-      updateScope();
+      setOptions(msg.options ?? {});
       state.running = !!msg.running;
+      renderCaptures();
       requestTargets();
     } else if (msg.type === "loading") {
       state.loading = true;
@@ -236,7 +337,14 @@
       updateActions();
     } else if (msg.type === "targets") {
       state.loading = false;
-      showTargets(msg.targets, msg.duration);
+      showSources(msg.sources ?? []);
+      showTargets(msg.targets, msg);
+    } else if (msg.type === "filesAdded") {
+      addFiles(msg.files ?? [], !!msg.enabled);
+    } else if (msg.type === "setup") {
+      applySetup(msg);
+    } else if (msg.type === "setupSaved") {
+      statusText.textContent = `Setup saved as ${msg.name}.`;
     } else if (msg.type === "filter") {
       state.filter = msg.filter ?? "";
       const was = scopeSelect.value;
@@ -273,6 +381,18 @@
     updateActions();
   }
 
+  /** @param {{speed?: number, loops?: number, scope?: string, order?: string, jitter?: number, loss?: number}} o */
+  function setOptions(o) {
+    setSpeed(typeof o.speed === "number" ? o.speed : 1);
+    forever.checked = o.loops === 0;
+    loopsInput.value = String(o.loops ? o.loops : 1);
+    orderSelect.value = o.order === "merged" ? "merged" : "sequence";
+    jitterInput.value = String(o.jitter ?? 0);
+    lossInput.value = String(o.loss ?? 0);
+    scopeSelect.value = o.scope === "filter" && state.filter ? "filter" : "all";
+    updateScope();
+  }
+
   /** @param {number} speed */
   function setSpeed(speed) {
     if (!SPEEDS.some((s) => s.value === speed)) {
@@ -290,24 +410,218 @@
     }
   }
 
+  /** The other captures that play, in order. */
+  function playedFiles() {
+    return state.files.filter((f) => f.enabled && !f.missing).map((f) => f.path);
+  }
+
   function requestTargets() {
     if (state.running) {
       return;
     }
     hideNotice();
-    vscode.postMessage({ type: "targets", scope: scopeSelect.value });
+    vscode.postMessage({
+      type: "targets",
+      scope: scopeSelect.value,
+      capture: state.includeOpen,
+      files: playedFiles(),
+    });
+  }
+
+  // ------------------------------------------------------------------ the captures
+
+  /** @param {string} file */
+  function baseName(file) {
+    return file.split(/[\\/]/).pop() || file;
+  }
+
+  /** @param {SourceInfo | undefined | null} info @param {boolean} played @param {boolean} [missing] */
+  function sourceText(info, played, missing) {
+    if (missing) {
+      return "File not found";
+    }
+    if (!info) {
+      return played ? "Reading…" : "Not read yet (check it to read it)";
+    }
+    if (info.error) {
+      return `Can't be read: ${info.error}`;
+    }
+    const n = info.targets;
+    return (
+      `${n} ${n === 1 ? "target" : "targets"} · ${info.packets.toLocaleString()} ` +
+      `${info.packets === 1 ? "packet" : "packets"} · ${lib.formatDuration(info.duration)}`
+    );
+  }
+
+  /**
+   * @param {string} label @param {string} codicon @param {() => void} action
+   * @param {boolean} disabled
+   */
+  function iconButton(label, codicon, action, disabled) {
+    const btn = h("button", { type: "button", class: "icon", title: label, "aria-label": label }, [
+      kit.icon(codicon),
+    ]);
+    btn.toggleAttribute("disabled", disabled || state.running);
+    btn.addEventListener("click", action);
+    return btn;
+  }
+
+  function renderCaptures() {
+    const body = h("tbody");
+    const openUse = /** @type {HTMLInputElement} */ (
+      h("input", { type: "checkbox", "aria-label": "Replay the open capture" })
+    );
+    openUse.checked = state.includeOpen;
+    openUse.disabled = state.running;
+    openUse.addEventListener("change", () => {
+      state.includeOpen = openUse.checked;
+      captureChanged();
+    });
+    const openName = title.textContent?.replace(/^Replay to Service · /, "") || "Open capture";
+    body.append(
+      h("tr", { "data-capture": "" }, [
+        h("td", {}, [openUse]),
+        h("td", {}, [openName, h("span", { class: "replay-dim" }, [" (open in the viewer)"])]),
+        h("td", { class: "wrap" }, [sourceText(state.openInfo, state.includeOpen)]),
+        h("td", { class: "replay-capture-actions" }),
+      ]),
+    );
+    state.files.forEach((file, i) => {
+      const use = /** @type {HTMLInputElement} */ (
+        h("input", { type: "checkbox", "aria-label": `Replay ${baseName(file.path)}` })
+      );
+      use.checked = file.enabled && !file.missing;
+      use.disabled = state.running || !!file.missing;
+      use.addEventListener("change", () => {
+        file.enabled = use.checked;
+        captureChanged();
+      });
+      const name = baseName(file.path);
+      const info = h("td", { class: "wrap" }, [sourceText(file.info, file.enabled, file.missing)]);
+      info.classList.toggle("replay-failed", !!file.missing || !!file.info?.error);
+      body.append(
+        h("tr", { "data-capture": file.path }, [
+          h("td", {}, [use]),
+          h("td", { title: file.path }, [name]),
+          info,
+          h("td", { class: "replay-capture-actions" }, [
+            iconButton(`Play ${name} earlier`, "arrow-up", () => moveFile(i, -1), i === 0),
+            iconButton(
+              `Play ${name} later`,
+              "arrow-down",
+              () => moveFile(i, 1),
+              i === state.files.length - 1,
+            ),
+            iconButton(`Remove ${name}`, "close", () => removeFile(i), false),
+          ]),
+        ]),
+      );
+    });
+    const table = h("table", { class: "stats replay-capture-list", "aria-label": "Captures" }, [
+      h("thead", {}, [
+        h("tr", {}, [
+          h("th", { scope: "col" }, ["Replay"]),
+          h("th", { scope: "col" }, ["Capture"]),
+          h("th", { scope: "col" }, ["Recorded"]),
+          h("th", { scope: "col" }, [h("span", { class: "visually-hidden" }, ["Actions"])]),
+        ]),
+      ]),
+      body,
+    ]);
+    capturesBox.replaceChildren(table);
+    updateActions();
+  }
+
+  function captureChanged() {
+    renderCaptures();
+    requestTargets();
+  }
+
+  /** @param {number} i @param {number} delta */
+  function moveFile(i, delta) {
+    const j = i + delta;
+    if (j < 0 || j >= state.files.length) {
+      return;
+    }
+    const [file] = state.files.splice(i, 1);
+    state.files.splice(j, 0, file);
+    renderCaptures();
+    if (orderSelect.value === "sequence") {
+      requestTargets(); // (the first data, and so the targets' order, may change)
+    }
+  }
+
+  /** @param {number} i */
+  function removeFile(i) {
+    const [file] = state.files.splice(i, 1);
+    renderCaptures();
+    if (file?.enabled) {
+      requestTargets();
+    }
+  }
+
+  /** @param {string[]} files @param {boolean} enabled */
+  function addFiles(files, enabled) {
+    let added = 0;
+    for (const file of files) {
+      if (!state.files.some((f) => f.path === file)) {
+        state.files.push({ path: file, enabled });
+        added += 1;
+      }
+    }
+    renderCaptures();
+    if (added && enabled) {
+      requestTargets();
+    } else if (added) {
+      statusText.textContent = `${added} ${added === 1 ? "capture" : "captures"} added: check the ones to replay.`;
+    }
+  }
+
+  /** @param {SourceInfo[]} sources */
+  function showSources(sources) {
+    state.openInfo = sources.find((s) => s.file === null) ?? state.openInfo;
+    for (const file of state.files) {
+      const info = sources.find((s) => s.file === file.path);
+      if (info) {
+        file.info = info;
+      }
+    }
+    renderCaptures();
+  }
+
+  /** How many captures play. */
+  function playedCount() {
+    return (state.includeOpen ? 1 : 0) + playedFiles().length;
   }
 
   // ------------------------------------------------------------------ the targets
 
-  /** @param {Target[]} targets @param {number} duration */
-  function showTargets(targets, duration) {
+  /** The recorded time of what plays (one after another or merged), for the status line. */
+  let recorded = { duration: 0, span: 0 };
+
+  function showDuration() {
+    if (!state.targets?.length || state.running) {
+      return;
+    }
+    const n = state.targets.length;
+    const merged = orderSelect.value === "merged" && playedCount() > 1;
+    const time = merged ? recorded.span : recorded.duration;
+    statusText.textContent =
+      `${n} recorded ${n === 1 ? "target" : "targets"}, ` +
+      `${lib.formatDuration(time ?? 0)} of recorded traffic` +
+      (playedCount() > 1 ? (merged ? " (merged)." : " (one capture after another).") : ".");
+  }
+
+  /** @param {Target[]} targets @param {{duration?: number, span?: number}} times */
+  function showTargets(targets, times) {
     state.targets = targets;
     state.rows.clear();
+    recorded = { duration: times.duration ?? 0, span: times.span ?? 0 };
     if (!targets.length) {
       tableBox.replaceChildren();
-      statusText.textContent =
-        "Nothing to replay: no client sends TCP or UDP data in these packets.";
+      statusText.textContent = playedCount()
+        ? "Nothing to replay: no client sends TCP or UDP data in these packets."
+        : "Check at least one capture to replay.";
       updateActions();
       return;
     }
@@ -331,11 +645,12 @@
     );
     const body = h("tbody");
     for (const t of targets) {
-      const dest = state.remembered[t.key] ?? { ip: "127.0.0.1", port: t.port };
+      const fromSetup = state.setupTargets[t.key];
+      const dest = fromSetup ?? state.remembered[t.key] ?? { ip: "127.0.0.1", port: t.port };
       const use = /** @type {HTMLInputElement} */ (
         h("input", { type: "checkbox", "aria-label": `Replay ${t.key}` })
       );
-      use.checked = true;
+      use.checked = fromSetup ? fromSetup.enabled : true;
       const ip = /** @type {HTMLInputElement} */ (
         h("input", {
           type: "text",
@@ -398,10 +713,7 @@
       body,
     ]);
     tableBox.replaceChildren(table);
-    const n = targets.length;
-    statusText.textContent =
-      `${n} recorded ${n === 1 ? "target" : "targets"}, ` +
-      `${lib.formatDuration(duration ?? 0)} of recorded traffic.`;
+    showDuration();
     if (presetSelect.value) {
       applyPreset(presetSelect.value);
     }
@@ -479,28 +791,98 @@
     return first;
   }
 
+  /** The loops asked for (0: until stopped), or null when the box can't be read. */
   function loops() {
+    if (forever.checked) {
+      return 0;
+    }
     const n = Number(loopsInput.value);
     return Number.isInteger(n) && n >= 1 && n <= 1000 ? n : null;
+  }
+
+  /** @param {HTMLInputElement} input @param {number} max */
+  function numberIn(input, max) {
+    const n = Number(input.value);
+    return input.value.trim() !== "" && Number.isFinite(n) && n >= 0 && n <= max ? n : null;
+  }
+
+  /** The setup as the panel shows it (Save Setup…). */
+  function currentSetup() {
+    /** @type {Record<string, SetupTarget>} */
+    const targets = { ...state.setupTargets };
+    for (const [key, row] of state.rows) {
+      const port = lib.replayPort(row.port.value);
+      if (port !== null && row.ip.value.trim()) {
+        targets[key] = { ip: row.ip.value.trim(), port, enabled: row.use.checked };
+      }
+    }
+    return {
+      includeOpen: state.includeOpen,
+      captures: state.files.map((f) => ({ path: f.path, enabled: f.enabled })),
+      targets,
+      options: {
+        speed: Number(speedSelect.value),
+        loops: loops() ?? 1,
+        scope: scopeSelect.value,
+        order: orderSelect.value,
+        jitter: numberIn(jitterInput, 60000) ?? 0,
+        loss: numberIn(lossInput, 100) ?? 0,
+      },
+    };
+  }
+
+  /** @param {{name: string, setup: any, problems: string[], missing: string[]}} msg */
+  function applySetup(msg) {
+    const setup = msg.setup;
+    state.includeOpen = setup.includeOpen;
+    state.files = setup.captures.map((/** @type {{path: string, enabled: boolean}} */ c) => ({
+      path: c.path,
+      enabled: c.enabled,
+      missing: msg.missing.includes(c.path),
+    }));
+    state.setupTargets = setup.targets;
+    presetSelect.value = ""; // (the setup's destinations, not a preset's)
+    setOptions(setup.options);
+    renderCaptures();
+    requestTargets();
+    const notes = [
+      ...msg.missing.map((m) => `${baseName(m)} wasn't found (${m})`),
+      ...msg.problems,
+    ];
+    if (notes.length) {
+      noticeText.textContent = `Loaded ${msg.name}, except: ${notes.join("; ")}.`;
+      allowBtn.classList.add("hidden");
+      notice.classList.remove("hidden");
+    }
+    statusText.textContent = `Loaded the setup ${msg.name}.`;
   }
 
   /** @param {string} [problem] */
   function updateActions(problem = "") {
     const chosen = Object.keys(mapping()).length;
+    const paced = Number(speedSelect.value) > 0;
     const why = state.running
       ? "A replay is running"
       : state.loading
         ? "Finding the recorded targets…"
         : problem ||
-          (loops() === null
-            ? "Loops must be a whole number from 1 to 1000"
-            : chosen
-              ? ""
-              : "Choose at least one recorded target");
+          (!playedCount()
+            ? "Check at least one capture to replay"
+            : loops() === null
+              ? "Loops must be a whole number from 1 to 1000"
+              : paced && numberIn(jitterInput, 60000) === null
+                ? "Jitter must be between 0 and 60,000 ms"
+                : numberIn(lossInput, 100) === null
+                  ? "UDP loss must be a percentage from 0 to 100"
+                  : chosen
+                    ? ""
+                    : "Choose at least one recorded target");
     startBtn.toggleAttribute("disabled", !!why);
     startBtn.title = why || "Replay the checked targets";
     stopBtn.toggleAttribute("disabled", !state.running);
     loopsInput.setAttribute("aria-invalid", String(loops() === null));
+    jitterInput.setAttribute("aria-invalid", String(numberIn(jitterInput, 60000) === null));
+    lossInput.setAttribute("aria-invalid", String(numberIn(lossInput, 100) === null));
     for (const el of [
       scopeSelect,
       presetSelect,
@@ -508,10 +890,21 @@
       allIp,
       allIpBtn,
       speedSelect,
-      loopsInput,
+      forever,
+      lossInput,
+      loadSetupBtn,
+      saveSetupBtn,
+      addCapturesBtn,
+      addFolderBtn,
     ]) {
       el.toggleAttribute("disabled", state.running);
     }
+    loopsInput.toggleAttribute("disabled", state.running || forever.checked);
+    jitterInput.toggleAttribute("disabled", state.running || !paced);
+    jitterInput.title = paced
+      ? "Each packet's pause moves by a random amount within ± this many ms"
+      : "No pauses: there is nothing to vary";
+    orderSelect.toggleAttribute("disabled", state.running || playedCount() < 2);
     savePresetBtn.toggleAttribute("disabled", state.running || !chosen);
     deletePresetBtn.toggleAttribute("disabled", state.running || !presetSelect.value);
     for (const row of state.rows.values()) {
@@ -537,6 +930,11 @@
       speed: Number(speedSelect.value),
       loops: n,
       scope: scopeSelect.value,
+      order: orderSelect.value,
+      jitter: Number(speedSelect.value) > 0 ? (numberIn(jitterInput, 60000) ?? 0) : 0,
+      loss: numberIn(lossInput, 100) ?? 0,
+      capture: state.includeOpen,
+      files: playedFiles(),
     });
   }
 
@@ -551,6 +949,7 @@
     bar.classList.remove("hidden");
     setFraction(null);
     statusText.textContent = "Starting the replay…";
+    renderCaptures();
     updateActions();
   }
 
@@ -625,6 +1024,7 @@
       }
     }
     statusText.textContent = lib.replaySummary(result, state.loops);
+    renderCaptures();
     updateActions();
   }
 
@@ -633,6 +1033,7 @@
     if (msg.where === "replay") {
       state.running = false;
       bar.classList.add("hidden");
+      renderCaptures();
     } else {
       state.loading = false;
     }

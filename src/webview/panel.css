@@ -1001,12 +1001,37 @@ table.replay .replay-port {
 }
 
 table.replay input.invalid,
-#replay-loops[aria-invalid="true"] {
+#replay-loops[aria-invalid="true"],
+#replay-jitter[aria-invalid="true"],
+#replay-loss[aria-invalid="true"] {
   border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
 }
 
-#replay-loops {
+#replay-loops,
+#replay-jitter,
+#replay-loss {
   width: 9ch;
+}
+
+.replay-captures {
+  overflow-x: auto;
+}
+
+table.replay-capture-list td {
+  vertical-align: middle;
+}
+
+table.replay-capture-list .replay-failed {
+  color: var(--vscode-errorForeground);
+}
+
+.replay-dim {
+  color: var(--vscode-descriptionForeground);
+}
+
+.replay-capture-actions {
+  white-space: nowrap;
+  text-align: right;
 }
 
 #replay-all-ip {

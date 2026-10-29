@@ -2996,9 +2996,21 @@
   }
 
   /**
+   * The loop part of a replay's status ("loop 2 of 3", "loop 4" until stopped), or "".
+   * @param {number | undefined} loop @param {number} loops (0: until stopped)
+   */
+  function replayLoop(loop, loops) {
+    if (!loop) {
+      return "";
+    }
+    return loops === 0 ? `loop ${loop}` : loops > 1 ? `loop ${loop} of ${loops}` : "";
+  }
+
+  /**
    * The status line while a replay runs.
-   * @param {{fraction?: number | null, loop?: number, sent?: number, received?: number, open?: number}} p
-   * @param {number} loops
+   * @param {{fraction?: number | null, loop?: number, sent?: number, received?: number, open?: number,
+   *   capture?: {index: number, count: number, name: string} | null}} p
+   * @param {number} loops (0: until stopped)
    */
   function replayStatusText(p, loops) {
     const parts = [
@@ -3006,8 +3018,12 @@
         ? "Replaying…"
         : `Replaying… ${Math.round(p.fraction * 100)}%`,
     ];
-    if (loops > 1 && p.loop) {
-      parts.push(`loop ${p.loop} of ${loops}`);
+    if (p.capture) {
+      parts.push(`${p.capture.name} (${p.capture.index} of ${p.capture.count})`);
+    }
+    const loop = replayLoop(p.loop, loops);
+    if (loop) {
+      parts.push(loop);
     }
     parts.push(`${formatBytes(p.sent ?? 0)} sent`, `${formatBytes(p.received ?? 0)} received`);
     const open = p.open ?? 0;
@@ -3025,8 +3041,9 @@
       `Replaying to ${r.targets} ${r.targets === 1 ? "target" : "targets"}`,
       formatDuration(r.seconds),
     ];
-    if (r.loops > 1) {
-      parts.push(`loop ${r.loop} of ${r.loops}`);
+    const loop = replayLoop(r.loop, r.loops);
+    if (loop) {
+      parts.push(loop);
     }
     parts.push(`${formatBytes(r.sent)} sent`);
     return parts.join(" · ");
@@ -3034,13 +3051,16 @@
 
   /**
    * What happened to one target's traffic, in a few words.
-   * @param {{connections: number, opened: number, refused: number, reset: number, datagrams: number, errorCount: number}} s
+   * @param {{connections: number, opened: number, refused: number, reset: number, datagrams: number, errorCount: number, lost?: number}} s
    * @param {string} proto
    */
   function replayOutcome(s, proto) {
     const parts = [];
     if (proto === "udp") {
       parts.push(`${s.datagrams.toLocaleString()} ${s.datagrams === 1 ? "datagram" : "datagrams"}`);
+      if (s.lost) {
+        parts.push(`${s.lost.toLocaleString()} lost on purpose`);
+      }
     } else {
       parts.push(`${s.opened.toLocaleString()} of ${s.connections.toLocaleString()} opened`);
     }
@@ -3059,21 +3079,32 @@
 
   /**
    * The sentence that sums a replay up.
-   * @param {{stopped: boolean, seconds: number, loops: number, targets: {bytes: number, dropped: number, errorCount: number}[]}} r
-   * @param {number} loops the loops asked for
+   * @param {{stopped: boolean, seconds: number, loops: number, sources?: {name: string}[],
+   *   targets: {bytes: number, dropped: number, errorCount: number, lost?: number}[]}} r
+   * @param {number} loops the loops asked for (0: until stopped)
    */
   function replaySummary(r, loops) {
     const sent = r.targets.reduce((n, t) => n + t.bytes, 0);
     const dropped = r.targets.reduce((n, t) => n + t.dropped, 0);
+    const lost = r.targets.reduce((n, t) => n + (t.lost ?? 0), 0);
     const errors = r.targets.reduce((n, t) => n + t.errorCount, 0);
     const time = r.seconds < 60 ? `${r.seconds.toFixed(1)} s` : formatDuration(r.seconds);
     let text = r.stopped ? `Stopped after ${time}` : `Done in ${time}`;
-    if (loops > 1) {
-      text += ` (${r.loops} of ${loops} loops)`;
+    const captures = r.sources?.length ?? 1;
+    const of = captures > 1 ? ` of ${captures} captures` : "";
+    if (loops === 0) {
+      text += ` (${r.loops} ${r.loops === 1 ? "loop" : "loops"}${of})`;
+    } else if (loops > 1) {
+      text += ` (${r.loops} of ${loops} loops${of})`;
+    } else if (of) {
+      text += ` (${captures} captures)`;
     }
     text += `: ${formatBytes(sent)} sent`;
     if (dropped) {
       text += `, ${formatBytes(dropped)} not delivered`;
+    }
+    if (lost) {
+      text += `, ${lost.toLocaleString()} ${lost === 1 ? "datagram" : "datagrams"} lost on purpose`;
     }
     text += errors
       ? `, ${errors.toLocaleString()} ${errors === 1 ? "error" : "errors"} (see the log).`

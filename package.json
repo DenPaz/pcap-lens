@@ -674,7 +674,7 @@
       },
       {
         "command": "pcapViewer.replay",
-        "title": "Replay to Service…",
+        "title": "Replay to…",
         "category": "PCAP",
         "icon": "$(debug-rerun)"
       },

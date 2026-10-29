@@ -1848,5 +1848,43 @@ suite("webview lib: empty list and filter builder", () => {
       ),
       "Stopped after 1:15 (1 of 3 loops): 1.0 KB sent, no errors.",
     );
+    // Several captures, until stopped, datagrams lost on purpose.
+    assert.equal(
+      lib.replayStatusText(
+        {
+          fraction: 0.5,
+          loop: 4,
+          sent: 0,
+          received: 0,
+          open: 0,
+          capture: { index: 2, count: 3, name: "llamada_MT.pcap" },
+        },
+        0,
+      ),
+      "Replaying… 50% · llamada_MT.pcap (2 of 3) · loop 4 · 0 B sent · 0 B received · 0 connections open",
+    );
+    assert.equal(
+      lib.replayStatusLabel({ targets: 2, sent: 0, seconds: 5, loop: 3, loops: 0 }),
+      "Replaying to 2 targets · 0:05 · loop 3 · 0 B sent",
+    );
+    assert.equal(
+      lib.replayOutcome({ ...udp, datagrams: 2, lost: 1 }, "udp"),
+      "2 datagrams, 1 lost on purpose",
+    );
+    const lossy = {
+      ...result,
+      stopped: true,
+      loops: 3,
+      sources: [{ name: "a.pcap" }, { name: "b.pcap" }],
+      targets: [{ bytes: 1024, dropped: 0, errorCount: 0, lost: 2 }],
+    };
+    assert.equal(
+      lib.replaySummary(lossy, 0),
+      "Stopped after 2.3 s (3 loops of 2 captures): 1.0 KB sent, 2 datagrams lost on purpose, no errors.",
+    );
+    assert.equal(
+      lib.replaySummary({ ...lossy, stopped: false, loops: 1 }, 1),
+      "Done in 2.3 s (2 captures): 1.0 KB sent, 2 datagrams lost on purpose, no errors.",
+    );
   });
 });

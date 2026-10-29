@@ -2091,8 +2091,36 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   overlap, a retransmission, an overlap, a gap, a reset, one without a
   handshake and a UDP flow; `REPLAY_EXPECTED` is what each server must get.
   Tests replay into local TCP/UDP servers (`test_replay.py`).
-  **Panel** (`pcapViewer.replay`, _Replay to Service…_: ☰ Capture, the
-  editor title's overflow; `ReplayPanel`, `replay.js`, one per editor): a
+  **Several captures** (0.25.2, after the user's "PCAP Player"):
+  `replay_targets`/`replay` take `capture` (default true) and `files`
+  (`MAX_FILES` 100, `_readable_capture`, read with the open capture's
+  tshark options); `_Source` per capture, targets cached per source
+  (`_replay_targets` keyed `("open", scope)` or `("file", path, size,
+mtime_ns)`), merged by key, plus `sources` rows (`error` when tshark
+  can't read one) and `span`. `replay`: `order` sequence (the generator
+  yields a `start` event per capture; the timeline restarts its clock and
+  logs "Playing x (i of n)", and `_offset` keeps the fraction across
+  captures) or merged (`merge_by_time`, heapq over each capture's planner
+  stream, closing them all; FIELDS reads `frame.time_epoch`, so captures
+  line up); `Event.source` and `Planner(source)` keep flows apart
+  (`_Conn.flow` = loop, capture, flow); `jitter` (±ms per paced event,
+  `random.Random(seed)`, order kept since events run in sequence), `loss`
+  (UDP only, `TargetStats.lost`), loops 0 = until stopped
+  (`itertools.count`). `SourceStats` per capture: totals for the result and
+  a per-pass line ("Finished x: N packets sent, M retransmissions skipped",
+  `Replayer.planned` counts only the chosen targets); a capture's first
+  event forces a progress report (`capture {index, count, name}`).
+  **Panel** (`pcapViewer.replay`, _Replay to…_ (was "Replay to Service…"):
+  ☰ Capture, the editor title's overflow; `ReplayPanel`, `replay.js`, one
+  per editor): a Captures list (the open capture's checkbox, then
+  `filesAdded` from _Add Captures…_ (checked) and _Add Folder…_
+  (`isCaptureFileName`, unchecked), ↑/↓/✕, each row's targets/packets/time
+  or error, _Play_ one after another / merged), _Until stopped_, _Jitter
+  (ms)_ (disabled at no pauses), _UDP loss (%)_, and setup files
+  (`replayModel.setupToJson`/`parseSetup`: `format` `pcap-lens-replay`,
+  paths relative to the file's folder; `missing` captures unchecked; loading
+  clears the preset choice, else the preset overwrote the setup's
+  destinations); then a
   table of the recorded targets (checkbox, counts, retransmissions and gaps
   as notes) with an IP and a port input per row, filled from the
   destination used last for that key (globalState
@@ -2743,3 +2771,5 @@ services (interception collectors, SIP servers), with presets, live counts,
 a log and a status bar item: 0.25.0.
 Then what the real captures found (cut-short captures, tshark crashes named,
 pcap's 2038 limit, a retransmitted SYN's data replayed once): 0.25.1.
+Then Replay to… with several captures (one after another or merged by time),
+jitter, UDP loss, until stopped and setup files: 0.25.2 (unreleased).
