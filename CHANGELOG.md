@@ -10,7 +10,7 @@ commit) that made it. The format follows
 ### Added
 
 - Replay to…: Save Results… writes the last replay's summary, each capture's
-  and target's counts and the whole log, as text or JSON.
+  and target's counts and the whole log, as text or JSON. [698963e]
 
 ### Fixed
 
@@ -18,6 +18,7 @@ commit) that made it. The format follows
   Go to Packet, which went to an unrelated packet of the open capture; its row
   names the capture it was recorded in. [de58c3c]
 
+[698963e]: https://github.com/DenPaz/pcap-lens/commit/698963e
 [de58c3c]: https://github.com/DenPaz/pcap-lens/commit/de58c3c
 
 ## 0.25.2 — 2026-10-29
