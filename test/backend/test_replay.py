@@ -372,10 +372,14 @@ def test_data_a_service_does_not_read_is_reported(monkeypatch: pytest.MonkeyPatc
     taker.start()
     address = (socket.AF_INET, socket.IPPROTO_TCP, server.getsockname())
     dest = replay.Destination("tcp", [address], "127.0.0.1:1")
-    size = 16 << 20  # more than the socket buffers on both sides hold (under MAX_BUFFERED)
+    # More than the socket buffers on both sides hold (under MAX_BUFFERED), in
+    # 64 KB pieces as a capture's segments come: Windows takes one send of any
+    # size into an empty buffer, so 16 MB at once all counted as sent there.
+    chunk, count = 64 << 10, 256
+    size = chunk * count
     events = [
         replay.Event("open", 0.0, 1, "t"),
-        replay.Event("data", 0.0, 1, "t", bytes(size)),
+        *(replay.Event("data", 0.0, 1, "t", bytes(chunk)) for _ in range(count)),
         replay.Event("close", 0.0, 1, "t"),
     ]
     runner = replay.Replayer({"t": dest}, 0, CancelToken())
