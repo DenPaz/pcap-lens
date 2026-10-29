@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.25.1 — 2026-10-29
+
 ### Fixed
 
 - A capture cut short in the middle of a packet no longer fails VoIP Calls,

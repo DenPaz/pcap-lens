@@ -2741,3 +2741,5 @@ German…), on macOS, Linux and Windows: 0.24.3.
 Then Replay to Service: a capture's client side sent again to local
 services (interception collectors, SIP servers), with presets, live counts,
 a log and a status bar item: 0.25.0.
+Then what the real captures found (cut-short captures, tshark crashes named,
+pcap's 2038 limit, a retransmitted SYN's data replayed once): 0.25.1.
