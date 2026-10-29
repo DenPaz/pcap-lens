@@ -151,6 +151,17 @@ def test_planner_sends_a_syn_s_own_data() -> None:
         ]
     )
     assert [e.data for e in events if e.kind == "data"] == [b"abcd", b"efgh"]
+    # A retransmitted SYN brings the same data again (tcpdump's
+    # bgp-shutdown-msg-variations.pcap: three SYNs with data, found by test/realworld).
+    planner, events = replay.plan(
+        [
+            _tcp(1, C, 40000, S, 9000, b"abcd", syn=True, seq=99),
+            _tcp(2, C, 40000, S, 9000, b"abcd", syn=True, seq=99),
+            _tcp(3, C, 40000, S, 9000, b"efgh", ack=True, seq=104),
+        ]
+    )
+    assert [e.data for e in events if e.kind == "data"] == [b"abcd", b"efgh"]
+    assert planner.targets[f"tcp {S}:9000"].retransmissions == 1
 
 
 def test_planner_finds_the_client_without_a_handshake() -> None:

@@ -2059,7 +2059,8 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   after `REORDER_WINDOW_S` (0.5 s) of capture time, `MAX_HELD` (4 MB), the
   flow's FIN/RST, or the end of the capture (`finish()`, which every caller
   runs after the last record); a SYN's own data (TCP Fast Open) starts at
-  seq + 1 (Codex review: out-of-order segments were dropped as
+  seq + 1 (the first SYN's: a retransmitted one's data is a retransmission;
+  tcpdump's fuzzed BGP captures) (Codex review: out-of-order segments were dropped as
   retransmissions, a TFO SYN lost its first byte); FIN/RST close;
   server packets ignored) → `Replayer` (non-blocking sockets, one selector,
   each event at `(time - first) / speed` from the first event (not from
@@ -2159,7 +2160,8 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   counts it as a note), passes failing on exit code 2 after a capture cut
   short (`tshark.failed`: an exit whose only complaint is the capture
   ending early is not a failure; used wherever a pass may find nothing),
-  pcap's 2038 limit and Show File Format's unknown formats.
+  pcap's 2038 limit and Show File Format's unknown formats. tcpdump's
+  612 (`--quick`) found the retransmitted SYN's data sent twice.
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage
