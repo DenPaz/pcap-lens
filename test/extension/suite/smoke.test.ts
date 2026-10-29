@@ -4,6 +4,7 @@
  */
 import * as assert from "node:assert/strict";
 import * as fs from "node:fs";
+import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
@@ -177,6 +178,7 @@ suite("PCAP Lens smoke test", () => {
       "pcapViewer.exportDissections",
       "pcapViewer.mergeCaptures",
       "pcapViewer.exportObjects",
+      "pcapViewer.replay",
       "pcapViewer.showPlugins",
       "pcapViewer.protocolPreferences",
       "pcapViewer.openBerRecords",
@@ -234,6 +236,34 @@ suite("PCAP Lens smoke test", () => {
       objects.map((o) => [o.name, o.frame]),
       [["index.html", 7]],
     );
+
+    // Replay to Service: the recorded server end, replayed into a local server.
+    session.reveal();
+    await vscode.commands.executeCommand("pcapViewer.replay");
+    const replay = await waitFor(() =>
+      api.panels.ReplayPanel.all.find((p) => p.session === session && p.targets),
+    );
+    assert.deepEqual(
+      replay.targets?.map((t) => [t.key, t.connections, t.protocol]),
+      [["tcp 93.184.216.34:80", 1, "HTTP"]],
+    );
+    const received: Buffer[] = [];
+    const service = net.createServer((sock) => sock.on("data", (d) => received.push(d)));
+    await new Promise<void>((resolve) => service.listen(0, "127.0.0.1", resolve));
+    try {
+      const port = (service.address() as net.AddressInfo).port;
+      await replay.start(
+        { "tcp 93.184.216.34:80": { ip: "127.0.0.1", port } },
+        { speed: 0, loops: 1, scope: "all" },
+      );
+      assert.equal(replay.result?.stopped, false);
+      assert.match(
+        Buffer.concat(received).toString("latin1"),
+        /^GET \/index\.html HTTP\/1\.1\r\nHost: example\.com\r\n/,
+      );
+    } finally {
+      service.close();
+    }
 
     // With a second capture focused, focusing the first capture's panel must
     // make the first capture the target of capture commands again.

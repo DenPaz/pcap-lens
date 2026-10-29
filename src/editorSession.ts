@@ -38,6 +38,7 @@ import {
   FilterEvent,
   HostToWebview,
   OpenResult,
+  ReplayStatus,
   ViewCounts,
   ViewerCommand,
   WEBVIEW_RPC_METHODS,
@@ -178,6 +179,8 @@ export class PcapEditorSession {
   readonly onDidChangeCapture = this.captureEmitter.event;
   /** A live capture is writing this capture (capture_start). */
   capturing = false;
+  /** The Replay to Service panel of this capture, while open (the status bar item's actions). */
+  replayControl: { reveal(): void; stop(): void } | undefined;
   /** Settings changed while capturing: reload once the capture is indexed. */
   private reloadWhenCaptured = false;
   /** Called when the index pass ends (see whenIndexed). */
@@ -990,6 +993,12 @@ export class PcapEditorSession {
       case "stopCapture":
         await this.stopCapture();
         return;
+      case "showReplay":
+        this.replayControl?.reveal();
+        return;
+      case "stopReplay":
+        this.replayControl?.stop();
+        return;
       case "showLog":
         this.log.show();
         return;
@@ -1541,6 +1550,11 @@ export class PcapEditorSession {
   /** An export of this capture: its progress in the viewer's progress bar (`done` hides it). */
   showExportProgress(fraction: number | null, done = false): void {
     this.post({ type: "exportProgress", fraction, done: done || undefined });
+  }
+
+  /** Show a running replay in the viewer's status bar (null: none). */
+  showReplay(replay: ReplayStatus | null): void {
+    this.post({ type: "replay", replay });
   }
 
   private post(msg: HostToWebview): void {

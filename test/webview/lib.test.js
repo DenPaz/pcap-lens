@@ -1772,4 +1772,81 @@ suite("webview lib: empty list and filter builder", () => {
     assert.equal(lib.builderTerm("tcp.port", "FT_UINT16", "in", "80,443"), "tcp.port in {80, 443}");
     assert.equal(lib.builderTerm("tcp.port", "FT_UINT16", "in", " , "), null);
   });
+
+  test("replay helpers: ports, destinations, presets", () => {
+    assert.equal(lib.replayPort(" 11001 "), 11001);
+    for (const bad of ["", "0", "65536", "80a", "1.5", "-1"]) {
+      assert.equal(lib.replayPort(bad), null, bad);
+    }
+    assert.equal(lib.replayDestinationProblem("127.0.0.1", "11000"), "");
+    assert.equal(lib.replayDestinationProblem("host.docker.internal", "1"), "");
+    assert.match(lib.replayDestinationProblem(" ", "1"), /IP address/);
+    assert.match(lib.replayDestinationProblem("a b", "1"), /no spaces/);
+    assert.match(lib.replayDestinationProblem("::1", "70000"), /port/);
+
+    const targets = [
+      { key: "tcp 10.20.0.5:11000", proto: "tcp", port: 11000 },
+      { key: "tcp 10.99.0.1:11001", proto: "tcp", port: 11001 },
+      { key: "udp 10.20.0.5:11002", proto: "udp", port: 11002 },
+      { key: "tcp 10.20.0.5:5060", proto: "tcp", port: 5060 },
+    ];
+    const preset = {
+      targets: {
+        "tcp 10.20.0.5:11000": { ip: "127.0.0.1", port: 21000 },
+        "tcp 10.20.0.5:11001": { ip: "127.0.0.1", port: 21001 }, // other server address
+        "tcp 10.20.0.6:11002": { ip: "127.0.0.1", port: 21002 }, // TCP, not UDP
+        "tcp 10.20.0.5:5060": { ip: "10.0.0.2", port: 5060 },
+        "tcp 10.20.0.6:5060": { ip: "10.0.0.3", port: 5060 }, // (exact key wins)
+      },
+    };
+    assert.deepEqual(lib.presetDestinations(preset, targets), {
+      "tcp 10.20.0.5:11000": { ip: "127.0.0.1", port: 21000 },
+      "tcp 10.99.0.1:11001": { ip: "127.0.0.1", port: 21001 },
+      "tcp 10.20.0.5:5060": { ip: "10.0.0.2", port: 5060 },
+    });
+    // Two entries for one protocol and port: no guess.
+    assert.deepEqual(
+      lib.presetDestinations(preset, [{ key: "tcp 1.2.3.4:5060", proto: "tcp", port: 5060 }]),
+      {},
+    );
+  });
+
+  test("replay helpers: status, outcome and summary", () => {
+    assert.equal(
+      lib.replayStatusLabel({ targets: 1, sent: 0, seconds: 75, loop: 1, loops: 1 }),
+      "Replaying to 1 target · 1:15 · 0 B sent",
+    );
+    assert.equal(
+      lib.replayStatusText({ fraction: 0.425, loop: 2, sent: 2048, received: 10, open: 1 }, 3),
+      "Replaying… 43% · loop 2 of 3 · 2.0 KB sent · 10 B received · 1 connection open",
+    );
+    assert.equal(
+      lib.replayStatusText({ fraction: null, loop: 1, sent: 0, received: 0, open: 2 }, 1),
+      "Replaying… · 0 B sent · 0 B received · 2 connections open",
+    );
+    const tcp = { connections: 4, opened: 1, refused: 2, reset: 1, datagrams: 0, errorCount: 4 };
+    assert.equal(lib.replayOutcome(tcp, "tcp"), "1 of 4 opened, 2 refused, 1 reset, 1 error");
+    const udp = { connections: 1, opened: 0, refused: 0, reset: 0, datagrams: 1, errorCount: 0 };
+    assert.equal(lib.replayOutcome(udp, "udp"), "1 datagram");
+    const result = {
+      stopped: false,
+      seconds: 2.25,
+      loops: 1,
+      targets: [
+        { bytes: 1024, dropped: 0, errorCount: 0 },
+        { bytes: 0, dropped: 300, errorCount: 2 },
+      ],
+    };
+    assert.equal(
+      lib.replaySummary(result, 1),
+      "Done in 2.3 s: 1.0 KB sent, 300 B not delivered, 2 errors (see the log).",
+    );
+    assert.equal(
+      lib.replaySummary(
+        { ...result, stopped: true, seconds: 75, loops: 1, targets: [result.targets[0]] },
+        3,
+      ),
+      "Stopped after 1:15 (1 of 3 loops): 1.0 KB sent, no errors.",
+    );
+  });
 });

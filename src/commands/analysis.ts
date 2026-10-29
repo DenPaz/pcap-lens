@@ -3,6 +3,7 @@ import { FOLLOW_COMMANDS, FOLLOW_LABELS, FollowPanel, FollowProto } from "../pan
 import { FlowGraphPanel } from "../panels/flowGraphPanel";
 import { ObjectsPanel } from "../panels/objectsPanel";
 import { PacketPanel } from "../panels/packetPanel";
+import { ReplayPanel } from "../panels/replayPanel";
 import { StatsKind, StatsPanel } from "../panels/statsPanel";
 import { ComparePanel } from "../panels/comparePanel";
 import { TcpGraphPanel } from "../panels/tcpGraphPanel";
@@ -163,6 +164,10 @@ export function registerAnalysisCommands(
     vscode.commands.registerCommand("pcapViewer.exportObjects", () => {
       const session = requireSession(provider);
       return session ? ObjectsPanel.show(context, session) : undefined;
+    }),
+    vscode.commands.registerCommand("pcapViewer.replay", () => {
+      const session = requireSession(provider);
+      return session ? ReplayPanel.show(context, session) : undefined;
     }),
   );
 }

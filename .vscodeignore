@@ -19,6 +19,8 @@ media/*.svg
 !media/activity.svg
 media/screenshots/**
 *.vsix
+# Design and tracking notes.
+docs/**
 coverage/**
 .c8rc.json
 **/.ruff_cache/**

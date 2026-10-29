@@ -192,6 +192,8 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
           "colorize",
           "exportBytes",
           "showPacketBytes",
+          "showReplay",
+          "stopReplay",
         ].includes(msg.type)
       ) {
         hostLog.push(msg);
@@ -2470,6 +2472,26 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.waitForSelector("#find-bar:not(.hidden)");
     await page.keyboard.press("Escape");
     assert.deepEqual(await axeViolations(page, { exclude: [["#bytes"]] }), []);
+  });
+
+  test("a running replay shows in the status bar: its panel and Stop", async () => {
+    await cleanView();
+    assert.ok(await page.isHidden("#status-replay"));
+    const replay = { targets: 2, sent: 4800, received: 10, seconds: 12, loop: 1, loops: 3 };
+    await post({ type: "replay", replay });
+    await page.waitForSelector("#status-replay:not(.hidden)");
+    assert.match(
+      await page.textContent("#replay-show"),
+      /^Replaying to 2 targets · 0:1[2-3] · loop 1 of 3 · 4\.7 KB sent$/,
+    );
+    assert.ok(await page.isVisible("#replay-show .codicon-debug-rerun"));
+    assert.match(await page.getAttribute("#replay-show", "title"), /^10 B received/);
+    await page.click("#replay-show");
+    await expectHostLast({ type: "showReplay" }, { ofType: true });
+    await page.click("#replay-stop");
+    await expectHostLast({ type: "stopReplay" }, { ofType: true });
+    await post({ type: "replay", replay: null });
+    await page.waitForSelector("#status-replay", { state: "hidden" });
   });
 
   test("list density: pcapViewer.listDensity sets the rows' height", async () => {

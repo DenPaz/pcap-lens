@@ -197,7 +197,8 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   `src/extcapModel.ts` extcap options' values, checks and labels (pure).
   `src/captureReport.ts` the capture report as Markdown or HTML (pure);
   `src/commands/report.ts`. `src/commands/compare.ts` the other capture of
-  a comparison (picking it, its profile).
+  a comparison (picking it, its profile). `src/replayModel.ts` Replay to
+  Service's presets, remembered destinations and options (pure).
 - `src/webview/` plain JS/CSS/HTML (no build step). `lib.js` = pure helpers
   shared with Node tests (a classic script, `window.PcapLib`, like the panels'
   scripts and `worldmap.js`, the Endpoints map's land outline that
@@ -218,11 +219,11 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   (`scripts/sync-codicons.mjs`). CSS: `base.css` (tokens and controls, loaded
   by the editor and the panels), `styles.css` (the viewer), `panel.css`.
 - `src/panels/` statistics, follow-stream, coloring-rules, export-objects,
-  flow-graph, TCP-graph, VoIP, compare-packets, packet-bytes and packet window webview
-  panels (`panelHtml.ts` builds their CSP'd HTML); their UIs are
-  `src/webview/stats.js`, `follow.js`, `coloring.js`, `objects.js`,
-  `flowgraph.js`, `tcpgraph.js`, `voip.js`, `compare.js`, `bytes.js` and
-  `packet.js` with `panel.css`.
+  flow-graph, TCP-graph, VoIP, compare-packets, packet-bytes, packet window
+  and replay webview panels (`panelHtml.ts` builds their CSP'd HTML); their
+  UIs are `src/webview/stats.js`, `follow.js`, `coloring.js`, `objects.js`,
+  `flowgraph.js`, `tcpgraph.js`, `voip.js`, `compare.js`, `bytes.js`,
+  `packet.js` and `replay.js` with `panel.css`.
 - `backend/pcap_backend/` Python package run as `python -m pcap_backend`
   with `PYTHONPATH=backend`. `server.py` (JSON-RPC), `pcap_service.py`
   (`PcapService`, assembled from the `service/` mixins, `rpc_methods`, and
@@ -235,7 +236,8 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   (follow, TCP graphs), `statistics` → `telephony` (VoIP), `colors`,
   `exporting`, `tools` (merge, hex import, probe, plugins, editing),
   `flow`, `exported_objects`, `filterhelp` (empty-filter hints, field
-  values), `comparing` (capture profiles and their diff); plus `state.py` (constants and the per-capture
+  values), `comparing` (capture profiles and their diff), `replaying` (Replay to
+  Service); plus `state.py` (constants and the per-capture
   dataclasses `_Open`, `_View`…), `indexing.py` (the index pass's
   module-level helpers) and `helpers.py`), `tshark.py` (discovery/argv/process helpers), `cache.py`
   (row store, frame index, LRU), `pdml.py` (PDML + hexdump parsing),
@@ -252,6 +254,7 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   G.726-32 and L16 decoders), `triage.py` (the AI triage's checks),
   `compare.py` (capture profiles and diffs),
   `mcp.py` (the MCP server) and `standins.py` (its address stand-ins),
+  `replay.py` (Replay to Service: records, planner, socket engine),
   `filterhelp.py` (a filter's
   field names, case hints, value counts), `plugins.py` (`tshark -G
 plugins` and the plugin folders), `decryption.py` (decryption keys and
@@ -2038,6 +2041,91 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   without and with problems: resets, refused connections, unanswered ICMP
   and DNS, DNS errors, HTTP 5xx, a retransmission and 10.0.0.66 scanning
   10.0.0.80's ports 22, 23, 445, 3389 and 5900.
+- **Replay to Service** (`replay.py`, `service/replaying.py`; tracking and
+  definitions in `docs/replay-to-service.md`, not packaged): the client side
+  of a capture sent again to live services, e.g. an operator's lawful
+  interception delivery (HI2/HI3 over TCP) to a collector in Docker Desktop.
+  _Content_, not packets: a live TCP stack resets recorded segments (their
+  sequence numbers), and raw injection needs admin rights and doesn't reach
+  Docker Desktop's VM; so one new connection per recorded connection,
+  carrying the bytes its client sent. One tshark fields pass (`FIELDS`,
+  `-E occurrence=l`, `FILTER` leaves out ICMP-quoted headers) →
+  `parse_record` (booleans True/False or 1/0) → `Planner` (client = SYN
+  sender, the SYN-ACK's receiver, else the higher port; UDP: the first
+  sender; TCP data deduplicated by `tcp.seq_raw` in 32-bit space:
+  retransmissions skipped, overlaps trimmed; a segment after a gap is held
+  (`_hold`) until the missing bytes come (captured out of order: released
+  in order, `_release`) or the gap is given up on (`_give_up`, counted):
+  after `REORDER_WINDOW_S` (0.5 s) of capture time, `MAX_HELD` (4 MB), the
+  flow's FIN/RST, or the end of the capture (`finish()`, which every caller
+  runs after the last record); a SYN's own data (TCP Fast Open) starts at
+  seq + 1 (Codex review: out-of-order segments were dropped as
+  retransmissions, a TFO SYN lost its first byte); FIN/RST close;
+  server packets ignored) → `Replayer` (non-blocking sockets, one selector,
+  each event at `(time - first) / speed` from the first event (not from
+  tshark's start-up), `MAX_BUFFERED` back-pressure, the service's answers
+  counted never awaited, a recorded RST = SO_LINGER 0, `DRAIN_S` then
+  `ANSWER_GRACE_S` at the end: data a service didn't read by the drain
+  deadline is counted `dropped` with an error, and the back-pressure wait
+  checks for Stop (Codex review: it was cleared silently); `log()` lines:
+  connections opened, closed by
+  the service, the first `MAX_ERRORS` errors per target, loops). RPCs:
+  `replay_targets {filter}` (recorded
+  targets `"tcp 10.20.0.5:11001"` with counts and the packet list's Protocol
+  of the first data packet; cached per scope, cleared on close; needs a
+  complete index; ignored packets left out), `replay` (`filter`; `targets`
+  = key → `{ip, port}`; `speed`, 0 = no pauses; `loops`; `allowPublic`;
+  progress phase `"replay"` with every target's counts and the new `log`
+  lines (`MAX_LOG` per report); a summary per target: connections, opened,
+  refused, reset, closedByPeer, bytes, dropped, received, datagrams,
+  errors; the log lines left) and
+  `replay_stop` (`Replayer.pass_token`, so a pass still looking for records
+  ends too). Destinations must resolve to loopback, private or link-local
+  addresses unless `allowPublic` (`resolve_target`), IPv4 first; a TCP
+  connection tries the next address when one fails, and the one that worked
+  goes first (CI's `localhost` was `::1` first, the test server IPv4 only:
+  nothing arrived). `replay.pcap`
+  (`generate.replay_packets`, synthetic: no real interception data or
+  internal dissectors in the repository) has HI2/HI3-like connections that
+  overlap, a retransmission, an overlap, a gap, a reset, one without a
+  handshake and a UDP flow; `REPLAY_EXPECTED` is what each server must get.
+  Tests replay into local TCP/UDP servers (`test_replay.py`).
+  **Panel** (`pcapViewer.replay`, _Replay to Service…_: ☰ Capture, the
+  editor title's overflow; `ReplayPanel`, `replay.js`, one per editor): a
+  table of the recorded targets (checkbox, counts, retransmissions and gaps
+  as notes) with an IP and a port input per row, filled from the
+  destination used last for that key (globalState
+  `pcapViewer.replay.destinations`, `rememberDestinations`, 200), else
+  127.0.0.1 and the recorded port; _Same IP for All_; Packets (all, or the
+  viewer's filter, which the panel follows); Speed (1×…100×, No pauses)
+  and Loops, kept in globalState (`pcapViewer.replay.options`). Presets are
+  the setting `pcapViewer.replay.presets` (`{name, targets: {key: {ip,
+port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
+  trash button deletes after a modal); `lib.presetDestinations` matches a
+  key, else the one entry with the same protocol and port (another capture
+  of the same delivery), and unchecks the rest. Start is disabled with the
+  reason as its tooltip (`lib.replayDestinationProblem`: a bad IP or port
+  marks the input `aria-invalid`); while it runs the inputs are disabled,
+  progress updates a 2 px bar, the status (`lib.replayStatusText`), each
+  row's Sent/Received/Result (`lib.replayOutcome`, error color when a
+  target had errors) and the log (`#replay-log`, 2000 lines); Stop is
+  `replay_stop`, so the summary (`lib.replaySummary`) still comes (while the
+  request is still starting, `{stopped: false}`, the request is cancelled
+  instead: Codex review); closing
+  the panel cancels. `pcapViewer.replay.allowPublicTargets` (application
+  scope: a workspace can't allow it) becomes `allowPublic`; the backend's
+  refusal shows a notice with _Allow Public Destinations…_ (opens the
+  setting). The host waits for `whenIndexed()` before `replay_targets`.
+  `ReplayPanel.onDidChangeRunning` fires when a replay starts or ends. The
+  viewer's status bar shows a running replay (`#status-replay`, after
+  `#status-capture`: `lib.replayStatusLabel`, "Replaying to 2 targets · 0:12
+  · 4.7 KB sent", its own clock between reports): the panel posts
+  `session.showReplay(ReplayStatus | null)` → `replay`; the item posts
+  `showReplay` / `stopReplay`, which the session passes to
+  `session.replayControl` (set by the panel while it is open). Tests:
+  the panels e2e test (presets, a bad port, a refused port, a public
+  destination, Stop at real time, scope) into Node servers, and the smoke
+  test replays http.pcap's GET into one through `ReplayPanel.start`.
 - **Real-capture testing** (`test/realworld/run.py`, `make realworld`, not
   CI): `--fetch wireshark` (Wireshark's `test/captures` through GitLab's API,
   one file at a time: parallel raw requests get an HTML page; its synthetic
@@ -2637,3 +2725,6 @@ and editing of captures Wireshark can't write, IO graphs of long captures,
 Follow, unsupported link types): 0.24.2.
 Then statistics in locales with a decimal comma (Brazilian Portuguese,
 German…), on macOS, Linux and Windows: 0.24.3.
+Then Replay to Service: a capture's client side sent again to local
+services (interception collectors, SIP servers), with presets, live counts,
+a log and a status bar item: 0.25.0.

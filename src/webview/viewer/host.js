@@ -24,6 +24,7 @@ import {
   renderFilterButtons,
   resetExpert,
   setStatusText,
+  onReplay,
   updateStatus,
 } from "./status.js";
 
@@ -106,6 +107,9 @@ window.addEventListener("message", (event) => {
       break;
     case "captureEvent":
       onCaptureEvent(msg);
+      break;
+    case "replay":
+      onReplay(msg.replay);
       break;
     case "indexDone":
       onIndexDone(msg.info, msg.error, msg.view);
