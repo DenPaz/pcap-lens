@@ -93,10 +93,41 @@ if the operator were sending it now.
 - `replay_stop` → `{stopped}`: ends the running replay cleanly, including a
   tshark pass still looking for packets.
 
+Phase 4 (several captures, 0.25.2) adds to both requests:
+
+- `capture` (default true: the open capture plays) and `files` (other
+  captures, at most 100, read with the open capture's dissection options).
+  `replay_targets` merges the targets by key and adds `span` (first to last
+  packet of all) and `sources` (per capture: `name`, `file` (null for the
+  open one), `targets`, `packets`, `bytes`, `first`, `last`, `duration`,
+  `error` when tshark can't read it). Cached per capture (path, size, time).
+- `replay`: `order` `"sequence"` (one after another: each capture's clock
+  starts at its first packet) or `"merged"` (in recorded-time order: the
+  tshark pass now reads `frame.time_epoch`); `jitter` (ms, 0–60,000: each
+  paced event moves by a random amount within ±it; ignored at no pauses);
+  `loss` (percent of UDP datagrams left out on purpose: `lost` per target;
+  TCP data is never lost); `seed` (repeatable randomness, tests); `loops`
+  0 = until stopped. Progress carries `capture` `{index, count, name}` one
+  after another; the log says which capture plays and ends each with a
+  line (packets sent, lost on purpose, retransmissions skipped, gaps); the
+  result has `sources` (per capture: `name`, `packets`, `bytes`, `lost`,
+  `retransmissions`, `gaps`).
+
 ## The panel (phase 2)
 
-_PCAP: Replay to Service…_ (☰ Capture, or the editor title's overflow menu)
-opens one panel per capture:
+_PCAP: Replay to…_ (☰ Capture, or the editor title's overflow menu; titled
+"Replay to Service…" until 0.25.2) opens one panel per capture:
+
+- **More captures…** (phase 4): a section folded by default, so the panel
+  shows the open capture alone, as before 0.25.2. It holds _Add Captures…_
+  (checked) and _Add Folder…_ (every capture file of the folder, unchecked),
+  the captures list (the open capture, whose checkbox can leave it out, then
+  the others, with ↑/↓ to reorder and ✕ to remove; each row shows its
+  targets, packets and recorded time, or why it can't be read) and _Play_:
+  one after another or merged by recorded time. Folded, its heading still
+  says how many captures were added and play, and when the open one is left
+  out. It opens by itself when a loaded setup has other captures (or leaves
+  the open one out).
 
 - **Packets**: all, or the packets the viewer's filter shows.
 - **Targets table**: one row per recorded target, with its protocol (as the
@@ -110,7 +141,15 @@ opens one panel per capture:
   whose recorded target it names, or, for a capture recorded with another
   server address, the rows with the same protocol and port; the other rows
   are unchecked. _Save Preset…_ stores the checked rows.
-- **Speed** (real time, 2×, 5×, 10×, 100×, no pauses) and **loops**.
+- **Speed** (real time, 2×, 5×, 10×, 100×, no pauses), **loops** or
+  **Until stopped**, **Jitter (ms)** (paced replays only) and **UDP loss
+  (%)**.
+- **Setups** (phase 4): _Save Setup…_ writes a JSON file (`format`
+  `"pcap-lens-replay"`, `version` 1, `includeOpenCapture`, `captures`
+  `[{path, enabled}]` relative to the file's folder when they can be,
+  `targets` `{key: {ip, port, enabled}}`, `options`); _Load Setup…_ reads
+  one back (`replayModel.parseSetup`: entries that can't be used are named,
+  missing captures are left unchecked). Loading clears the preset choice.
 - **Start / Stop**; while running: a progress bar, totals, each row's sent
   and received bytes and result (opened, refused, reset, errors), and a
   log. The summary says how long it took, what was sent, what wasn't
@@ -148,9 +187,22 @@ opens one panel per capture:
 
 - [x] Status bar indicator in the viewer while replaying
 - [x] README section, CHANGELOG entry
-- [ ] Release 0.25.0
+- [x] Release 0.25.0 (and 0.25.1 with what real captures found)
 - [ ] Check against a real collector in Docker with a real capture (by the
       user, on their machine)
+
+### Phase 4: several captures (0.25.2, after the user's PCAP Player)
+
+- [x] Several captures in one replay: one after another or merged by time
+- [x] Add Captures…, Add Folder…, reorder, remove, per-capture rows
+- [x] Folded into a _More captures…_ section (open capture alone by default;
+      opens for a setup with other captures)
+- [x] Jitter, UDP loss, until stopped, a log line per capture
+- [x] Setup files (save and load), relative paths
+- [x] Menu entry renamed _Replay to…_
+- [x] Tests: backend (several captures, merged timing, loss, jitter, until
+      stopped, unreadable files), model (options, setup files), lib, panel
+      e2e with axe
 
 ## Later
 

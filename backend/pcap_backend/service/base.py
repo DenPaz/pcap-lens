@@ -88,7 +88,8 @@ class ServiceBase:
         self._file_capture: FileCapture | None = None  # capture_to_files running
         # Replay to Service: the running replay, and the recorded targets by scope.
         self._replay: Replayer | None = None
-        self._replay_targets: LruCache[str, dict[str, Any]] = LruCache(4)
+        # (per capture: the open one's scope, another file's path, size and time)
+        self._replay_targets: LruCache[tuple[str, ...], dict[str, Any]] = LruCache(32)
         # Wireshark's preferences with their defaults, by (tshark, Lua scripts).
         self._default_prefs: LruCache[tuple[str, tuple[str, ...]], dict[str, Preference]] = (
             LruCache(2)

@@ -3,12 +3,17 @@ import * as vscode from "vscode";
 import { ErrorCodes, Progress, RpcError } from "../backendClient";
 import type { PcapEditorSession } from "../pcapEditor";
 import {
+  MAX_FILES,
   ReplayDestination,
   ReplayOptions,
+  ReplaySetup,
+  isCaptureFileName,
   normalizeDestinations,
   normalizeOptions,
   normalizePresets,
+  parseSetup,
   rememberDestinations,
+  setupToJson,
   withPreset,
   withoutPreset,
 } from "../replayModel";
@@ -36,6 +41,12 @@ export interface ReplayTarget {
   protocol: string;
 }
 
+/** The captures a replay reads: the open one (unless `capture` is false) and other files. */
+export interface ReplaySources {
+  capture: boolean;
+  files: string[];
+}
+
 /** What a replay request returns (service/replaying.py). */
 export interface ReplayResult {
   filter: string;
@@ -49,11 +60,16 @@ export interface ReplayResult {
 
 type FromPanel =
   | { type: "ready" }
-  | { type: "targets"; scope: "all" | "filter" }
+  | ({ type: "targets"; scope: "all" | "filter" } & ReplaySources)
   | ({
       type: "start";
       targets: Record<string, ReplayDestination>;
-    } & ReplayOptions)
+    } & ReplayOptions &
+      ReplaySources)
+  | { type: "addCaptures" }
+  | { type: "addFolder" }
+  | { type: "saveSetup"; setup: ReplaySetup }
+  | { type: "loadSetup" }
   | { type: "stop" }
   | { type: "savePreset"; name: string; targets: Record<string, ReplayDestination> }
   | { type: "deletePreset"; name: string }
@@ -170,9 +186,17 @@ export class ReplayPanel {
         });
         return;
       case "targets":
-        return this.list(msg.scope);
+        return this.list(msg.scope, { capture: msg.capture, files: msg.files });
       case "start":
-        return this.start(msg.targets, { speed: msg.speed, loops: msg.loops, scope: msg.scope });
+        return this.start(msg.targets, msg, { capture: msg.capture, files: msg.files });
+      case "addCaptures":
+        return this.addCaptures();
+      case "addFolder":
+        return this.addFolder();
+      case "saveSetup":
+        return this.saveSetup(msg.setup);
+      case "loadSetup":
+        return this.loadSetup();
       case "stop":
         return this.stop();
       case "savePreset":
@@ -200,14 +224,21 @@ export class ReplayPanel {
     return scope === "filter" ? this.session.currentFilter : "";
   }
 
-  private async list(scope: "all" | "filter"): Promise<void> {
+  private async list(scope: "all" | "filter", sources: ReplaySources): Promise<void> {
     if (this.listing !== undefined) {
       this.session.backend?.cancel(this.listing);
       this.listing = undefined;
     }
     const seq = ++this.listSeq;
+    const files = checkedFiles(sources.files);
+    if (!sources.capture && !files.length) {
+      this.post({ type: "targets", targets: [], sources: [], duration: 0, span: 0, filter: "" });
+      return;
+    }
     this.post({ type: "loading", text: "Reading the capture…" });
-    await this.session.whenIndexed();
+    if (sources.capture) {
+      await this.session.whenIndexed();
+    }
     if (seq !== this.listSeq) {
       return;
     }
@@ -221,10 +252,13 @@ export class ReplayPanel {
       return;
     }
     const filter = this.scopeFilter(scope);
-    this.post({ type: "loading", text: "Finding the recorded targets…" });
+    this.post({
+      type: "loading",
+      text: files.length ? "Reading the captures…" : "Finding the recorded targets…",
+    });
     const pending = client.send<{ targets: ReplayTarget[]; duration: number; filter: string }>(
       "replay_targets",
-      { filter },
+      { filter, capture: sources.capture, files },
       { timeoutMs: 0 },
     );
     this.listing = pending.id;
@@ -246,8 +280,15 @@ export class ReplayPanel {
     }
   }
 
-  /** Replay the operator side to `targets` (the panel's Start; also used by the smoke test). */
-  async start(targets: Record<string, ReplayDestination>, options: ReplayOptions): Promise<void> {
+  /**
+   * Replay the operator side to `targets` (the panel's Start; also used by
+   * the smoke test): the open capture, then `sources.files`, as `options` say.
+   */
+  async start(
+    targets: Record<string, ReplayDestination>,
+    options: Partial<ReplayOptions>,
+    sources: ReplaySources = { capture: true, files: [] },
+  ): Promise<void> {
     const client = this.session.backend;
     if (this.running) {
       return;
@@ -262,6 +303,7 @@ export class ReplayPanel {
     }
     const opts = normalizeOptions(options);
     const mapping = normalizeDestinations(targets);
+    const files = checkedFiles(sources.files);
     await this.context.globalState.update(OPTIONS_KEY, opts);
     await this.context.globalState.update(
       DESTINATIONS_KEY,
@@ -289,9 +331,14 @@ export class ReplayPanel {
       "replay",
       {
         filter: this.scopeFilter(opts.scope),
+        capture: sources.capture,
+        files,
+        order: opts.order,
         targets: mapping,
         speed: opts.speed,
         loops: opts.loops,
+        jitter: opts.jitter,
+        loss: opts.loss,
         allowPublic: this.config().allowPublic,
       },
       { timeoutMs: 0, onProgress },
@@ -329,6 +376,112 @@ export class ReplayPanel {
     if (!stopped && this.replaying !== undefined) {
       client.cancel(this.replaying);
     }
+  }
+
+  /** The folder new captures and setups are picked from: the capture's. */
+  private get folder(): vscode.Uri {
+    return vscode.Uri.file(path.dirname(this.session.uri.fsPath));
+  }
+
+  private async addCaptures(): Promise<void> {
+    const picked = await vscode.window.showOpenDialog({
+      title: "Add Captures to the Replay",
+      canSelectMany: true,
+      defaultUri: this.folder,
+      openLabel: "Add",
+      filters: {
+        Captures: ["pcap", "pcapng", "cap", "ntar", "gz", "zst", "lz4", "snoop", "erf"],
+        "All files": ["*"],
+      },
+    });
+    if (picked?.length) {
+      this.post({ type: "filesAdded", files: picked.map((u) => u.fsPath), enabled: true });
+    }
+  }
+
+  /** Every capture file in a folder (not its subfolders), unchecked: pick the ones to play. */
+  private async addFolder(): Promise<void> {
+    const picked = await vscode.window.showOpenDialog({
+      title: "Add a Folder of Captures to the Replay",
+      canSelectFiles: false,
+      canSelectFolders: true,
+      defaultUri: this.folder,
+      openLabel: "Add Folder",
+    });
+    const dir = picked?.[0];
+    if (!dir) {
+      return;
+    }
+    let entries: [string, vscode.FileType][];
+    try {
+      entries = await vscode.workspace.fs.readDirectory(dir);
+    } catch (err) {
+      void vscode.window.showWarningMessage(`Can't read ${dir.fsPath}: ${String(err)}`);
+      return;
+    }
+    const files = entries
+      .filter(([name, kind]) => kind === vscode.FileType.File && isCaptureFileName(name))
+      .map(([name]) => vscode.Uri.joinPath(dir, name).fsPath)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    if (!files.length) {
+      void vscode.window.showInformationMessage(`No capture files in ${dir.fsPath}.`);
+      return;
+    }
+    this.post({ type: "filesAdded", files: files.slice(0, MAX_FILES), enabled: false });
+  }
+
+  private async saveSetup(setup: ReplaySetup): Promise<void> {
+    const uri = await vscode.window.showSaveDialog({
+      title: "Save Replay Setup",
+      defaultUri: vscode.Uri.joinPath(this.folder, "replay-setup.json"),
+      filters: { "Replay setup": ["json"] },
+    });
+    if (!uri) {
+      return;
+    }
+    const text = setupToJson(setup, path.dirname(uri.fsPath));
+    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(text));
+    this.post({ type: "setupSaved", name: path.basename(uri.fsPath) });
+  }
+
+  private async loadSetup(): Promise<void> {
+    const picked = await vscode.window.showOpenDialog({
+      title: "Load Replay Setup",
+      defaultUri: this.folder,
+      openLabel: "Load",
+      filters: { "Replay setup": ["json"], "All files": ["*"] },
+    });
+    const uri = picked?.[0];
+    if (!uri) {
+      return;
+    }
+    let text: string;
+    try {
+      text = new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
+    } catch (err) {
+      void vscode.window.showWarningMessage(`Can't read ${uri.fsPath}: ${String(err)}`);
+      return;
+    }
+    const parsed = parseSetup(text, path.dirname(uri.fsPath));
+    if ("error" in parsed) {
+      void vscode.window.showWarningMessage(`${path.basename(uri.fsPath)} is ${parsed.error}.`);
+      return;
+    }
+    const missing: string[] = [];
+    for (const c of parsed.setup.captures) {
+      try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(c.path));
+      } catch {
+        missing.push(c.path);
+      }
+    }
+    this.post({
+      type: "setup",
+      name: path.basename(uri.fsPath),
+      setup: parsed.setup,
+      problems: parsed.problems,
+      missing,
+    });
   }
 
   private postError(where: "targets" | "replay", err: unknown): void {
@@ -401,4 +554,18 @@ export class ReplayPanel {
       d.dispose();
     }
   }
+}
+
+/** The file paths a message names, checked (strings, at most MAX_FILES, no repeats). */
+function checkedFiles(files: unknown): string[] {
+  if (!Array.isArray(files)) {
+    return [];
+  }
+  const out: string[] = [];
+  for (const f of files) {
+    if (typeof f === "string" && f && !out.includes(f) && out.length < MAX_FILES) {
+      out.push(f);
+    }
+  }
+  return out;
 }

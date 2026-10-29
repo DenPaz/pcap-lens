@@ -1896,6 +1896,19 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
   });
 
   test("replay to service: targets, destinations, presets, replay, errors and stop", async () => {
+    // (The captures list is a table.stats too: these count the targets' rows.)
+    const rows = (page) =>
+      page.$$eval("table.replay tbody tr", (trs) =>
+        trs.map((tr) => [...tr.children].map((td) => td.textContent)),
+      );
+    const waitRows = (page, n) =>
+      page.waitForFunction(
+        (count) => document.querySelectorAll("table.replay tbody tr").length === count,
+        n,
+      );
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pcap-replay-"));
+    const later = path.join(tmp, "later.pcap"); // another capture of the same delivery
+    fs.copyFileSync(path.join(FIXTURES, "replay.pcap"), later);
     const net = require("node:net");
     const dgram = require("node:dgram");
     /** A TCP server keeping what each connection sent (a stand-in collector). */
@@ -1927,6 +1940,8 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       await replay.request("open", { path: path.join(FIXTURES, "replay.pcap") }, { timeoutMs: 0 });
       const { page, problems, post } = await newPage(browser);
       const log = [];
+      /** What a Load Setup… answers (set by the test). */
+      let setupToLoad = null;
       // A stand-in for ReplayPanel (src/panels/replayPanel.ts).
       await page.exposeFunction("__toHost", async (raw) => {
         const msg = JSON.parse(raw);
@@ -1938,7 +1953,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
             title: "Replay to Service · replay.pcap",
             filter: "tcp",
             destinations: { [HI2]: { ip: "127.0.0.1", port: hi2.port } },
-            options: { speed: 0, loops: 1, scope: "all" },
+            options: { speed: 0, loops: 1, scope: "all", order: "sequence", jitter: 0, loss: 0 },
             presets: [
               {
                 name: "Local",
@@ -1953,7 +1968,8 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
             running: false,
           });
         } else if (msg.type === "targets") {
-          replay.request("replay_targets", { filter: filter(msg.scope) }, { timeoutMs: 0 }).then(
+          const params = { filter: filter(msg.scope), capture: msg.capture, files: msg.files };
+          replay.request("replay_targets", params, { timeoutMs: 0 }).then(
             (res) => post({ type: "targets", ...res }),
             (err) => post({ type: "error", where: "targets", message: err.message }),
           );
@@ -1962,9 +1978,14 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
           const onProgress = (p) => void post({ type: "progress", progress: p });
           const params = {
             filter: filter(msg.scope),
+            capture: msg.capture,
+            files: msg.files,
+            order: msg.order,
             targets: msg.targets,
             speed: msg.speed,
             loops: msg.loops,
+            jitter: msg.jitter,
+            loss: msg.loss,
             allowPublic: false,
           };
           replay.request("replay", params, { timeoutMs: 0, onProgress }).then(
@@ -1980,11 +2001,21 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
           );
         } else if (msg.type === "stop") {
           await replay.request("replay_stop", {});
+        } else if (msg.type === "addCaptures") {
+          await post({ type: "filesAdded", files: [later], enabled: true });
+        } else if (msg.type === "loadSetup" && setupToLoad) {
+          await post({ type: "setup", name: "replay-setup.json", ...setupToLoad });
         }
       });
       await page.setContent(renderPanelHtml(origin, "replay.js"), { waitUntil: "load" });
       pages.push(problems);
       await waitRows(page, 4);
+      // The open capture alone: other captures wait in a folded section.
+      const moreOpen = () => page.$eval("#replay-more", (d) => d.open);
+      assert.equal(await moreOpen(), false);
+      assert.ok(!(await page.isVisible("#replay-add-captures")));
+      assert.ok(!(await page.isVisible(".replay-capture-list")));
+      assert.equal(await page.textContent("#replay-more-count"), "");
       const all = await rows(page);
       assert.deepEqual(
         all.map((r) => [r[1], r[2], r[3], r[4]]),
@@ -2031,6 +2062,11 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         speed: 0,
         loops: 1,
         scope: "all",
+        order: "sequence",
+        jitter: 0,
+        loss: 0,
+        capture: true,
+        files: [],
       });
       await page.waitForFunction(() =>
         /^Done in/.test(document.querySelector("#replay-status")?.textContent ?? ""),
@@ -2091,6 +2127,126 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       );
       assert.ok(!(await page.isDisabled(port3)));
 
+      // Another capture of the same delivery: its targets add up, it plays too.
+      await page.selectOption("#replay-speed", "0");
+      await page.fill("#replay-loops", "1");
+      await page.click("#replay-more > summary");
+      assert.equal(await moreOpen(), true);
+      assert.ok(await page.isVisible(".replay-capture-list"));
+      assert.ok(await page.isDisabled("#replay-order"), "one capture: no order to choose");
+      assert.ok(await page.isDisabled("#replay-jitter"), "no pauses: no jitter");
+      await page.click("#replay-add-captures");
+      await page.waitForFunction(
+        () =>
+          document.querySelector(`table.replay tbody tr td:nth-child(4)`)?.textContent === "2" &&
+          /4 targets/.test(document.querySelector(".replay-capture-list")?.textContent ?? ""),
+      );
+      const captureRows = () =>
+        page.$$eval(".replay-capture-list tbody tr", (trs) =>
+          trs.map((tr) => [tr.children[1].textContent, tr.children[2].textContent]),
+        );
+      assert.deepEqual(
+        (await captureRows()).map((r) => r[0]),
+        ["replay.pcap (open in the viewer)", "later.pcap"],
+      );
+      assert.match((await captureRows())[1][1], /^4 targets · 15 packets · 0:00$/);
+      assert.equal(await page.textContent("#replay-more-count"), " (1 added, 1 plays)");
+      assert.deepEqual(await axeViolations(page), [], "the section open, its list filled");
+      assert.equal((await rows(page)).find((r) => r[1] === HI2)?.[3], "6");
+      await page.selectOption("#replay-order", "merged");
+      assert.match(await page.textContent("#replay-status"), /\(merged\)\.$/);
+      const before = hi2.got.length;
+      await page.click("#replay-start");
+      const both = await lastOfType(log, "start");
+      assert.deepEqual([both.capture, both.files, both.order], [true, [later], "merged"]);
+      await page.waitForFunction(() =>
+        /^Done in .* \(2 captures\)/.test(
+          document.querySelector("#replay-status")?.textContent ?? "",
+        ),
+      );
+      assert.equal(hi2.got.length - before, 6);
+      const lines = await page.$$eval("#replay-log li", (lis) => lis.map((li) => li.textContent));
+      assert.ok(lines.some((t) => t.includes("Finished later.pcap: ")));
+
+      // UDP loss and jitter are checked; until stopped needs no loop count.
+      await page.fill("#replay-loss", "150");
+      assert.match(await page.getAttribute("#replay-start", "title"), /UDP loss must be/);
+      await page.fill("#replay-loss", "100");
+      await page.check("#replay-forever");
+      assert.ok(await page.isDisabled("#replay-loops"));
+      await page.click("#replay-start");
+      const forever = await lastOfType(log, "start");
+      assert.deepEqual([forever.loops, forever.loss], [0, 100]);
+      await page.waitForFunction(() =>
+        /^Replaying/.test(document.querySelector("#replay-status")?.textContent ?? ""),
+      );
+      await page.click("#replay-stop");
+      await page.waitForFunction(() =>
+        /^Stopped after .* \(\d+ loops? of 2 captures\).*datagrams? lost on purpose/.test(
+          document.querySelector("#replay-status")?.textContent ?? "",
+        ),
+      );
+      assert.match(
+        await page.textContent(`tr[data-key="${UDP}"] td:last-child`),
+        /lost on purpose/,
+      );
+
+      // Save Setup… sends the panel as it is; Load Setup… applies one.
+      await page.click(".replay-capture-list tbody tr:nth-child(2) input[type=checkbox]");
+      await page.waitForFunction(
+        () => document.querySelector(`table.replay tbody tr td:nth-child(4)`)?.textContent === "1",
+      );
+      await page.click("#replay-save-setup");
+      const setup = (await lastOfType(log, "saveSetup")).setup;
+      assert.deepEqual(setup.captures, [{ path: later, enabled: false }]);
+      assert.equal(setup.includeOpen, true);
+      assert.deepEqual(setup.targets[HI3], { ip: "127.0.0.1", port: hi3.port, enabled: true });
+      assert.deepEqual(setup.options, {
+        speed: 0, loops: 0, scope: "all", order: "merged", jitter: 0, loss: 100,
+      }); // prettier-ignore
+      setupToLoad = {
+        setup: {
+          ...setup,
+          captures: [...setup.captures, { path: path.join(tmp, "gone.pcap"), enabled: true }],
+          targets: { ...setup.targets, [HI3]: { ip: "127.0.0.2", port: 9, enabled: false } },
+          options: { ...setup.options, loops: 2, loss: 0 },
+        },
+        problems: [],
+        missing: [path.join(tmp, "gone.pcap")],
+      };
+      await page.click("#replay-more > summary"); // (folded: the setup opens it)
+      assert.equal(await moreOpen(), false);
+      assert.equal(await page.textContent("#replay-more-count"), " (1 added, 0 play)");
+      await page.click("#replay-load-setup");
+      await page.waitForSelector(".notice.error:not(.hidden)");
+      assert.match(await page.textContent(".notice.error"), /gone\.pcap wasn't found/);
+      await page.waitForFunction(
+        (key) => document.querySelector(`tr[data-key="${key}"] .replay-ip`)?.value === "127.0.0.2",
+        HI3,
+      );
+      assert.equal(await page.isChecked(`tr[data-key="${HI3}"] input[type=checkbox]`), false);
+      assert.equal(await page.inputValue("#replay-loops"), "2");
+      assert.ok(!(await page.isChecked("#replay-forever")));
+      assert.ok(await page.isDisabled(".replay-capture-list tbody tr:nth-child(3) input"));
+      assert.match((await captureRows())[2][1], /^File not found$/);
+      assert.equal(await moreOpen(), true, "a setup with other captures opens the section");
+      // (Back to the open capture alone, its destinations as before.)
+      await page.click(`.replay-capture-list button[aria-label="Remove gone.pcap"]`);
+      await page.click(`.replay-capture-list button[aria-label="Remove later.pcap"]`);
+      assert.equal(await page.textContent("#replay-more-count"), "");
+      // A setup of the open capture alone leaves the section as it is.
+      await page.click("#replay-more > summary");
+      setupToLoad = { setup: { ...setup, captures: [] }, problems: [], missing: [] };
+      await page.click("#replay-load-setup");
+      await page.waitForFunction(
+        (key) => document.querySelector(`tr[data-key="${key}"] .replay-ip`)?.value === "127.0.0.1",
+        HI3,
+      ); // (the setup's destination, as saved)
+      assert.equal(await moreOpen(), false);
+      assert.equal(await page.inputValue(port3), String(hi3.port));
+      assert.ok(await page.isChecked(`tr[data-key="${HI3}"] input[type=checkbox]`));
+      await page.selectOption("#replay-preset", "Local"); // (a loaded setup cleared it)
+
       // Save Preset, the row menu, and the displayed packets only.
       await page.click("#replay-save-preset");
       const saved = await lastOfType(log, "savePreset");
@@ -2108,6 +2264,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       );
     } finally {
       await replay.dispose();
+      fs.rmSync(tmp, { recursive: true, force: true });
       hi2.server.close();
       hi3.server.close();
       udp.close();
