@@ -2214,7 +2214,8 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   must be twice the baseline's with the open capture's `firstFrame`. When
   tshark itself reads fewer replayable packets in the copy (`replayable`: a
   pcapng lost an ATM Sniffer file's LANE details), that is a note, not a
-  check. Wireshark's 290: 212 captures replayed twice, no problems.
+  check. Wireshark's 290: 212 captures replayed twice; tcpdump's 612
+  (`--quick`): 246; no problems.
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage
