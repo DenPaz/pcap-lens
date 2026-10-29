@@ -874,6 +874,42 @@ def follow_payloads(path: Path) -> tuple[list[bytes], list[bytes]]:
     return [bytes(t) for t in tcp_sides if t], udp
 
 
+def segment_payloads(path: Path) -> list[bytes]:
+    """Each direction of the first REPLAY_STREAMS TCP streams as its
+    segments' payloads in sequence order, every byte once (the first copy)."""
+    args = ["tshark", "-n", "-r", str(path), "-Y", f"tcp.stream < {REPLAY_STREAMS} && tcp.len > 0"]
+    args += ["-T", "fields", "-E", "occurrence=l"]
+    for name in ("tcp.stream", "ip.src", "ipv6.src", "tcp.srcport", "tcp.seq_raw", "tcp.payload"):
+        args += ["-e", name]
+    try:
+        out = subprocess.run(
+            args, capture_output=True, timeout=600, check=False, text=True, errors="replace"
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    sides: dict[tuple[str, ...], dict[int, bytes]] = {}
+    for line in out.split("\n"):
+        cells = line.split("\t")
+        if len(cells) != 6 or not cells[4] or not cells[5]:
+            continue
+        with contextlib.suppress(ValueError):
+            side = sides.setdefault((cells[0], cells[1] or cells[2], cells[3]), {})
+            side.setdefault(int(cells[4]), bytes.fromhex(cells[5].replace(":", "")))
+    result = []
+    for segments in sides.values():
+        data = bytearray()
+        end: int | None = None
+        for seq in sorted(segments):  # (no wrap-around: these are short test captures)
+            payload = segments[seq]
+            if end is None:
+                end = seq
+            if seq + len(payload) > end:
+                data += payload[max(0, end - seq) :]
+                end = seq + len(payload)
+        result.append(bytes(data))
+    return result
+
+
 def _replay(run: Run, path: Path) -> None:
     """Replay the first streams' client side into local servers, at no
     pauses, and check what arrived against tshark's Follow."""
@@ -915,16 +951,32 @@ def _replay(run: Run, path: Path) -> None:
         f"{tcp_got} bytes arrived, {tcp_sent} sent",
     )
     tcp, udp = follow_payloads(path)
-    wrong = [
-        (i, bytes(c))
-        for i, c in enumerate(sink.connections)
-        if c and not any(f == c or (sink.reset[i] and f.startswith(c)) for f in tcp)
-    ]
+
+    def matches(i: int, sides: list[bytes]) -> bool:
+        c = sink.connections[i]
+        return any(f == c or (sink.reset[i] and f.startswith(c)) for f in sides)
+
+    wrong = [i for i, c in enumerate(sink.connections) if c and not matches(i, tcp)]
+    # Follow shows what a dissector hands its tap, which isn't always the
+    # segments' payload (DTN's TCPCLv4 transfers): those count when they
+    # equal the payloads put in sequence order.
+    upstream = [i for i in wrong if matches(i, segment_payloads(path))] if wrong else []
+    wrong = [i for i in wrong if i not in upstream]
+    if upstream:
+        run.report.steps.append(
+            Step(
+                "replay tcp = follow",
+                "note",
+                0.0,
+                f"{len(upstream)} connections equal their segments' payloads, not Follow",
+            )
+        )
+    first = bytes(sink.connections[wrong[0]]) if wrong else b""
     run.check(
-        "replay tcp = follow",
+        "replay tcp = segments",
         not wrong,
-        f"{len(wrong)} of {len(sink.connections)} connections differ from every Follow direction,"
-        f" e.g. {len(wrong[0][1]) if wrong else 0} bytes {wrong[0][1][:24].hex() if wrong else ''}",
+        f"{len(wrong)} of {len(sink.connections)} connections differ from every Follow direction"
+        f" and the segments' payloads, e.g. {len(first)} bytes {first[:24].hex()}",
     )
     datagrams = sum(t["datagrams"] for t in sent.values())
     run.check(
