@@ -699,7 +699,10 @@ suite("PCAP Lens smoke test", () => {
         "pcapViewer.importWiresharkProfile",
         { profile: shipped.name, kinds: ["coloringRules"] },
       );
-      assert.ok(imported?.coloringRules, "its coloring rules were imported");
+      assert.ok(
+        imported?.coloringRules,
+        `its coloring rules were imported (${shipped.name}: ${JSON.stringify(imported)})`,
+      );
       const rules = vscode.workspace.getConfiguration("pcapViewer").get<unknown[]>("coloringRules");
       assert.equal(rules?.length, imported.coloringRules);
     } finally {

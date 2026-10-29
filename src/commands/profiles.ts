@@ -107,11 +107,18 @@ export async function importProfile(
       ),
     );
   } catch (err) {
+    c.log.error(
+      `importing from Wireshark profile ${args?.profile ?? "(picked)"}: ${describeError(err)}`,
+    );
+    if (args?.kinds) {
+      throw err; // (a caller that chose everything gets the reason, not a notification)
+    }
     void vscode.window.showErrorMessage(`PCAP Lens: ${describeError(err)}`);
     return undefined;
   }
   const choices = importChoices(contents);
   if (!choices.length) {
+    c.log.warn(`Wireshark profile ${contents.name} (${contents.path}): nothing to import`);
     void vscode.window.showInformationMessage(
       `PCAP Lens: the ${contents.name} profile has no coloring rules, filter buttons, saved filters or columns to import.`,
     );
