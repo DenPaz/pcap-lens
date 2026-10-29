@@ -11,6 +11,7 @@ import {
   normalizeDestinations,
   normalizeOptions,
   normalizePresets,
+  openPosition,
   parseSetup,
   rememberDestinations,
   setupToJson,
@@ -41,10 +42,14 @@ export interface ReplayTarget {
   protocol: string;
 }
 
-/** The captures a replay reads: the open one (unless `capture` is false) and other files. */
+/**
+ * The captures a replay reads: other files, with the open one (unless
+ * `capture` is false) at position `openAt` among them (default 0: first).
+ */
 export interface ReplaySources {
   capture: boolean;
   files: string[];
+  openAt?: number;
 }
 
 /** What a replay request returns (service/replaying.py). */
@@ -186,9 +191,9 @@ export class ReplayPanel {
         });
         return;
       case "targets":
-        return this.list(msg.scope, { capture: msg.capture, files: msg.files });
+        return this.list(msg.scope, msg);
       case "start":
-        return this.start(msg.targets, msg, { capture: msg.capture, files: msg.files });
+        return this.start(msg.targets, msg, msg);
       case "addCaptures":
         return this.addCaptures();
       case "addFolder":
@@ -258,7 +263,12 @@ export class ReplayPanel {
     });
     const pending = client.send<{ targets: ReplayTarget[]; duration: number; filter: string }>(
       "replay_targets",
-      { filter, capture: sources.capture, files },
+      {
+        filter,
+        capture: sources.capture,
+        files,
+        openAt: openPosition(sources.openAt, files.length),
+      },
       { timeoutMs: 0 },
     );
     this.listing = pending.id;
@@ -282,7 +292,8 @@ export class ReplayPanel {
 
   /**
    * Replay the operator side to `targets` (the panel's Start; also used by
-   * the smoke test): the open capture, then `sources.files`, as `options` say.
+   * the smoke test): `sources.files` with the open capture at `sources.openAt`
+   * (first by default), as `options` say.
    */
   async start(
     targets: Record<string, ReplayDestination>,
@@ -333,6 +344,7 @@ export class ReplayPanel {
         filter: this.scopeFilter(opts.scope),
         capture: sources.capture,
         files,
+        openAt: openPosition(sources.openAt, files.length),
         order: opts.order,
         targets: mapping,
         speed: opts.speed,

@@ -476,7 +476,8 @@ server.
 one, several calls of one delivery, say: **Add Captures…** adds them and
 **Add Folder…** lists a folder's captures for you to check the ones to play
 (the open capture's own checkbox can leave it out). They play one after
-another, in the list's order (the arrows move them), or **merged by
+another, in the list's order (the arrows move any of them, the open capture
+too: open the second call and play the first before it), or **merged by
 recorded time**, as if they had been one capture. Each shows its targets,
 packets and recorded time, or why it can't be read, and the targets of
 every capture that plays are listed together. The section opens by itself

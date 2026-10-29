@@ -57,6 +57,8 @@
     loops: 1,
     /** The open capture plays too. */
     includeOpen: true,
+    /** How many of `files` play before the open capture (0: it plays first). */
+    openAt: 0,
     /** @type {SourceInfo | null} */ openInfo: null,
     /** @type {CaptureFile[]} other captures, in the order they play */ files: [],
     /** @type {Record<string, SetupTarget>} a loaded setup's destinations, kept for later lists */
@@ -404,9 +406,17 @@
     }
   }
 
+  /** @param {CaptureFile} f */
+  const plays = (f) => f.enabled && !f.missing;
+
   /** The other captures that play, in order. */
   function playedFiles() {
-    return state.files.filter((f) => f.enabled && !f.missing).map((f) => f.path);
+    return state.files.filter(plays).map((f) => f.path);
+  }
+
+  /** How many of the captures that play come before the open one (the backend's `openAt`). */
+  function playedOpenAt() {
+    return state.files.slice(0, state.openAt).filter(plays).length;
   }
 
   function requestTargets() {
@@ -419,6 +429,7 @@
       scope: scopeSelect.value,
       capture: state.includeOpen,
       files: playedFiles(),
+      openAt: playedOpenAt(),
     });
   }
 
@@ -460,54 +471,71 @@
     return btn;
   }
 
+  /** The open capture's name, as the title gives it. */
+  function openName() {
+    return title.textContent?.replace(/^Replay to Service · /, "") || "Open capture";
+  }
+
+  /**
+   * The captures list in play order: the other captures, with the open one
+   * (`null`) at `state.openAt`.
+   * @returns {(CaptureFile | null)[]}
+   */
+  function listed() {
+    const items = /** @type {(CaptureFile | null)[]} */ ([...state.files]);
+    items.splice(Math.min(state.openAt, state.files.length), 0, null);
+    return items;
+  }
+
   function renderCaptures() {
     const body = h("tbody");
-    const openUse = /** @type {HTMLInputElement} */ (
-      h("input", { type: "checkbox", "aria-label": "Replay the open capture" })
-    );
-    openUse.checked = state.includeOpen;
-    openUse.disabled = state.running;
-    openUse.addEventListener("change", () => {
-      state.includeOpen = openUse.checked;
-      captureChanged();
-    });
-    const openName = title.textContent?.replace(/^Replay to Service · /, "") || "Open capture";
-    body.append(
-      h("tr", { "data-capture": "" }, [
-        h("td", {}, [openUse]),
-        h("td", {}, [openName, h("span", { class: "replay-dim" }, [" (open in the viewer)"])]),
-        h("td", { class: "wrap" }, [sourceText(state.openInfo, state.includeOpen)]),
-        h("td", { class: "replay-capture-actions" }),
-      ]),
-    );
-    state.files.forEach((file, i) => {
+    const items = listed();
+    items.forEach((file, pos) => {
+      const name = file ? baseName(file.path) : openName();
       const use = /** @type {HTMLInputElement} */ (
-        h("input", { type: "checkbox", "aria-label": `Replay ${baseName(file.path)}` })
+        h("input", {
+          type: "checkbox",
+          "aria-label": file ? `Replay ${name}` : "Replay the open capture",
+        })
       );
-      use.checked = file.enabled && !file.missing;
-      use.disabled = state.running || !!file.missing;
+      use.checked = file ? file.enabled && !file.missing : state.includeOpen;
+      use.disabled = state.running || !!file?.missing;
       use.addEventListener("change", () => {
-        file.enabled = use.checked;
+        if (file) {
+          file.enabled = use.checked;
+        } else {
+          state.includeOpen = use.checked;
+        }
         captureChanged();
       });
-      const name = baseName(file.path);
-      const info = h("td", { class: "wrap" }, [sourceText(file.info, file.enabled, file.missing)]);
-      info.classList.toggle("replay-failed", !!file.missing || !!file.info?.error);
+      const info = h("td", { class: "wrap" }, [
+        file
+          ? sourceText(file.info, file.enabled, file.missing)
+          : sourceText(state.openInfo, state.includeOpen),
+      ]);
+      info.classList.toggle("replay-failed", !!file?.missing || !!file?.info?.error);
+      const actions = [
+        iconButton(`Play ${name} earlier`, "arrow-up", () => moveCapture(pos, -1), pos === 0),
+        iconButton(
+          `Play ${name} later`,
+          "arrow-down",
+          () => moveCapture(pos, 1),
+          pos === items.length - 1,
+        ),
+      ];
+      if (file) {
+        actions.push(
+          iconButton(`Remove ${name}`, "close", () => removeFile(state.files.indexOf(file)), false),
+        );
+      }
       body.append(
-        h("tr", { "data-capture": file.path }, [
+        h("tr", { "data-capture": file ? file.path : "" }, [
           h("td", {}, [use]),
-          h("td", { title: file.path }, [name]),
+          file
+            ? h("td", { title: file.path }, [name])
+            : h("td", {}, [name, h("span", { class: "replay-dim" }, [" (open in the viewer)"])]),
           info,
-          h("td", { class: "replay-capture-actions" }, [
-            iconButton(`Play ${name} earlier`, "arrow-up", () => moveFile(i, -1), i === 0),
-            iconButton(
-              `Play ${name} later`,
-              "arrow-down",
-              () => moveFile(i, 1),
-              i === state.files.length - 1,
-            ),
-            iconButton(`Remove ${name}`, "close", () => removeFile(i), false),
-          ]),
+          h("td", { class: "replay-capture-actions" }, actions),
         ]),
       );
     });
@@ -538,8 +566,11 @@
       const played = playedFiles().length;
       parts.push(`${added} added, ${played} ${played === 1 ? "plays" : "play"}`);
     }
+    const before = playedOpenAt();
     if (!state.includeOpen) {
       parts.push("the open capture is left out");
+    } else if (before) {
+      parts.push(`the open capture plays after ${before} ${before === 1 ? "other" : "others"}`);
     }
     return ` (${parts.join("; ")})`;
   }
@@ -549,23 +580,31 @@
     requestTargets();
   }
 
-  /** @param {number} i @param {number} delta */
-  function moveFile(i, delta) {
-    const j = i + delta;
-    if (j < 0 || j >= state.files.length) {
+  /**
+   * Move the capture at `pos` in the list (the open one too) by `delta`. The
+   * targets stay: they are listed by their first recorded data, whatever the
+   * order the captures play in.
+   * @param {number} pos @param {number} delta
+   */
+  function moveCapture(pos, delta) {
+    const items = listed();
+    const to = pos + delta;
+    if (to < 0 || to >= items.length) {
       return;
     }
-    const [file] = state.files.splice(i, 1);
-    state.files.splice(j, 0, file);
+    const [item] = items.splice(pos, 1);
+    items.splice(to, 0, item);
+    state.openAt = items.indexOf(null);
+    state.files = /** @type {CaptureFile[]} */ (items.filter((f) => f !== null));
     renderCaptures();
-    if (orderSelect.value === "sequence") {
-      requestTargets(); // (the first data, and so the targets' order, may change)
-    }
   }
 
   /** @param {number} i */
   function removeFile(i) {
     const [file] = state.files.splice(i, 1);
+    if (i < state.openAt) {
+      state.openAt -= 1;
+    }
     renderCaptures();
     if (file?.enabled) {
       requestTargets();
@@ -830,6 +869,7 @@
     }
     return {
       includeOpen: state.includeOpen,
+      openAt: state.openAt,
       captures: state.files.map((f) => ({ path: f.path, enabled: f.enabled })),
       targets,
       options: {
@@ -852,6 +892,7 @@
       enabled: c.enabled,
       missing: msg.missing.includes(c.path),
     }));
+    state.openAt = Math.min(setup.openAt ?? 0, state.files.length);
     state.setupTargets = setup.targets;
     presetSelect.value = ""; // (the setup's destinations, not a preset's)
     if (state.files.length || !state.includeOpen) {
@@ -950,6 +991,7 @@
       loss: numberIn(lossInput, 100) ?? 0,
       capture: state.includeOpen,
       files: playedFiles(),
+      openAt: playedOpenAt(),
     });
   }
 

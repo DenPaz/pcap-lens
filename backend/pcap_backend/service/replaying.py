@@ -103,8 +103,9 @@ class ReplayMixin(ServiceBase):
     def replay_targets(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """The recorded targets of the replay's captures: the open one's
         packets matching ``filter`` (``""``: all, never the ignored ones)
-        unless ``capture`` is false, then every packet of each of ``files``
-        (other captures, read with the open one's dissection options).
+        unless ``capture`` is false, and every packet of each of ``files``
+        (other captures, read with the open one's dissection options), the
+        open capture at position ``openAt`` among them (default 0: first).
         ``{filter, targets: [{key, proto, ip, port, connections, packets,
         bytes, retransmissions, gaps, first, last, firstFrame, protocol}],
         first, last, duration, span, sources: [{name, file, targets,
@@ -119,10 +120,12 @@ class ReplayMixin(ServiceBase):
         f = self._require_file()
         sources = self._replay_sources(f, params, ctx)
         merged: dict[str, dict[str, Any]] = {}
-        rows: list[dict[str, Any]] = []
-        for source in sources:
-            plan = self._source_targets(f, source, ctx)
-            rows.append(plan["source"])
+        plans = [self._source_targets(f, source, ctx) for source in sources]
+        rows = [plan["source"] for plan in plans]  # (in play order)
+        # The open capture's targets first, wherever it plays: a shared
+        # target keeps its firstFrame (Go to Packet in the viewer) and its
+        # dissected protocol. The sums, minimums and maximums don't mind.
+        for plan in sorted(plans, key=lambda plan: plan["source"]["file"] is not None):
             for t in plan["targets"]:
                 have = merged.get(t["key"])
                 if have is None:
@@ -153,7 +156,7 @@ class ReplayMixin(ServiceBase):
 
     def replay(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """Replay the client side of the captures (as in replay_targets:
-        ``filter``, ``capture``, ``files``) to live services: ``targets`` maps
+        ``filter``, ``capture``, ``files``, ``openAt``) to live services: ``targets`` maps
         recorded target keys to ``{ip, port}``; the others are left out. Each
         recorded TCP connection becomes a new connection carrying the bytes
         its client sent (retransmissions once), each UDP datagram a datagram,
@@ -254,24 +257,30 @@ class ReplayMixin(ServiceBase):
     def _replay_sources(
         self, f: _Open, params: dict[str, Any], ctx: RequestContext
     ) -> list[_Source]:
-        """The captures a replay reads: the open one (``capture``, default
-        true; its ``filter``) first, then ``files`` in order."""
+        """The captures a replay reads, in order: ``files``, with the open one
+        (``capture``, default true; its ``filter``) at ``openAt`` among them
+        (default 0: first)."""
         sources: list[_Source] = []
-        if param(params, "capture", bool, True):
-            flt = param(params, "filter", str, "").strip()
-            self._require_indexed()
-            scope = self._replay_scope(f, flt, ctx)
-            sources.append(_Source(f.path.name, f.path, scope, ("open", scope)))
         files = params.get("files", [])
         if not isinstance(files, list) or not all(isinstance(p, str) for p in files):
             raise InvalidParamsError("files must be a list of capture paths")
         if len(files) > MAX_FILES:
             raise InvalidParamsError(f"at most {MAX_FILES} other captures can be replayed at once")
+        open_at = param(params, "openAt", int, 0)
+        if not 0 <= open_at <= len(files):
+            raise InvalidParamsError(
+                f"openAt must be between 0 (first) and {len(files)} (after the other captures)"
+            )
         for raw in files:
             path = _readable_capture(raw)
             st = path.stat()
             key = ("file", str(path.resolve()), str(st.st_size), str(st.st_mtime_ns))
             sources.append(_Source(path.name, path, engine.FILTER, key, raw))
+        if param(params, "capture", bool, True):
+            flt = param(params, "filter", str, "").strip()
+            self._require_indexed()
+            scope = self._replay_scope(f, flt, ctx)
+            sources.insert(open_at, _Source(f.path.name, f.path, scope, ("open", scope)))
         if not sources:
             raise InvalidParamsError("choose at least one capture to replay")
         return sources

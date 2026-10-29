@@ -2067,6 +2067,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         loss: 0,
         capture: true,
         files: [],
+        openAt: 0,
       });
       await page.waitForFunction(() =>
         /^Done in/.test(document.querySelector("#replay-status")?.textContent ?? ""),
@@ -2153,12 +2154,27 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       assert.equal(await page.textContent("#replay-more-count"), " (1 added, 1 plays)");
       assert.deepEqual(await axeViolations(page), [], "the section open, its list filled");
       assert.equal((await rows(page)).find((r) => r[1] === HI2)?.[3], "6");
+      // The open capture can play later too: it moves like the others.
+      assert.ok(await page.isDisabled('button[aria-label="Play replay.pcap earlier"]'));
+      await page.click('button[aria-label="Play replay.pcap later"]');
+      assert.deepEqual(
+        (await captureRows()).map((r) => r[0]),
+        ["later.pcap", "replay.pcap (open in the viewer)"],
+      );
+      assert.ok(await page.isDisabled('button[aria-label="Play replay.pcap later"]'));
+      assert.equal(
+        await page.textContent("#replay-more-count"),
+        " (1 added, 1 plays; the open capture plays after 1 other)",
+      );
       await page.selectOption("#replay-order", "merged");
       assert.match(await page.textContent("#replay-status"), /\(merged\)\.$/);
       const before = hi2.got.length;
       await page.click("#replay-start");
       const both = await lastOfType(log, "start");
-      assert.deepEqual([both.capture, both.files, both.order], [true, [later], "merged"]);
+      assert.deepEqual(
+        [both.capture, both.files, both.openAt, both.order],
+        [true, [later], 1, "merged"],
+      );
       await page.waitForFunction(() =>
         /^Done in .* \(2 captures\)/.test(
           document.querySelector("#replay-status")?.textContent ?? "",
@@ -2192,7 +2208,8 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       );
 
       // Save Setup… sends the panel as it is; Load Setup… applies one.
-      await page.click(".replay-capture-list tbody tr:nth-child(2) input[type=checkbox]");
+      const laterRow = page.locator(".replay-capture-list tbody tr", { hasText: "later.pcap" });
+      await laterRow.locator("input[type=checkbox]").click();
       await page.waitForFunction(
         () => document.querySelector(`table.replay tbody tr td:nth-child(4)`)?.textContent === "1",
       );
@@ -2200,6 +2217,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       const setup = (await lastOfType(log, "saveSetup")).setup;
       assert.deepEqual(setup.captures, [{ path: later, enabled: false }]);
       assert.equal(setup.includeOpen, true);
+      assert.equal(setup.openAt, 1, "after later.pcap");
       assert.deepEqual(setup.targets[HI3], { ip: "127.0.0.1", port: hi3.port, enabled: true });
       assert.deepEqual(setup.options, {
         speed: 0, loops: 0, scope: "all", order: "merged", jitter: 0, loss: 100,
@@ -2229,6 +2247,11 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       assert.ok(!(await page.isChecked("#replay-forever")));
       assert.ok(await page.isDisabled(".replay-capture-list tbody tr:nth-child(3) input"));
       assert.match((await captureRows())[2][1], /^File not found$/);
+      assert.deepEqual(
+        (await captureRows()).map((r) => r[0]),
+        ["later.pcap", "replay.pcap (open in the viewer)", "gone.pcap"],
+        "the setup's order",
+      );
       assert.equal(await moreOpen(), true, "a setup with other captures opens the section");
       // (Back to the open capture alone, its destinations as before.)
       await page.click(`.replay-capture-list button[aria-label="Remove gone.pcap"]`);
