@@ -249,7 +249,9 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   checks, atomic output, CSV/JSON writers), `objects.py` (export objects:
   linking files to packets, safe names), `comments.py` (pcapng packet
   comments, editcap options, packet counts), `capture.py` (live capture:
-  dumpcap interfaces, filters, the pcapng tee, capturing to files), `extcap.py`
+  dumpcap interfaces, filters, the pcapng tee, capturing to files; `LiveSource`),
+  `follow.py` (following a growing capture file), `sessions.py` (HTTP request,
+  DNS query and TLS server tables), `extcap.py`
   (extcap helpers: their folders, interfaces and options), `editing.py` (editcap options
   of capture editing), `hexdump.py` (text2pcap options of Import from Hex
   Dump), `ber.py` (counting back-to-back BER records), `codecs.py` (G.722,
@@ -1497,6 +1499,55 @@ filesize` needs a file) block by block: one chunk can hold many blocks, so
   `-D -M`, `-d`, `-c`, `-a duration:`, SIGINT; `FAKE_DUMPCAP_*` env), and a
   real loopback capture when allowed (CI sets dumpcap's capabilities on
   Linux).
+- **Following a growing file** (`follow.py`, `open {follow: true}`,
+  `pcapViewer.followFile` / `stopFollowing`, _Follow Growing File_): a
+  capture another program is still writing (tcpdump `-w`, dumpcap, a
+  collector) is read like a live capture: `FollowFile` (a `LiveSource`, as
+  `LiveCapture`: start, take_reader, stop, describe…) polls the file's size
+  (`POLL_INTERVAL_S`), cuts whole records (`_Records` for pcap: the three
+  magics, both byte orders; `capture._Blocks` for pcapng) and writes them to
+  the pipe the index pass reads (`tshark -r - -l`), so a half-written
+  record waits. `follow_format`: only uncompressed pcap/pcapng
+  ("pending" for an empty file, which gets `START_TIMEOUT_S` for its
+  header). A file that gets shorter (rotated, truncated) or whose header
+  changes stops following with a warning ("Following the file stopped: …").
+  `capture_stop` stops it; "capture" notifications (`stats`, `stopped`)
+  carry `follow: true` and `file`, so the webview's `#status-capture` says
+  "Following x.pcap · 0:12 · N packets" (`lib.captureStatusText`) and the
+  empty list "Waiting for packets in x…". No saved index, no capinfos.
+  Host: the command reloads the editor with `followNext`; a
+  FileSystemWatcher (`watchGrowth`, debounced) offers Follow / Reload once
+  per editor when the file on disk grows, not within `SAVE_QUIET_MS` of our
+  own in-place save (`document.savedAt`). `pcapViewer.following` puts Stop
+  Following in the editor title (Start Capture is hidden meanwhile).
+  **Publishing on a timer**: `_PassProgress` published rows only when the
+  next row came, so a burst followed by silence (a quiet interface, a file
+  written once) stayed unpublished; once `ready()`, a ticker thread
+  publishes every `PROGRESS_INTERVAL_S` under `tracker.guard` (a lock that
+  `_read_rows` takes around each row's append; a no-op before `ready`).
+- **Session tables** (`sessions.py`, `stats {kind: http_requests |
+dns_queries | tls_servers}`, `http_body {frame}`): one row per HTTP
+  request, DNS query or TLS server, each from one `-Y` fields pass
+  (aggregator `\x1e`), in the statistics panel (`SESSION_KINDS`,
+  `lib.sessionSummary` for the status line from the result's `summary`).
+  HTTP: request with its response (`http.response_in`), status, content
+  type, size and response time; unanswered = "No response". DNS: ID, name,
+  type, result (`DNS_RCODES`), answers ("A 192.0.2.80, CNAME …") and
+  latency. TLS: grouped by server, port, transport (TCP or QUIC) and SNI:
+  connections, handshakes without a ServerHello, versions and cipher suites
+  the server chose (`TLS_VERSIONS`, `CIPHER_SUITES`; tshark prints numbers;
+  GREASE ignored), the ALPN it chose, clients. Row filters are `frame.number
+in {…}` / `tcp.stream in {…}` / `quic.connection.number in {…}` with
+  commas and ranges (`_set_filter`, `frame_ranges`: tshark 4.2 refuses
+  spaces), else address and port past `MAX_SET_FILTER`. _Show Response Body_
+  (button and row menu) asks `http_body` (`-c N -Y frame.number==N -e
+http.file_data`: the decoded body, de-chunked and decompressed, at most
+  `MAX_BODY_BYTES`) and shows it in Show Packet Bytes (text, image, hex…);
+  the row menu also opens the request or response in a new window.
+  `sessions.pcap` (generate.py `sessions_packets`) has five HTTP requests
+  (a PNG, a 500, a 404 on port 8080, one unanswered), five DNS queries (an
+  MX, an NXDOMAIN, one unanswered) and three TLS connections (TLS 1.2 and
+  1.3 to one SNI with ALPN h2, one without a ServerHello).
 - **Extcap helpers** (`extcap.py`, `extcap_config {interface}`,
   `extcapModel.ts`, `commands/capture.ts`): dumpcap doesn't know extcap
   interfaces; tshark runs the helper (into a FIFO) and dumpcap together. So
@@ -2811,3 +2862,5 @@ jitter, UDP loss, until stopped and setup files: 0.25.2.
 Then Save Results… for a replay, and Go to Packet only for the open capture's
 targets: 0.25.4 (0.25.3's tag went out before its merge and names 0.25.2's
 code; tags can't move, so it was skipped).
+Then Follow Growing File and the HTTP Requests, DNS Queries and TLS Servers
+session tables (unreleased).

@@ -8,7 +8,7 @@ from typing import Any
 
 from pcap_backend import ber, coloring
 from pcap_backend.cache import RowStore
-from pcap_backend.capture import LiveCapture
+from pcap_backend.capture import LiveSource
 from pcap_backend.index_cache import IndexCache
 from pcap_backend.protocol import InvalidParamsError, RequestContext, UnsupportedFormatError
 from pcap_backend.tshark import (
@@ -114,7 +114,7 @@ def _pass_lines(
     result: StreamResult,
     ctx: RequestContext,
     env: dict[str, str] | None,
-    live: LiveCapture | None,
+    live: LiveSource | None,
     tracker: _PassProgress,
 ) -> Iterable[bytes] | None:
     """An index pass's output lines. A live capture's pipe can be read once,
@@ -186,6 +186,7 @@ def _stream_rows(
             lines or iter(()), rows, tracker, base=base, inline=inline, unresolved=unresolved
         )
     finally:
+        tracker.stop()
         if isinstance(lines, Generator):
             lines.close()  # (stops tshark when a resumed pass's rows didn't match)
         rows.finish()
@@ -279,23 +280,25 @@ def _read_rows(
         except ValueError:
             bad_lines += 1
             continue
-        row = line
+        row, rule = line, b""
         if inline is not None:
             row, _sep, rule = line.rpartition(b"\t")
-            _add_color(inline, number, rule)  # before the row is published
         if unresolved:
             row = _blank_same_addresses(row)
         rest = row if base else (parts[1] if len(parts) > 1 else b"")
         last = number
-        if resume is not None and number <= known:
-            saved = resume.samples.get(number)
-            if saved is not None and rest != saved:
-                raise _ResumeMismatchError(f"packet {number} differs from its saved row")
-            resume.caught_up = number == known
+        with tracker.guard:  # (a live pass's ticker publishes whole rows only)
+            if inline is not None:
+                _add_color(inline, number, rule)  # before the row is published
+            if resume is not None and number <= known:
+                saved = resume.samples.get(number)
+                if saved is not None and rest != saved:
+                    raise _ResumeMismatchError(f"packet {number} differs from its saved row")
+                resume.caught_up = number == known
+                tracker.row(number, rest)
+                continue
+            rows.append(number, rest)
             tracker.row(number, rest)
-            continue
-        rows.append(number, rest)
-        tracker.row(number, rest)
     if resume is not None and not resume.caught_up and not token.cancelled:
         raise _ResumeMismatchError(f"the capture ended at packet {last:,}, before {known:,}")
     return bad_lines

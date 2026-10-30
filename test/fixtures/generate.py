@@ -31,7 +31,7 @@ import h323  # test/fixtures/h323.py: H.225.0 and H.245 messages in aligned PER
 import mmdb  # test/fixtures/mmdb.py: MaxMind databases for the GeoIP tests
 import quic  # test/fixtures/quic.py: the hand-encrypted QUIC connection
 from scapy.asn1.asn1 import ASN1_OID
-from scapy.layers.dns import DNS, DNSQR, DNSRR
+from scapy.layers.dns import DNS, DNSQR, DNSRR, DNSRRMX
 from scapy.layers.dot11 import Dot11
 from scapy.layers.dot15d4 import Dot15d4Data, Dot15d4FCS
 from scapy.layers.inet import ICMP, IP, TCP, UDP
@@ -1231,6 +1231,173 @@ def services_packets() -> list[Packet]:
     return [pkt for _, pkt in timed]
 
 
+# Sessions (sessions.pcap): HTTP requests with their answers, DNS queries and
+# TLS handshakes, with known timings, for the HTTP, DNS and TLS session tables.
+SESSIONS_CLIENT = "192.168.1.10"
+
+
+def _png_1x1() -> bytes:
+    """A valid one-pixel grey PNG (tshark dissects the image)."""
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack("!I", len(data)) + kind + data + struct.pack("!I", zlib.crc32(kind + data))
+        )
+
+    ihdr = struct.pack("!IIBBBBB", 1, 1, 8, 0, 0, 0, 0)
+    return (
+        bytes.fromhex("89504e470d0a1a0a")
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"IDAT", zlib.compress(b"\x00\x80"))
+        + chunk(b"IEND", b"")
+    )
+
+
+SESSIONS_PNG = _png_1x1()
+
+
+def _tls_ext(kind: int, data: bytes) -> bytes:
+    return struct.pack("!HH", kind, len(data)) + data
+
+
+def _tls_alpn(*names: bytes) -> bytes:
+    names_ = b"".join(struct.pack("!B", len(n)) + n for n in names)
+    return _tls_ext(16, struct.pack("!H", len(names_)) + names_)
+
+
+def _tls_handshake(kind: int, body: bytes) -> bytes:
+    handshake = struct.pack("!B", kind) + struct.pack("!I", len(body))[1:] + body
+    return b"\x16\x03\x01" + struct.pack("!H", len(handshake)) + handshake
+
+
+def _client_hello(sni: bytes, alpn: Sequence[bytes], tls13: bool) -> bytes:
+    server_name = struct.pack("!BH", 0, len(sni)) + sni
+    extensions = _tls_ext(0, struct.pack("!H", len(server_name)) + server_name)
+    if alpn:
+        extensions += _tls_alpn(*alpn)
+    if tls13:
+        extensions += _tls_ext(43, b"\x04\x03\x04\x03\x03")  # TLS 1.3, TLS 1.2
+    suites = b"\x13\x01\x13\x02\xc0\x2f\x00\x9c"
+    body = (
+        b"\x03\x03" + bytes(range(32)) + b"\x00"
+        + struct.pack("!H", len(suites)) + suites + b"\x01\x00"
+        + struct.pack("!H", len(extensions)) + extensions
+    )  # fmt: skip
+    return _tls_handshake(1, body)
+
+
+def _server_hello(cipher: int, alpn: bytes, tls13: bool) -> bytes:
+    extensions = _tls_alpn(alpn)
+    if tls13:
+        extensions += _tls_ext(43, b"\x03\x04")
+    body = (
+        b"\x03\x03" + bytes(range(32, 64)) + b"\x00" + struct.pack("!H", cipher) + b"\x00"
+        + struct.pack("!H", len(extensions)) + extensions
+    )  # fmt: skip
+    return _tls_handshake(2, body)
+
+
+def sessions_packets() -> list[Packet]:
+    """HTTP: a keep-alive connection to www.example.com (GET /index.html 200
+    after 30 ms, GET /logo.png 200 image/png after 12 ms, POST /api/items 500
+    after 250 ms) and one to api.example.net:8080 (GET /v1/missing 404 after
+    5 ms, then GET /slow that gets no answer). DNS to 192.168.1.1: www A (a
+    CNAME and an address, 12 ms), www AAAA (8 ms), example.com MX (15 ms),
+    missing.example.com NXDOMAIN (20 ms) and lost.example.com, unanswered.
+    TLS: two connections to 198.51.100.20:443 for api.example.com (TLS 1.2
+    with ECDHE-RSA-AES128-GCM-SHA256, then TLS 1.3 with TLS_AES_128_GCM_SHA256,
+    both choosing h2) and one to 203.0.113.5:443 for cdn.example.net that
+    gets no ServerHello."""
+    timed: list[tuple[float, Packet]] = []
+
+    def step(s: _TcpSession, at: float, action: Any, *args: Any) -> None:
+        before = len(s.packets)
+        action(*args)
+        timed.extend((at + 0.0001 * i, pkt) for i, pkt in enumerate(s.packets[before:]))
+
+    def http_request(method: str, uri: str, host: str, body: bytes = b"") -> bytes:
+        head = f"{method} {uri} HTTP/1.1\r\nHost: {host}\r\nContent-Length: {len(body)}\r\n\r\n"
+        return head.encode() + body
+
+    def http_response(status: str, kind: str, body: bytes) -> bytes:
+        head = f"HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {len(body)}\r\n\r\n"
+        return head.encode() + body
+
+    www = _TcpSession(SESSIONS_CLIENT, "192.0.2.80", 51100, 80)
+    step(www, 0.0, www.handshake)
+    exchanges = [
+        (0.01, "GET", "/index.html", b"", 0.030, "200 OK", "text/html", b"<html>hi</html>"),
+        (0.10, "GET", "/logo.png", b"", 0.012, "200 OK", "image/png", SESSIONS_PNG),
+        (0.20, "POST", "/api/items", b'{"name":"x"}', 0.250, "500 Internal Server Error",
+         "application/json", b'{"error":"boom"}'),
+    ]  # fmt: skip
+    for at, method, uri, body, delay, status, kind, answer in exchanges:
+        step(www, at, www.client_send, http_request(method, uri, "www.example.com", body))
+        step(www, at + delay, www.server_send, http_response(status, kind, answer))
+    step(www, 0.6, www.close)
+    api = _TcpSession(SESSIONS_CLIENT, "198.51.100.7", 51101, 8080)
+    step(api, 0.7, api.handshake)
+    step(api, 0.71, api.client_send, http_request("GET", "/v1/missing", "api.example.net"))
+    step(api, 0.715, api.server_send, http_response("404 Not Found", "text/plain", b"no"))
+    step(api, 0.8, api.client_send, http_request("GET", "/slow", "api.example.net"))
+
+    queries = [
+        ("www.example.com", "A", 0, 0.012, [
+            DNSRR(rrname="www.example.com", type="CNAME", rdata="edge.example.net"),
+            DNSRR(rrname="edge.example.net", type="A", rdata="192.0.2.80"),
+        ]),
+        ("www.example.com", "AAAA", 0, 0.008, [
+            DNSRR(rrname="www.example.com", type="AAAA", rdata="2001:db8::80"),
+        ]),
+        ("example.com", "MX", 0, 0.015, [
+            DNSRRMX(rrname="example.com", preference=10, exchange="mail.example.com"),
+        ]),
+        ("missing.example.com", "A", 3, 0.020, []),
+        ("lost.example.com", "A", 0, None, []),
+    ]  # fmt: skip
+    for i, (name, qtype, rcode, delay, answers) in enumerate(queries):
+        qid, at = 0x3000 + i, 1.0 + 0.1 * i
+        q = (
+            Ether(src=CLIENT_MAC, dst=SERVER_MAC)
+            / IP(src=SESSIONS_CLIENT, dst="192.168.1.1")
+            / UDP(sport=43000 + i, dport=53)
+            / DNS(id=qid, rd=1, qd=DNSQR(qname=name, qtype=qtype))
+        )
+        timed.append((at, q))
+        if delay is None:
+            continue
+        an = None
+        for rr in answers:
+            an = rr if an is None else an / rr
+        r = (
+            Ether(src=SERVER_MAC, dst=CLIENT_MAC)
+            / IP(src="192.168.1.1", dst=SESSIONS_CLIENT)
+            / UDP(sport=53, dport=43000 + i)
+            / DNS(
+                id=qid, qr=1, rd=1, ra=1, rcode=rcode, qd=DNSQR(qname=name, qtype=qtype),
+                an=an, ancount=len(answers),
+            )
+        )  # fmt: skip
+        timed.append((at + delay, r))
+
+    hellos = [
+        (52001, "198.51.100.20", b"api.example.com", False, 0xC02F),
+        (52002, "198.51.100.20", b"api.example.com", True, 0x1301),
+        (52003, "203.0.113.5", b"cdn.example.net", True, None),
+    ]
+    for i, (port, server, sni, tls13, cipher) in enumerate(hellos):
+        s = _TcpSession(SESSIONS_CLIENT, server, port, 443)
+        at = 2.0 + 0.2 * i
+        step(s, at, s.handshake)
+        step(s, at + 0.01, s.client_send, _client_hello(sni, [b"h2", b"http/1.1"], tls13))
+        if cipher is not None:
+            step(s, at + 0.04, s.server_send, _server_hello(cipher, b"h2", tls13))
+    timed.sort(key=lambda tp: tp[0])
+    for at, pkt in timed:
+        pkt.time = BASE_TS + at
+    return [pkt for _, pkt in timed]
+
+
 # Replay to Service (replay.pcap): an operator's delivery function sending to a
 # collector, as lawful interception handover does (HI2 on one port, HI3 on
 # another). Synthetic data; the expected bytes per recorded target, one entry
@@ -2045,6 +2212,7 @@ def main() -> None:
     wrpcap(str(HERE / "office-before.pcap"), office_packets(problems=False))
     wrpcap(str(HERE / "office-after.pcap"), office_packets(problems=True))
     wrpcap(str(HERE / "replay.pcap"), replay_packets())
+    wrpcap(str(HERE / "sessions.pcap"), sessions_packets())
     geoip_fixtures()
     hexdump_fixtures()
     (HERE / "comments.pcapng").write_bytes(

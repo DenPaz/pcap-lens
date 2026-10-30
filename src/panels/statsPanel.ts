@@ -3,6 +3,8 @@ import * as vscode from "vscode";
 import { ErrorCodes, RpcError } from "../backendClient";
 import { ANOMALY_LIMITS, ExpertRow } from "../aiAnomaly";
 import type { PcapEditorSession } from "../pcapEditor";
+import { BytesPanel } from "./bytesPanel";
+import { PacketPanel } from "./packetPanel";
 import { panelHtml, webviewRoot } from "./panelHtml";
 
 export type StatsKind =
@@ -22,7 +24,10 @@ export type StatsKind =
   | "ipv6"
   | "multicast"
   | "hosts"
-  | "sctp";
+  | "sctp"
+  | "http_requests"
+  | "dns_queries"
+  | "tls_servers";
 
 export const STATS_TITLES: Record<StatsKind, string> = {
   conversations: "Conversations",
@@ -42,6 +47,9 @@ export const STATS_TITLES: Record<StatsKind, string> = {
   multicast: "UDP Multicast Streams",
   hosts: "Resolved Addresses",
   sctp: "SCTP Associations",
+  http_requests: "HTTP Requests",
+  dns_queries: "DNS Queries",
+  tls_servers: "TLS Servers",
 };
 
 /** Expert rows as the panel sent them, checked (the webview is ours, but its data came from the capture). */
@@ -81,7 +89,11 @@ type FromPanel =
   | { type: "goto"; frame: number }
   | { type: "copy"; text: string }
   /** "Ask Copilot…" about expert rows (none: the capture's errors and warnings). */
-  | { type: "askCopilot"; rows: unknown[] };
+  | { type: "askCopilot"; rows: unknown[] }
+  /** An HTTP Requests row's response body, in Show Packet Bytes. */
+  | { type: "httpBody"; frame: number; label: string }
+  /** A request or response in Show Packet in New Window. */
+  | { type: "packetWindow"; frame: number };
 
 interface QueryParams {
   type?: string;
@@ -234,6 +246,41 @@ export class StatsPanel {
         await vscode.env.clipboard.writeText(msg.text);
         vscode.window.setStatusBarMessage("Copied to clipboard", 2000);
         return;
+      case "httpBody":
+        return this.showBody(msg.frame, msg.label);
+      case "packetWindow":
+        if (Number.isInteger(msg.frame) && msg.frame > 0) {
+          PacketPanel.show(this.context, this.session, { kind: "packet", frame: msg.frame });
+        }
+        return;
+    }
+  }
+
+  /** The decoded body of the HTTP response in `frame` (de-chunked, decompressed). */
+  private async showBody(frame: number, label: string): Promise<void> {
+    const client = this.session.backend;
+    if (!client?.running || !Number.isInteger(frame) || frame <= 0) {
+      return;
+    }
+    try {
+      const body = (await client.request("http_body", { frame })) as {
+        hex: string;
+        size: number;
+        truncated: boolean;
+      };
+      if (!body.size) {
+        void vscode.window.showInformationMessage(`The response in packet ${frame} has no body.`);
+        return;
+      }
+      const what = typeof label === "string" && label ? label.slice(0, 200) : `packet ${frame}`;
+      BytesPanel.show(this.context, this.session, {
+        frame,
+        field: "http.file_data",
+        label: `Response body of ${what}${body.truncated ? " (first 16 MB)" : ""}`,
+        hex: body.hex,
+      });
+    } catch (err) {
+      void vscode.window.showErrorMessage(`Couldn't read the response body: ${String(err)}`);
     }
   }
 

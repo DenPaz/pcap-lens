@@ -563,6 +563,48 @@ suite("webview lib: bytes", () => {
     assert.equal(lib.formatDuration(3723), "1:02:03");
     assert.equal(lib.formatDuration(-1), "0:00");
   });
+
+  test("sessionSummary: the status line of the HTTP, DNS and TLS session tables", () => {
+    assert.equal(lib.sessionSummary("http_requests", { requests: 1, unanswered: 0 }), "1 request");
+    assert.equal(
+      lib.sessionSummary("dns_queries", { queries: 1200, unanswered: 2, failed: 1 }),
+      "1,200 queries · 2 without a response · 1 failed",
+    );
+    assert.equal(
+      lib.sessionSummary("tls_servers", { servers: 1, connections: 1, unanswered: 1 }),
+      "1 server · 1 connection · 1 handshake without a server hello",
+    );
+    assert.deepEqual(lib.SESSION_KINDS, ["http_requests", "dns_queries", "tls_servers"]);
+  });
+
+  test("captureStatusText: a live capture or a followed file", () => {
+    const live = {
+      interfaces: ["eth0", "lo"],
+      running: true,
+      seconds: 0,
+      startedAt: 1000,
+      bytes: 1536,
+      packets: 3,
+      dropped: null,
+    };
+    assert.equal(lib.captureStatusText(live, 1012), "Capturing on eth0, lo · 0:12 · 1.5 KB");
+    assert.equal(
+      lib.captureStatusText({ ...live, running: false, seconds: 75, dropped: 1200 }, 9999),
+      "Captured on eth0, lo in 1:15 · 1,200 dropped",
+    );
+    const followed = { ...live, follow: true, file: "trace.pcap", interfaces: [], packets: 1234 };
+    assert.equal(
+      lib.captureStatusText(followed, 1012),
+      "Following trace.pcap · 0:12 · 1,234 packets",
+    );
+    assert.equal(
+      lib.captureStatusText({ ...followed, running: false, seconds: 30, packets: 1 }, 9999),
+      "Followed trace.pcap for 0:30 · 1 packet",
+    );
+    const waiting = lib.emptyState({ ready: true, total: 0, filter: "", capture: followed });
+    assert.equal(waiting.kind, "waiting");
+    assert.equal(waiting.title, "Waiting for packets in trace.pcap…");
+  });
 });
 
 suite("webview lib: autocomplete", () => {

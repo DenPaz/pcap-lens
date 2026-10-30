@@ -51,12 +51,17 @@ export interface OpenResult {
   coloring?: { coloringId: number; colored?: number; errors?: Record<string, string> };
   /** Comment edits can be saved into the file itself (plain pcapng). */
   comments?: { inPlace: boolean };
-  /** A live capture writes this file (capture_start): running, or how it went. */
+  /** A live capture writes this file (capture_start), or another program does
+   * and it is followed (open {follow}): running, or how it went. */
   capture?: CaptureState;
 }
 
 /** The backend's description of a live capture (capture_start, "done" info). */
 export interface CaptureState {
+  /** A file another program writes, followed as it grows (no interfaces). */
+  follow?: boolean;
+  /** The followed file's name. */
+  file?: string;
   interfaces: string[];
   filter: string;
   running: boolean;

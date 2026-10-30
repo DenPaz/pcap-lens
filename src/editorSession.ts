@@ -85,6 +85,8 @@ const HISTORY_KEY = "pcapViewer.filterHistory";
 const INITIALIZE_TIMEOUT_MS = 120_000;
 /** After this long, the viewer says tshark's first start can be slow. */
 const SLOW_START_MS = 5_000;
+/** File changes this soon after saving comments into it are ours, not a writer's. */
+const SAVE_QUIET_MS = 10_000;
 /** Coloring problems already shown in a notification (each is reported once per window). */
 const reportedColoringErrors = new Set<string>();
 /** The button that opens a file of BER records as packets (pcapViewer.openBerRecords). */
@@ -177,8 +179,13 @@ export class PcapEditorSession {
   private readonly captureEmitter = new vscode.EventEmitter<void>();
   /** Fires when a live capture starts or stops. */
   readonly onDidChangeCapture = this.captureEmitter.event;
-  /** A live capture is writing this capture (capture_start). */
+  /** A live capture is writing this capture (capture_start), or the file is followed. */
   capturing = false;
+  /** The next load follows the file as another program writes it (Follow Growing File). */
+  private followNext = false;
+  /** Following the file was offered when it grew (once per editor). */
+  private followOffered = false;
+  private growthWatcher?: vscode.Disposable;
   /** The Replay to Service panel of this capture, while open (the status bar item's actions). */
   replayControl: { reveal(): void; stop(): void } | undefined;
   /** Settings changed while capturing: reload once the capture is indexed. */
@@ -299,6 +306,7 @@ export class PcapEditorSession {
     this.log.info(`${name}: loading (${reason})`);
     const settings = readSettings(this.uri);
     this.watchKeyLog(settings.tlsKeyLogFile);
+    this.watchGrowth();
     this.names = settings.nameResolution;
     this.wiresharkProfile = settings.wiresharkProfile;
     this.prefs = settings.prefs;
@@ -679,6 +687,8 @@ export class PcapEditorSession {
         };
         // A new capture's first load starts it; later loads (settings) open the file.
         const capture = this.document.captureRequest;
+        const following = this.followNext && !capture;
+        this.followNext = false;
         const [method, params] = capture
           ? [
               "capture_start",
@@ -697,9 +707,10 @@ export class PcapEditorSession {
               {
                 ...common,
                 path: this.uri.fsPath,
-                // Reuse saved indexes (not for unsaved captures: they are discarded).
+                follow: following || undefined,
+                // Reuse saved indexes (not for unsaved or followed captures).
                 cache:
-                  settings.indexCacheBytes > 0 && !this.document.temporary
+                  settings.indexCacheBytes > 0 && !this.document.temporary && !following
                     ? { dir: indexCacheDir(this.context), maxBytes: settings.indexCacheBytes }
                     : undefined,
               },
@@ -1017,18 +1028,100 @@ export class PcapEditorSession {
       return;
     }
     const name = path.basename(this.uri.fsPath);
+    const what = this.following ? "following the file" : "the capture";
     this.log.info(
-      `${name}: capture stopped after ${p.packets} packets, ${p.bytes} bytes` +
+      `${name}: ${what} stopped after ${p.packets} packets, ${p.bytes} bytes` +
         (p.dropped ? `, ${p.dropped} dropped` : ""),
     );
     if (p.error) {
       this.log.error(`${name}: ${p.error}`);
       void vscode.window
-        .showErrorMessage(`PCAP Lens: the capture stopped: ${p.error}`, "Show Log")
+        .showErrorMessage(`PCAP Lens: ${what} stopped: ${p.error}`, "Show Log")
         .then((choice) => choice && this.log.show());
     }
     this.capturing = false;
     this.captureEmitter.fire();
+  }
+
+  /** The file is followed as another program writes it (open {follow}), still running. */
+  get following(): boolean {
+    return this.capturing && !!this.info?.capture?.follow;
+  }
+
+  /**
+   * Show the packets another program adds to this file as they are written:
+   * reload it as a followed file (Stop ends following; the rows so far stay).
+   */
+  async followFile(): Promise<void> {
+    if (this.capturing) {
+      return;
+    }
+    this.followNext = true;
+    await this.load("Follow Growing File");
+  }
+
+  /** Offer to follow the file when it grows on disk (once per editor). */
+  private watchGrowth(): void {
+    if (this.growthWatcher || !isOnDisk(this.uri) || this.document.temporary) {
+      return;
+    }
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(
+        vscode.Uri.file(path.dirname(this.uri.fsPath)),
+        path.basename(this.uri.fsPath),
+      ),
+    );
+    let timer: NodeJS.Timeout | undefined;
+    const changed = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => void this.offerFollow(), 1000);
+    };
+    watcher.onDidChange(changed);
+    this.growthWatcher = {
+      dispose: () => {
+        clearTimeout(timer);
+        watcher.dispose();
+      },
+    };
+  }
+
+  private async offerFollow(): Promise<void> {
+    const known = this.info?.size;
+    if (
+      this.followOffered ||
+      this.disposed ||
+      this.capturing ||
+      this.indexing ||
+      known === undefined ||
+      Date.now() - this.document.savedAt < SAVE_QUIET_MS // (our own comment save)
+    ) {
+      return;
+    }
+    let size: number;
+    try {
+      size = (await fs.promises.stat(this.uri.fsPath)).size;
+    } catch {
+      return;
+    }
+    if (size <= known || this.followOffered) {
+      return;
+    }
+    this.followOffered = true;
+    const follow = "Follow";
+    const reload = "Reload";
+    const choice = await vscode.window.showInformationMessage(
+      `PCAP Lens: ${path.basename(this.uri.fsPath)} is growing: another program is writing it. Follow it to see new packets as they are written?`,
+      follow,
+      reload,
+    );
+    if (this.disposed) {
+      return;
+    }
+    if (choice === follow) {
+      await this.followFile();
+    } else if (choice === reload) {
+      await this.load("Reload");
+    }
   }
 
   /** Stop the live capture; with `wait`, until its last packets are indexed. */
@@ -1584,6 +1677,7 @@ export class PcapEditorSession {
     this.disposed = true;
     this.loadSeq++;
     this.keyLogWatcher?.dispose();
+    this.growthWatcher?.dispose();
     this.disposeEmitter.fire();
     this.disposeEmitter.dispose();
     this.activateEmitter.dispose();

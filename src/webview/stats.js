@@ -150,6 +150,12 @@
     title:
       "Ask Copilot why the selected entry happens (no selection: the capture's errors and warnings). Sends expert information and conversation statistics, never packet contents.",
   });
+  const bodyBtn = iconButton("file-media", "Show Response Body", {
+    class: "secondary",
+    id: "show-body",
+    title: "Show the response's body (text, image or hex) in Show Packet Bytes",
+  });
+  bodyBtn.addEventListener("click", () => state.selected && showBody(state.selected));
   askBtn.addEventListener("click", () => askCopilot());
   applyBtn.addEventListener("click", () => rowFilter(true));
   prepareBtn.addEventListener("click", () => rowFilter(false));
@@ -221,6 +227,27 @@
     }
     if (state.kind === "expert" && state.ai) {
       entries.push({ label: "Ask Copilot About This Entry…", icon: "sparkle", action: askCopilot });
+    }
+    if (state.kind === "http_requests") {
+      if (row.response) {
+        entries.push({
+          label: "Show Response Body",
+          icon: "file-media",
+          action: () => showBody(row),
+        });
+      }
+      entries.push({
+        label: "Show Request in New Window",
+        icon: "window",
+        action: () => vscode.postMessage({ type: "packetWindow", frame: row.frame }),
+      });
+      if (row.response) {
+        entries.push({
+          label: "Show Response in New Window",
+          icon: "window",
+          action: () => vscode.postMessage({ type: "packetWindow", frame: row.response }),
+        });
+      }
     }
     const shown = shownColumns();
     /** @type {any[]} */
@@ -311,11 +338,15 @@
     actions.replaceChildren(
       ...(state.kind === "expert"
         ? [gotoBtn, applyBtn, prepareBtn, ...(state.ai ? [askBtn] : [])]
-        : state.kind === "srt" || state.kind === "credentials"
-          ? [applyBtn, prepareBtn, gotoBtn]
-          : state.kind === "properties" || state.kind === "io"
-            ? []
-            : [applyBtn, prepareBtn]),
+        : state.kind === "http_requests"
+          ? [applyBtn, prepareBtn, gotoBtn, bodyBtn]
+          : state.kind === "srt" ||
+              state.kind === "credentials" ||
+              lib.SESSION_KINDS.includes(state.kind)
+            ? [applyBtn, prepareBtn, gotoBtn]
+            : state.kind === "properties" || state.kind === "io"
+              ? []
+              : [applyBtn, prepareBtn]),
       copyBtn,
     );
     updateActions();
@@ -439,7 +470,9 @@
           ? ""
           : t.unfiltered
             ? `${n.toLocaleString()} ${n === 1 ? "row" : "rows"} (this report covers the whole capture: it can't be limited to the display filter)`
-            : `${n.toLocaleString()} ${n === 1 ? "row" : "rows"}${scope}`;
+            : t.summary
+              ? `${lib.sessionSummary(t.kind, t.summary)}${scope}`
+              : `${n.toLocaleString()} ${n === 1 ? "row" : "rows"}${scope}`;
     chartBox.classList.toggle("hidden", t.kind !== "io");
     legend.classList.toggle("hidden", t.kind !== "io");
     if (t.kind === "io") {
@@ -593,6 +626,7 @@
     applyBtn.toggleAttribute("disabled", !row || !row.filter);
     prepareBtn.toggleAttribute("disabled", !row || !row.filter);
     gotoBtn.toggleAttribute("disabled", !row || !row.frame);
+    bodyBtn.toggleAttribute("disabled", !row || !row.response);
     copyBtn.toggleAttribute("disabled", !state.table);
     if (state.kind === "expert" && row && !row.filter) {
       // Expert rows filter on the message text.
@@ -641,6 +675,13 @@
     }
     const rows = state.selected ? [expertRow(state.selected)] : [];
     vscode.postMessage({ type: "askCopilot", rows });
+  }
+
+  /** An HTTP row's response body, in Show Packet Bytes. @param {any} row */
+  function showBody(row) {
+    if (row && row.response) {
+      vscode.postMessage({ type: "httpBody", frame: row.response, label: row.label });
+    }
   }
 
   function rowGoto() {

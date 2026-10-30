@@ -5,16 +5,25 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from pcap_backend import stats, triage
+from pcap_backend import sessions, stats, triage
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, param
 from pcap_backend.stats import IoSeries, Table
 from pcap_backend.tshark import ToolError, failed, run
 
 from .base import ServiceBase
+from .helpers import _fields_args
 from .state import _FIELD_NAME_RE, _Open
 
 # The IO graph's longest interval (100 years), so a default always fits.
 MAX_IO_INTERVAL_S = 100 * 365 * 86400
+# The largest HTTP body http_body returns (as Show Packet Bytes shows at most).
+MAX_BODY_BYTES = 16 * 1024 * 1024
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+_SESSIONS = {
+    "http_requests": (sessions.HTTP_FILTER, sessions.HTTP_FIELDS, sessions.http_requests),
+    "dns_queries": (sessions.DNS_FILTER, sessions.DNS_FIELDS, sessions.dns_queries),
+    "tls_servers": (sessions.TLS_FILTER, sessions.TLS_FIELDS, sessions.tls_servers),
+}
 
 
 class StatisticsMixin(ServiceBase):
@@ -32,7 +41,10 @@ class StatisticsMixin(ServiceBase):
         protocol of ``stats.SRT_PROTOCOLS`` or ``auto``), ``sip``,
         ``credentials`` (Tools → Credentials), ``ipv4`` / ``ipv6`` (``type``
         addresses, srcdst, ptype or dests), ``multicast`` (UDP multicast
-        streams), ``hosts`` (resolved addresses) or ``sctp`` (associations).
+        streams), ``hosts`` (resolved addresses), ``sctp`` (associations), or a
+        session table (sessions.py): ``http_requests`` (each request with its
+        response), ``dns_queries`` (each query with its answer) or
+        ``tls_servers`` (servers by name, with the TLS they chose).
         ``filter`` limits the statistics to packets matching a display filter
         (``hosts`` and ``sctp`` can't be limited: the result says
         ``unfiltered``).
@@ -68,6 +80,8 @@ class StatisticsMixin(ServiceBase):
                 table = self._srt(f, param(params, "type", str, "auto"), suffix, ctx)
             case "sip":
                 table = stats.parse_sip_stat(self._tap(f, f"sip,stat{suffix}", ctx))
+            case "http_requests" | "dns_queries" | "tls_servers":
+                table = self._sessions(f, kind, counted, ctx)
             case "credentials":
                 # (The tap takes no filter: rows outside it, or ignored, are left out here.)
                 table = stats.parse_credentials(self._tap(f, "credentials", ctx))
@@ -368,6 +382,41 @@ class StatisticsMixin(ServiceBase):
         table.extra["type"] = protocol
         table.extra["available"] = available
         return table
+
+    def _sessions(self, f: _Open, kind: str, counted: str, ctx: RequestContext) -> Table:
+        """A session table: one fields pass over its packets (and ``counted``)."""
+        flt, fields, build = _SESSIONS[kind]
+        flt = f"({flt}) && ({counted})" if counted else flt
+        args = ["-Y", flt, *_fields_args(fields), "-E", f"aggregator={sessions.AGGREGATOR}"]
+        res = run(f.tshark.argv(*args, capture=str(f.path)), ctx.token)
+        if failed(res.returncode, res.stderr) and not res.stdout:
+            raise f.tshark.error(res.stderr, res.returncode, "tshark failed")
+        return build(res.stdout.decode("utf-8", "replace").split("\n"))
+
+    def http_body(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """The body of the HTTP message in packet ``frame`` (as tshark gives it:
+        reassembled, de-chunked and decompressed): ``{frame, hex, size,
+        truncated}``, at most MAX_BODY_BYTES; ``size`` 0 when it has none."""
+        frame = param(params, "frame", int)
+        f = self._require_file()
+        if not 1 <= frame <= f.info.frames:
+            raise InvalidParamsError(f"no packet {frame}")
+        argv = f.tshark.argv(
+            "-c", str(frame), "-Y", f"frame.number == {frame}",
+            "-T", "fields", "-E", "occurrence=f", "-e", "http.file_data",
+            capture=str(f.path),
+        )  # fmt: skip
+        res = run(argv, ctx.token)
+        if failed(res.returncode, res.stderr) and not res.stdout:
+            raise f.tshark.error(res.stderr, res.returncode, "tshark failed")
+        hex_ = "".join(c for c in res.stdout.decode("ascii", "replace") if c in _HEX_DIGITS)
+        size = len(hex_) // 2
+        return {
+            "frame": frame,
+            "hex": hex_[: MAX_BODY_BYTES * 2],
+            "size": size,
+            "truncated": size > MAX_BODY_BYTES,
+        }
 
     def _tap(self, f: _Open, spec: str, ctx: RequestContext, extra: Sequence[str] = ()) -> str:
         # -n (after the name resolution options): report rows become address filters.

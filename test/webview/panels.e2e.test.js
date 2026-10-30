@@ -1739,6 +1739,88 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     }
   });
 
+  test("session tables: HTTP requests with their responses, body, new windows; DNS and TLS", async () => {
+    const sessions = await startBackend(deps);
+    try {
+      await sessions.request(
+        "open",
+        { path: path.join(FIXTURES, "sessions.pcap") },
+        { timeoutMs: 0 },
+      );
+      /** @param {string} kind @param {string} title */
+      const open = (kind, title) =>
+        openGraphPanel("stats.js", async (msg, reply) => {
+          // A stand-in for StatsPanel (src/panels/statsPanel.ts) on its own capture.
+          if (msg.type === "ready") {
+            await reply({ type: "init", kind, title, filter: "" });
+          } else if (msg.type === "query") {
+            const table = await sessions.request("stats", { kind }, { timeoutMs: 0 });
+            await reply({ type: "result", id: msg.id, table });
+          }
+        });
+      const { page, log } = await open("http_requests", "HTTP Requests");
+      await waitRows(page, 5);
+      assert.equal(await page.textContent(".status"), "5 requests · 1 without a response");
+      assert.deepEqual(
+        (await rows(page)).map((r) => [r[4], r[7], r[11]]),
+        [
+          ["GET", "200", "30"],
+          ["GET", "200", "12"],
+          ["POST", "500", "250"],
+          ["GET", "404", "5"],
+          ["GET", "", ""],
+        ],
+      );
+      await page.click("table.stats tbody tr >> nth=1");
+      await page.click("button:has-text('Show Response Body')");
+      assert.deepEqual(
+        log.findLast((m) => m.type === "httpBody"),
+        {
+          type: "httpBody",
+          frame: 10,
+          label: "GET www.example.com/logo.png",
+        },
+      );
+      await page.click("table.stats tbody tr >> nth=1 >> td >> nth=0", { button: "right" });
+      assert.deepEqual(await menuLabels(page), [
+        "Apply as Filter",
+        "Prepare as Filter",
+        "Go to Packet 8",
+        "Show Response Body",
+        "Show Request in New Window",
+        "Show Response in New Window",
+        "Copy",
+      ]);
+      await pickMenu(page, "Show Response in New Window");
+      assert.deepEqual(
+        log.findLast((m) => m.type === "packetWindow"),
+        {
+          type: "packetWindow",
+          frame: 10,
+        },
+      );
+      // A request without a response has no body to show.
+      await page.click("table.stats tbody tr >> nth=4");
+      assert.ok(await page.isDisabled("button:has-text('Show Response Body')"));
+
+      const dns = await open("dns_queries", "DNS Queries");
+      await waitRows(dns.page, 5);
+      assert.equal(
+        await dns.page.textContent(".status"),
+        "5 queries · 1 without a response · 1 failed",
+      );
+      const tls = await open("tls_servers", "TLS Servers");
+      await waitRows(tls.page, 2);
+      assert.equal(
+        await tls.page.textContent(".status"),
+        "2 servers · 3 connections · 1 handshake without a server hello",
+      );
+      assert.equal((await rows(tls.page))[0][1], "api.example.com");
+    } finally {
+      await sessions.dispose();
+    }
+  });
+
   test("packet bytes: decode as Base64 or compressed, show as text, arrays or an image, find, save", async () => {
     const zlib = require("node:zlib");
     const hex = (/** @type {Buffer | string} */ b) => Buffer.from(b).toString("hex");

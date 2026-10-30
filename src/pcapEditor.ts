@@ -121,13 +121,16 @@ export class PcapEditorProvider implements vscode.CustomEditorProvider<PcapDocum
     this.updateContext();
   }
 
-  /** `pcapViewer.capturing`: the active capture is live (Stop Capture in the editor title). */
+  /** `pcapViewer.capturing`: the active capture is live (Stop Capture in the editor
+   * title); `pcapViewer.following`: its file is followed (Stop Following). */
   private updateContext(): void {
+    const following = !!this.active?.following;
     void vscode.commands.executeCommand(
       "setContext",
       "pcapViewer.capturing",
-      !!this.active?.capturing,
+      !!this.active?.capturing && !following,
     );
+    void vscode.commands.executeCommand("setContext", "pcapViewer.following", following);
   }
 
   /** An unsaved capture: VS Code shows it dirty, so saving and closing ask what to do with it. */
@@ -260,7 +263,12 @@ export class PcapEditorProvider implements vscode.CustomEditorProvider<PcapDocum
           ),
       );
     if (inPlace && session.openInfo?.comments?.inPlace) {
-      await request({ inPlace: true });
+      document.savedAt = Date.now();
+      try {
+        await request({ inPlace: true });
+      } finally {
+        document.savedAt = Date.now();
+      }
       document.clear(true);
       return;
     }

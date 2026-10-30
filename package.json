@@ -520,6 +520,21 @@
         "category": "PCAP Statistics"
       },
       {
+        "command": "pcapViewer.statistics.httpRequests",
+        "title": "HTTP Requests",
+        "category": "PCAP Statistics"
+      },
+      {
+        "command": "pcapViewer.statistics.dnsQueries",
+        "title": "DNS Queries",
+        "category": "PCAP Statistics"
+      },
+      {
+        "command": "pcapViewer.statistics.tlsServers",
+        "title": "TLS Servers",
+        "category": "PCAP Statistics"
+      },
+      {
         "command": "pcapViewer.statistics.ipv4",
         "title": "IPv4 Statistics",
         "category": "PCAP Statistics"
@@ -681,6 +696,18 @@
       {
         "command": "pcapViewer.stopCapture",
         "title": "Stop Capture",
+        "category": "PCAP",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "pcapViewer.followFile",
+        "title": "Follow Growing File",
+        "category": "PCAP",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "pcapViewer.stopFollowing",
+        "title": "Stop Following",
         "category": "PCAP",
         "icon": "$(debug-stop)"
       },
@@ -1145,6 +1172,14 @@
           "when": "pcapViewer.capturing"
         },
         {
+          "command": "pcapViewer.followFile",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ && !pcapViewer.capturing && !pcapViewer.following"
+        },
+        {
+          "command": "pcapViewer.stopFollowing",
+          "when": "pcapViewer.following"
+        },
+        {
           "command": "pcapViewer.editCapture",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
         },
@@ -1241,12 +1276,17 @@
       "editor/title": [
         {
           "command": "pcapViewer.startCapture",
-          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ && !pcapViewer.capturing",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ && !pcapViewer.capturing && !pcapViewer.following",
           "group": "navigation@1"
         },
         {
           "command": "pcapViewer.stopCapture",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ && pcapViewer.capturing",
+          "group": "navigation@1"
+        },
+        {
+          "command": "pcapViewer.stopFollowing",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ && pcapViewer.following",
           "group": "navigation@1"
         },
         {
@@ -1275,9 +1315,14 @@
           "group": "1_capture@1"
         },
         {
+          "command": "pcapViewer.followFile",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ && !pcapViewer.capturing && !pcapViewer.following",
+          "group": "1_capture@2"
+        },
+        {
           "command": "pcapViewer.replay",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/",
-          "group": "1_capture@2"
+          "group": "1_capture@3"
         },
         {
           "command": "pcapViewer.exportFiltered",
@@ -1372,6 +1417,18 @@
         {
           "command": "pcapViewer.statistics.credentials",
           "group": "4_services@4"
+        },
+        {
+          "command": "pcapViewer.statistics.httpRequests",
+          "group": "4_services@5"
+        },
+        {
+          "command": "pcapViewer.statistics.dnsQueries",
+          "group": "4_services@6"
+        },
+        {
+          "command": "pcapViewer.statistics.tlsServers",
+          "group": "4_services@7"
         },
         {
           "command": "pcapViewer.statistics.voipCalls",

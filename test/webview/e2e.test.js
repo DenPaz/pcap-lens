@@ -21,6 +21,7 @@ const {
   startBackend,
   codiconFontLoaded,
   axeViolations,
+  FIXTURES,
 } = require("./harness");
 
 const deps = loadDeps();
@@ -3165,6 +3166,79 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       await reopenCapture("http.pcap");
     }
     assert.equal(await page.isVisible("#status-capture"), false, "a plain file: no capture");
+  });
+
+  test("following a growing file: new packets appear as they are written, Stop", async () => {
+    await page.fill("#filter-input", "");
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pcapviewer-e2e-follow-"));
+    const file = path.join(tmp, "growing.pcap");
+    // http.pcap's file header and records (little-endian pcap: incl_len at +8).
+    const data = fs.readFileSync(path.join(FIXTURES, "http.pcap"));
+    const records = [];
+    for (let pos = 24; pos < data.length;) {
+      const end = pos + 16 + data.readUInt32LE(pos + 8);
+      records.push(data.subarray(pos, end));
+      pos = end;
+    }
+    fs.writeFileSync(file, Buffer.concat([data.subarray(0, 24), ...records.slice(0, 3)]));
+    const stopIndex = client.onNotification("index", (p) =>
+      post(
+        p.event === "progress"
+          ? { type: "indexProgress", frames: p.frames, fraction: p.fraction ?? null, view: p.view }
+          : { type: "indexDone", info: p.info, view: p.view },
+      ),
+    );
+    const stopCapture = client.onNotification("capture", (p) =>
+      post({ type: "captureEvent", ...p }),
+    );
+    try {
+      const info = await client.request(
+        "open",
+        { path: file, follow: true, columns: ["tcp.stream"] },
+        { timeoutMs: 0 },
+      );
+      assert.equal(info.capture.follow, true);
+      await post({
+        type: "init",
+        info,
+        columns: customCols,
+        layout,
+        timeFormat: "relative",
+        quickDetail: { after: 20000, window: 300 },
+        filter: "",
+        history: [],
+        savedFilters,
+        elapsedMs: 1,
+        names: "Names: MAC",
+      });
+      await page.waitForSelector("#status-capture:not(.hidden)");
+      assert.match(
+        await page.textContent("#capture-text"),
+        /^Following growing\.pcap · 0:0\d · \d+ packets?$/,
+      );
+      assert.equal(await page.getAttribute("#capture-stop", "title"), "Stop following the file");
+      await page.waitForFunction(() =>
+        /^Packets: 3\b/.test(document.querySelector("#status-left").textContent),
+      );
+      fs.appendFileSync(file, Buffer.concat(records.slice(3)));
+      await page.waitForFunction(() =>
+        /^Packets: 11\b/.test(document.querySelector("#status-left").textContent),
+      );
+      await page.click("#capture-stop");
+      await waitForHost((m) => m.type === "stopCapture");
+      await page.waitForFunction(() =>
+        document.querySelector("#status-capture").classList.contains("stopped"),
+      );
+      assert.match(
+        await page.textContent("#capture-text"),
+        /^Followed growing\.pcap for 0:0\d · 11 packets$/,
+      );
+    } finally {
+      stopIndex();
+      stopCapture();
+      await reopenCapture("http.pcap");
+    }
+    assert.equal(await page.isVisible("#status-capture"), false);
   });
 
   test("accessibility: no WCAG A/AA violations (axe-core)", async () => {

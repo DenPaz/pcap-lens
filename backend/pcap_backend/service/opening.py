@@ -15,7 +15,8 @@ from typing import Any
 from pcap_backend import coloring, comments
 from pcap_backend.cache import FrameIndex, RowStore
 from pcap_backend.cancellation import CancelledError, CancelToken
-from pcap_backend.capture import CaptureOptions, LiveCapture, capture_command
+from pcap_backend.capture import CaptureOptions, LiveCapture, LiveSource, capture_command
+from pcap_backend.follow import FollowFile
 from pcap_backend.index_cache import (
     CachedIndex,
     IndexCache,
@@ -93,6 +94,12 @@ class OpeningMixin(CommentsMixin):
         "done") then carries ``coloring: {coloringId, colored, errors}``. From a
         saved index, the colors saved for these rules are used, if any (else no
         ``coloring``: run set_coloring).
+
+        ``follow: true`` follows a file another program is still writing (an
+        uncompressed pcap or pcapng; follow.FollowFile): it is shown like a
+        live capture (``indexing: true`` and ``capture`` with ``follow: true``;
+        "capture" ``stats``/``stopped`` notifications) and never saved as an
+        index. ``capture_stop`` stops following; "index" ``done`` follows.
         """
         return self._open(params, ctx)
 
@@ -104,6 +111,7 @@ class OpeningMixin(CommentsMixin):
     ) -> dict[str, Any]:
         """``open``, or with ``live`` (capture_start) a capture into that file."""
         path = _readable_capture(param(params, "path", str)) if live is None else live[1]
+        follow = live is None and bool(params.get("follow"))
         options = DissectionOptions.from_params(
             str_list(params, "lua"),
             str_list(params, "decodeAs"),
@@ -123,8 +131,8 @@ class OpeningMixin(CommentsMixin):
         options, switch_warnings = self._known_switches(options, ctx)
         tshark = self._require_tshark().with_options(options)
         tshark.profile_config(ctx.token)  # (a profile that doesn't exist: ConfigError)
-        stream = bool(params.get("stream")) or live is not None
-        cache = _cache_from(params.get("cache")) if live is None else None
+        stream = bool(params.get("stream")) or live is not None or follow
+        cache = _cache_from(params.get("cache")) if live is None and not follow else None
         inline = _inline_coloring(params.get("coloring"))
         command = capture_command(tshark.path, live[0]) if live is not None else []
 
@@ -146,13 +154,10 @@ class OpeningMixin(CommentsMixin):
                 if resume is not None:
                     columns = list(resume.columns)
 
-        capture: LiveCapture | None = None
+        capture = self._live_source(live, follow, command, path, ctx)
         info_future: Future[dict[str, Any]] | None = None
-        if live is None:
+        if capture is None:
             info_future = self._pool.submit(self._capinfos, tshark, path, ctx.token)
-        else:
-            capture = LiveCapture(command, live[0], path, lambda e: self.notify("capture", e))
-            capture.start(ctx.token)  # raises when dumpcap can't capture
         indexing = _Indexing(token=CancelToken(), report=ctx.progress, inline=inline)
         if resume is not None:
             # The saved rows are shown at once; the pass catches up behind them.
@@ -173,6 +178,26 @@ class OpeningMixin(CommentsMixin):
         rejected = {c for c in requested_columns if c not in columns}
         return self._attach(path, tshark, info, indexing, columns, rejected, cache, key, capture)
 
+    def _live_source(
+        self,
+        live: tuple[CaptureOptions, Path] | None,
+        follow: bool,
+        command: list[str],
+        path: Path,
+        ctx: RequestContext,
+    ) -> LiveSource | None:
+        """The capture in progress the index pass reads, started (ToolError when
+        dumpcap can't capture or the file can't be followed); None for a file."""
+        capture: LiveSource
+        if live is not None:
+            capture = LiveCapture(command, live[0], path, lambda e: self.notify("capture", e))
+        elif follow:
+            capture = FollowFile(path, lambda e: self.notify("capture", e))
+        else:
+            return None
+        capture.start(ctx.token)
+        return capture
+
     def _attach(
         self,
         path: Path,
@@ -183,7 +208,7 @@ class OpeningMixin(CommentsMixin):
         rejected: set[str],
         cache: IndexCache | None,
         key: str | None,
-        capture: LiveCapture | None,
+        capture: LiveSource | None,
     ) -> dict[str, Any]:
         """Make the capture being indexed the open one; ``open``'s result."""
         inline = indexing.inline
@@ -206,7 +231,8 @@ class OpeningMixin(CommentsMixin):
             if capture is None:
                 self._pool.submit(self._load_comments, self._file)
             else:
-                self._file.comments_ready.set()  # dumpcap writes no packet comments
+                # (dumpcap writes no packet comments; a followed file's show after a reload)
+                self._file.comments_ready.set()
             if not complete:
                 info.frames = len(indexing.store.rows)
                 indexing.attached = True
@@ -254,7 +280,7 @@ class OpeningMixin(CommentsMixin):
         indexing: _Indexing,
         cache: IndexCache | None,
         key: str | None,
-        capture: LiveCapture | None = None,
+        capture: LiveSource | None = None,
     ) -> None:
         """The index pass (in the pool). Rows become visible as they come
         (``indexing.first`` once there are some; at once for a live capture);
@@ -421,9 +447,10 @@ class OpeningMixin(CommentsMixin):
             self.notify("index", event)
 
     @staticmethod
-    def _capture_warnings(info: CaptureInfo, capture: LiveCapture) -> None:
+    def _capture_warnings(info: CaptureInfo, capture: LiveSource) -> None:
         if capture.error:
-            info.warnings.append(f"The capture stopped: {capture.error}")
+            what = "Following the file" if isinstance(capture, FollowFile) else "The capture"
+            info.warnings.append(f"{what} stopped: {capture.error}")
         if capture.dropped:
             info.warnings.append(f"{capture.dropped:,} packets were dropped while capturing")
 
@@ -608,7 +635,7 @@ class OpeningMixin(CommentsMixin):
         base: bool,
         on_rows: Callable[[_Store], None] | None = None,
         inline: _InlineColoring | None = None,
-        live: LiveCapture | None = None,
+        live: LiveSource | None = None,
         resume: _Resume | None = None,
     ) -> _Store:
         """Run one ``-T fields`` pass, writing every frame's row to a RowStore.

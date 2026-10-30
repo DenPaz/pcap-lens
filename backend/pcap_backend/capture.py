@@ -31,7 +31,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, Any, Protocol
 
 from . import extcap, procs
 from .cancellation import CancelledError, CancelToken
@@ -230,6 +230,23 @@ def filter_problem(stderr: str) -> str | None:
     )
 
 
+class LiveSource(Protocol):
+    """A capture in progress that the open capture shows as it grows: dumpcap's
+    (LiveCapture) or a file another program writes (follow.FollowFile)."""
+
+    error: str | None
+    dropped: int | None
+    ended: threading.Event
+
+    def start(self, token: CancelToken) -> None: ...
+    def take_reader(self) -> int: ...
+    def close_reader(self) -> None: ...
+    def stop(self) -> bool: ...
+    def abort(self) -> None: ...
+    def join(self, timeout: float | None = None) -> None: ...
+    def describe(self) -> dict[str, Any]: ...
+
+
 class _Blocks:
     """Cuts a pcapng byte stream into complete blocks (and counts packets)."""
 
@@ -250,7 +267,7 @@ class _Blocks:
                 self.endian = "<" if magic == _BYTE_ORDER_MAGIC else ">"
             kind, total = struct.unpack_from(self.endian + "II", buf, pos)
             if total < 12 or total % 4 or total > _MAX_BLOCK:
-                raise ToolError(f"dumpcap wrote something that isn't pcapng (block length {total})")
+                raise ToolError(f"the data isn't pcapng (block length {total})")
             if len(buf) - pos < total:
                 break
             if kind in _PACKET_BLOCKS:

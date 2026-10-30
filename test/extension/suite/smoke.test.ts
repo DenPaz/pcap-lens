@@ -454,6 +454,42 @@ suite("PCAP Lens smoke test", () => {
     removeDir(dir);
   });
 
+  test("Follow Growing File: packets another program appends appear, Stop Following", async () => {
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    const api = (await ext!.activate()) as PcapViewerApi;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pcap-smoke-follow-"));
+    const file = path.join(dir, "growing.pcap");
+    const data = fs.readFileSync(path.join(FIXTURES, "http.pcap"));
+    const firstRecordEnd = 24 + 16 + data.readUInt32LE(24 + 8); // (little-endian pcap)
+    fs.writeFileSync(file, data.subarray(0, firstRecordEnd));
+    const uri = vscode.Uri.file(file);
+    try {
+      await vscode.commands.executeCommand("vscode.openWith", uri, "pcapViewer.editor");
+      const session = await waitFor(() =>
+        api.provider.allSessions.find((s) => s.uri.fsPath === uri.fsPath && indexed(s)),
+      );
+      assert.equal(session.openInfo?.frames, 1);
+      await vscode.commands.executeCommand("pcapViewer.followFile");
+      await waitFor(() => (session.following ? true : undefined));
+      fs.appendFileSync(file, data.subarray(firstRecordEnd));
+      await waitForAsync(async () => {
+        const page = await session.backend?.request<{ total: number }>("list_packets", {
+          offset: 0,
+          limit: 20,
+        });
+        return page && page.total === 11 ? true : undefined;
+      });
+      await vscode.commands.executeCommand("pcapViewer.stopFollowing");
+      await waitFor(() => (indexed(session) && !session.capturing ? true : undefined));
+      assert.equal(session.openInfo?.frames, 11);
+      assert.equal(session.following, false);
+    } finally {
+      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+      await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
+      removeDir(dir);
+    }
+  });
+
   test('Choose Language Model saves the model id, and "" is automatic again', async () => {
     const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
     await ext!.activate();

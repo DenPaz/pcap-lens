@@ -768,5 +768,26 @@ export function registerCaptureCommands(
       }
       await session?.stopCapture();
     }),
+    vscode.commands.registerCommand("pcapViewer.followFile", async () => {
+      const session = requireSession(provider);
+      if (!session) {
+        return;
+      }
+      if (session.following) {
+        void vscode.window.showInformationMessage("This file is already followed.");
+      } else if (session.capturing) {
+        void vscode.window.showInformationMessage("A live capture is writing this file.");
+      } else {
+        await session.followFile();
+      }
+    }),
+    vscode.commands.registerCommand("pcapViewer.stopFollowing", async () => {
+      const session = requireSession(provider);
+      if (session && !session.following) {
+        void vscode.window.showInformationMessage("This file is not followed.");
+        return;
+      }
+      await session?.stopCapture();
+    }),
   );
 }
