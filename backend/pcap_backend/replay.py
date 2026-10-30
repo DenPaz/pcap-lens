@@ -967,7 +967,10 @@ class Replayer:
             return
         for key, mask in self._sel.select(timeout):
             conn: _Conn = key.data
-            if conn.dead:
+            # macOS's kqueue selector reports reading and writing as two
+            # entries; when the first failed a connect and _connect_failed
+            # moved to the next address, the second is the old socket's.
+            if conn.dead or key.fileobj is not conn.sock:
                 continue
             if not conn.connected and mask & selectors.EVENT_WRITE:
                 code = conn.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)

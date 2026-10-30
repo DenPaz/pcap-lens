@@ -3,6 +3,8 @@ replay.pcap (an operator delivering HI2/HI3-like data) into local servers."""
 
 from __future__ import annotations
 
+import errno
+import selectors
 import socket
 import subprocess
 import sys
@@ -375,6 +377,85 @@ def test_a_refused_address_falls_back_to_the_next(services: Any) -> None:
     assert dest.addresses[0] == working  # (tried first from then on)
 
 
+def test_a_refused_address_falls_back_with_split_readiness_events(
+    services: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # macOS (CI): a connect to a closed port is refused later, through the
+    # selector, whose kqueue reports reading and writing as two entries of
+    # one select() (Linux's epoll merges them, and refuses loopback connects
+    # at once). The read entry's recv raised the refusal and moved to the next
+    # address; the write entry, the old socket's, was then taken for the new
+    # socket's: it looked connected, and the data was sent too early and lost.
+    hi2, _, _ = services
+    closed_port = _free_port()
+    # The sockets themselves, not their id(): a closed socket's id can come back
+    # for the next one (Python 3.12 CI).
+    refused: set[socket.socket] = set()
+    connecting: set[socket.socket] = set()  # (not yet reported writable)
+    real_connect_ex = socket.socket.connect_ex
+    real_recv = socket.socket.recv
+    real_send = socket.socket.send
+    real_getsockopt = socket.socket.getsockopt
+
+    def connect_ex(self: socket.socket, address: Any) -> int:
+        code = real_connect_ex(self, address)
+        if address[1] == closed_port:
+            refused.add(self)
+            return errno.EINPROGRESS  # (refused later, as on macOS)
+        connecting.add(self)  # (Linux connects on loopback at once; macOS later)
+        return code
+
+    def send(self: socket.socket, data: Any, *args: Any) -> int:
+        if self in connecting:
+            raise OSError(errno.ENOTCONN, "not connected yet")
+        return real_send(self, data, *args)
+
+    def recv(self: socket.socket, *args: Any) -> bytes:
+        if self in refused:
+            raise ConnectionRefusedError(errno.ECONNREFUSED, "refused")
+        return real_recv(self, *args)
+
+    def getsockopt(self: socket.socket, level: int, name: int, *args: Any) -> Any:
+        if self in refused and (level, name) == (socket.SOL_SOCKET, socket.SO_ERROR):
+            return errno.ECONNREFUSED
+        return real_getsockopt(self, level, name, *args)
+
+    class Split(selectors.DefaultSelector):  # type: ignore[misc,valid-type]
+        """Reading, then writing, as separate entries (kqueue's way)."""
+
+        def select(self, timeout: float | None = None) -> list[Any]:
+            ready = [
+                (key, bit)
+                for key, mask in super().select(timeout)
+                for bit in (selectors.EVENT_READ, selectors.EVENT_WRITE)
+                if mask & bit
+            ]
+            for key, bit in ready:
+                if bit == selectors.EVENT_WRITE:
+                    connecting.discard(key.fileobj)
+            return ready
+
+    monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
+    monkeypatch.setattr(socket.socket, "recv", recv)
+    monkeypatch.setattr(socket.socket, "send", send)
+    monkeypatch.setattr(socket.socket, "getsockopt", getsockopt)
+    monkeypatch.setattr(replay.selectors, "DefaultSelector", Split)
+    closed = (socket.AF_INET, socket.IPPROTO_TCP, ("127.0.0.1", closed_port))
+    working = (socket.AF_INET, socket.IPPROTO_TCP, ("127.0.0.1", hi2.port))
+    dest = replay.Destination("tcp", [closed, working], "localhost:11000")
+    events = [
+        replay.Event("open", 0.0, 1, "t"),
+        replay.Event("data", 0.0, 1, "t", b"first"),
+        replay.Event("close", 0.0, 1, "t"),
+    ]
+    runner = replay.Replayer({"t": dest}, 0, CancelToken())
+    runner.run(lambda: iter(events))
+    _settle()
+    assert hi2.received == [b"first"]
+    stats = runner.stats["t"]
+    assert (stats.opened, stats.refused, stats.reset, stats.errors) == (1, 0, 0, [])
+
+
 def test_data_a_service_does_not_read_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(replay, "DRAIN_S", 0.5)
     monkeypatch.setattr(replay, "ANSWER_GRACE_S", 0.0)
@@ -501,10 +582,14 @@ def test_replay_keeps_the_recorded_timing(
 
     # HI2's data was recorded from 0.05 s to 0.25 s. Measured where the service
     # sees it, not as the request's duration, which includes tshark's start-up
-    # (0.22 s for a first, cold run on Windows CI, then less).
-    assert spread(1) >= 0.18
-    assert spread(2) >= 0.08
-    assert spread(0) < spread(1)
+    # (0.22 s for a first, cold run on Windows CI, then less). Each event is
+    # paced from the first, which can go out late (its connect, and Windows'
+    # 15.6 ms timer ticks) while the last is on time: 40 ms of slack (Windows
+    # CI measured 0.0786 s for the 0.1 s at twice the speed).
+    normal, twice = spread(1), spread(2)
+    assert normal >= 0.16
+    assert 0.06 <= twice < normal * 0.75
+    assert spread(0) < normal
 
 
 @pytest.mark.tshark

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from pcap_backend import coloring
-from pcap_backend.cache import FrameIndex, RowStore
+from pcap_backend.cache import FrameIndex, LruCache, RowStore
 from pcap_backend.cancellation import CancelToken
 from pcap_backend.capture import LiveSource
 from pcap_backend.index_cache import IndexCache
@@ -166,6 +166,11 @@ class _Open:
     expert: tuple[str, dict[str, int]] | None = None
     # The file format view (file_format), once read.
     file_format: dict[str, Any] | None = None
+    # The overview (overview), by the packets it counted (filter and ignored
+    # packets) and its number of buckets, once the capture is indexed.
+    overviews: LruCache[tuple[str, int], dict[str, Any]] = field(
+        default_factory=lambda: LruCache(4)
+    )
 
     def frame_count(self) -> int:
         """Frames known so far: during a streaming open, the rows published

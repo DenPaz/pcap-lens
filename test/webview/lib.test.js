@@ -564,6 +564,63 @@ suite("webview lib: bytes", () => {
     assert.equal(lib.formatDuration(-1), "0:00");
   });
 
+  test("formatInterval and formatBitRate: the overview's units", () => {
+    assert.equal(lib.formatInterval(0), "0 s");
+    assert.equal(lib.formatInterval(0.002), "2 ms");
+    assert.equal(lib.formatInterval(0.2), "0.2 s");
+    assert.equal(lib.formatInterval(120), "2 min");
+    assert.equal(lib.formatInterval(21600), "6 h");
+    assert.equal(lib.formatInterval(86400), "1 day");
+    assert.equal(lib.formatInterval(1209600), "2 weeks");
+    assert.equal(lib.formatBitRate(940), "940 bit/s");
+    assert.equal(lib.formatBitRate(13_600), "13.6 kbit/s");
+    assert.equal(lib.formatBitRate(35_400_000), "35.4 Mbit/s");
+  });
+
+  test("timelinePeak and timelineFilter: the busiest bucket and a bucket's packets", () => {
+    const timeline = { interval: 0.1, packets: [3, 0, 7, 7], bytes: [10, 0, 5, 90] };
+    assert.deepEqual(lib.timelinePeak(timeline, "packets"), { index: 2, value: 7, start: 0.2 });
+    assert.deepEqual(lib.timelinePeak(timeline, "bytes"), { index: 3, value: 90, start: 0.3 });
+    assert.equal(lib.timelinePeak({ interval: 1, packets: [0], bytes: [0] }, "packets"), null);
+    assert.equal(
+      lib.timelineFilter(0.1, 2),
+      "frame.time_relative >= 0.2 && frame.time_relative < 0.3",
+    );
+    assert.equal(
+      lib.timelineFilter(60, 1, "tcp"),
+      "(tcp) && frame.time_relative >= 60 && frame.time_relative < 120",
+    );
+  });
+
+  test("overviewTiles: totals, rates, then the file's format and first packet", () => {
+    const tiles = lib.overviewTiles(
+      { packets: 62, bytes: 5154, duration: 3.0301 },
+      { fileType: "pcap", linkType: "Ethernet", startTime: 1700000000 },
+    );
+    assert.deepEqual(
+      tiles.map((/** @type {any} */ t) => [t.label, t.value]),
+      [
+        ["Packets", "62"],
+        ["Bytes", "5.0 KB"],
+        ["Duration", "3.03 s"],
+        ["Average packets/s", "20.5"],
+        ["Average rate", "13.6 kbit/s"],
+        ["Format", "pcap"],
+        ["First packet", "2023-11-14 22:13:20 UTC"],
+      ],
+    );
+    // One packet: no duration, so no rates; nothing known about the file.
+    const one = lib.overviewTiles({ packets: 1, bytes: 60, duration: 0 }, null);
+    assert.deepEqual(
+      one.map((/** @type {any} */ t) => t.label),
+      ["Packets", "Bytes", "Duration"],
+    );
+    assert.equal(
+      lib.overviewTiles({ packets: 1, bytes: 1, duration: 4000 }, null)[2].value,
+      "1:06:40",
+    );
+  });
+
   test("sessionSummary: the status line of the HTTP, DNS and TLS session tables", () => {
     assert.equal(lib.sessionSummary("http_requests", { requests: 1, unanswered: 0 }), "1 request");
     assert.equal(

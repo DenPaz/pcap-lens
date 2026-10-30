@@ -353,6 +353,14 @@ suite("PCAP Lens smoke test", () => {
     );
     assert.equal(graph.stream, 0);
     assert.equal(graph.points.length, 11);
+    // The overview counts the whole capture in one pass.
+    session.reveal();
+    await vscode.commands.executeCommand("pcapViewer.statistics.overview");
+    const overview = await waitFor(
+      () => api.panels.OverviewPanel.all.find((p) => p.session === session)?.current,
+    );
+    assert.equal(overview.packets, session.openInfo?.frames);
+    assert.ok((overview.http as { requests: number }).requests >= 1);
     // Compare Packets: a small capture, so both details are two-pass.
     session.reveal();
     await vscode.commands.executeCommand("pcapViewer.comparePackets", { frames: [4, 7] });

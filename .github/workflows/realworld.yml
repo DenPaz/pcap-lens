@@ -1,0 +1,123 @@
+name: Real captures
+
+# Every backend feature over Wireshark's and tcpdump's own test captures
+# (test/realworld/run.py, what `make realworld` runs by hand): weekly, and by
+# hand. Linux has the distribution's tshark, macOS Homebrew's (the newest
+# release, which most users run). A capture with a problem fails the job; the
+# run's summary lists them and report.json has every step. The captures stay
+# in the Actions cache, never in the repository or an artifact (they aren't
+# ours to redistribute).
+
+on:
+  schedule:
+    - cron: "41 3 * * 1" # Mondays, 03:41 UTC
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Every step for Wireshark's captures (not only the quick ones)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: realworld-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  realworld:
+    name: ${{ matrix.name }}
+    # (A fork's schedule would download every capture for nothing.)
+    if: github.event_name == 'workflow_dispatch' || github.repository == 'DenPaz/pcap-lens'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: Linux (distribution tshark)
+          - os: macos-latest
+            name: macOS (Homebrew tshark)
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install tshark (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "wireshark-common wireshark-common/install-setuid boolean false" | sudo debconf-set-selections
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y tshark
+          # Ubuntu 26.04 confines tshark with AppArmor: the local rules of the
+          # backend's hint (sandbox.py), so it reads the captures under ~/.cache.
+          if [ -f /etc/apparmor.d/tshark ]; then
+            printf '%s\n' 'owner @{HOME}/** rw,' 'signal (receive) peer=unconfined,' | sudo tee -a /etc/apparmor.d/local/tshark
+            sudo apparmor_parser -r /etc/apparmor.d/tshark
+          fi
+      - name: Install Wireshark (macOS)
+        if: runner.os == 'macOS'
+        run: brew install --formula wireshark
+      - name: tshark version
+        run: tshark --version
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - run: uv sync --locked
+      # Downloaded once, then kept: each run saves under a new key and restores the latest.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/pcap-lens-realworld
+          key: realworld-captures-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: realworld-captures-${{ runner.os }}-
+      - name: Wireshark's captures
+        id: wireshark
+        continue-on-error: true
+        shell: bash
+        env:
+          FULL: ${{ inputs.full }}
+        run: |
+          quick=--quick
+          if [ "$FULL" = "true" ]; then quick=; fi
+          uv run python -u test/realworld/run.py --fetch wireshark $quick --out wireshark.json 2>&1 | tee wireshark.log
+      - name: tcpdump's captures
+        id: tcpdump
+        continue-on-error: true
+        shell: bash
+        run: |
+          uv run python -u test/realworld/run.py --fetch tcpdump --quick --out tcpdump.json 2>&1 | tee tcpdump.log
+      - name: Summary
+        if: always()
+        shell: bash
+        env:
+          NAME: ${{ matrix.name }}
+        run: |
+          {
+            echo "## Real captures on ${NAME}"
+            echo
+            echo '```'
+            tshark --version | head -n 1
+            echo '```'
+            for source in wireshark tcpdump; do
+              echo "### ${source}"
+              echo
+              echo '```'
+              # The problems, then the totals (the harness prints them last).
+              grep -A 3 '^PROBLEM' "${source}.log" | head -n 200 || true
+              sed -n '/^[0-9]* captures, /,$p' "${source}.log" || true
+              echo '```'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: realworld-${{ runner.os }}
+          path: |
+            wireshark.json
+            tcpdump.json
+          if-no-files-found: ignore
+      - name: Fail on problems
+        if: steps.wireshark.outcome == 'failure' || steps.tcpdump.outcome == 'failure'
+        run: |
+          echo "::error::The harness found problems (see the run's summary and report.json)"
+          exit 1

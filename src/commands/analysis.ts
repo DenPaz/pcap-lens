@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { FOLLOW_COMMANDS, FOLLOW_LABELS, FollowPanel, FollowProto } from "../panels/followPanel";
 import { FlowGraphPanel } from "../panels/flowGraphPanel";
 import { ObjectsPanel } from "../panels/objectsPanel";
+import { OverviewPanel } from "../panels/overviewPanel";
 import { PacketPanel } from "../panels/packetPanel";
 import { ReplayPanel } from "../panels/replayPanel";
 import { StatsKind, StatsPanel } from "../panels/statsPanel";
@@ -77,6 +78,10 @@ export function registerAnalysisCommands(
         return session ? StatsPanel.show(context, session, kind) : undefined;
       }),
     ),
+    vscode.commands.registerCommand("pcapViewer.statistics.overview", () => {
+      const session = requireSession(provider);
+      return session ? OverviewPanel.show(context, session) : undefined;
+    }),
     vscode.commands.registerCommand("pcapViewer.statistics.tcpStreamGraph", (frame?: number) => {
       const session = requireSession(provider);
       const target = typeof frame === "number" ? frame : session?.selectedFrame;

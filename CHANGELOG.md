@@ -7,6 +7,29 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.27.0 — 2026-10-30
+
+### Added
+
+- Capture Overview: the capture at a glance, from one pass. Totals and rates,
+  packets or bytes over time, top addresses, protocols, TCP services, and
+  HTTP, DNS and TLS breakdowns; rows apply their filters, cards open the
+  full reports. [b17dbee]
+
+### Changed
+
+- The real-capture harness also checks the overview, and runs every Monday
+  on Linux and macOS (the _Real captures_ workflow). [b17dbee]
+
+### Fixed
+
+- Replay to…: a connection refused on a destination's first address (as
+  `localhost` on `::1` can be) no longer loses its data on macOS; it goes to
+  the next address. [1af1199]
+
+[b17dbee]: https://github.com/DenPaz/pcap-lens/commit/b17dbee
+[1af1199]: https://github.com/DenPaz/pcap-lens/commit/1af1199
+
 ## 0.26.0 — 2026-10-30
 
 ### Added

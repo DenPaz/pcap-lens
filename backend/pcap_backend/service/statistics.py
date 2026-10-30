@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from pcap_backend import sessions, stats, triage
+from pcap_backend import overview, sessions, stats, triage
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, param
 from pcap_backend.stats import IoSeries, Table
-from pcap_backend.tshark import ToolError, failed, run
+from pcap_backend.tshark import StreamResult, ToolError, failed, run, stream_lines
 
 from .base import ServiceBase
 from .helpers import _fields_args
@@ -392,6 +392,61 @@ class StatisticsMixin(ServiceBase):
         if failed(res.returncode, res.stderr) and not res.stdout:
             raise f.tshark.error(res.stderr, res.returncode, "tshark failed")
         return build(res.stdout.decode("utf-8", "replace").split("\n"))
+
+    def overview(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """The capture at a glance (overview.py): packets over time in at most
+        ``buckets`` intervals (default overview.DEFAULT_BUCKETS), the busiest
+        addresses, protocols, TCP services and HTTP, DNS and TLS breakdowns,
+        each row with its display filter. ``filter`` limits it to the packets
+        matching a display filter; ignored packets are left out. One fields
+        pass over every packet with progress (``phase: "overview"``), cached
+        once the capture is completely indexed."""
+        f = self._require_file()
+        flt = param(params, "filter", str, "").strip()
+        buckets = param(params, "buckets", int, overview.DEFAULT_BUCKETS)
+        buckets = max(1, min(buckets, overview.MAX_BUCKETS))
+        if flt:
+            error = f.tshark.validate_filter(flt, ctx.token)
+            if error:
+                raise FilterError(error, {"expr": flt})
+        counted = self._without_ignored(flt)
+        key = (counted, buckets)
+        cached = f.overviews.get(key)
+        if cached is None:
+            cached = self._count_overview(f, counted, buckets, ctx)
+            if self._indexing is None:
+                f.overviews.put(key, cached)
+        return {**cached, "filter": flt}
+
+    def _count_overview(
+        self, f: _Open, counted: str, buckets: int, ctx: RequestContext
+    ) -> dict[str, Any]:
+        args = [*_fields_args(overview.FIELDS), "-E", f"aggregator={sessions.AGGREGATOR}"]
+        # The protocol hierarchy's report follows the rows on stdout.
+        args += ["-z", f"io,phs,{counted}" if counted else "io,phs"]
+        if counted:
+            args += ["-Y", counted]
+        argv = f.tshark.argv(*args, capture=str(f.path))
+        total = max(f.frame_count(), 1)
+        result = StreamResult()
+        summary = overview.Overview(buckets)
+        ctx.progress({"phase": "overview", "fraction": 0.0})
+
+        def lines() -> Any:
+            for i, raw in enumerate(stream_lines(argv, result, ctx.token)):
+                line = raw.decode("utf-8", "replace")
+                if i % 2000 == 0:
+                    number, _, _ = line.partition("\t")
+                    if number.isdigit():
+                        fraction = min(int(number) / total, 1.0)
+                        ctx.progress({"phase": "overview", "fraction": fraction})
+                yield line
+
+        summary.add_lines(lines())
+        ctx.token.raise_if_cancelled()
+        if not summary.packets and failed(result.returncode, result.stderr):
+            raise f.tshark.error(result.stderr, result.returncode, "tshark failed")
+        return summary.to_json()
 
     def http_body(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """The body of the HTTP message in packet ``frame`` (as tshark gives it:

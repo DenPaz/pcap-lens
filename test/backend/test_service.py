@@ -261,10 +261,12 @@ def test_cancel_filter(opened: PcapService) -> None:
 def test_superseded_filter(opened: PcapService, ctx: RequestContext) -> None:
     """A slow filter finishing after a newer one must not overwrite it."""
     gate = threading.Event()
+    entered = threading.Event()
     original = opened._run_filter
 
     def slow(f: Any, expr: str, c: RequestContext) -> Any:
         if expr == "tcp":
+            entered.set()
             gate.wait(5)
         return original(f, expr, c)
 
@@ -279,6 +281,10 @@ def test_superseded_filter(opened: PcapService, ctx: RequestContext) -> None:
 
     t = threading.Thread(target=first)
     t.start()
+    # The slow filter must be the older one: wait until it is running (the
+    # thread could otherwise start after the newer one, which a 3.12 CI
+    # runner did, and supersede it instead).
+    assert entered.wait(10)
     opened.set_filter({"expr": "http"}, ctx)
     gate.set()
     t.join()

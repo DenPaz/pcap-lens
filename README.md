@@ -93,6 +93,10 @@ dissector you pick).
 Each report opens beside the capture, can be limited to the current filter,
 and its rows apply or prepare a filter, go to a packet or copy.
 
+- **Capture Overview**: the capture at a glance, on one page: totals and
+  rates, packets over time, top addresses, protocols, TCP services, and HTTP,
+  DNS and TLS breakdowns. Each row applies its filter, and each card opens
+  the full report.
 - **General**: conversations, endpoints (with a GeoIP world map when MaxMind
   databases are set), protocol hierarchy, expert information, capture
   properties, flow graph.

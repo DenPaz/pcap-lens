@@ -101,6 +101,7 @@ const GROUP_OF: Readonly<Record<string, CommandGroup>> = {
   "pcapViewer.followWebSocketStream": "Streams",
   "pcapViewer.statistics.flowGraph": "Streams",
   "pcapViewer.statistics.tcpStreamGraph": "Streams",
+  "pcapViewer.statistics.overview": "Statistics",
   "pcapViewer.statistics.captureProperties": "Statistics",
   "pcapViewer.statistics.protocolHierarchy": "Statistics",
   "pcapViewer.statistics.conversations": "Statistics",
