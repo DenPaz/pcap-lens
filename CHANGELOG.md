@@ -12,12 +12,14 @@ commit) that made it. The format follows
 - Capture Overview: the capture at a glance, from one pass. Totals and rates,
   packets or bytes over time, top addresses, protocols, TCP services, and
   HTTP, DNS and TLS breakdowns; rows apply their filters, cards open the
-  full reports.
+  full reports. [b17dbee]
 
 ### Changed
 
 - The real-capture harness also checks the overview, and runs every Monday
-  on Linux and macOS (the _Real captures_ workflow).
+  on Linux and macOS (the _Real captures_ workflow). [b17dbee]
+
+[b17dbee]: https://github.com/DenPaz/pcap-lens/commit/b17dbee
 
 ## 0.26.0 — 2026-10-30
 
