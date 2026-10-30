@@ -422,6 +422,8 @@ class StatisticsMixin(ServiceBase):
         self, f: _Open, counted: str, buckets: int, ctx: RequestContext
     ) -> dict[str, Any]:
         args = [*_fields_args(overview.FIELDS), "-E", f"aggregator={sessions.AGGREGATOR}"]
+        # The protocol hierarchy's report follows the rows on stdout.
+        args += ["-z", f"io,phs,{counted}" if counted else "io,phs"]
         if counted:
             args += ["-Y", counted]
         argv = f.tshark.argv(*args, capture=str(f.path))

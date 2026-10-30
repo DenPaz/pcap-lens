@@ -60,7 +60,7 @@ def test_cards_from_lines() -> None:
         _row(**{
             "frame.number": "2", "frame.time_relative": "0.5", "frame.len": "100",
             "ipv6.src": "2001:db8::1", "ipv6.dst": "2001:db8::2",
-            "frame.protocols": "eth:ethertype:ipv6:tcp", "tcp.flags.syn": "True",
+            "tcp.flags.syn": "True",
             "tcp.flags.ack": "False", "tcp.dstport": "443",
         })
     )  # fmt: skip
@@ -70,10 +70,36 @@ def test_cards_from_lines() -> None:
         "ipv6.addr == 2001:db8::1",
         "ipv6.addr == 2001:db8::2",
     ]
-    assert [i["label"] for i in result["protocols"]["items"]] == ["ipv6", "tcp"]
+    assert result["protocols"]["items"] == []  # (no hierarchy report)
     assert result["services"]["items"] == [
         {"label": "443/tcp", "count": 1, "filter": "tcp.port == 443"}
     ]
+
+
+PHS = """
+===================================================================
+Protocol Hierarchy Statistics
+Filter:
+
+eth                                      frames:62 bytes:5154
+  ip                                     frames:62 bytes:5154
+    tcp                                  frames:53 bytes:4315
+      http                               frames:11 bytes:1607
+        data-text-lines                  frames:3 bytes:451
+          http                           frames:1 bytes:191
+      dns                                frames:2 bytes:200
+    udp                                  frames:9 bytes:839
+      dns                                frames:7 bytes:639
+===================================================================
+"""
+
+
+def test_protocols_come_from_the_hierarchy_report() -> None:
+    summary = overview.Overview()
+    summary.add_lines(PHS.split("\n"))
+    counts = {i["label"]: i["count"] for i in summary.to_json()["protocols"]["items"]}
+    # (eth is plumbing; HTTP nested in itself counts once; DNS over TCP and UDP adds up.)
+    assert counts == {"ip": 62, "tcp": 53, "http": 11, "dns": 9, "udp": 9, "data-text-lines": 3}
 
 
 def test_a_quote_in_a_name_is_escaped() -> None:

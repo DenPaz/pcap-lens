@@ -1546,8 +1546,14 @@ filesize` needs a file) block by block: one chunk can hold many blocks, so
   one before, so buckets merge exactly, then doubles; negative relative
   times count in bucket 0); addresses (outermost `ip`/`ipv6` source and
   destination, a packet counted once per address; top `TOP` by bytes);
-  protocols (each name of `frame.protocols` once per packet, link layers in
-  `_PLUMBING` left out; the name is its filter); TCP services (SYN without
+  protocols from the protocol hierarchy tap in the same pass (`-z io,phs`,
+  its report after the rows on stdout; `Overview.hierarchy`: a name under
+  several parents adds up, one nested in itself counts once, link layers and
+  the `text` pseudo-field in `_PLUMBING` left out; the name is its filter).
+  Not `frame.protocols`: it lists the layers dissectors registered, so the
+  harness found protocols under `exported_pdu` missing from it and names
+  (`atmarp`, `tecmp`) whose filters match nothing; the hierarchy walks the
+  tree, as a filter does. TCP services (SYN without
   ACK, by destination port: connections, filter `tcp.port == N`); HTTP
   methods/hosts per request message, status codes/content types per
   response (pipelined messages each count, so a filter can match fewer
@@ -1571,7 +1577,7 @@ more}`; rows that count packets (addresses, protocols, DNS results) match
   the stats panels' row menu (Apply/Prepare as Filter ›, Copy ›). HTTP, DNS
   and TLS cards only when the capture has them (the status says which it
   lacks). A changed capture filter re-counts when the overview was limited
-  to it. 200k synthetic packets: 12 s, 11 of them tshark's pass.
+  to it. 200k synthetic packets: 12–13 s, 11 of them tshark's pass.
 - **Session tables** (`sessions.py`, `stats {kind: http_requests |
 dns_queries | tls_servers}`, `http_body {frame}`): one row per HTTP
   request, DNS query or TLS server, each from one `-Y` fields pass

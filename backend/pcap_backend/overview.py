@@ -1,6 +1,12 @@
 """The capture overview (``overview``): one fields pass over every packet,
 summed into the cards the Overview panel shows.
 
+The protocols come from the protocol hierarchy tap (``-z io,phs``) in the same
+pass: it walks each packet's tree, as a protocol's display filter does, while
+``frame.protocols`` lists only the layers dissectors registered (everything
+an ``exported_pdu`` packet carries was missing from it, found by the
+real-capture harness).
+
 Packets over time, the busiest addresses, the protocols packets carry, TCP
 services (by the SYNs that open connections), and HTTP, DNS and TLS at a
 glance (methods, statuses, content types and hosts; query types, results and
@@ -16,11 +22,11 @@ from typing import Any
 
 from .filterhelp import _quote
 from .sessions import AGGREGATOR, DNS_RCODES, _first, _int, dns_type, tls_version
-from .stats import _address_filter
+from .stats import _address_filter, parse_protocol_hierarchy
 
 FIELDS = (
     "frame.number", "frame.time_relative", "frame.len",
-    "ip.src", "ip.dst", "ipv6.src", "ipv6.dst", "frame.protocols",
+    "ip.src", "ip.dst", "ipv6.src", "ipv6.dst",
     "tcp.flags.syn", "tcp.flags.ack", "tcp.dstport",
     "http.request.method", "http.host", "http.response.code", "http.content_type",
     "dns.flags.response", "dns.flags.rcode", "dns.qry.type", "dns.qry.name",
@@ -41,8 +47,10 @@ INTERVALS = (
     0.001, 0.002, 0.01, 0.02, 0.1, 0.2, 1, 2, 10, 20, 60, 120, 600, 1200, 3600, 7200,
     21600, 43200, 86400, 604800,
 )  # fmt: skip
-# Link layers and wrappers every packet of a capture carries: they tell nothing.
-_PLUMBING = frozenset(("eth", "ethertype", "sll", "sll2", "null", "loop", "raw", "frame"))
+# Link layers and wrappers every packet of a capture carries: they tell
+# nothing. "text" isn't a protocol: tshark's pseudo-field for text lines, whose
+# filter matches them anywhere in a tree (the hierarchy only counts top-level ones).
+_PLUMBING = frozenset(("eth", "ethertype", "sll", "sll2", "null", "loop", "raw", "frame", "text"))
 
 
 def _true(cell: str) -> bool:
@@ -148,10 +156,27 @@ class Overview:
         self.servers: Counter[str] = Counter()
 
     def add_lines(self, lines: Iterable[str]) -> None:
+        """The pass's output: a row per packet, then the hierarchy's report."""
+        report: list[str] = []
         for line in lines:
             cells = line.rstrip("\r").split("\t")
             if len(cells) >= len(FIELDS) and cells[0]:
                 self.add(cells)
+            else:
+                report.append(line)
+        self.hierarchy("\n".join(report))
+
+    def hierarchy(self, text: str) -> None:
+        """Packets per protocol from ``-z io,phs``: a protocol under several
+        parents (DNS over UDP and TCP) adds up; one nested in itself (IP in
+        IP) counts once."""
+        path: list[str] = []
+        for row in parse_protocol_hierarchy(text).rows:
+            name, depth, frames = row["cells"][0], int(row["depth"]), int(row["cells"][2])
+            del path[depth:]
+            if name not in path and name not in _PLUMBING:
+                self.protocols[name] += frames
+            path.append(name)
 
     def add(self, cells: list[str]) -> None:
         def cell(name: str) -> str:
@@ -167,9 +192,6 @@ class Overview:
         self.duration = max(self.duration, seconds)
         self.timeline.add(seconds, length)
         self._addresses(cell, length)
-        for name in set(cell("frame.protocols").split(":")):
-            if name and name not in _PLUMBING:
-                self.protocols[name] += 1
         if _true(cell("tcp.flags.syn")) and not _true(cell("tcp.flags.ack")):
             port = _first(cell("tcp.dstport"))
             if port:
