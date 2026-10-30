@@ -9,6 +9,7 @@ from typing import Any
 
 from pcap_backend import comments
 from pcap_backend.export import atomic_output, check_destination, unwritable_error
+from pcap_backend.follow import FollowFile
 from pcap_backend.protocol import InvalidParamsError, RequestContext, param
 from pcap_backend.tshark import ToolError, ToolNotFoundError, find_tool, run
 
@@ -133,6 +134,9 @@ class CommentsMixin(ServiceBase):
         comments), else to ``dest``. Needs editcap; the file appears only once
         complete."""
         f = self._require_file()
+        if isinstance(f.capture, FollowFile) and not f.capture.ended.is_set():
+            # (Another program is still writing the file, and its comments aren't all read.)
+            raise InvalidParamsError("stop following the file before saving its comments")
         edits = _comment_edits(params, f.frame_count()) if "edits" in params else None
         with self._lock:
             if edits is None:

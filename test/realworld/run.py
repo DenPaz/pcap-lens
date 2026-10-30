@@ -410,9 +410,11 @@ def _exercise(run: Run, path: Path, cache: Path) -> None:
         _other(run, frames)
         _exports(run, path, frames)
     if frames:
+        _sessions(run)
         base = _replay(run, path)
         if base is not None:
             _replay_several(run, path, base)
+        _follow(run, path, frames)
     # Reopening reads the saved index: same rows.
     again = run.call(
         "reopen (saved index)",
@@ -757,6 +759,228 @@ def _exports(run: Run, path: Path, frames: int) -> None:
     )
     if path.suffix != ".gz":
         run.call("probe file", "probe_file", {"path": str(path)})
+
+
+def _count(run: Run, flt: str) -> int | None:
+    res = run.call(f"count {flt}", "count_matches", {"filter": flt})
+    return None if res is None else int(res["count"])
+
+
+SESSION_ROWS = 30  # row filters counted per table
+BODIES = 3  # HTTP response bodies read per capture
+
+
+def _sessions(run: Run) -> None:
+    """The HTTP, DNS and TLS session tables, checked against tshark's own
+    filters: one row per request message and per query frame, one connection
+    per TCP stream or QUIC connection with a ClientHello, and each row's
+    filter matching its packets."""
+    http = run.call("sessions http", "stats", {"kind": "http_requests"})
+    if http is not None:
+        rows = http["rows"]
+        summary = http.get("summary") or {}
+        messages = http_request_messages(run.report.capture)
+        if messages is not None:
+            run.check(
+                "sessions http rows",
+                len(rows) == messages == summary.get("requests"),
+                f"{len(rows)} rows, summary {summary}, {messages} requests",
+            )
+        for row in rows[:SESSION_ROWS]:
+            want = 2 if row.get("response") else 1
+            got = _count(run, row["filter"])
+            run.check(
+                "sessions http row filter",
+                got == want,
+                f"{row['filter']} matches {got}, expected {want}",
+            )
+        answered = [r for r in rows if r.get("response")]
+        for row in answered[:BODIES]:
+            body = run.call("http body", "http_body", {"frame": row["response"]})
+            if body is not None:
+                run.check(
+                    "http body shape",
+                    len(body["hex"]) == 2 * body["size"]
+                    and all(ch in "0123456789abcdef" for ch in body["hex"][:2000]),
+                    f"size {body['size']}, {len(body['hex'])} hex digits",
+                )
+    dns = run.call("sessions dns", "stats", {"kind": "dns_queries"})
+    if dns is not None:
+        rows = dns["rows"]
+        summary = dns.get("summary") or {}
+        frames = _count(run, "dns && dns.flags.response == 0")
+        if frames is not None:
+            run.check(
+                "sessions dns rows",
+                len(rows) == frames == summary.get("queries"),
+                f"{len(rows)} rows, summary {summary}, {frames} query frames",
+            )
+        for row in rows[:SESSION_ROWS]:
+            want = 1 if row["cells"][7] == "No response" else 2
+            got = _count(run, row["filter"])
+            run.check(
+                "sessions dns row filter",
+                got == want,
+                f"{row['filter']} matches {got}, expected {want}",
+            )
+    tls = run.call("sessions tls", "stats", {"kind": "tls_servers"})
+    if tls is not None:
+        rows = tls["rows"]
+        summary = tls.get("summary") or {}
+        conns = tls_connections(run.report.capture)
+        if conns is not None:
+            run.check(
+                "sessions tls connections",
+                sum(r["cells"][3] for r in rows) == summary.get("connections") == conns,
+                f"rows {sum(r['cells'][3] for r in rows)}, summary {summary}, tshark {conns}",
+            )
+        for row in rows[:SESSION_ROWS]:
+            got = _count(run, row["filter"])
+            run.check(
+                "sessions tls row filter",
+                got is not None and got >= row["cells"][3],
+                f"{row['filter']} matches {got} packets for {row['cells'][3]} connections",
+            )
+
+
+def http_request_messages(capture: str) -> int | None:
+    """HTTP request messages as tshark reads them (pipelined requests share a packet)."""
+    try:
+        out = subprocess.run(
+            ["tshark", "-n", "-r", capture, *HTTP_REQUEST_ARGS],  # noqa: S607
+            capture_output=True,
+            timeout=300,
+            check=False,
+            text=True,
+            errors="replace",
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return sum(len([m for m in line.split("\x1e") if m]) for line in out.split("\n"))
+
+
+HTTP_REQUEST_ARGS = (
+    "-Y", "http.request", "-T", "fields", "-e", "http.request.method",
+    "-E", "occurrence=a", "-E", "aggregator=\x1e",
+)  # fmt: skip
+TLS_HELLO_ARGS = (
+    "-Y", "tls.handshake.type == 1",
+    "-T", "fields", "-e", "tcp.stream", "-e", "quic.connection.number",
+)  # fmt: skip
+
+
+def tls_connections(capture: str) -> int | None:
+    """TCP streams and QUIC connections with a ClientHello, as tshark reads them."""
+    try:
+        out = subprocess.run(
+            ["tshark", "-n", "-r", capture, *TLS_HELLO_ARGS],  # noqa: S607
+            capture_output=True,
+            timeout=300,
+            check=False,
+            text=True,
+            errors="replace",
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    keys = set()
+    for line in out.split("\n"):
+        tcp, _, quic = line.partition("\t")
+        tcp, quic = tcp.split(",")[0], quic.split(",")[0]
+        if tcp or quic:
+            keys.add(f"tcp {tcp}" if tcp else f"quic {quic}")
+    return len(keys)
+
+
+FOLLOW_MAGICS = {
+    bytes.fromhex(m)
+    for m in ("a1b2c3d4", "d4c3b2a1", "a1b23c4d", "4d3cb2a1", "a1b2cd34", "34cdb2a1", "0a0d0d0a")
+}
+FOLLOW_PIECES = 4  # the copy grows in this many writes, cut anywhere (mid-record too)
+FOLLOW_PAGE = 200
+
+
+def _page_cells(run: Run, name: str, offset: int) -> list[list[Any]] | None:
+    page = run.call(name, "list_packets", {"offset": offset, "limit": FOLLOW_PAGE})
+    return None if page is None else [r.get("cells") for r in page.get("rows") or []]
+
+
+def _follow(run: Run, path: Path, frames: int) -> None:
+    """Follow Growing File: a copy written in pieces (cut mid-record) while
+    it is followed must end with tshark's packets and the rows the plain
+    open showed."""
+    with path.open("rb") as fh:
+        if fh.read(4) not in FOLLOW_MAGICS:
+            return  # (compressed or another format: refused, by design)
+    last = max(0, frames - FOLLOW_PAGE)
+    before = [
+        _page_cells(run, "follow: first rows", 0),
+        _page_cells(run, "follow: last rows", last),
+    ]
+    data = path.read_bytes()
+    copy = run.work / f"growing{path.suffix}"
+    cuts = sorted({len(data) * i // FOLLOW_PIECES for i in range(1, FOLLOW_PIECES)} | {24})
+    copy.write_bytes(data[: cuts[0]])
+
+    def writer() -> None:
+        with copy.open("ab") as fh:
+            for a, b in zip(cuts, [*cuts[1:], len(data)], strict=True):
+                time.sleep(0.3)
+                fh.write(data[a:b])
+                fh.flush()
+
+    thread = threading.Thread(target=writer, daemon=True)
+    thread.start()
+    opened = run.call(
+        "follow open",
+        "open",
+        {
+            "path": str(copy),
+            "follow": True,
+            "stream": True,
+            "names": NAMES,
+            "columns": [],
+            "coloring": {"rules": COLORING},
+        },
+    )
+    thread.join()
+    if opened is None:
+        return
+    deadline = time.monotonic() + run.timeout
+    total = -1
+    while time.monotonic() < deadline:
+        page = run.server.call("list_packets", {"offset": 0, "limit": 1}, run.timeout)
+        total = page.get("total", -1)
+        if total >= frames:
+            break
+        time.sleep(0.2)
+    run.check("follow total", total == frames, f"{total} packets shown, {frames} in the capture")
+    run.call("follow stop", "capture_stop", {})
+    try:
+        done = run.server.wait_for("index", {"done", "failed"}, run.timeout)
+    except RpcError as exc:
+        run.check("follow done", False, exc.message)
+        return
+    info = done.get("info") or {}
+    run.check(
+        "follow done",
+        done.get("event") == "done" and info.get("frames") == frames,
+        json.dumps(done)[:300],
+    )
+    warnings = [w for w in info.get("warnings") or [] if "Following the file stopped" in w]
+    run.check("follow no warning", not warnings, "; ".join(warnings)[:300])
+    after = [
+        _page_cells(run, "follow: first rows after", 0),
+        _page_cells(run, "follow: last rows after", last),
+    ]
+    for i, (a, b) in enumerate(zip(before, after, strict=True)):
+        if a is None or b is None:
+            continue
+        diff = next((n for n, (x, y) in enumerate(zip(a, b, strict=False)) if x != y), None)
+        run.check(
+            f"follow rows {'first' if i == 0 else 'last'}",
+            diff is None and len(a) == len(b),
+            f"{len(a)} vs {len(b)} rows" if diff is None else f"row {diff}: {a[diff]} vs {b[diff]}",
+        )
 
 
 # --- replay to service -------------------------------------------------------

@@ -34,6 +34,9 @@ export class PcapDocument implements vscode.CustomDocument {
   captureRequest?: CaptureRequest;
   /** VS Code was told the document is dirty (unsaved captures only). */
   markedUnsaved = false;
+  /** When packet comments were last saved into the file (Date.now()), so the
+   * editors don't take the change for another program writing it. */
+  savedAt = 0;
   private readonly onDispose?: () => void;
 
   constructor(

@@ -1016,7 +1016,7 @@
    * a filter still looking ("searching") or done with no match ("no-match"),
    * a live capture with no packet yet ("waiting"), packets still being read
    * ("reading"), or a capture without packets ("empty").
-   * @param {{ready: boolean, total: number, filter: string, filtering?: boolean, fraction?: number | null, partial?: boolean, indexing?: boolean, capture?: {running: boolean, interfaces: string[], filter: string} | null}} s
+   * @param {{ready: boolean, total: number, filter: string, filtering?: boolean, fraction?: number | null, partial?: boolean, indexing?: boolean, capture?: {running: boolean, interfaces: string[], filter: string, follow?: boolean, file?: string} | null}} s
    * @returns {{kind: "searching" | "no-match" | "waiting" | "reading" | "empty", title: string, detail: string} | null}
    */
   function emptyState(s) {
@@ -1042,6 +1042,13 @@
         detail = "Packets are still being read; later ones may match.";
       }
       return { kind: "no-match", title: "No packets match this filter", detail };
+    }
+    if (s.capture?.running && s.capture.follow) {
+      return {
+        kind: "waiting",
+        title: `Waiting for packets in ${s.capture.file || "the file"}…`,
+        detail: "They are shown as the program writing the file adds them.",
+      };
     }
     if (s.capture?.running) {
       return {
@@ -1912,6 +1919,68 @@
     const m = Math.floor((s % 3600) / 60);
     const ss = String(s % 60).padStart(2, "0");
     return h ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+  }
+
+  /** The statistics kinds that are session tables (one row per request, query or server). */
+  const SESSION_KINDS = ["http_requests", "dns_queries", "tls_servers"];
+
+  /**
+   * A session table's status line: "5 requests · 1 without a response".
+   * @param {string} kind
+   * @param {Record<string, number>} s the backend's `summary`
+   */
+  function sessionSummary(kind, s) {
+    /** @param {number} n @param {string} one @param {string} many */
+    const count = (n, one, many) => `${(n || 0).toLocaleString("en-US")} ${n === 1 ? one : many}`;
+    const parts =
+      kind === "http_requests"
+        ? [count(s.requests, "request", "requests")]
+        : kind === "dns_queries"
+          ? [count(s.queries, "query", "queries")]
+          : [
+              count(s.servers, "server", "servers"),
+              count(s.connections, "connection", "connections"),
+            ];
+    if (s.unanswered) {
+      parts.push(
+        kind === "tls_servers"
+          ? `${count(s.unanswered, "handshake", "handshakes")} without a server hello`
+          : `${s.unanswered.toLocaleString("en-US")} without a response`,
+      );
+    }
+    if (s.failed) {
+      parts.push(`${s.failed.toLocaleString("en-US")} failed`);
+    }
+    return parts.join(" · ");
+  }
+
+  /**
+   * The status bar's text for a live capture or a followed file
+   * (`capture.follow`): running "Capturing on eth0 · 0:12 · 1.2 KB" /
+   * "Following trace.pcap · 0:12 · 1,234 packets", then what it did.
+   * @param {{follow?: boolean, file?: string, interfaces: string[], running: boolean,
+   *   seconds: number, startedAt: number, bytes: number, packets: number,
+   *   dropped?: number | null}} capture
+   * @param {number} now seconds since the epoch
+   */
+  function captureStatusText(capture, now) {
+    const running = capture.running;
+    const seconds = running ? Math.max(capture.seconds, now - capture.startedAt) : capture.seconds;
+    const time = formatDuration(seconds);
+    if (capture.follow) {
+      const packets = `${capture.packets.toLocaleString("en-US")} ${capture.packets === 1 ? "packet" : "packets"}`;
+      return running
+        ? `Following ${capture.file} · ${time} · ${packets}`
+        : `Followed ${capture.file} for ${time} · ${packets}`;
+    }
+    const on = capture.interfaces.join(", ");
+    if (!running) {
+      const dropped = capture.dropped
+        ? ` · ${capture.dropped.toLocaleString("en-US")} dropped`
+        : "";
+      return `Captured on ${on} in ${time}${dropped}`;
+    }
+    return `Capturing on ${on} · ${time} · ${formatBytes(capture.bytes)}`;
   }
 
   // ------------------------------------------------------------------ packet-list cells
@@ -3113,6 +3182,9 @@
   }
 
   const api = {
+    captureStatusText,
+    SESSION_KINDS,
+    sessionSummary,
     COMMAND_GROUP_ORDER,
     COMMAND_GROUP_ICONS,
     RECENT_COMMANDS,

@@ -29,6 +29,9 @@ const STATS_COMMANDS: Record<string, StatsKind> = {
   "pcapViewer.statistics.multicast": "multicast",
   "pcapViewer.statistics.resolvedAddresses": "hosts",
   "pcapViewer.statistics.sctp": "sctp",
+  "pcapViewer.statistics.httpRequests": "http_requests",
+  "pcapViewer.statistics.dnsQueries": "dns_queries",
+  "pcapViewer.statistics.tlsServers": "tls_servers",
 };
 
 /** Follow-stream and statistics commands (brief 4.5 and 4.6). */

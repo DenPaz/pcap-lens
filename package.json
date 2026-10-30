@@ -7,7 +7,7 @@
     "color": "#0b3a73",
     "theme": "dark"
   },
-  "version": "0.25.4",
+  "version": "0.26.0",
   "publisher": "denpaz",
   "license": "MIT",
   "repository": {
@@ -520,6 +520,21 @@
         "category": "PCAP Statistics"
       },
       {
+        "command": "pcapViewer.statistics.httpRequests",
+        "title": "HTTP Requests",
+        "category": "PCAP Statistics"
+      },
+      {
+        "command": "pcapViewer.statistics.dnsQueries",
+        "title": "DNS Queries",
+        "category": "PCAP Statistics"
+      },
+      {
+        "command": "pcapViewer.statistics.tlsServers",
+        "title": "TLS Servers",
+        "category": "PCAP Statistics"
+      },
+      {
         "command": "pcapViewer.statistics.ipv4",
         "title": "IPv4 Statistics",
         "category": "PCAP Statistics"
@@ -681,6 +696,18 @@
       {
         "command": "pcapViewer.stopCapture",
         "title": "Stop Capture",
+        "category": "PCAP",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "pcapViewer.followFile",
+        "title": "Follow Growing File",
+        "category": "PCAP",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "pcapViewer.stopFollowing",
+        "title": "Stop Following",
         "category": "PCAP",
         "icon": "$(debug-stop)"
       },
@@ -1145,6 +1172,14 @@
           "when": "pcapViewer.capturing"
         },
         {
+          "command": "pcapViewer.followFile",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ && !pcapViewer.capturing && !pcapViewer.following"
+        },
+        {
+          "command": "pcapViewer.stopFollowing",
+          "when": "pcapViewer.following"
+        },
+        {
           "command": "pcapViewer.editCapture",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/"
         },
@@ -1241,12 +1276,17 @@
       "editor/title": [
         {
           "command": "pcapViewer.startCapture",
-          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ && !pcapViewer.capturing",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ && !pcapViewer.capturing && !pcapViewer.following",
           "group": "navigation@1"
         },
         {
           "command": "pcapViewer.stopCapture",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ && pcapViewer.capturing",
+          "group": "navigation@1"
+        },
+        {
+          "command": "pcapViewer.stopFollowing",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ && pcapViewer.following",
           "group": "navigation@1"
         },
         {
@@ -1275,9 +1315,14 @@
           "group": "1_capture@1"
         },
         {
+          "command": "pcapViewer.followFile",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ && !pcapViewer.capturing && !pcapViewer.following",
+          "group": "1_capture@2"
+        },
+        {
           "command": "pcapViewer.replay",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/",
-          "group": "1_capture@2"
+          "group": "1_capture@3"
         },
         {
           "command": "pcapViewer.exportFiltered",
@@ -1372,6 +1417,18 @@
         {
           "command": "pcapViewer.statistics.credentials",
           "group": "4_services@4"
+        },
+        {
+          "command": "pcapViewer.statistics.httpRequests",
+          "group": "4_services@5"
+        },
+        {
+          "command": "pcapViewer.statistics.dnsQueries",
+          "group": "4_services@6"
+        },
+        {
+          "command": "pcapViewer.statistics.tlsServers",
+          "group": "4_services@7"
         },
         {
           "command": "pcapViewer.statistics.voipCalls",
@@ -2367,14 +2424,14 @@
     "worldmap": "node scripts/world-map.mjs"
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^1.2.0",
+    "@anthropic-ai/sdk": "^1.3.0",
     "@eslint/js": "^10.0.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.19.43",
     "@types/vscode": "~1.90.0",
     "@vscode/codicons": "0.0.46-24",
     "@vscode/test-electron": "^3.1.0",
-    "@vscode/vsce": "^4.0.0",
+    "@vscode/vsce": "^4.1.0",
     "axe-core": "^4.14.0",
     "c8": "^12.0.0",
     "esbuild": "^0.28.2",
@@ -2386,8 +2443,8 @@
     "pngjs": "7.0.0",
     "prettier": "^3.9.10",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.72.0",
+    "typescript-eslint": "^8.72.1",
     "world-atlas": "2.0.2"
   },
-  "packageManager": "pnpm@12.15.0"
+  "packageManager": "pnpm@12.16.1"
 }

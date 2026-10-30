@@ -190,6 +190,8 @@ function onInit(msg) {
   state.capture = capture
     ? {
         running: !!capture.running,
+        follow: !!capture.follow,
+        file: capture.file || "",
         interfaces: capture.interfaces || [],
         filter: capture.filter || "",
         startedAt: capture.startedAt || Date.now() / 1000,

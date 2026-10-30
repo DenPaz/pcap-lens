@@ -7,6 +7,29 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.26.0 — 2026-10-30
+
+### Added
+
+- Follow Growing File: a capture another program is still writing (tcpdump
+  `-w`, dumpcap, a collector) shows new packets as they arrive; the viewer
+  offers it when an open file grows. [ebbe59d]
+- HTTP Requests, DNS Queries and TLS Servers: one row per request (with its
+  response, response time and the response body), per query (answers,
+  latency) and per server (SNI, versions, cipher suites, ALPN). [ebbe59d]
+
+### Changed
+
+- A shorter README: every feature in a line or two. [7a0bd77]
+
+### Fixed
+
+- Live capture: packets that arrived in a burst before the interface went
+  quiet now appear without waiting for the next packet. [ebbe59d]
+
+[ebbe59d]: https://github.com/DenPaz/pcap-lens/commit/ebbe59d
+[7a0bd77]: https://github.com/DenPaz/pcap-lens/commit/7a0bd77
+
 ## 0.25.4 — 2026-10-29
 
 0.25.3 was never published: its tag was pushed before the release PR was

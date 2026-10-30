@@ -82,7 +82,9 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
   (VS Code 1.90's extension host), and peer ranges are respected
   (typescript-eslint caps TypeScript, so TS 7 waits). mocha 12 is ESM-only:
   the VS Code smoke suite loads it with `await import("mocha")`. Node ≥ 22.13
-  is needed for the dev tools. Python dev tools: `uv lock --upgrade`.
+  is needed for the dev tools. Python dev tools: `uv lock --upgrade`;
+  pytest stays below 9.2 (pyproject) until pytest-bdd supports it (9.0.0
+  reads `FixtureManager._arg2fixturedefs`, which 9.2 renamed).
 - Node tests that start the backend use `PCAP_VIEWER_PYTHON` if set, else the
   uv `.venv` interpreter, so they run on 3.14 even when the system `python3` is older.
 - pytest turns `ResourceWarning` into errors: leaked tshark pipes are bugs.
@@ -247,7 +249,9 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   checks, atomic output, CSV/JSON writers), `objects.py` (export objects:
   linking files to packets, safe names), `comments.py` (pcapng packet
   comments, editcap options, packet counts), `capture.py` (live capture:
-  dumpcap interfaces, filters, the pcapng tee, capturing to files), `extcap.py`
+  dumpcap interfaces, filters, the pcapng tee, capturing to files; `LiveSource`),
+  `follow.py` (following a growing capture file), `sessions.py` (HTTP request,
+  DNS query and TLS server tables), `extcap.py`
   (extcap helpers: their folders, interfaces and options), `editing.py` (editcap options
   of capture editing), `hexdump.py` (text2pcap options of Import from Hex
   Dump), `ber.py` (counting back-to-back BER records), `codecs.py` (G.722,
@@ -1495,6 +1499,70 @@ filesize` needs a file) block by block: one chunk can hold many blocks, so
   `-D -M`, `-d`, `-c`, `-a duration:`, SIGINT; `FAKE_DUMPCAP_*` env), and a
   real loopback capture when allowed (CI sets dumpcap's capabilities on
   Linux).
+- **Following a growing file** (`follow.py`, `open {follow: true}`,
+  `pcapViewer.followFile` / `stopFollowing`, _Follow Growing File_): a
+  capture another program is still writing (tcpdump `-w`, dumpcap, a
+  collector) is read like a live capture: `FollowFile` (a `LiveSource`, as
+  `LiveCapture`: start, take_reader, stop, describe…) polls the file's size
+  (`POLL_INTERVAL_S`), cuts whole records (`_Records` for pcap: the three
+  magics, both byte orders; `capture._Blocks` for pcapng) and writes them to
+  the pipe the index pass reads (`tshark -r - -l`), so a half-written
+  record waits. `follow_format`: only uncompressed pcap/pcapng
+  ("pending" for an empty file, which gets `START_TIMEOUT_S` for its
+  header). A file that gets shorter (truncated), whose path now names
+  another file (`st_dev`/`st_ino` of the path vs the open handle: rotated by
+  a rename, removed) or whose header changes stops following with a warning
+  ("Following the file stopped: …"). Its packet comments are read at open
+  and again when following ends (`_capture_ended`: packets written meanwhile
+  can have some), and `save_comments` is refused while following (the
+  writer still appends; Codex review: a save that deletes one comment
+  rewrites them all, so unread ones were lost).
+  `capture_stop` stops it; "capture" notifications (`stats`, `stopped`)
+  carry `follow: true` and `file`, so the webview's `#status-capture` says
+  "Following x.pcap · 0:12 · N packets" (`lib.captureStatusText`) and the
+  empty list "Waiting for packets in x…". No saved index, no capinfos.
+  Host: the command reloads the editor with `followNext`; a
+  FileSystemWatcher (`watchGrowth`, at most one check a second, also while
+  the writer keeps changing the file: a delay restarted on every change
+  waited for writing to pause; Codex review) offers Follow / Reload once
+  per editor when the file on disk grows, not within `SAVE_QUIET_MS` of our
+  own in-place save (`document.savedAt`). `pcapViewer.following` puts Stop
+  Following in the editor title (Start Capture is hidden meanwhile).
+  **Publishing on a timer**: `_PassProgress` published rows only when the
+  next row came, so a burst followed by silence (a quiet interface, a file
+  written once) stayed unpublished; once `ready()`, a ticker thread
+  publishes every `PROGRESS_INTERVAL_S` under `tracker.guard` (a lock that
+  `_read_rows` takes around each row's append; a no-op before `ready`).
+- **Session tables** (`sessions.py`, `stats {kind: http_requests |
+dns_queries | tls_servers}`, `http_body {frame}`): one row per HTTP
+  request, DNS query or TLS server, each from one `-Y` fields pass
+  (aggregator `\x1e`), in the statistics panel (`SESSION_KINDS`,
+  `lib.sessionSummary` for the status line from the result's `summary`).
+  HTTP: a row per request message (pipelined ones share a packet), the
+  responses paired per TCP stream in order (HTTP/1.1; tshark's
+  `http.request_in` names only the first of pipelined responses; 1xx don't
+  end a request; `request_in` only without a TCP stream), status, content
+  type, size and the response time from the two frames' times; unanswered =
+  "No response". DNS: ID, name,
+  type, result (`DNS_RCODES`), answers ("A 192.0.2.80, CNAME …") and
+  latency. TLS: grouped by server, port, transport (TCP or QUIC) and SNI:
+  connections, handshakes without a ServerHello, versions and cipher suites
+  the server chose (`TLS_VERSIONS`, `CIPHER_SUITES`; tshark prints numbers;
+  GREASE ignored), the ALPN it chose (ServerHello, or TLS 1.3's
+  EncryptedExtensions, type 8, when tshark decrypts the handshake; Codex
+  review), clients. Row filters are `frame.number
+in {…}` / `tcp.stream in {…}` / `quic.connection.number in {…}` with
+  commas and ranges (`_set_filter`, `frame_ranges`: tshark 4.2 refuses
+  spaces), else address and port past `MAX_SET_FILTER`. _Show Response Body_
+  (button and row menu) asks `http_body` (`-c N -Y frame.number==N -e
+http.file_data`: the decoded body, de-chunked and decompressed, at most
+  `MAX_BODY_BYTES`) and shows it in Show Packet Bytes (text, image, hex…);
+  the row menu also opens the request or response in a new window.
+  `sessions.pcap` (generate.py `sessions_packets`) has five HTTP requests
+  (a PNG, a 500, a 404 on port 8080, one unanswered) and two pipelined
+  ones at the end (frames 59 and 61), five DNS queries (an
+  MX, an NXDOMAIN, one unanswered) and three TLS connections (TLS 1.2 and
+  1.3 to one SNI with ALPN h2, one without a ServerHello).
 - **Extcap helpers** (`extcap.py`, `extcap_config {interface}`,
   `extcapModel.ts`, `commands/capture.ts`): dumpcap doesn't know extcap
   interfaces; tshark runs the helper (into a FIFO) and dumpcap together. So
@@ -2220,6 +2288,17 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   pcapng lost an ATM Sniffer file's LANE details), that is a note, not a
   check. Wireshark's 290: 212 captures replayed twice; tcpdump's 612
   (`--quick`): 246; no problems.
+  `_sessions` checks the session tables against tshark's own filters (one
+  row per HTTP request message and per DNS query frame, TLS connections =
+  the TCP streams and QUIC connections with a ClientHello, each row's
+  filter matching its packets, three response bodies), and `_follow`
+  follows a copy of every uncompressed pcap/pcapng written in four pieces
+  cut anywhere (`FOLLOW_PIECES`): tshark's packet count, no warning, the
+  plain open's first and last rows. Their first run found a file holding
+  more than the pipe's 64 KiB never opening when followed (`started` was
+  set after the first write, which nobody read yet). Wireshark's 290: 278
+  with session tables, 146 followed; tcpdump's 612 (`--quick`): 602 each;
+  no problems.
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage
@@ -2809,3 +2888,5 @@ jitter, UDP loss, until stopped and setup files: 0.25.2.
 Then Save Results… for a replay, and Go to Packet only for the open capture's
 targets: 0.25.4 (0.25.3's tag went out before its merge and names 0.25.2's
 code; tags can't move, so it was skipped).
+Then Follow Growing File and the HTTP Requests, DNS Queries and TLS Servers
+session tables: 0.26.0.

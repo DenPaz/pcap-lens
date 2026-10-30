@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import re
 import threading
 import time
@@ -15,7 +16,7 @@ from typing import Any
 from pcap_backend import coloring
 from pcap_backend.cache import FrameIndex, RowStore
 from pcap_backend.cancellation import CancelToken
-from pcap_backend.capture import LiveCapture
+from pcap_backend.capture import LiveSource
 from pcap_backend.index_cache import IndexCache
 from pcap_backend.protocol import RequestContext
 from pcap_backend.tshark import Tshark
@@ -157,8 +158,9 @@ class _Open:
     comments: dict[int, list[str]] = field(default_factory=dict)
     comments_error: str | None = None
     comments_ready: threading.Event = field(default_factory=threading.Event)
-    # A live capture writing this file (capture_start), running or not.
-    capture: LiveCapture | None = None
+    # A live capture writing this file (capture_start) or the file followed
+    # as another program writes it (open {follow}), running or not.
+    capture: LiveSource | None = None
     # Expert items per severity (expert_summary), once counted: (the ignored
     # packets' exclusion filter it was counted with, counts).
     expert: tuple[str, dict[str, int]] | None = None
@@ -194,6 +196,13 @@ class _PassProgress:
         self.bytes_seen = 0
         self.last_emit = 0.0
         self.started = time.monotonic()
+        # A live pass (a capture or a followed file) stores each row under a
+        # lock and a ticker publishes what came in a burst followed by silence
+        # (rows are otherwise published at the next row's tick).
+        self.guard: contextlib.AbstractContextManager[Any] = contextlib.nullcontext()
+        self._lock = threading.Lock()
+        self._ticker: threading.Thread | None = None
+        self._ticking = threading.Event()
 
     def progress(self, number: int, fraction: float | None) -> dict[str, Any]:
         """A progress report at frame ``number``: "catching-up" while a resumed
@@ -218,11 +227,31 @@ class _PassProgress:
         }
 
     def ready(self) -> None:
-        """Hand the store over now, rows or not (a live capture may be quiet)."""
+        """Hand the store over now, rows or not (a live capture may be quiet),
+        and publish rows that came in a burst within PROGRESS_INTERVAL_S."""
         if self.on_rows is not None:
             on_rows, self.on_rows = self.on_rows, None
             self.store.rows.publish()
             on_rows(self.store)
+        if self._ticker is None:
+            self.guard = self._lock
+            self._ticker = threading.Thread(target=self._tick, daemon=True)
+            self._ticker.start()
+
+    def stop(self) -> None:
+        """End the ticker (when the pass ends)."""
+        self._ticking.set()
+        if self._ticker is not None:
+            self._ticker.join()
+
+    def _tick(self) -> None:
+        while not self._ticking.wait(PROGRESS_INTERVAL_S):
+            with self._lock:
+                rows = self.store.rows
+                if rows.appended > len(rows):
+                    self.last_emit = time.monotonic()
+                    rows.publish()
+                    self.ctx.progress(self.progress(rows.appended, None))
 
     def row(self, number: int, rest: bytes) -> None:
         rows = self.store.rows

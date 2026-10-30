@@ -242,8 +242,9 @@ class CaptureMixin(OpeningMixin):
         return self._open(params, ctx, live=(options, dest))
 
     def capture_stop(self, _params: dict[str, Any], _ctx: RequestContext) -> dict[str, Any]:
-        """Stop the live capture (``stopped: false`` if none is running). The
-        packets captured so far stay; "capture" ``stopped`` and "index" ``done`` follow."""
+        """Stop the live capture, or following the file (``stopped: false`` if
+        neither is running). The packets so far stay; "capture" ``stopped`` and
+        "index" ``done`` follow."""
         with self._lock:
             capture = self._file.capture if self._file is not None else None
         return {"stopped": capture is not None and capture.stop()}

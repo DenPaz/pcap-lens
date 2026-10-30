@@ -208,7 +208,7 @@ export function onCaptureEvent(msg) {
     capture.running = false;
     capture.dropped = typeof msg.dropped === "number" ? msg.dropped : null;
     if (msg.error) {
-      showNotice(`The capture stopped: ${msg.error}`);
+      showNotice(`${capture.follow ? "Following the file" : "The capture"} stopped: ${msg.error}`);
     }
   }
   tickCapture();
@@ -223,18 +223,19 @@ export function tickCapture() {
   if (!capture) {
     return;
   }
-  const on = capture.interfaces.join(", ");
   el.statusCapture.classList.toggle("stopped", !capture.running);
-  el.statusCapture.title = capture.filter ? `Capture filter: ${capture.filter}` : "";
-  if (!capture.running) {
-    // What was captured, until the capture is reloaded as a plain file.
-    const dropped = capture.dropped ? ` · ${capture.dropped.toLocaleString()} dropped` : "";
-    el.captureText.textContent = `Captured on ${on} in ${lib.formatDuration(capture.seconds)}${dropped}`;
-    return;
+  el.statusCapture.classList.toggle("following", !!capture.follow);
+  el.statusCapture.title = capture.follow
+    ? "New packets are shown as the file grows"
+    : capture.filter
+      ? `Capture filter: ${capture.filter}`
+      : "";
+  el.captureStop.title = capture.follow ? "Stop following the file" : "Stop the capture";
+  // (Once stopped: what was captured, until the capture is reloaded as a plain file.)
+  el.captureText.textContent = lib.captureStatusText(capture, Date.now() / 1000);
+  if (capture.running) {
+    captureTimer = window.setTimeout(tickCapture, 1000);
   }
-  const seconds = Math.max(capture.seconds, Date.now() / 1000 - capture.startedAt);
-  el.captureText.textContent = `Capturing on ${on} · ${lib.formatDuration(seconds)} · ${lib.formatBytes(capture.bytes)}`;
-  captureTimer = window.setTimeout(tickCapture, 1000);
 }
 
 /**

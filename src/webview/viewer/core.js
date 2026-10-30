@@ -246,7 +246,7 @@ export const state = {
   /**
    * A live capture writing this file: its interfaces, whether it still runs,
    * and its latest statistics (``seconds`` since ``startedAt``, epoch seconds).
-   * @type {{running: boolean, interfaces: string[], filter: string, startedAt: number, packets: number, bytes: number, seconds: number, dropped: number | null} | null}
+   * @type {{running: boolean, follow?: boolean, file?: string, interfaces: string[], filter: string, startedAt: number, packets: number, bytes: number, seconds: number, dropped: number | null} | null}
    */
   capture: null,
   /**
