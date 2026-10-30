@@ -970,7 +970,9 @@ class Replayer:
             if conn.dead:
                 continue
             if not conn.connected and mask & selectors.EVENT_WRITE:
-                code = conn.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+                code = conn.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR) or _not_connected(
+                    conn.sock
+                )
                 if code:
                     self._connect_failed(conn, code)
                     continue
@@ -1095,6 +1097,18 @@ class Replayer:
 
     def summary(self) -> list[dict[str, Any]]:
         return [s.to_json() for s in self.stats.values()]
+
+
+def _not_connected(sock: socket.socket) -> int:
+    """0 when a socket whose connect completed is connected, else an error
+    code. macOS can report a refused connect as writable while SO_ERROR still
+    reads 0 (CI): the connection then looked open, and the refusal that recv
+    raised next dropped its data instead of trying the next address."""
+    try:
+        sock.getpeername()
+    except OSError:
+        return errno.ECONNREFUSED
+    return 0
 
 
 def _error_text(code: int) -> str:

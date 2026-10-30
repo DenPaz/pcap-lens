@@ -375,6 +375,23 @@ def test_a_refused_address_falls_back_to_the_next(services: Any) -> None:
     assert dest.addresses[0] == working  # (tried first from then on)
 
 
+def test_a_refused_connect_reported_without_an_error_still_falls_back(
+    services: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # macOS can report a refused connect as writable while SO_ERROR still reads
+    # 0 (CI); the connection then looked open, recv raised the refusal and the
+    # data queued for it was dropped instead of going to the next address.
+    original = socket.socket.getsockopt
+
+    def no_error_yet(self: socket.socket, level: int, name: int, *args: Any) -> Any:
+        if (level, name) == (socket.SOL_SOCKET, socket.SO_ERROR):
+            return 0
+        return original(self, level, name, *args)
+
+    monkeypatch.setattr(socket.socket, "getsockopt", no_error_yet)
+    test_a_refused_address_falls_back_to_the_next(services)
+
+
 def test_data_a_service_does_not_read_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(replay, "DRAIN_S", 0.5)
     monkeypatch.setattr(replay, "ANSWER_GRACE_S", 0.0)
