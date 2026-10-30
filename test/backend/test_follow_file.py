@@ -156,6 +156,24 @@ def test_a_growing_file_is_shown_as_it_grows(
 
 
 @pytest.mark.tshark
+def test_a_file_bigger_than_the_pipe_is_followed(service: PcapService, tmp_path: Path) -> None:
+    """open used to wait for the first write to the pipe, which nobody read
+    yet: a file holding more than the pipe's 64 KiB never opened (found by
+    the real-capture harness on a 600 KB capture)."""
+    head, pieces = _pieces(FIXTURES / "http.pcap")
+    copies = 1 + (256 * 1024) // len(b"".join(pieces))
+    path = tmp_path / "big.pcap"
+    path.write_bytes(head + b"".join(pieces) * copies)
+    events = _events(service)
+    started = time.monotonic()
+    _follow(service, path)
+    assert time.monotonic() - started < 10
+    _wait(lambda: service.list_packets({"limit": 1}, RequestContext())["total"] == 11 * copies)
+    service.capture_stop({}, RequestContext())
+    _wait(lambda: _index_done(events) is not None)
+
+
+@pytest.mark.tshark
 def test_a_file_created_empty_is_followed_once_its_header_comes(
     service: PcapService, tmp_path: Path
 ) -> None:

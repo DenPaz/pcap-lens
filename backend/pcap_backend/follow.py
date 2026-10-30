@@ -246,12 +246,14 @@ class FollowFile:
                     grew = bool(chunk)
                     data = splitter.feed(chunk)
                     if data:
+                        # Before writing: start() returns on it, and only then does
+                        # the index pass read the pipe, which holds 64 KiB at most.
+                        self.started.set()
                         if not self._send(data):
                             break  # nobody reads the rows any more
                         with self._lock:
                             self.bytes += len(data)
                             self.packets = splitter.packets
-                        self.started.set()
                 now = time.monotonic()
                 if self.started.is_set() and now - last_stats >= STATS_INTERVAL_S:
                     last_stats = now

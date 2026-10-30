@@ -472,6 +472,9 @@ class LiveCapture:
                     if data:
                         out.write(data)
                         out.flush()
+                        # Before writing to the pipe: start() returns on it, and only
+                        # then does the index pass read the pipe (64 KiB at most).
+                        self.started.set()
                         if not tshark_gone:
                             tshark_gone = not self._send(data)
                             if tshark_gone:
@@ -479,7 +482,6 @@ class LiveCapture:
                         with self._lock:
                             self.bytes += len(data)
                             self.packets = blocks.packets
-                        self.started.set()
                         if limit and self.bytes >= limit:
                             self.stop()
                 if self._signal_refused:
