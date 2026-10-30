@@ -2874,4 +2874,4 @@ Then Save Results… for a replay, and Go to Packet only for the open capture's
 targets: 0.25.4 (0.25.3's tag went out before its merge and names 0.25.2's
 code; tags can't move, so it was skipped).
 Then Follow Growing File and the HTTP Requests, DNS Queries and TLS Servers
-session tables (unreleased).
+session tables: 0.26.0.

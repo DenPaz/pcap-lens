@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.26.0 — 2026-10-30
+
 ### Added
 
 - Follow Growing File: a capture another program is still writing (tcpdump
