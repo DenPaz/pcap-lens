@@ -91,6 +91,7 @@ def rpc_methods(service: PcapService) -> dict[str, Callable[[dict[str, Any], Req
         "follow_stream": service.follow_stream,
         "stats": service.stats,
         "http_body": service.http_body,
+        "overview": service.overview,
         "check_dissectors": service.check_dissectors,
         "decode_as_options": service.decode_as_options,
         "protocol_prefs": service.protocol_prefs,

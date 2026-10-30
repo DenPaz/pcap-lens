@@ -20,7 +20,7 @@ CONTRIBUTING.md for building, testing and releasing (not packaged).
 | Regenerate fixtures       | `uv run python test/fixtures/generate.py`                                                                                                                |
 | Coverage                  | `make coverage` (pytest-cov and c8; summaries in the terminal, HTML in `coverage/`; CI's Linux job adds both to the run summary)                         |
 | Perf check                | `uv run python test/fixtures/generate.py --large 1000000 test/fixtures/large-1m.pcap && uv run python -u test/perf/bench.py test/fixtures/large-1m.pcap` |
-| Real captures (by hand)   | `make realworld` (`test/realworld/run.py --fetch wireshark`, then `--fetch tcpdump --quick`; downloads into `~/.cache/pcap-lens-realworld`)              |
+| Real captures             | `make realworld` (`test/realworld/run.py --fetch wireshark`, then `--fetch tcpdump --quick`; downloads into `~/.cache/pcap-lens-realworld`)              |
 | AI answer evals (by hand) | `pnpm run evals` (asks a model the cases in `test/evals/cases.json`; `-- --prompts <dir>` / `--answers <dir>` without a model)                           |
 | Package                   | `pnpm run package` (vsce, `--no-dependencies`)                                                                                                           |
 | Prepare a release         | `pnpm run release:prepare 0.2.0` on `dev` (then PR `dev` → `main`, tag the merge, push the tag)                                                          |
@@ -143,7 +143,8 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   The unit/webview mocha run has a 10 s timeout (`--timeout 10000` in
   `test:unit`): the Windows runner once took over 2 s on a 30 ms test.
 - **Repository upkeep**: `codeql.yml` (javascript-typescript, python and
-  actions, `build-mode: none`, security-extended; pushes, PRs, weekly) and
+  actions, `build-mode: none`, security-extended; pushes, PRs, weekly),
+  `realworld.yml` (the real-capture harness, see _Real-capture testing_) and
   `.github/dependabot.yml` (npm for the pnpm lockfile, uv, github-actions;
   weekly, grouped, into `dev`; it ignores `@types/vscode`, `@types/node`
   majors and `@vscode/codicons`, which `make update` vendors). Issue forms in
@@ -221,11 +222,11 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   (`scripts/sync-codicons.mjs`). CSS: `base.css` (tokens and controls, loaded
   by the editor and the panels), `styles.css` (the viewer), `panel.css`.
 - `src/panels/` statistics, follow-stream, coloring-rules, export-objects,
-  flow-graph, TCP-graph, VoIP, compare-packets, packet-bytes, packet window
-  and replay webview panels (`panelHtml.ts` builds their CSP'd HTML); their
-  UIs are `src/webview/stats.js`, `follow.js`, `coloring.js`, `objects.js`,
-  `flowgraph.js`, `tcpgraph.js`, `voip.js`, `compare.js`, `bytes.js`,
-  `packet.js` and `replay.js` with `panel.css`.
+  flow-graph, TCP-graph, VoIP, compare-packets, packet-bytes, packet window,
+  replay and overview webview panels (`panelHtml.ts` builds their CSP'd HTML);
+  their UIs are `src/webview/stats.js`, `follow.js`, `coloring.js`,
+  `objects.js`, `flowgraph.js`, `tcpgraph.js`, `voip.js`, `compare.js`,
+  `bytes.js`, `packet.js`, `replay.js` and `overview.js` with `panel.css`.
 - `backend/pcap_backend/` Python package run as `python -m pcap_backend`
   with `PYTHONPATH=backend`. `server.py` (JSON-RPC), `pcap_service.py`
   (`PcapService`, assembled from the `service/` mixins, `rpc_methods`, and
@@ -251,7 +252,8 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   comments, editcap options, packet counts), `capture.py` (live capture:
   dumpcap interfaces, filters, the pcapng tee, capturing to files; `LiveSource`),
   `follow.py` (following a growing capture file), `sessions.py` (HTTP request,
-  DNS query and TLS server tables), `extcap.py`
+  DNS query and TLS server tables), `overview.py` (the capture overview's
+  pass), `extcap.py`
   (extcap helpers: their folders, interfaces and options), `editing.py` (editcap options
   of capture editing), `hexdump.py` (text2pcap options of Import from Hex
   Dump), `ber.py` (counting back-to-back BER records), `codecs.py` (G.722,
@@ -1533,6 +1535,43 @@ filesize` needs a file) block by block: one chunk can hold many blocks, so
   written once) stayed unpublished; once `ready()`, a ticker thread
   publishes every `PROGRESS_INTERVAL_S` under `tracker.guard` (a lock that
   `_read_rows` takes around each row's append; a no-op before `ready`).
+- **Capture overview** (`overview.py`, `overview {filter?, buckets?}`,
+  `OverviewPanel`, `overview.js`; `pcapViewer.statistics.overview`, first in
+  the statistics menu): one fields pass over every packet (`overview.FIELDS`,
+  aggregator `\x1e`, `-Y` only for the "limit to display filter" scope and
+  the ignored packets' exclusion; progress `phase: "overview"` by frame
+  number), summed by `Overview`: packets, bytes, duration; a `Timeline` of
+  packets and bytes per interval since the first packet (at most `buckets`,
+  default 120: the interval steps through `INTERVALS`, each a multiple of the
+  one before, so buckets merge exactly, then doubles; negative relative
+  times count in bucket 0); addresses (outermost `ip`/`ipv6` source and
+  destination, a packet counted once per address; top `TOP` by bytes);
+  protocols (each name of `frame.protocols` once per packet, link layers in
+  `_PLUMBING` left out; the name is its filter); TCP services (SYN without
+  ACK, by destination port: connections, filter `tcp.port == N`); HTTP
+  methods/hosts per request message, status codes/content types per
+  response (pipelined messages each count, so a filter can match fewer
+  packets); DNS results per response, query types and names per query; TLS
+  server names per ClientHello and the version each ServerHello chose
+  (supported_versions, else the hello's version; frames holding both hellos
+  left out). Cards are `{total, items: [{label, count, bytes?, filter}],
+more}`; rows that count packets (addresses, protocols, DNS results) match
+  their filters exactly (tests and the harness check). Cached on the `_Open`
+  (`overviews`, by scope and buckets) once indexed. The host waits for
+  `whenIndexed()` ("Waiting for the packets…"), asks `overview` with
+  progress plus `capture_info` and `expert_summary` (either may fail: their
+  tiles are left out), and accepts `command` only from `OVERVIEW_COMMANDS`
+  (each card's _Open …_). The panel: summary tiles (`lib.overviewTiles`:
+  totals, average packets/s and `formatBitRate`, format, first packet) and
+  expert counts (opens Expert Information); the timeline as SVG bars
+  (`preserveAspectRatio="none"`, packets or bytes, a bar's click and the
+  _Busiest_ button apply `lib.timelineFilter`, `timelinePeak`); then a card
+  per breakdown, each row a button (label, a meter sized by CSSOM, count)
+  that applies its filter (within the overview's scope when limited) with
+  the stats panels' row menu (Apply/Prepare as Filter ›, Copy ›). HTTP, DNS
+  and TLS cards only when the capture has them (the status says which it
+  lacks). A changed capture filter re-counts when the overview was limited
+  to it. 200k synthetic packets: 12 s, 11 of them tshark's pass.
 - **Session tables** (`sessions.py`, `stats {kind: http_requests |
 dns_queries | tls_servers}`, `http_body {frame}`): one row per HTTP
   request, DNS query or TLS server, each from one `-Y` fields pass
@@ -2241,8 +2280,8 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   the panels e2e test (presets, a bad port, a refused port, a public
   destination, Stop at real time, scope) into Node servers, and the smoke
   test replays http.pcap's GET into one through `ReplayPanel.start`.
-- **Real-capture testing** (`test/realworld/run.py`, `make realworld`, not
-  CI): `--fetch wireshark` (Wireshark's `test/captures` through GitLab's API,
+- **Real-capture testing** (`test/realworld/run.py`, `make realworld`, and
+  weekly in `realworld.yml`): `--fetch wireshark` (Wireshark's `test/captures` through GitLab's API,
   one file at a time: parallel raw requests get an HTML page; its synthetic
   `tns_*`/`nvme-mi-*` series skipped) and `--fetch tcpdump` (the captures its
   `tests/TESTLIST` names, many fuzzed) into `~/.cache/pcap-lens-realworld`,
@@ -2890,3 +2929,4 @@ targets: 0.25.4 (0.25.3's tag went out before its merge and names 0.25.2's
 code; tags can't move, so it was skipped).
 Then Follow Growing File and the HTTP Requests, DNS Queries and TLS Servers
 session tables: 0.26.0.
+Then the Capture Overview, and the real-capture harness weekly in CI.

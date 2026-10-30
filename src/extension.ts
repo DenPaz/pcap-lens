@@ -49,6 +49,7 @@ import { ComparePanel } from "./panels/comparePanel";
 import { FlowGraphPanel } from "./panels/flowGraphPanel";
 import { FollowPanel } from "./panels/followPanel";
 import { ObjectsPanel } from "./panels/objectsPanel";
+import { OverviewPanel } from "./panels/overviewPanel";
 import { ReplayPanel } from "./panels/replayPanel";
 import { PacketPanel } from "./panels/packetPanel";
 import { StatsPanel } from "./panels/statsPanel";
@@ -78,6 +79,7 @@ const PANELS = {
   FlowGraphPanel,
   FollowPanel,
   ObjectsPanel,
+  OverviewPanel,
   PacketPanel,
   ReplayPanel,
   StatsPanel,

@@ -1823,6 +1823,120 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     }
   });
 
+  test("capture overview: summary, timeline, cards whose rows apply filters, open the full statistics", async () => {
+    const sessions = await startBackend(deps);
+    try {
+      await sessions.request(
+        "open",
+        { path: path.join(FIXTURES, "sessions.pcap") },
+        { timeoutMs: 0 },
+      );
+      const queries = [];
+      const { page, log, post } = await openGraphPanel("overview.js", async (msg, reply) => {
+        // A stand-in for OverviewPanel (src/panels/overviewPanel.ts) on its own capture.
+        if (msg.type === "ready") {
+          await reply({ type: "init", filter: "dns" });
+        } else if (msg.type === "query") {
+          queries.push(msg);
+          const filter = msg.limit ? "dns" : "";
+          const overview = await sessions.request("overview", { filter }, { timeoutMs: 0 });
+          const info = await sessions.request("capture_info", {});
+          const { counts } = await sessions.request("expert_summary", {}, { timeoutMs: 0 });
+          await reply({ type: "result", id: msg.id, overview, info, expert: counts });
+        }
+      });
+      await page.waitForSelector(".overview-card");
+      const headings = await page.$$eval(".overview-card h2", (els) =>
+        els.map((e) => e.textContent),
+      );
+      assert.deepEqual(headings, [
+        "Summary",
+        "Packets over time",
+        "Top addresses",
+        "Protocols",
+        "TCP services",
+        "HTTP",
+        "DNS",
+        "TLS",
+      ]);
+      assert.equal(await page.textContent(".status"), "62 packets");
+      const tiles = await page.$$eval(".overview-tile", (els) =>
+        els.map((e) => [e.querySelector("dt")?.textContent, e.querySelector("dd")?.textContent]),
+      );
+      assert.deepEqual(tiles.slice(0, 3), [
+        ["Packets", "62"],
+        ["Bytes", "5.0 KB"],
+        ["Duration", "3.03 s"],
+      ]);
+      assert.ok(tiles.some(([label]) => label === "Format"));
+      assert.match(await page.textContent(".overview-expert"), /Expert information:/);
+      // The timeline: one bar per non-empty 0.1 s, the busiest one as a button.
+      assert.ok((await page.$$(".overview-bar")).length > 10);
+      assert.match(await page.textContent("#overview-peak"), /^Busiest: 7 from 0 s$/);
+      await page.click("#overview-peak");
+      await expectLast(log, {
+        type: "filter",
+        expr: "frame.time_relative >= 0 && frame.time_relative < 0.1",
+        apply: true,
+      });
+      await page.selectOption("select[aria-label='Count']", "bytes");
+      assert.match(await page.textContent("#overview-peak"), /^Busiest: 647 B from 3 s$/);
+      // A row applies its filter; right-click offers the other choices.
+      const dns = page.locator("section", { has: page.locator("h2", { hasText: /^DNS$/ }) });
+      await dns.locator(".overview-item", { hasText: "NXDomain" }).click();
+      await expectLast(log, {
+        type: "filter",
+        expr: "dns.flags.response == 1 && dns.flags.rcode == 3",
+        apply: true,
+      });
+      await dns.locator(".overview-item", { hasText: "NXDomain" }).click({ button: "right" });
+      assert.deepEqual(await menuLabels(page), ["Apply as Filter", "Prepare as Filter", "Copy"]);
+      await pickMenu(page, "Prepare as Filter", "…and not Selected");
+      await expectLast(log, {
+        type: "filter",
+        expr: "(dns) && !(dns.flags.response == 1 && dns.flags.rcode == 3)",
+        apply: false,
+      });
+      await dns.locator("button.link", { hasText: "Open DNS Queries" }).click();
+      await expectLast(log, { type: "command", id: "pcapViewer.statistics.dnsQueries" });
+      await page.click(".overview-expert button");
+      await expectLast(log, { type: "command", id: "pcapViewer.statistics.expertInfo" });
+      await page.screenshot({
+        path: process.env.PCAP_SCREENSHOTS
+          ? `${process.env.PCAP_SCREENSHOTS}/overview.png`
+          : undefined,
+        fullPage: true,
+      });
+
+      // Limited to the capture's filter: only DNS, and rows keep within it.
+      await page.check("input[type='checkbox']");
+      await page.waitForFunction(() =>
+        document.querySelector(".status")?.textContent?.startsWith("9 packets"),
+      );
+      assert.equal(await page.textContent(".status"), "9 packets matching dns · no HTTP or TLS");
+      assert.equal(queries.at(-1).limit, true);
+      const names = page.locator("section", { has: page.locator("h2", { hasText: /^DNS$/ }) });
+      await names.locator(".overview-item", { hasText: "lost.example.com" }).click();
+      await expectLast(log, {
+        type: "filter",
+        expr: '(dns) && (dns.flags.response == 0 && dns.qry.name == "lost.example.com")',
+        apply: true,
+      });
+      // The capture's filter cleared: nothing to limit to, so it counts every packet again.
+      await post({ type: "filterChanged", filter: "" });
+      await page.waitForSelector("input[type='checkbox']:disabled");
+      await page.waitForFunction(
+        () => document.querySelector(".status")?.textContent === "62 packets",
+      );
+      assert.equal(queries.at(-1).limit, false);
+      await post({ type: "error", id: queries.length, message: "tshark failed" });
+      await page.waitForSelector(".notice.error:not(.hidden)");
+      assert.equal(await page.textContent(".notice.error"), "tshark failed");
+    } finally {
+      await sessions.dispose();
+    }
+  });
+
   test("packet bytes: decode as Base64 or compressed, show as text, arrays or an image, find, save", async () => {
     const zlib = require("node:zlib");
     const hex = (/** @type {Buffer | string} */ b) => Buffer.from(b).toString("hex");

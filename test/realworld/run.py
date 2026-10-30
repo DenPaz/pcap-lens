@@ -411,6 +411,7 @@ def _exercise(run: Run, path: Path, cache: Path) -> None:
         _exports(run, path, frames)
     if frames:
         _sessions(run)
+        _overview(run, frames)
         base = _replay(run, path)
         if base is not None:
             _replay_several(run, path, base)
@@ -767,7 +768,45 @@ def _count(run: Run, flt: str) -> int | None:
 
 
 SESSION_ROWS = 30  # row filters counted per table
+OVERVIEW_ROWS = 3  # rows counted per overview card
 BODIES = 3  # HTTP response bodies read per capture
+
+
+def _overview(run: Run, frames: int) -> None:
+    """The capture overview: every packet counted once, the timeline adding
+    up, and its rows' filters valid. Rows that count packets (addresses,
+    protocols, DNS results) match their filters exactly; the others count
+    messages or connections, so their filters only have to match some."""
+    res = run.call("overview", "overview", {})
+    if res is None:
+        return
+    timeline = res["timeline"]
+    run.check(
+        "overview totals",
+        res["packets"] == frames
+        and sum(timeline["packets"]) == frames
+        and sum(timeline["bytes"]) == res["bytes"]
+        and len(timeline["packets"]) <= 120,
+        f"{res['packets']} packets of {frames}, timeline {sum(timeline['packets'])} packets, "
+        f"{sum(timeline['bytes'])} of {res['bytes']} bytes in {len(timeline['packets'])} buckets",
+    )
+    exact = [res["addresses"], res["protocols"], res["dns"]["rcodes"]]
+    loose = [res["services"], res["tls"]["versions"], res["tls"]["servers"]]
+    loose += [res["http"][k] for k in ("methods", "statuses", "contentTypes", "hosts")]
+    loose += [res["dns"][k] for k in ("types", "names")]
+    for card in exact + loose:
+        for item in card["items"][:OVERVIEW_ROWS]:
+            if not item.get("filter"):
+                continue
+            got = _count(run, item["filter"])
+            if got is None:
+                continue
+            ok = got == item["count"] if card in exact else got >= 1
+            run.check(
+                "overview row filter",
+                ok,
+                f"{item['filter']} matches {got}, the card counts {item['count']}",
+            )
 
 
 def _sessions(run: Run) -> None:

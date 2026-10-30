@@ -1921,6 +1921,129 @@
     return h ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
   }
 
+  /**
+   * A timeline interval in words: "1 ms", "0.2 s", "10 s", "2 min", "6 h", "1 day", "2 weeks".
+   * @param {number} seconds
+   */
+  function formatInterval(seconds) {
+    /** @param {number} n @param {string} unit */
+    const say = (n, unit) => `${Math.round(n * 1000) / 1000} ${unit}${n === 1 ? "" : "s"}`;
+    if (seconds > 0 && seconds < 0.1) {
+      return `${Math.round(seconds * 1e6) / 1000} ms`;
+    }
+    if (seconds < 60) {
+      return `${Math.round(seconds * 1000) / 1000} s`;
+    }
+    if (seconds < 3600) {
+      return `${Math.round((seconds / 60) * 1000) / 1000} min`;
+    }
+    if (seconds < 86400) {
+      return `${Math.round((seconds / 3600) * 1000) / 1000} h`;
+    }
+    if (seconds < 604800) {
+      return say(seconds / 86400, "day");
+    }
+    return say(seconds / 604800, "week");
+  }
+
+  /**
+   * A bit rate: "940 bit/s", "1.2 kbit/s", "35.4 Mbit/s" (SI units, as networks count).
+   * @param {number} bitsPerSecond
+   */
+  function formatBitRate(bitsPerSecond) {
+    const units = ["bit/s", "kbit/s", "Mbit/s", "Gbit/s", "Tbit/s"];
+    let v = Math.max(0, bitsPerSecond || 0);
+    let u = 0;
+    while (v >= 1000 && u < units.length - 1) {
+      v /= 1000;
+      u++;
+    }
+    return `${u === 0 ? Math.round(v) : v.toFixed(1)} ${units[u]}`;
+  }
+
+  /**
+   * The display filter of one timeline bucket (`index`, `interval` seconds long),
+   * within the overview's own filter when it was limited to one.
+   * @param {number} interval @param {number} index @param {string} [scope]
+   */
+  function timelineFilter(interval, index, scope = "") {
+    /** @param {number} v */
+    const num = (v) => String(Math.round(v * 1e6) / 1e6);
+    const range =
+      `frame.time_relative >= ${num(index * interval)} && ` +
+      `frame.time_relative < ${num((index + 1) * interval)}`;
+    return scope ? `(${scope}) && ${range}` : range;
+  }
+
+  /**
+   * The busiest bucket of the overview's timeline for `metric` ("packets" or
+   * "bytes"): its index, value and start (seconds); null when it is empty.
+   * @param {{interval: number, packets: number[], bytes: number[]}} timeline
+   * @param {"packets" | "bytes"} metric
+   */
+  function timelinePeak(timeline, metric) {
+    const values = timeline[metric] || [];
+    let index = -1;
+    for (let i = 0; i < values.length; i++) {
+      if (index < 0 || values[i] > values[index]) {
+        index = i;
+      }
+    }
+    if (index < 0 || !values[index]) {
+      return null;
+    }
+    return {
+      index,
+      value: values[index],
+      start: Math.round(index * timeline.interval * 1e6) / 1e6,
+    };
+  }
+
+  /**
+   * The overview's summary tiles: packets, bytes, duration, average rates,
+   * then from the capture's properties (when known) its format and start.
+   * @param {{packets: number, bytes: number, duration: number}} o the overview
+   * @param {{fileType?: string, linkType?: string, startTime?: string | number | null} | null} [info]
+   * @returns {{label: string, value: string, title?: string}[]}
+   */
+  function overviewTiles(o, info) {
+    const n = (/** @type {number} */ v) => (v || 0).toLocaleString("en-US");
+    const seconds = o.duration || 0;
+    const tiles = [
+      { label: "Packets", value: n(o.packets) },
+      { label: "Bytes", value: formatBytes(o.bytes || 0), title: `${n(o.bytes)} bytes` },
+      {
+        label: "Duration",
+        value: seconds < 60 ? `${Math.round(seconds * 1000) / 1000} s` : formatDuration(seconds),
+        title: `${seconds} s from the first packet to the last`,
+      },
+    ];
+    if (seconds > 0) {
+      tiles.push(
+        { label: "Average packets/s", value: n(Math.round((o.packets / seconds) * 10) / 10) },
+        { label: "Average rate", value: formatBitRate(((o.bytes || 0) * 8) / seconds) },
+      );
+    }
+    if (info?.fileType) {
+      tiles.push({
+        label: "Format",
+        value: info.fileType,
+        title: info.linkType ? `Link type: ${info.linkType}` : undefined,
+      });
+    }
+    if (info?.startTime) {
+      const start = typeof info.startTime === "number" ? info.startTime * 1000 : info.startTime;
+      const date = new Date(start);
+      if (!Number.isNaN(date.getTime())) {
+        tiles.push({
+          label: "First packet",
+          value: date.toISOString().replace("T", " ").slice(0, 19) + " UTC",
+        });
+      }
+    }
+    return tiles;
+  }
+
   /** The statistics kinds that are session tables (one row per request, query or server). */
   const SESSION_KINDS = ["http_requests", "dns_queries", "tls_servers"];
 
@@ -3272,6 +3395,11 @@
     formatRelativeTime,
     formatBytes,
     formatDuration,
+    formatInterval,
+    formatBitRate,
+    timelineFilter,
+    timelinePeak,
+    overviewTiles,
     rowColors,
     themeKind,
     luminance,

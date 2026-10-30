@@ -7,6 +7,18 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- Capture Overview: the capture at a glance, from one pass. Totals and rates,
+  packets or bytes over time, top addresses, protocols, TCP services, and
+  HTTP, DNS and TLS breakdowns; rows apply their filters, cards open the
+  full reports.
+
+### Changed
+
+- The real-capture harness also checks the overview, and runs every Monday
+  on Linux and macOS (the _Real captures_ workflow).
+
 ## 0.26.0 — 2026-10-30
 
 ### Added

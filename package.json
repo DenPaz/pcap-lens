@@ -485,6 +485,12 @@
         "category": "PCAP Statistics"
       },
       {
+        "command": "pcapViewer.statistics.overview",
+        "title": "Capture Overview",
+        "category": "PCAP Statistics",
+        "icon": "$(dashboard)"
+      },
+      {
         "command": "pcapViewer.statistics.captureProperties",
         "title": "Capture File Properties",
         "category": "PCAP Statistics"
@@ -980,6 +986,10 @@
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
         },
         {
+          "command": "pcapViewer.statistics.overview",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
+        },
+        {
           "command": "pcapViewer.statistics.captureProperties",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
         },
@@ -1346,6 +1356,10 @@
         }
       ],
       "pcapViewer.statisticsMenu": [
+        {
+          "command": "pcapViewer.statistics.overview",
+          "group": "1_general@0"
+        },
         {
           "command": "pcapViewer.statistics.captureProperties",
           "group": "1_general@1"

@@ -85,14 +85,18 @@ The `Makefile` wraps everything (`make` lists the targets):
   vary), and compare the pass rate with the run before.
 
 - Real captures: the fixtures are small and tidy, so `test/realworld/run.py`
-  (`make realworld`, not in CI) downloads Wireshark's and tcpdump's own test
+  (`make realworld`) downloads Wireshark's and tcpdump's own test
   captures into `~/.cache/pcap-lens-realworld` and drives every backend
   feature over each through the JSON-RPC server, as the extension does. It
   reports internal errors, tshark failures, timeouts, tracebacks and broken
   checks (packet counts, exports read back, each field's bytes in its byte
   source); "expected" answers (no such stream…) and tshark's own odd field
-  positions ("notes") are listed in the `--out` JSON. Run it after a tshark
-  upgrade or a change to parsing:
+  positions ("notes") are listed in the `--out` JSON. The _Real captures_
+  workflow (`.github/workflows/realworld.yml`) runs it every Monday and by
+  hand (_Run workflow_, with _full_ for every step of Wireshark's captures) on
+  Linux and macOS (Homebrew's tshark, the newest release); a problem fails
+  the job, the run's summary lists them and its artifact has both reports.
+  Run it yourself after a tshark upgrade or a change to parsing:
 
   ```sh
   uv run python -u test/realworld/run.py --fetch wireshark -j 4 --out /tmp/ws.json
