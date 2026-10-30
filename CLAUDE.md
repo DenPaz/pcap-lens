@@ -2208,10 +2208,13 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   addresses unless `allowPublic` (`resolve_target`), IPv4 first; a TCP
   connection tries the next address when one fails, and the one that worked
   goes first (CI's `localhost` was `::1` first, the test server IPv4 only:
-  nothing arrived); a connect counts as done only when `getpeername()` works
-  too (`_not_connected`): macOS reported a refused connect as writable with
-  `SO_ERROR` 0, and the refusal `recv` raised then dropped its data instead
-  of trying the next address (macOS CI on the 0.27.0 PR). `replay.pcap`
+  nothing arrived). macOS's kqueue selector returns reading and writing as
+  two entries of one `select()` (Linux's epoll merges them), so `_service`
+  skips an entry whose socket is no longer the connection's: when a read
+  entry's refusal moved to the next address, the write entry was the old
+  socket's and made the new, still connecting one look open; its data was
+  sent too early and lost (macOS CI on the 0.27.0 PR;
+  `test_a_refused_address_falls_back_with_split_readiness_events` plays it). `replay.pcap`
   (`generate.replay_packets`, synthetic: no real interception data or
   internal dissectors in the repository) has HI2/HI3-like connections that
   overlap, a retransmission, an overlap, a gap, a reset, one without a
