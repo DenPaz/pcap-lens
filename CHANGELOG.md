@@ -25,10 +25,10 @@ commit) that made it. The format follows
 
 - Replay to…: a connection refused on a destination's first address (as
   `localhost` on `::1` can be) no longer loses its data on macOS; it goes to
-  the next address. [32abdb2]
+  the next address. [1af1199]
 
 [b17dbee]: https://github.com/DenPaz/pcap-lens/commit/b17dbee
-[32abdb2]: https://github.com/DenPaz/pcap-lens/commit/32abdb2
+[1af1199]: https://github.com/DenPaz/pcap-lens/commit/1af1199
 
 ## 0.26.0 — 2026-10-30
 
