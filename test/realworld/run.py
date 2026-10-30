@@ -774,9 +774,11 @@ BODIES = 3  # HTTP response bodies read per capture
 
 def _overview(run: Run, frames: int) -> None:
     """The capture overview: every packet counted once, the timeline adding
-    up, and its rows' filters valid. Rows that count packets (addresses,
-    protocols, DNS results) match their filters exactly; the others count
-    messages or connections, so their filters only have to match some."""
+    up, and its rows' filters valid. Rows that count packets (addresses, DNS
+    results) match their filters exactly; protocols are the hierarchy's
+    layers, which a filter can exceed (a UDP header quoted in an ICMP error is
+    no layer); the others count messages or connections, so their filters
+    only have to match some."""
     res = run.call("overview", "overview", {})
     if res is None:
         return
@@ -790,18 +792,24 @@ def _overview(run: Run, frames: int) -> None:
         f"{res['packets']} packets of {frames}, timeline {sum(timeline['packets'])} packets, "
         f"{sum(timeline['bytes'])} of {res['bytes']} bytes in {len(timeline['packets'])} buckets",
     )
-    exact = [res["addresses"], res["protocols"], res["dns"]["rcodes"]]
+    exact = [res["addresses"], res["dns"]["rcodes"]]
+    at_least = [res["protocols"]]
     loose = [res["services"], res["tls"]["versions"], res["tls"]["servers"]]
     loose += [res["http"][k] for k in ("methods", "statuses", "contentTypes", "hosts")]
     loose += [res["dns"][k] for k in ("types", "names")]
-    for card in exact + loose:
+    for card in exact + at_least + loose:
         for item in card["items"][:OVERVIEW_ROWS]:
             if not item.get("filter"):
                 continue
             got = _count(run, item["filter"])
             if got is None:
                 continue
-            ok = got == item["count"] if card in exact else got >= 1
+            if card in exact:
+                ok = got == item["count"]
+            elif card in at_least:
+                ok = got >= item["count"]
+            else:
+                ok = got >= 1
             run.check(
                 "overview row filter",
                 ok,

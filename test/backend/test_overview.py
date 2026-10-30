@@ -102,6 +102,24 @@ def test_protocols_come_from_the_hierarchy_report() -> None:
     assert counts == {"ip": 62, "tcp": 53, "http": 11, "dns": 9, "udp": 9, "data-text-lines": 3}
 
 
+def test_addresses_of_inner_headers_count_once_per_packet() -> None:
+    # An ICMP error quoting a packet: the quoted header's addresses count too,
+    # as ip.addr == … matches them, and the sender only once.
+    summary = overview.Overview()
+    summary.add(
+        _row(**{
+            "frame.number": "1", "frame.len": "70",
+            "ip.src": "192.0.2.1\x1e10.0.0.5", "ip.dst": "10.0.0.5\x1e198.51.100.9",
+        })
+    )  # fmt: skip
+    items = summary.to_json()["addresses"]["items"]
+    assert sorted((i["label"], i["count"]) for i in items) == [
+        ("10.0.0.5", 1),
+        ("192.0.2.1", 1),
+        ("198.51.100.9", 1),
+    ]
+
+
 def test_a_quote_in_a_name_is_escaped() -> None:
     summary = overview.Overview()
     summary.add(_row(**{"frame.number": "1", "http.request.method": "GET", "http.host": 'a"b'}))

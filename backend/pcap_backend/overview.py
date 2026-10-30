@@ -2,10 +2,12 @@
 summed into the cards the Overview panel shows.
 
 The protocols come from the protocol hierarchy tap (``-z io,phs``) in the same
-pass: it walks each packet's tree, as a protocol's display filter does, while
-``frame.protocols`` lists only the layers dissectors registered (everything
-an ``exported_pdu`` packet carries was missing from it, found by the
-real-capture harness).
+pass, as Wireshark's Protocol Hierarchy counts them: the protocol layers of
+each packet's tree. ``frame.protocols`` lists only the layers dissectors
+registered (everything an ``exported_pdu`` packet carries was missing from
+it, found by the real-capture harness). A protocol's filter can match more
+packets than either: it also finds headers nested inside another protocol's
+item, such as the UDP header an ICMP error quotes.
 
 Packets over time, the busiest addresses, the protocols packets carry, TCP
 services (by the SYNs that open connections), and HTTP, DNS and TLS at a
@@ -202,9 +204,10 @@ class Overview:
         self._tls(cell)
 
     def _addresses(self, cell: Any, length: int) -> None:
-        src = _first(cell("ip.src")) or _first(cell("ipv6.src"))
-        dst = _first(cell("ip.dst")) or _first(cell("ipv6.dst"))
-        for addr in {src, dst} - {""}:
+        # Every header's addresses (tunnels, ICMP errors quoting a packet), once
+        # per packet: what ``ip.addr == …`` matches.
+        names = ("ip.src", "ip.dst", "ipv6.src", "ipv6.dst")
+        for addr in {a for name in names for a in _each(cell(name))}:
             self.address_packets[addr] += 1
             self.address_bytes[addr] += length
 

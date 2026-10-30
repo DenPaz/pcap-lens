@@ -1544,8 +1544,9 @@ filesize` needs a file) block by block: one chunk can hold many blocks, so
   packets and bytes per interval since the first packet (at most `buckets`,
   default 120: the interval steps through `INTERVALS`, each a multiple of the
   one before, so buckets merge exactly, then doubles; negative relative
-  times count in bucket 0); addresses (outermost `ip`/`ipv6` source and
-  destination, a packet counted once per address; top `TOP` by bytes);
+  times count in bucket 0); addresses (every header's `ip`/`ipv6` source and
+  destination, tunnels' and quoted ones too, a packet counted once per address:
+  what `ip.addr == …` matches; top `TOP` by bytes);
   protocols from the protocol hierarchy tap in the same pass (`-z io,phs`,
   its report after the rows on stdout; `Overview.hierarchy`: a name under
   several parents adds up, one nested in itself counts once, link layers and
@@ -1553,7 +1554,10 @@ filesize` needs a file) block by block: one chunk can hold many blocks, so
   Not `frame.protocols`: it lists the layers dissectors registered, so the
   harness found protocols under `exported_pdu` missing from it and names
   (`atmarp`, `tecmp`) whose filters match nothing; the hierarchy walks the
-  tree, as a filter does. TCP services (SYN without
+  tree's protocol layers, as Wireshark's Protocol Hierarchy does. A filter can
+  still match more (a UDP header an ICMP error quotes is inside the ICMP item,
+  no layer: `udp` matched 452 packets of `afs.pcap`, the hierarchy 427), so the
+  harness checks protocol rows as a lower bound. TCP services (SYN without
   ACK, by destination port: connections, filter `tcp.port == N`); HTTP
   methods/hosts per request message, status codes/content types per
   response (pipelined messages each count, so a filter can match fewer
@@ -1561,8 +1565,8 @@ filesize` needs a file) block by block: one chunk can hold many blocks, so
   server names per ClientHello and the version each ServerHello chose
   (supported_versions, else the hello's version; frames holding both hellos
   left out). Cards are `{total, items: [{label, count, bytes?, filter}],
-more}`; rows that count packets (addresses, protocols, DNS results) match
-  their filters exactly (tests and the harness check). Cached on the `_Open`
+more}`; rows that count packets (addresses, DNS results) match their filters
+  exactly (tests and the harness check). Cached on the `_Open`
   (`overviews`, by scope and buckets) once indexed. The host waits for
   `whenIndexed()` ("Waiting for the packets…"), asks `overview` with
   progress plus `capture_info` and `expert_summary` (either may fail: their
