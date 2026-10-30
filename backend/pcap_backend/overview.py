@@ -53,6 +53,25 @@ INTERVALS = (
 # nothing. "text" isn't a protocol: tshark's pseudo-field for text lines, whose
 # filter matches them anywhere in a tree (the hierarchy only counts top-level ones).
 _PLUMBING = frozenset(("eth", "ethertype", "sll", "sll2", "null", "loop", "raw", "frame", "text"))
+# The intervals in nanoseconds: buckets are cut in integers, since a float
+# division put a packet at 0.043 s into the 0.042 s bucket (0.043 / 0.001 =
+# 42.999…), whose filter then left it out (Codex review).
+_INTERVALS_NS = tuple(round(s * 1_000_000_000) for s in INTERVALS)
+_NS = 1_000_000_000
+
+
+def nanoseconds(text: str) -> int:
+    """tshark's decimal seconds (``frame.time_relative``) as integer
+    nanoseconds, without going through a float; 0 when unreadable."""
+    text = text.strip()
+    sign = -1 if text.startswith("-") else 1
+    whole, _, frac = text.lstrip("+-").partition(".")
+    if not whole.isdigit() or (frac and not frac.isdigit()):
+        try:
+            return round(float(text) * _NS)
+        except ValueError:
+            return 0
+    return sign * (int(whole) * _NS + int((frac + "000000000")[:9]))
 
 
 def _true(cell: str) -> bool:
@@ -70,17 +89,22 @@ class Timeline:
         self.bytes: list[int] = []
 
     @property
-    def interval(self) -> float:
-        if self.step < len(INTERVALS):
-            return INTERVALS[self.step]
-        return float(INTERVALS[-1] * 2 ** (self.step - len(INTERVALS) + 1))
+    def interval_ns(self) -> int:
+        if self.step < len(_INTERVALS_NS):
+            return _INTERVALS_NS[self.step]
+        return _INTERVALS_NS[-1] << (self.step - len(_INTERVALS_NS) + 1)
 
-    def add(self, seconds: float, length: int) -> None:
-        index = int(max(seconds, 0.0) / self.interval)
+    @property
+    def interval(self) -> float:
+        return self.interval_ns / _NS
+
+    def add(self, ns: int, length: int) -> None:
+        """A packet ``ns`` nanoseconds after the first one."""
+        index = max(ns, 0) // self.interval_ns
         while index >= self.buckets:
-            old = self.interval
+            old = self.interval_ns
             self.step += 1
-            factor = round(self.interval / old)
+            factor = self.interval_ns // old
             self.packets = _merge(self.packets, factor)
             self.bytes = _merge(self.bytes, factor)
             index //= factor
@@ -137,7 +161,8 @@ class Overview:
     def __init__(self, buckets: int = DEFAULT_BUCKETS) -> None:
         self.packets = 0
         self.bytes = 0
-        self.duration = 0.0
+        self.first_ns: int | None = None
+        self.last_ns: int | None = None
         self.timeline = Timeline(buckets)
         self.address_packets: Counter[str] = Counter()
         self.address_bytes: Counter[str] = Counter()
@@ -185,14 +210,13 @@ class Overview:
             return cells[_COL[name]]
 
         length = _int(cell("frame.len")) or 0
-        try:
-            seconds = float(cell("frame.time_relative"))
-        except ValueError:
-            seconds = 0.0
+        ns = nanoseconds(cell("frame.time_relative"))
         self.packets += 1
         self.bytes += length
-        self.duration = max(self.duration, seconds)
-        self.timeline.add(seconds, length)
+        # (The counted packets' own span: a filter may leave out the capture's start.)
+        self.first_ns = ns if self.first_ns is None else min(self.first_ns, ns)
+        self.last_ns = ns if self.last_ns is None else max(self.last_ns, ns)
+        self.timeline.add(ns, length)
         self._addresses(cell, length)
         if _true(cell("tcp.flags.syn")) and not _true(cell("tcp.flags.ack")):
             port = _first(cell("tcp.dstport"))
@@ -226,12 +250,14 @@ class Overview:
                 self.content_types[content_type] += 1
 
     def _dns(self, cell: Any) -> None:
-        if not cell("dns.flags.response"):
+        flags = _each(cell("dns.flags.response"))
+        if not flags:
             return
-        if _true(cell("dns.flags.response")):
+        if any(f in ("True", "1", "true") for f in flags):
+            # A frame can carry several messages (DNS over TCP): each result
+            # once, as the row's filter matches the frame for any of them.
             self.dns["responses"] += 1
-            rcode = _int(_first(cell("dns.flags.rcode")))
-            if rcode is not None:
+            for rcode in {_int(r) for r in _each(cell("dns.flags.rcode"))} - {None}:
                 self.rcodes[str(rcode)] += 1
             return
         self.dns["queries"] += 1
@@ -256,11 +282,18 @@ class Overview:
                 key = f"{'s' if chosen else 'v'}{version}"
                 self.versions[key] += 1
 
+    @property
+    def duration(self) -> float:
+        """Seconds from the first counted packet to the last."""
+        if self.first_ns is None or self.last_ns is None:
+            return 0.0
+        return round(max(self.last_ns - self.first_ns, 0) / _NS, 6)
+
     def to_json(self) -> dict[str, Any]:
         return {
             "packets": self.packets,
             "bytes": self.bytes,
-            "duration": round(self.duration, 6),
+            "duration": self.duration,
             "timeline": self.timeline.to_json(),
             "addresses": {
                 "total": len(self.address_packets),

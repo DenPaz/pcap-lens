@@ -1540,11 +1540,15 @@ filesize` needs a file) block by block: one chunk can hold many blocks, so
   the statistics menu): one fields pass over every packet (`overview.FIELDS`,
   aggregator `\x1e`, `-Y` only for the "limit to display filter" scope and
   the ignored packets' exclusion; progress `phase: "overview"` by frame
-  number), summed by `Overview`: packets, bytes, duration; a `Timeline` of
-  packets and bytes per interval since the first packet (at most `buckets`,
-  default 120: the interval steps through `INTERVALS`, each a multiple of the
-  one before, so buckets merge exactly, then doubles; negative relative
-  times count in bucket 0); addresses (every header's `ip`/`ipv6` source and
+  number), summed by `Overview`: packets, bytes, duration (the counted packets'
+  own span: limited to a filter, the capture's start isn't counted; Codex
+  review); a `Timeline` of packets and bytes per interval since the first packet
+  (at most `buckets`, default 120: the interval steps through `INTERVALS`, each
+  a multiple of the one before, so buckets merge exactly, then doubles; times
+  are cut as integer nanoseconds (`nanoseconds` reads tshark's decimal string),
+  since a float division put a packet at 0.043 s into the bucket before it,
+  whose filter left it out: Codex review; negative relative times count in
+  bucket 0); addresses (every header's `ip`/`ipv6` source and
   destination, tunnels' and quoted ones too, a packet counted once per address:
   what `ip.addr == …` matches; top `TOP` by bytes);
   protocols from the protocol hierarchy tap in the same pass (`-z io,phs`,
@@ -1561,7 +1565,9 @@ filesize` needs a file) block by block: one chunk can hold many blocks, so
   ACK, by destination port: connections, filter `tcp.port == N`); HTTP
   methods/hosts per request message, status codes/content types per
   response (pipelined messages each count, so a filter can match fewer
-  packets); DNS results per response, query types and names per query; TLS
+  packets); DNS results per response frame (each distinct result once: a TCP
+  frame can carry several messages, and the row's filter matches the frame for
+  any of them; Codex review), query types and names per query; TLS
   server names per ClientHello and the version each ServerHello chose
   (supported_versions, else the hello's version; frames holding both hellos
   left out). Cards are `{total, items: [{label, count, bytes?, filter}],

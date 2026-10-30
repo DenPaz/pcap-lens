@@ -17,10 +17,10 @@ FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 def test_timeline_merges_buckets_exactly() -> None:
     timeline = overview.Timeline(10)
     for i in range(100):
-        timeline.add(i * 0.001, 10)
+        timeline.add(i * 1_000_000, 10)
     assert timeline.interval == 0.01
     assert timeline.packets == [10] * 10 and timeline.bytes == [100] * 10
-    timeline.add(5.0, 1)  # (needs 1 s buckets: 0.01 → 0.02 → 0.1 → 0.2 → 1)
+    timeline.add(5_000_000_000, 1)  # (needs 1 s buckets: 0.01 → 0.02 → 0.1 → 0.2 → 1)
     assert timeline.interval == 1
     assert timeline.packets == [100, 0, 0, 0, 0, 1]
     assert sum(timeline.bytes) == 1001
@@ -30,13 +30,26 @@ def test_every_interval_is_a_multiple_of_the_one_before() -> None:
     for small, big in zip(overview.INTERVALS, overview.INTERVALS[1:], strict=False):
         assert abs(big / small - round(big / small)) < 1e-9
     timeline = overview.Timeline(2)
-    timeline.add(10 * 365 * 86400.0, 1)  # (past the last interval: it doubles)
+    timeline.add(10 * 365 * 86400 * 10**9, 1)  # (past the last interval: it doubles)
     assert timeline.interval > overview.INTERVALS[-1] and len(timeline.packets) <= 2
+
+
+def test_a_packet_on_a_bucket_boundary_goes_in_the_bucket_it_starts() -> None:
+    # 0.043 / 0.001 is 42.999… in floats: the packet belongs to bucket 43,
+    # whose filter (>= 0.043 && < 0.044) is the one that matches it.
+    assert overview.nanoseconds("0.043000000") == 43_000_000
+    assert overview.nanoseconds("-0.5") == -500_000_000
+    assert overview.nanoseconds("12") == 12 * 10**9
+    assert overview.nanoseconds("1e-3") == 1_000_000  # (not tshark's, but read)
+    assert overview.nanoseconds("") == 0
+    timeline = overview.Timeline(120)
+    timeline.add(overview.nanoseconds("0.043"), 60)
+    assert timeline.packets[43] == 1 and sum(timeline.packets) == 1
 
 
 def test_a_time_before_the_first_packet_counts_in_the_first_bucket() -> None:
     timeline = overview.Timeline(10)
-    timeline.add(-0.5, 7)
+    timeline.add(-500_000_000, 7)
     assert timeline.packets == [1] and timeline.bytes == [7]
 
 
@@ -118,6 +131,27 @@ def test_addresses_of_inner_headers_count_once_per_packet() -> None:
         ("192.0.2.1", 1),
         ("198.51.100.9", 1),
     ]
+
+
+def test_the_duration_is_the_counted_packets_span() -> None:
+    # Limited to a filter whose packets start 100 s in: 1 s, not 101 s.
+    summary = overview.Overview()
+    for t in ("100.0", "101.0"):
+        summary.add(_row(**{"frame.number": "1", "frame.time_relative": t}))
+    assert summary.to_json()["duration"] == 1.0
+
+
+def test_each_dns_result_in_a_frame_counts_once() -> None:
+    # Two responses in one TCP segment (NoError and NXDomain), then an NXDomain.
+    summary = overview.Overview()
+    summary.add(_row(**{
+        "frame.number": "1", "dns.flags.response": "True\x1eTrue",
+        "dns.flags.rcode": "0\x1e3",
+    }))  # fmt: skip
+    summary.add(_row(**{"frame.number": "2", "dns.flags.response": "True", "dns.flags.rcode": "3"}))
+    dns = summary.to_json()["dns"]
+    assert dns["responses"] == 2
+    assert {i["label"]: i["count"] for i in dns["rcodes"]["items"]} == {"NXDomain": 2, "NoError": 1}
 
 
 def test_a_quote_in_a_name_is_escaped() -> None:
