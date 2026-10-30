@@ -518,10 +518,14 @@ def test_replay_keeps_the_recorded_timing(
 
     # HI2's data was recorded from 0.05 s to 0.25 s. Measured where the service
     # sees it, not as the request's duration, which includes tshark's start-up
-    # (0.22 s for a first, cold run on Windows CI, then less).
-    assert spread(1) >= 0.18
-    assert spread(2) >= 0.08
-    assert spread(0) < spread(1)
+    # (0.22 s for a first, cold run on Windows CI, then less). Each event is
+    # paced from the first, which can go out late (its connect, and Windows'
+    # 15.6 ms timer ticks) while the last is on time: 40 ms of slack (Windows
+    # CI measured 0.0786 s for the 0.1 s at twice the speed).
+    normal, twice = spread(1), spread(2)
+    assert normal >= 0.16
+    assert 0.06 <= twice < normal * 0.75
+    assert spread(0) < normal
 
 
 @pytest.mark.tshark
