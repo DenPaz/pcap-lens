@@ -388,8 +388,10 @@ def test_a_refused_address_falls_back_with_split_readiness_events(
     # socket's: it looked connected, and the data was sent too early and lost.
     hi2, _, _ = services
     closed_port = _free_port()
-    refused: set[int] = set()
-    connecting: set[int] = set()  # (sockets the selector hasn't reported writable yet)
+    # The sockets themselves, not their id(): a closed socket's id can come back
+    # for the next one (Python 3.12 CI).
+    refused: set[socket.socket] = set()
+    connecting: set[socket.socket] = set()  # (not yet reported writable)
     real_connect_ex = socket.socket.connect_ex
     real_recv = socket.socket.recv
     real_send = socket.socket.send
@@ -398,23 +400,23 @@ def test_a_refused_address_falls_back_with_split_readiness_events(
     def connect_ex(self: socket.socket, address: Any) -> int:
         code = real_connect_ex(self, address)
         if address[1] == closed_port:
-            refused.add(id(self))
+            refused.add(self)
             return errno.EINPROGRESS  # (refused later, as on macOS)
-        connecting.add(id(self))  # (Linux connects on loopback at once; macOS later)
+        connecting.add(self)  # (Linux connects on loopback at once; macOS later)
         return code
 
     def send(self: socket.socket, data: Any, *args: Any) -> int:
-        if id(self) in connecting:
+        if self in connecting:
             raise OSError(errno.ENOTCONN, "not connected yet")
         return real_send(self, data, *args)
 
     def recv(self: socket.socket, *args: Any) -> bytes:
-        if id(self) in refused:
+        if self in refused:
             raise ConnectionRefusedError(errno.ECONNREFUSED, "refused")
         return real_recv(self, *args)
 
     def getsockopt(self: socket.socket, level: int, name: int, *args: Any) -> Any:
-        if id(self) in refused and (level, name) == (socket.SOL_SOCKET, socket.SO_ERROR):
+        if self in refused and (level, name) == (socket.SOL_SOCKET, socket.SO_ERROR):
             return errno.ECONNREFUSED
         return real_getsockopt(self, level, name, *args)
 
@@ -430,7 +432,7 @@ def test_a_refused_address_falls_back_with_split_readiness_events(
             ]
             for key, bit in ready:
                 if bit == selectors.EVENT_WRITE:
-                    connecting.discard(id(key.fileobj))
+                    connecting.discard(key.fileobj)
             return ready
 
     monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
