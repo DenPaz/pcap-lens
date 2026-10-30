@@ -21,7 +21,14 @@ commit) that made it. The format follows
 - The real-capture harness also checks the overview, and runs every Monday
   on Linux and macOS (the _Real captures_ workflow). [b17dbee]
 
+### Fixed
+
+- Replay to…: a connection refused on a destination's first address (as
+  `localhost` on `::1` can be) no longer loses its data on macOS; it goes to
+  the next address. [32abdb2]
+
 [b17dbee]: https://github.com/DenPaz/pcap-lens/commit/b17dbee
+[32abdb2]: https://github.com/DenPaz/pcap-lens/commit/32abdb2
 
 ## 0.26.0 — 2026-10-30
 
