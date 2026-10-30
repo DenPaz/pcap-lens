@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.27.0 — 2026-10-30
+
 ### Added
 
 - Capture Overview: the capture at a glance, from one pass. Totals and rates,
