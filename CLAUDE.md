@@ -2273,6 +2273,17 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   pcapng lost an ATM Sniffer file's LANE details), that is a note, not a
   check. Wireshark's 290: 212 captures replayed twice; tcpdump's 612
   (`--quick`): 246; no problems.
+  `_sessions` checks the session tables against tshark's own filters (one
+  row per `http.request` frame and per DNS query frame, TLS connections =
+  the TCP streams and QUIC connections with a ClientHello, each row's
+  filter matching its packets, three response bodies), and `_follow`
+  follows a copy of every uncompressed pcap/pcapng written in four pieces
+  cut anywhere (`FOLLOW_PIECES`): tshark's packet count, no warning, the
+  plain open's first and last rows. Their first run found a file holding
+  more than the pipe's 64 KiB never opening when followed (`started` was
+  set after the first write, which nobody read yet). Wireshark's 290: 278
+  with session tables, 146 followed; tcpdump's 612 (`--quick`): 602 each;
+  no problems.
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage
