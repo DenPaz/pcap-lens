@@ -1509,14 +1509,22 @@ filesize` needs a file) block by block: one chunk can hold many blocks, so
   the pipe the index pass reads (`tshark -r - -l`), so a half-written
   record waits. `follow_format`: only uncompressed pcap/pcapng
   ("pending" for an empty file, which gets `START_TIMEOUT_S` for its
-  header). A file that gets shorter (rotated, truncated) or whose header
-  changes stops following with a warning ("Following the file stopped: …").
+  header). A file that gets shorter (truncated), whose path now names
+  another file (`st_dev`/`st_ino` of the path vs the open handle: rotated by
+  a rename, removed) or whose header changes stops following with a warning
+  ("Following the file stopped: …"). Its packet comments are read at open
+  and again when following ends (`_capture_ended`: packets written meanwhile
+  can have some), and `save_comments` is refused while following (the
+  writer still appends; Codex review: a save that deletes one comment
+  rewrites them all, so unread ones were lost).
   `capture_stop` stops it; "capture" notifications (`stats`, `stopped`)
   carry `follow: true` and `file`, so the webview's `#status-capture` says
   "Following x.pcap · 0:12 · N packets" (`lib.captureStatusText`) and the
   empty list "Waiting for packets in x…". No saved index, no capinfos.
   Host: the command reloads the editor with `followNext`; a
-  FileSystemWatcher (`watchGrowth`, debounced) offers Follow / Reload once
+  FileSystemWatcher (`watchGrowth`, at most one check a second, also while
+  the writer keeps changing the file: a delay restarted on every change
+  waited for writing to pause; Codex review) offers Follow / Reload once
   per editor when the file on disk grows, not within `SAVE_QUIET_MS` of our
   own in-place save (`document.savedAt`). `pcapViewer.following` puts Stop
   Following in the editor title (Start Capture is hidden meanwhile).
@@ -1530,13 +1538,19 @@ dns_queries | tls_servers}`, `http_body {frame}`): one row per HTTP
   request, DNS query or TLS server, each from one `-Y` fields pass
   (aggregator `\x1e`), in the statistics panel (`SESSION_KINDS`,
   `lib.sessionSummary` for the status line from the result's `summary`).
-  HTTP: request with its response (`http.response_in`), status, content
-  type, size and response time; unanswered = "No response". DNS: ID, name,
+  HTTP: a row per request message (pipelined ones share a packet), the
+  responses paired per TCP stream in order (HTTP/1.1; tshark's
+  `http.request_in` names only the first of pipelined responses; 1xx don't
+  end a request; `request_in` only without a TCP stream), status, content
+  type, size and the response time from the two frames' times; unanswered =
+  "No response". DNS: ID, name,
   type, result (`DNS_RCODES`), answers ("A 192.0.2.80, CNAME …") and
   latency. TLS: grouped by server, port, transport (TCP or QUIC) and SNI:
   connections, handshakes without a ServerHello, versions and cipher suites
   the server chose (`TLS_VERSIONS`, `CIPHER_SUITES`; tshark prints numbers;
-  GREASE ignored), the ALPN it chose, clients. Row filters are `frame.number
+  GREASE ignored), the ALPN it chose (ServerHello, or TLS 1.3's
+  EncryptedExtensions, type 8, when tshark decrypts the handshake; Codex
+  review), clients. Row filters are `frame.number
 in {…}` / `tcp.stream in {…}` / `quic.connection.number in {…}` with
   commas and ranges (`_set_filter`, `frame_ranges`: tshark 4.2 refuses
   spaces), else address and port past `MAX_SET_FILTER`. _Show Response Body_
@@ -1545,7 +1559,8 @@ http.file_data`: the decoded body, de-chunked and decompressed, at most
   `MAX_BODY_BYTES`) and shows it in Show Packet Bytes (text, image, hex…);
   the row menu also opens the request or response in a new window.
   `sessions.pcap` (generate.py `sessions_packets`) has five HTTP requests
-  (a PNG, a 500, a 404 on port 8080, one unanswered), five DNS queries (an
+  (a PNG, a 500, a 404 on port 8080, one unanswered) and two pipelined
+  ones at the end (frames 59 and 61), five DNS queries (an
   MX, an NXDOMAIN, one unanswered) and three TLS connections (TLS 1.2 and
   1.3 to one SNI with ALPN h2, one without a ServerHello).
 - **Extcap helpers** (`extcap.py`, `extcap_config {interface}`,
@@ -2274,7 +2289,7 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   check. Wireshark's 290: 212 captures replayed twice; tcpdump's 612
   (`--quick`): 246; no problems.
   `_sessions` checks the session tables against tshark's own filters (one
-  row per `http.request` frame and per DNS query frame, TLS connections =
+  row per HTTP request message and per DNS query frame, TLS connections =
   the TCP streams and QUIC connections with a ClientHello, each row's
   filter matching its packets, three response bodies), and `_follow`
   follows a copy of every uncompressed pcap/pcapng written in four pieces

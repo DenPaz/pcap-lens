@@ -1759,8 +1759,8 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
           }
         });
       const { page, log } = await open("http_requests", "HTTP Requests");
-      await waitRows(page, 5);
-      assert.equal(await page.textContent(".status"), "5 requests · 1 without a response");
+      await waitRows(page, 7);
+      assert.equal(await page.textContent(".status"), "7 requests · 1 without a response");
       assert.deepEqual(
         (await rows(page)).map((r) => [r[4], r[7], r[11]]),
         [
@@ -1769,6 +1769,8 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
           ["POST", "500", "250"],
           ["GET", "404", "5"],
           ["GET", "", ""],
+          ["GET", "200", "20"], // (two pipelined requests, answered in one packet)
+          ["GET", "404", "20"],
         ],
       );
       await page.click("table.stats tbody tr >> nth=1");

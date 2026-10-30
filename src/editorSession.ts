@@ -1072,9 +1072,13 @@ export class PcapEditorSession {
       ),
     );
     let timer: NodeJS.Timeout | undefined;
+    // At most one check a second, also while a writer keeps the file changing
+    // (restarting the delay on every change would wait for writing to pause).
     const changed = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => void this.offerFollow(), 1000);
+      timer ??= setTimeout(() => {
+        timer = undefined;
+        void this.offerFollow();
+      }, 1000);
     };
     watcher.onDidChange(changed);
     this.growthWatcher = {

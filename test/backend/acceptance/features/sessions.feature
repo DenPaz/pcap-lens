@@ -9,7 +9,7 @@ Feature: Session tables
 
   Scenario: HTTP requests with their responses
     When I request the "http_requests" statistics
-    Then the statistics have 5 rows
+    Then the statistics have 7 rows
     And row 1 has "Method" "GET", "Host" "www.example.com", "Path" "/index.html", "Status" 200, "Content Type" "text/html", "Size (bytes)" 15
     And row 1 filters on "frame.number in {4,6}"
     And row 2 has "Path" "/logo.png", "Content Type" "image/png"
@@ -20,6 +20,11 @@ Feature: Session tables
     When I request the "http_requests" statistics
     Then row 5 has "Path" "/slow", "Reason" "No response"
     And row 5 filters on "frame.number in {26}"
+
+  Scenario: Pipelined HTTP requests, each with its own response
+    When I request the "http_requests" statistics
+    Then row 6 has "Path" "/a.txt", "Status" 200
+    And row 7 has "Path" "/b.txt", "Status" 404, "Reason" "Not Found"
 
   Scenario: DNS queries with their answers
     When I request the "dns_queries" statistics

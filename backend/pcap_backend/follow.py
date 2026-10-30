@@ -276,11 +276,18 @@ class FollowFile:
             self.notify(event)
 
     def _size(self, fh: IO[bytes], position: int) -> int:
-        """The file's size now (ToolError when it got shorter than what was read)."""
-        size = os.fstat(fh.fileno()).st_size
-        if size < position:
+        """The file's size now (ToolError when it got shorter than what was read,
+        or when the path names another file: rotated by a rename, or removed)."""
+        own = os.fstat(fh.fileno())
+        try:
+            now = self.path.stat()
+        except FileNotFoundError:
+            raise ToolError(f"{self.path.name} was removed or renamed") from None
+        if own.st_ino and (now.st_dev, now.st_ino) != (own.st_dev, own.st_ino):
+            raise ToolError(f"{self.path.name} was replaced by another file (rotated?)")
+        if own.st_size < position:
             raise ToolError(f"{self.path.name} got shorter (it was replaced or truncated)")
-        return size
+        return own.st_size
 
     def _send(self, data: bytes) -> bool:
         """Write to the index pass's pipe; False once tshark is gone."""

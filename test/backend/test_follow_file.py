@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gzip
 import struct
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -15,7 +16,7 @@ import pytest
 from pcap_backend import follow
 from pcap_backend.capture import _Blocks
 from pcap_backend.pcap_service import PcapService
-from pcap_backend.protocol import RequestContext
+from pcap_backend.protocol import InvalidParamsError, RequestContext
 from pcap_backend.tshark import ToolError
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -212,6 +213,62 @@ def test_a_file_that_gets_shorter_stops_following(service: PcapService, tmp_path
     assert any(
         "Following the file stopped" in w and "got shorter" in w for w in done["info"]["warnings"]
     )
+
+
+@pytest.mark.tshark
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows refuses to rename an open file")
+def test_a_file_rotated_by_a_rename_stops_following(service: PcapService, tmp_path: Path) -> None:
+    """A writer that renames the file and starts a new one at the same path:
+    the open file grows no more, so following ends with a warning."""
+    head, pieces = _pieces(FIXTURES / "http.pcap")
+    path = tmp_path / "rotating.pcap"
+    path.write_bytes(head + b"".join(pieces))
+    events = _events(service)
+    _follow(service, path)
+    _wait(lambda: _rows(service) == HTTP_PACKETS)
+    path.rename(tmp_path / "rotating.pcap.1")
+    path.write_bytes(head + b"".join(pieces) * 2)  # (larger: size alone wouldn't tell)
+    _wait(lambda: _index_done(events) is not None)
+    done = _index_done(events)
+    assert done is not None and done["info"]["frames"] == HTTP_PACKETS
+    assert any("replaced by another file" in w for w in done["info"]["warnings"])
+
+
+@pytest.mark.tshark
+def test_a_followed_files_comments_are_read_and_saving_waits(
+    service: PcapService, tmp_path: Path
+) -> None:
+    """Its packet comments are read like any capture's (saving one edit
+    rewrites them all), and saving waits until following stops: another
+    program is still writing the file."""
+    path = tmp_path / "comments.pcapng"
+    path.write_bytes((FIXTURES / "comments.pcapng").read_bytes())
+    expected = PcapService()
+    try:
+        expected.open({"path": str(FIXTURES / "comments.pcapng")}, RequestContext())
+        want = expected.packet_comments({"all": True}, RequestContext())["comments"]
+    finally:
+        expected.close()
+    assert want, "the fixture has comments"
+    events = _events(service)
+    _follow(service, path)
+    total = len(list(want))
+    _wait(lambda: _rows(service) >= int(max(want, key=int)))
+    with pytest.raises(InvalidParamsError, match="stop following"):
+        service.save_comments({"inPlace": True, "edits": {}}, RequestContext())
+    service.capture_stop({}, RequestContext())
+    _wait(lambda: _index_done(events) is not None)
+    got = service.packet_comments({"all": True}, RequestContext())["comments"]
+    assert got == want and len(got) == total
+    first = min(want, key=int)
+    service.save_comments({"inPlace": True, "edits": {first: ""}}, RequestContext())
+    after = PcapService()
+    try:
+        after.open({"path": str(path)}, RequestContext())
+        kept = after.packet_comments({"all": True}, RequestContext())["comments"]
+    finally:
+        after.close()
+    assert kept == {n: t for n, t in want.items() if n != first}, "the other comments stay"
 
 
 @pytest.mark.tshark

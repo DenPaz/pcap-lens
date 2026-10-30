@@ -772,19 +772,19 @@ BODIES = 3  # HTTP response bodies read per capture
 
 def _sessions(run: Run) -> None:
     """The HTTP, DNS and TLS session tables, checked against tshark's own
-    filters: one row per request frame and per query frame, one connection
+    filters: one row per request message and per query frame, one connection
     per TCP stream or QUIC connection with a ClientHello, and each row's
     filter matching its packets."""
     http = run.call("sessions http", "stats", {"kind": "http_requests"})
     if http is not None:
         rows = http["rows"]
         summary = http.get("summary") or {}
-        frames = _count(run, "http.request")
-        if frames is not None:
+        messages = http_request_messages(run.report.capture)
+        if messages is not None:
             run.check(
                 "sessions http rows",
-                len(rows) == frames == summary.get("requests"),
-                f"{len(rows)} rows, summary {summary}, {frames} request frames",
+                len(rows) == messages == summary.get("requests"),
+                f"{len(rows)} rows, summary {summary}, {messages} requests",
             )
         for row in rows[:SESSION_ROWS]:
             want = 2 if row.get("response") else 1
@@ -843,6 +843,26 @@ def _sessions(run: Run) -> None:
             )
 
 
+def http_request_messages(capture: str) -> int | None:
+    """HTTP request messages as tshark reads them (pipelined requests share a packet)."""
+    try:
+        out = subprocess.run(
+            ["tshark", "-n", "-r", capture, *HTTP_REQUEST_ARGS],  # noqa: S607
+            capture_output=True,
+            timeout=300,
+            check=False,
+            text=True,
+            errors="replace",
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return sum(len([m for m in line.split("\x1e") if m]) for line in out.split("\n"))
+
+
+HTTP_REQUEST_ARGS = (
+    "-Y", "http.request", "-T", "fields", "-e", "http.request.method",
+    "-E", "occurrence=a", "-E", "aggregator=\x1e",
+)  # fmt: skip
 TLS_HELLO_ARGS = (
     "-Y", "tls.handshake.type == 1",
     "-T", "fields", "-e", "tcp.stream", "-e", "quic.connection.number",

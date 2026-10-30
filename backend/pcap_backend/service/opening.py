@@ -228,11 +228,12 @@ class OpeningMixin(CommentsMixin):
                 cache_key=key,
                 capture=capture,
             )
-            if capture is None:
+            if capture is None or isinstance(capture, FollowFile):
+                # (A followed file is read again once following ends: packets
+                # written meanwhile can have comments too.)
                 self._pool.submit(self._load_comments, self._file)
             else:
-                # (dumpcap writes no packet comments; a followed file's show after a reload)
-                self._file.comments_ready.set()
+                self._file.comments_ready.set()  # (dumpcap writes no packet comments)
             if not complete:
                 info.frames = len(indexing.store.rows)
                 indexing.attached = True
@@ -319,7 +320,7 @@ class OpeningMixin(CommentsMixin):
             indexing.store = base
             if capture is not None:
                 capture.join()  # the file is complete
-                self._capture_warnings(info, capture)
+                self._capture_ended(info, capture)
                 info.size = path.stat().st_size
                 meta = self._capinfos(tshark, path, indexing.token)
             else:
@@ -446,8 +447,14 @@ class OpeningMixin(CommentsMixin):
         if event is not None:
             self.notify("index", event)
 
-    @staticmethod
-    def _capture_warnings(info: CaptureInfo, capture: LiveSource) -> None:
+    def _capture_ended(self, info: CaptureInfo, capture: LiveSource) -> None:
+        """The capture or the following ended: its warnings, and a followed
+        file's comments read again (packets written meanwhile can have some)."""
+        with self._lock:
+            f = self._file if isinstance(capture, FollowFile) else None
+            if f is not None and f.capture is capture:
+                f.comments_ready.clear()
+                self._pool.submit(self._load_comments, f)
         if capture.error:
             what = "Following the file" if isinstance(capture, FollowFile) else "The capture"
             info.warnings.append(f"{what} stopped: {capture.error}")

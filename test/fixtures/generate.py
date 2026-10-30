@@ -1307,7 +1307,8 @@ def sessions_packets() -> list[Packet]:
     TLS: two connections to 198.51.100.20:443 for api.example.com (TLS 1.2
     with ECDHE-RSA-AES128-GCM-SHA256, then TLS 1.3 with TLS_AES_128_GCM_SHA256,
     both choosing h2) and one to 203.0.113.5:443 for cdn.example.net that
-    gets no ServerHello."""
+    gets no ServerHello. Last, pipelined HTTP to pipe.example.com: two GETs
+    in one segment, answered by two responses in one segment."""
     timed: list[tuple[float, Packet]] = []
 
     def step(s: _TcpSession, at: float, action: Any, *args: Any) -> None:
@@ -1392,6 +1393,15 @@ def sessions_packets() -> list[Packet]:
         step(s, at + 0.01, s.client_send, _client_hello(sni, [b"h2", b"http/1.1"], tls13))
         if cipher is not None:
             step(s, at + 0.04, s.server_send, _server_hello(cipher, b"h2", tls13))
+    pipe = _TcpSession(SESSIONS_CLIENT, "192.0.2.81", 51102, 80)
+    step(pipe, 3.0, pipe.handshake)
+    two = http_request("GET", "/a.txt", "pipe.example.com") + http_request(
+        "GET", "/b.txt", "pipe.example.com"
+    )
+    step(pipe, 3.01, pipe.client_send, two)
+    answers = http_response("200 OK", "text/plain", b"a")
+    answers += http_response("404 Not Found", "text/plain", b"b")
+    step(pipe, 3.03, pipe.server_send, answers)
     timed.sort(key=lambda tp: tp[0])
     for at, pkt in timed:
         pkt.time = BASE_TS + at

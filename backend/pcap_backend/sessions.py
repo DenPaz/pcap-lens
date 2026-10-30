@@ -5,16 +5,20 @@ into the statistics panel's table model (stats.Table): one row per request,
 query or server rather than per packet, each with a display filter for its
 packets and the packet it starts at.
 
-* HTTP (HTTP/1.x): a response names its request (``http.request_in``) and
-  how long it took (``http.time``), so one pass pairs them; a request no
-  response names is "No response".
+* HTTP (HTTP/1.x): each request message is a row (pipelined requests share
+  a packet). Responses answer a connection's requests in order (HTTP/1.1),
+  so they are paired per TCP stream: tshark's ``http.request_in`` names only
+  the first of pipelined responses. 1xx responses don't end a request; a
+  request nothing answers is "No response".
 * DNS: a response names its query (``dns.response_to``) and the time
   (``dns.time``); answers are gathered per type (tshark has no one field
   for an answer's data).
 * TLS: ClientHellos and ServerHellos per connection (TCP stream, or QUIC
   connection), grouped by server and the name the client asked for (SNI):
   versions, cipher suites and ALPN the servers chose, and connections whose
-  ClientHello got no ServerHello. ALPN is what the servers chose.
+  ClientHello got no ServerHello. ALPN is what the servers chose: in the
+  ServerHello up to TLS 1.2, in the EncryptedExtensions with TLS 1.3 (seen
+  when tshark can decrypt the handshake).
 
 tshark prints cipher suites, DNS types and reply codes as numbers; the names
 below are the common ones (others show as numbers).
@@ -22,6 +26,7 @@ below are the common ones (others show as numbers).
 
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
@@ -37,7 +42,7 @@ HTTP_FIELDS = (
     "ip.src", "ipv6.src", "tcp.srcport", "ip.dst", "ipv6.dst", "tcp.dstport",
     "http.request.method", "http.host", "http.request.uri", "http.request.version",
     "http.response.code", "http.response.phrase", "http.content_type",
-    "http.content_length", "http.time", "http.request_in",
+    "http.content_length", "http.request_in",
 )  # fmt: skip
 
 DNS_FILTER = "dns"
@@ -60,7 +65,7 @@ _DNS_ANSWERS = (
     ("dns.srv.target", "SRV"),
 )
 
-TLS_FILTER = "tls.handshake.type == 1 || tls.handshake.type == 2"
+TLS_FILTER = "tls.handshake.type == 1 || tls.handshake.type == 2 || tls.handshake.type == 8"
 TLS_FIELDS = (
     "frame.number", "tcp.stream", "quic.connection.number",
     "ip.src", "ipv6.src", "ip.dst", "ipv6.dst",
@@ -139,6 +144,15 @@ def _each(text: str) -> list[str]:
     return [v for v in text.split(AGGREGATOR) if v]
 
 
+def _nth(text: str, i: int, count: int) -> str:
+    """Message ``i`` of ``count`` in one packet: its own occurrence when the
+    field has one per message, else (one message) the first."""
+    values = text.split(AGGREGATOR) if text else []
+    if len(values) == count:
+        return values[i]
+    return values[0] if count == 1 and values else ""
+
+
 def dns_type(value: int | None) -> str:
     return "" if value is None else DNS_TYPES.get(value, f"TYPE{value}")
 
@@ -191,39 +205,63 @@ def _cells(line: str, count: int) -> list[str] | None:
 
 def http_requests(lines: Iterable[str]) -> Table:
     """HTTP requests (rows in capture order) with their responses."""
-    requests: dict[int, dict[str, Any]] = {}
+    requests: list[dict[str, Any]] = []
+    pending: dict[int, deque[dict[str, Any]]] = {}  # per TCP stream, in order
+    by_frame: dict[int, list[dict[str, Any]]] = {}  # (no TCP stream: http.request_in)
     for line in lines:
         cells = _cells(line, len(HTTP_FIELDS))
         if cells is None or not cells[0].isdigit():
             continue
         c = dict(zip(HTTP_FIELDS, cells, strict=False))
         frame = int(c["frame.number"])
-        method = _first(c["http.request.method"])
-        if method:
-            requests[frame] = {
+        time = _float(c["frame.time_relative"])
+        stream = _int(_first(c["tcp.stream"]))
+        methods = c["http.request.method"].split(AGGREGATOR) if c["http.request.method"] else []
+        for i, method in enumerate(methods):
+            request = {
                 "frame": frame,
-                "time": _float(c["frame.time_relative"]),
-                "stream": _int(c["tcp.stream"]),
+                "index": i,
+                "time": time,
                 "client": _endpoint(_first(c["ip.src"] or c["ipv6.src"]), _first(c["tcp.srcport"])),
                 "server": _endpoint(_first(c["ip.dst"] or c["ipv6.dst"]), _first(c["tcp.dstport"])),
                 "method": method,
-                "host": _first(c["http.host"]),
-                "uri": _first(c["http.request.uri"]),
-                "version": _first(c["http.request.version"]),
+                "host": _nth(c["http.host"], i, len(methods)),
+                "uri": _nth(c["http.request.uri"], i, len(methods)),
+                "version": _nth(c["http.request.version"], i, len(methods)),
             }
+            requests.append(request)
+            if stream is not None:
+                pending.setdefault(stream, deque()).append(request)
+            else:
+                by_frame.setdefault(frame, []).append(request)
+        if methods:
             continue
-        request = _int(_first(c["http.request_in"]))
-        code = _int(_first(c["http.response.code"]))
-        if request is None or code is None or request not in requests:
-            continue
-        requests[request].update(
-            response=frame,
-            status=code,
-            phrase=_first(c["http.response.phrase"]),
-            contentType=_first(c["http.content_type"]).split(";", 1)[0].strip(),
-            size=_int(_first(c["http.content_length"])),
-            ms=_ms(_float(_first(c["http.time"]))),
-        )
+        codes = c["http.response.code"].split(AGGREGATOR) if c["http.response.code"] else []
+        for i, text in enumerate(codes):
+            code = _int(text)
+            if code is None:
+                continue
+            final = code >= 200  # (1xx: the request is still waiting for its answer)
+            if stream is not None:
+                queue = pending.get(stream)
+                target = queue[0] if queue else None
+                if queue and final:
+                    queue.popleft()
+            else:
+                asked = _int(_nth(c["http.request_in"], i, len(codes)))
+                waiting = [r for r in by_frame.get(asked or -1, []) if not r.get("final")]
+                target = waiting[0] if waiting else None
+            if target is None:
+                continue  # (its request isn't in the capture)
+            target.update(
+                response=frame,
+                final=final,
+                status=code,
+                phrase=_nth(c["http.response.phrase"], i, len(codes)),
+                contentType=_nth(c["http.content_type"], i, len(codes)).split(";", 1)[0].strip(),
+                size=_int(_nth(c["http.content_length"], i, len(codes))),
+                ms=None if time is None or target["time"] is None else _ms(time - target["time"]),
+            )
     table = Table(
         "http_requests",
         "HTTP Requests",
@@ -243,7 +281,7 @@ def http_requests(lines: Iterable[str]) -> Table:
         ],
     )
     answered = 0
-    for r in sorted(requests.values(), key=lambda r: r["frame"]):
+    for r in sorted(requests, key=lambda r: (r["frame"], r["index"])):
         response = r.get("response")
         answered += response is not None
         frames = [r["frame"], response] if response is not None else [r["frame"]]
@@ -421,11 +459,15 @@ def tls_servers(lines: Iterable[str]) -> Table:
                 sni=_first(c["tls.handshake.extensions_server_name"]),
             )
         conn = conns.get(key)
-        if 2 in kinds and conn is not None and not conn.answered:
+        if conn is None or 1 in kinds:
+            continue  # (a ClientHello's ALPN is what the client offers)
+        if 2 in kinds and not conn.answered:
             supported = _int(_first(c["tls.handshake.extensions.supported_version"]))
             conn.answered = True
             conn.version = tls_version(supported or _int(_first(c["tls.handshake.version"])))
             conn.cipher = cipher_suite(_int(_first(c["tls.handshake.ciphersuite"])))
+        if kinds & {2, 8} and not conn.alpn:
+            # (TLS 1.3 sends it in the EncryptedExtensions, after the ServerHello)
             conn.alpn = _first(c["tls.handshake.extensions_alpn_str"])
     servers: dict[tuple[str, str, str, str], _Server] = {}
     for conn in sorted(conns.values(), key=lambda c: c.first):
