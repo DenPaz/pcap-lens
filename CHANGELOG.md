@@ -7,6 +7,14 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- Replay to… sends UDP datagrams up to UDP's limit on macOS too (it refused
+  those over 9 KB), and says when a recorded datagram is larger than UDP
+  carries [88c6f7a]
+
+[88c6f7a]: https://github.com/DenPaz/pcap-lens/commit/88c6f7a
+
 ## 0.27.0 — 2026-10-30
 
 ### Added
