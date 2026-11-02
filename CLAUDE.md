@@ -83,8 +83,9 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
   (typescript-eslint caps TypeScript, so TS 7 waits). mocha 12 is ESM-only:
   the VS Code smoke suite loads it with `await import("mocha")`. Node ≥ 22.13
   is needed for the dev tools. Python dev tools: `uv lock --upgrade`;
-  pytest stays below 9.2 (pyproject) until pytest-bdd supports it (9.0.0
-  reads `FixtureManager._arg2fixturedefs`, which 9.2 renamed).
+  pytest 9.2 needs pytest-bdd ≥ 9.0.1 (9.0.0 read
+  `FixtureManager._arg2fixturedefs`, which 9.2 renamed: every acceptance
+  scenario failed), so pyproject asks for that and no pytest cap.
 - Node tests that start the backend use `PCAP_VIEWER_PYTHON` if set, else the
   uv `.venv` interpreter, so they run on 3.14 even when the system `python3` is older.
 - pytest turns `ResourceWarning` into errors: leaked tshark pipes are bugs.
