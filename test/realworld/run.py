@@ -388,7 +388,11 @@ def _exercise(run: Run, path: Path, cache: Path) -> None:
             return
         took = time.monotonic() - start
         if done.get("event") == "failed":
-            run.report.steps.append(Step("index", "problem", took, json.dumps(done)[:400]))
+            # A tshark crash is tshark's bug (Wireshark's newer test captures
+            # crash 4.2.2 while indexing too), as for a request.
+            crashed = str(done.get("message", "")).startswith("tshark crashed (")
+            status = "note" if crashed else "problem"
+            run.report.steps.append(Step("index", status, took, json.dumps(done)[:400]))
             return
         run.report.steps.append(Step("index", "ok", took))
     info = run.call("capture_info", "capture_info") or {}
@@ -554,7 +558,11 @@ def _collect_names(nodes: list[dict[str, Any]], out: set[str]) -> None:
 def _check_tree(run: Run, n: int, detail: dict[str, Any]) -> None:
     """Each field must lie in its byte source, with its raw value there. A
     field that fits no source at all is tshark's own position (its Babel
-    dissector reports offsets past the packet): a note, not our problem."""
+    dissector reports offsets past the packet): a note, not our problem. So
+    is a bit field outside its source (its value is the masked one, no
+    bytes to compare), which another source holds only by its length: BMC's
+    fields in "Bit-reversed Data" mostly carry frame offsets, so a coding
+    group at 17 fits the frame's range but not its bytes."""
     data = [bytes.fromhex(s.get("hex") or "") for s in detail.get("sources") or []]
     if not data:
         return
@@ -566,6 +574,12 @@ def _check_tree(run: Run, n: int, detail: dict[str, Any]) -> None:
             return False
         return len(raw) != 2 * size or data[i][pos : pos + size].hex() == raw
 
+    def holds(i: int, pos: int, size: int, raw: str) -> bool:
+        """Evidence that source ``i`` is the field's: its bytes there, or, for
+        a field without a value (QUIC's CRYPTO data), its range."""
+        masked = bool(raw) and len(raw) != 2 * size
+        return not masked and fits(i, pos, size, raw)
+
     def walk(nodes: list[dict[str, Any]]) -> None:
         for node in nodes:
             pos, size, src = node.get("pos"), node.get("size"), node.get("src", 0)
@@ -573,7 +587,7 @@ def _check_tree(run: Run, n: int, detail: dict[str, Any]) -> None:
                 raw = node.get("value") or ""
                 if not fits(src, pos, size, raw):
                     what = f"{node.get('name') or node.get('label', '')[:30]} {pos}+{size} in {src}"
-                    others = [i for i in range(len(data)) if i != src and fits(i, pos, size, raw)]
+                    others = [i for i in range(len(data)) if i != src and holds(i, pos, size, raw)]
                     (wrong if others else upstream).append(
                         what + (f", fits {others}" if others else "")
                     )
@@ -1242,13 +1256,23 @@ def _replay(run: Run, path: Path) -> Baseline | None:
         return None
     sent = {t["key"]: t for t in res.get("targets") or []}
     planned = sum(t["bytes"] for t in targets)
+    errors = [f"{k}: {e}" for k, t in sent.items() for e in t.get("errors") or []]
+    # Datagrams larger than UDP carries (a jumbogram, a malformed length) are
+    # never sent, and the replay says so: the capture's, not a problem.
+    oversized = sum(t.get("tooLarge", 0) for t in sent.values())
+    only_oversized = oversized and oversized == sum(t["errorCount"] for t in sent.values())
+    unsent = sum(t["dropped"] for t in sent.values()) if only_oversized else 0
     run.check(
         "replay sent = planned",
-        sum(t["bytes"] for t in sent.values()) == planned,
+        sum(t["bytes"] for t in sent.values()) + unsent == planned,
         f"{sum(t['bytes'] for t in sent.values())} bytes sent, {planned} planned",
     )
-    errors = [f"{k}: {e}" for k, t in sent.items() for e in t.get("errors") or []]
-    run.check("replay errors", not errors, "; ".join(errors)[:600])
+    if only_oversized:
+        run.report.steps.append(
+            Step("replay errors", "note", 0.0, f"{oversized} datagrams larger than UDP carries")
+        )
+    else:
+        run.check("replay errors", not errors, "; ".join(errors)[:600])
     tcp_sent = sum(t["bytes"] - t["dropped"] for t in sent.values() if t["key"].startswith("tcp"))
     tcp_got = sum(len(c) for c in sink.connections)
     if tcp_got < tcp_sent and any(sink.reset):

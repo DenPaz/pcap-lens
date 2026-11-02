@@ -2214,7 +2214,14 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   entry's refusal moved to the next address, the write entry was the old
   socket's and made the new, still connecting one look open; its data was
   sent too early and lost (macOS CI on the 0.27.0 PR;
-  `test_a_refused_address_falls_back_with_split_readiness_events` plays it). `replay.pcap`
+  `test_a_refused_address_falls_back_with_split_readiness_events` plays it).
+  UDP sockets ask for a 256 KiB send buffer (`UDP_SEND_BUFFER`): macOS
+  refuses a datagram larger than SO_SNDBUF, which starts at
+  `net.inet.udp.maxdgram` (9216), so 60 KB datagrams failed with "Message
+  too long" there (the first weekly real-capture run). A datagram larger
+  than UDP carries (`MAX_DATAGRAM`: 65,507 over IPv4, 65,527 over IPv6; a
+  recorded jumbogram or malformed length) isn't sent: `tooLarge` counts it,
+  with an error saying why. `replay.pcap`
   (`generate.replay_packets`, synthetic: no real interception data or
   internal dissectors in the repository) has HI2/HI3-like connections that
   overlap, a retransmission, an overlap, a gap, a reset, one without a
@@ -2360,6 +2367,18 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   set after the first write, which nobody read yet). Wireshark's 290: 278
   with session tables, 146 followed; tcpdump's 612 (`--quick`): 602 each;
   no problems.
+  The first weekly run (Wireshark's set had grown to 484 with its
+  compressed `*_coverage` captures) found: tshark 4.2.2 crashing while a
+  streaming open indexed (a note now, as a crashed request already was),
+  datagrams over macOS's default UDP send limit and over UDP's own (see
+  _Replay to Service_; too-large ones are a note), and BMC's bit fields in
+  "Bit-reversed Data" with frame offsets (a bit field's masked value can't
+  be compared, so fitting another source by length alone is a note).
+  `realworld.yml` restores and saves the captures as separate steps
+  (`actions/cache/save` with `if: always()`): `actions/cache` saves only
+  when the job succeeds, and a run with problems fails. tshark 4.6.9 on
+  macOS timed out (120 s) on `cosem_coverage.pcap.gz`'s conversations,
+  expert, VoIP, triage and profile passes; not yet looked into.
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage

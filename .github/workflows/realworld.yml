@@ -64,8 +64,10 @@ jobs:
           python-version-file: .python-version
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       - run: uv sync --locked
-      # Downloaded once, then kept: each run saves under a new key and restores the latest.
-      - uses: actions/cache@v6
+      # Downloaded once, then kept: each run saves under a new key and restores the
+      # latest. Restore and save are separate steps, since actions/cache only saves
+      # when the job succeeds, and a run that finds problems fails.
+      - uses: actions/cache/restore@v6
         with:
           path: ~/.cache/pcap-lens-realworld
           key: realworld-captures-${{ runner.os }}-${{ github.run_id }}
@@ -108,6 +110,11 @@ jobs:
               echo '```'
             done
           } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/cache/save@v6
+        if: always()
+        with:
+          path: ~/.cache/pcap-lens-realworld
+          key: realworld-captures-${{ runner.os }}-${{ github.run_id }}
       - uses: actions/upload-artifact@v7
         if: always()
         with:
