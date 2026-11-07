@@ -7,6 +7,14 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Changed
+
+- The MCP server dissects captures as the viewer does: your Lua dissectors,
+  Decode As rules, preferences and Wireshark profile, and plugins from
+  `WIRESHARK_PLUGIN_DIR`; a new `plugins` tool lists what tshark loads [1c63cd2]
+
+[1c63cd2]: https://github.com/DenPaz/pcap-lens/commit/1c63cd2
+
 ## 0.27.1 — 2026-11-07
 
 ### Changed
