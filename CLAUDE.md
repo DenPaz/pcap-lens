@@ -2474,7 +2474,32 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   at activation (`registerMcp`) and whenever VS Code starts a server, so a
   configuration pasted into another assistant survives updates (refreshing
   only when VS Code started a server left Claude Code on the old code after
-  an update or an F5). _PCAP:
+  an update or an F5). **Dissection as in the viewer**: `--options`
+  names `globalStorage/mcp/dissection.json` (`writeDissection`:
+  `mcpConfig.dissectionFile`, format `pcap-lens-dissection`, the settings
+  outside any folder as `default`, then each workspace folder's that differ;
+  `mcpDissection` takes Lua scripts, Decode As, prefs (with the TLS key log),
+  profile, protocol and heuristic switches and GeoIP folders: never
+  decryption keys, which stay in secret storage, nor name resolution: the
+  server keeps `-n`), written at activation, when one of
+  `DISSECTION_SETTINGS` or the workspace folders change, and on granted
+  trust. The server (`read_dissection`, `Dissection.for_path`: the deepest
+  folder holding the capture, else `default`; only `OPTION_KEYS`) reads it
+  again when its size or mtime change, reopens a capture whose options
+  changed (they are in `_Entry.stamp`), fails a call when the file is
+  unreadable (results would be dissected differently from the viewer) and
+  only warns when it is missing; capture_info gives `dissectedWith`. The
+  capture-less service (validate_filter, search_fields) gets the default
+  through `PcapService.configure` (open's dissection parameters without a
+  capture, not an RPC), so Lua fields validate. Compiled plugins need
+  nothing: the server runs the same tshark as the same user; but a folder
+  given by `WIRESHARK_PLUGIN_DIR` (which replaces the global plugin folder:
+  `<dir>/<major.minor>/` for compiled plugins, `<dir>` for Lua ones) or
+  `WIRESHARK_CONFIG_DIR` in the shell VS Code started from is copied into
+  the server's environment (`wiresharkEnv`), so a configuration pasted
+  into another assistant keeps them. The `plugins` tool lists what tshark
+  loads (`tshark_plugins`) plus the Lua scripts from the options; as root
+  it warns that personal plugins are ignored. _PCAP:
   Copy MCP Server Configuration…_ (`MCP_TARGETS`: `claude mcp add pcap-lens
 --scope user --env PYTHONPATH=… -- …` with `shellQuote`; the name first, as
   `--env` takes several values and swallowed it, an

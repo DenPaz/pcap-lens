@@ -526,6 +526,9 @@ suite("PCAP Lens smoke test", () => {
     // (The tests' user data, and so global storage, sit inside the repository.)
     assert.ok(copy.endsWith(path.join("mcp", "backend")), copy);
     assert.notEqual(path.resolve(copy), path.resolve(ext!.extensionPath, "backend"));
+    // The viewer's dissection settings, in the file the server reads again when it changes.
+    const options = server.args[server.args.indexOf("--options") + 1] as string;
+    assert.equal(JSON.parse(fs.readFileSync(options, "utf8")).format, "pcap-lens-dissection");
     assert.match(
       (await text("claude-code")) ?? "",
       /^claude mcp add pcap-lens --scope user --env PYTHONPATH=\S+ -- /,

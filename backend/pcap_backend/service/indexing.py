@@ -10,10 +10,17 @@ from pcap_backend import ber, coloring
 from pcap_backend.cache import RowStore
 from pcap_backend.capture import LiveSource
 from pcap_backend.index_cache import IndexCache
-from pcap_backend.protocol import InvalidParamsError, RequestContext, UnsupportedFormatError
+from pcap_backend.protocol import (
+    InvalidParamsError,
+    RequestContext,
+    UnsupportedFormatError,
+    param,
+    str_list,
+)
 from pcap_backend.tshark import (
     CRASH_HINT,
     EMPTY_CAPTURE,
+    DissectionOptions,
     StreamResult,
     ToolError,
     Tshark,
@@ -228,6 +235,21 @@ def _names_param(params: dict[str, Any]) -> dict[str, Any] | None:
     if names is not None and not isinstance(names, dict):
         raise InvalidParamsError("parameter 'names' must be dict")
     return names
+
+
+def _dissection_options(params: dict[str, Any]) -> DissectionOptions:
+    """``open``'s dissection parameters as options (ConfigError when invalid)."""
+    return DissectionOptions.from_params(
+        str_list(params, "lua"),
+        str_list(params, "decodeAs"),
+        param(params, "prefs", dict, {}),
+        _names_param(params),
+        param(params, "profile", str, ""),
+        param(params, "protocols", dict, {}),
+        param(params, "heuristics", dict, {}),
+        param(params, "keys", list, []),
+        str_list(params, "geoip"),
+    )
 
 
 def _inline_coloring(raw: Any) -> _InlineColoring | None:

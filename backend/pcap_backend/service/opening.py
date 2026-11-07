@@ -31,11 +31,11 @@ from .helpers import _fields_args, _readable_capture, _rejected_fields, sniff_fo
 from .indexing import (
     _attempt_store,
     _cache_from,
+    _dissection_options,
     _drop_rejected,
     _finish_index_pass,
     _index_error,
     _inline_coloring,
-    _names_param,
     _pass_fields,
     _pass_lines,
     _personal_folders,
@@ -103,6 +103,20 @@ class OpeningMixin(CommentsMixin):
         """
         return self._open(params, ctx)
 
+    def configure(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """Dissection options (``open``'s ``lua``, ``decodeAs``, ``prefs``,
+        ``profile``, ``protocols``, ``heuristics``, ``geoip``…) for requests made
+        without an open capture: filter checks and the field catalogue, so Lua
+        fields validate. Not an RPC: the MCP server's capture-less service uses
+        it. ``{warnings}``: missing scripts, unknown protocols."""
+        options = _dissection_options(params)
+        options, warnings = self._known_switches(options, ctx)
+        tshark = self._require_tshark().with_options(options)
+        tshark.profile_config(ctx.token)  # (a profile that doesn't exist: ConfigError)
+        with self._lock:
+            self._tshark = tshark
+        return {"warnings": options.check_scripts() + warnings}
+
     def _open(
         self,
         params: dict[str, Any],
@@ -112,17 +126,7 @@ class OpeningMixin(CommentsMixin):
         """``open``, or with ``live`` (capture_start) a capture into that file."""
         path = _readable_capture(param(params, "path", str)) if live is None else live[1]
         follow = live is None and bool(params.get("follow"))
-        options = DissectionOptions.from_params(
-            str_list(params, "lua"),
-            str_list(params, "decodeAs"),
-            param(params, "prefs", dict, {}),
-            _names_param(params),
-            param(params, "profile", str, ""),
-            param(params, "protocols", dict, {}),
-            param(params, "heuristics", dict, {}),
-            param(params, "keys", list, []),
-            str_list(params, "geoip"),
-        )
+        options = _dissection_options(params)
         base_fields = {c.field for c in BASE_COLUMNS}
         columns = [
             c for c in self._check_fields(str_list(params, "columns")) if c not in base_fields

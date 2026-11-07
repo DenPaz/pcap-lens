@@ -69,6 +69,13 @@ MAX_STREAM_BYTES = 64 << 10
 MAX_LISTED = 500
 CACHE_BYTES = 1 << 30
 
+# The dissection options file (--options) the extension writes: the viewer's
+# settings per workspace folder, so the tools dissect captures as the viewer
+# does. Only these ``open`` parameters are taken from it: never decryption
+# keys, which stay in VS Code's secret storage.
+OPTIONS_FORMAT = "pcap-lens-dissection"
+OPTION_KEYS = ("lua", "decodeAs", "prefs", "profile", "protocols", "heuristics", "geoip")
+
 # Files list_captures offers (tshark reads by content, so this only decides
 # what to list; any file under a root can be opened by path).
 _CAPTURE_NAME = re.compile(
@@ -136,12 +143,83 @@ class McpConfig:
     cache_dir: Path | None = None
     tshark: str | None = None
     max_open: int = MAX_OPEN
+    options_file: Path | None = None
+
+
+@dataclass(frozen=True)
+class Dissection:
+    """The dissection options file as read: options per folder (the deepest
+    folder holding a capture wins), else ``default``."""
+
+    default: dict[str, Any] = field(default_factory=dict)
+    folders: tuple[tuple[Path, dict[str, Any]], ...] = ()
+    warning: str | None = None
+
+    def for_path(self, path: Path) -> dict[str, Any]:
+        for root, options in self.folders:
+            if path.is_relative_to(root):
+                return options
+        return self.default
+
+
+def _options_of(raw: object, where: str) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ToolFailureError(f"{where} must be an object")
+    return {k: raw[k] for k in OPTION_KEYS if raw.get(k) not in (None, "", [], {})}
+
+
+def read_dissection(path: Path) -> Dissection:
+    """``path``'s options; a missing file means tshark's defaults (with a
+    warning: the extension writes it when it starts), an unreadable one is an
+    error, since every result would be dissected differently from the viewer."""
+    try:
+        text = path.read_text("utf-8")
+    except FileNotFoundError:
+        return Dissection(warning=f"{path} doesn't exist: tshark's own settings are used")
+    except OSError as exc:
+        raise ToolFailureError(f"can't read the dissection options {path}: {exc}") from exc
+    try:
+        data = json.loads(text)
+    except ValueError as exc:
+        raise ToolFailureError(f"the dissection options {path} aren't valid JSON: {exc}") from exc
+    if not isinstance(data, dict) or data.get("format") != OPTIONS_FORMAT:
+        raise ToolFailureError(f"{path} isn't a PCAP Lens dissection options file")
+    folders: list[tuple[Path, dict[str, Any]]] = []
+    for i, item in enumerate(data.get("folders") or []):
+        if not isinstance(item, dict) or not isinstance(item.get("root"), str):
+            raise ToolFailureError(f"{path}: folders[{i}] needs a 'root'")
+        root = Path(item["root"]).expanduser().resolve()
+        folders.append((root, _options_of(item.get("options") or {}, f"folders[{i}].options")))
+    folders.sort(key=lambda f: len(f[0].parts), reverse=True)
+    return Dissection(_options_of(data.get("default") or {}, "default"), tuple(folders))
+
+
+def _digest(options: Mapping[str, Any]) -> str:
+    return json.dumps(options, sort_keys=True)
+
+
+def _summary(options: Mapping[str, Any]) -> dict[str, Any]:
+    """What a capture was dissected with, briefly (capture_info)."""
+    out: dict[str, Any] = {}
+    if options.get("lua"):
+        out["luaScripts"] = [Path(str(s)).name for s in options["lua"]]
+    if options.get("decodeAs"):
+        out["decodeAs"] = list(options["decodeAs"])
+    if options.get("profile"):
+        out["wiresharkProfile"] = options["profile"]
+    if options.get("prefs"):
+        out["preferences"] = sorted(options["prefs"])
+    for key in ("protocols", "heuristics"):
+        if options.get(key):
+            out[key] = dict(options[key])
+    return out
 
 
 @dataclass
 class _Entry:
     service: PcapService
-    stamp: tuple[int, int]  # size, mtime_ns when opened
+    stamp: tuple[int, int, str]  # size, mtime_ns and dissection options when opened
+    options: dict[str, Any] = field(default_factory=dict)
     lock: threading.Lock = field(default_factory=threading.Lock)
     opened: bool = False
     users: int = 0  # tool calls using it now (``Captures.pinned``)
@@ -163,6 +241,26 @@ class Captures:
         self._tools_lock = threading.Lock()
         self._local = threading.local()  # this thread's pinned entries
         self.tshark_version = ""
+        self._tools_options: str | None = None
+        self._dissection = Dissection()
+        self._dissection_stamp: tuple[int, int] | None = None
+        self._dissection_lock = threading.Lock()
+
+    def dissection(self) -> Dissection:
+        """The options file (--options), read again when it changed."""
+        path = self.config.options_file
+        if path is None:
+            return Dissection()
+        try:
+            st = path.stat()
+            stamp: tuple[int, int] | None = (st.st_size, st.st_mtime_ns)
+        except OSError:
+            stamp = None
+        with self._dissection_lock:
+            if stamp is None or stamp != self._dissection_stamp:
+                self._dissection = read_dissection(path)
+                self._dissection_stamp = stamp
+            return self._dissection
 
     def _new_service(self, ctx: RequestContext) -> PcapService:
         service = PcapService()
@@ -175,10 +273,17 @@ class Captures:
         return service
 
     def tools(self, ctx: RequestContext) -> PcapService:
-        """The service for requests that need tshark but no capture."""
+        """The service for requests that need tshark but no capture, with the
+        default dissection options (so Lua fields validate and are found)."""
+        options = self.dissection().default
+        digest = _digest(options)
         with self._tools_lock:
             if self._tools is None:
                 self._tools = self._new_service(ctx)
+                self._tools_options = None
+            if self._tools_options != digest:
+                self._tools.configure(dict(options), ctx)
+                self._tools_options = digest
             return self._tools
 
     def resolve(self, raw: object, name: str = "capture") -> Path:
@@ -254,16 +359,18 @@ class Captures:
     def get(self, path: Path, ctx: RequestContext) -> PcapService:
         """The capture's service, indexed (opened on first use)."""
         st = path.stat()
-        stamp = (st.st_size, st.st_mtime_ns)
+        options = self.dissection().for_path(path)
+        stamp = (st.st_size, st.st_mtime_ns, _digest(options))
         closed: list[PcapService] = []
         with self._lock:
             entry = self._entries.get(path)
             if entry is not None and entry.stamp != stamp:
-                self._retire(entry, closed)  # the file changed: index it again
+                # The file or its options changed: index it again.
+                self._retire(entry, closed)
                 del self._entries[path]
                 entry = None
             if entry is None:
-                entry = _Entry(self._new_service(ctx), stamp)
+                entry = _Entry(self._new_service(ctx), stamp, options)
                 self._entries[path] = entry
             pins: list[_Entry] | None = getattr(self._local, "pins", None)
             if pins is not None:
@@ -277,7 +384,7 @@ class Captures:
             service.shutdown()
         with entry.lock:
             if not entry.opened:
-                params: dict[str, Any] = {"path": str(path), "names": {}}
+                params: dict[str, Any] = {**entry.options, "path": str(path), "names": {}}
                 if self.config.cache_dir is not None:
                     params["cache"] = {"dir": str(self.config.cache_dir), "maxBytes": CACHE_BYTES}
                 try:
@@ -529,6 +636,16 @@ class Toolbox:
                     [],
                 ),
                 self.list_captures,
+            ),
+            Tool(
+                "plugins",
+                "TShark plugins",
+                "List the plugins tshark loads: compiled dissector plugins (.so, .dll), Lua "
+                "plugins, file-format and codec plugins, each with its version and file, the "
+                "folders tshark loads them from, and the Lua scripts PCAP Lens adds. Use it to "
+                "check that a protocol's dissector is loaded before relying on its fields.",
+                _schema({}, []),
+                self.plugins,
             ),
             Tool(
                 "capture_info",
@@ -807,8 +924,23 @@ class Toolbox:
             "size": info.get("size"),
             "linkType": info.get("linkType"),
             "fileFormat": info.get("fileType"),
-            "warnings": info.get("warnings") or [],
+            "warnings": [*(info.get("warnings") or []), *self._dissection_warning()],
+            "dissectedWith": _summary(self.captures.dissection().for_path(path)),
             "tshark": self.captures.tshark_version,
+        }
+
+    def _dissection_warning(self) -> list[str]:
+        warning = self.captures.dissection().warning
+        return [warning] if warning else []
+
+    def plugins(self, _args: dict[str, Any], ctx: RequestContext) -> Any:
+        res = self.captures.tools(ctx).tshark_plugins({}, ctx)
+        return {
+            "plugins": res["plugins"],
+            "folders": res["folders"],
+            "luaScripts": _summary(self.captures.dissection().default).get("luaScripts", []),
+            "warnings": [*res.get("warnings", []), *self._dissection_warning()],
+            "tshark": res.get("version"),
         }
 
     def count_packets(self, args: dict[str, Any], ctx: RequestContext) -> Any:
@@ -1077,6 +1209,11 @@ def _instructions(config: McpConfig) -> str:
             "can take a while for big files; later calls are fast."
         ),
         "Allowed folders: " + ", ".join(str(r) for r in config.roots) + ".",
+        (
+            "Captures are dissected with tshark's plugins (plugins lists them) and the user's "
+            "PCAP Lens dissection settings (capture_info's dissectedWith), so their protocols' "
+            "fields work in filters."
+        ),
     ]
     if config.allow_packet_data:
         parts.append(
@@ -1322,6 +1459,11 @@ def parse_args(argv: list[str] | None) -> tuple[McpConfig, str]:
         "--cache-dir", help="where saved indexes go (default: the user cache folder)"
     )
     parser.add_argument("--no-cache", action="store_true", help="don't save indexes")
+    parser.add_argument(
+        "--options",
+        help="a JSON file of dissection options per folder (Lua scripts, Decode As, "
+        "preferences, Wireshark profile, protocols), which VS Code keeps up to date",
+    )
     parser.add_argument("--log-level", default="WARNING")
     args = parser.parse_args(argv)
     roots = [Path(r).expanduser().resolve() for r in args.root] or [Path.cwd().resolve()]
@@ -1342,6 +1484,7 @@ def parse_args(argv: list[str] | None) -> tuple[McpConfig, str]:
         stand_ins=args.stand_ins,
         cache_dir=cache,
         tshark=args.tshark,
+        options_file=Path(args.options).expanduser() if args.options else None,
     )
     return config, args.log_level
 

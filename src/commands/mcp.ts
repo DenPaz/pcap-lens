@@ -9,9 +9,12 @@ import {
   MCP_TARGETS,
   McpLaunch,
   McpTarget,
+  dissectionFile,
   mcpConfigText,
+  mcpDissection,
   serverCommand,
   serverEnv,
+  wiresharkEnv,
 } from "../mcpConfig";
 import { whereLabel } from "../remote";
 
@@ -22,7 +25,12 @@ import { whereLabel } from "../remote";
  * _PCAP: Copy MCP Server Configuration…_ gives the snippet other assistants
  * need. Both start Python on a stable copy of the backend
  * (`globalStorage/mcp/backend`), refreshed when the extension's version
- * changes, so a configuration pasted elsewhere survives updates.
+ * changes, so a configuration pasted elsewhere survives updates. The server
+ * dissects captures as the viewer does: `--options` names
+ * `globalStorage/mcp/dissection.json` (each workspace folder's Lua scripts,
+ * Decode As, preferences, profile and protocol switches), which is rewritten
+ * when those settings change and read again by the server, and Wireshark's
+ * plugin and configuration folder variables go into its environment.
  */
 
 interface McpProvider {
@@ -83,6 +91,44 @@ export function stableBackend(context: vscode.ExtensionContext): string {
   return dir;
 }
 
+/** Settings that change how captures are dissected (the options file follows them). */
+const DISSECTION_SETTINGS = [
+  "luaScripts",
+  "dissectorsFolder",
+  "decodeAs",
+  "prefs",
+  "tlsKeyLogFile",
+  "wiresharkProfile",
+  "enabledProtocols",
+  "heuristicDissectors",
+  "geoip",
+];
+
+/**
+ * Write the server's dissection options (the settings outside any folder,
+ * then each workspace folder's) when they changed; their path. Written to a
+ * temporary file and renamed, so the server never reads half of one.
+ */
+export function writeDissection(context: vscode.ExtensionContext): string {
+  const file = path.join(context.globalStorageUri.fsPath, "mcp", "dissection.json");
+  const folders = (vscode.workspace.workspaceFolders ?? [])
+    .filter((f) => f.uri.scheme === "file")
+    .map((f) => ({ root: f.uri.fsPath, options: mcpDissection(readSettings(f.uri)) }));
+  const text = dissectionFile(mcpDissection(readSettings()), folders);
+  try {
+    if (fs.readFileSync(file, "utf8") === text) {
+      return file;
+    }
+  } catch {
+    // (not written yet)
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, text);
+  fs.renameSync(tmp, file);
+  return file;
+}
+
 const mcpSetting = <T>(key: string, fallback: T): T =>
   vscode.workspace.getConfiguration(SECTION).get<T>(key, fallback);
 
@@ -100,10 +146,18 @@ function launch(context: vscode.ExtensionContext, roots: string[]): McpLaunch | 
     return { error: py.error };
   }
   let backendDir: string;
+  let optionsFile: string;
   try {
     backendDir = stableBackend(context);
   } catch (err) {
     return { error: `Couldn't copy the backend for the MCP server: ${(err as Error).message}` };
+  }
+  try {
+    optionsFile = writeDissection(context);
+  } catch (err) {
+    return {
+      error: `Couldn't write the MCP server's dissection options: ${(err as Error).message}`,
+    };
   }
   return {
     python: py.python,
@@ -112,7 +166,30 @@ function launch(context: vscode.ExtensionContext, roots: string[]): McpLaunch | 
     allowPacketData: mcpSetting("mcp.allowPacketData", false),
     standIns: mcpSetting("ai.pseudonymizeAddresses", true),
     tsharkPath: settings.tsharkPath || undefined,
+    optionsFile,
+    env: wiresharkEnv(process.env),
   };
+}
+
+/** Keep the options file up to date (the server reads it again when it changes). */
+function followDissection(context: vscode.ExtensionContext, log: vscode.LogOutputChannel): void {
+  const write = () => {
+    try {
+      writeDissection(context);
+    } catch (err) {
+      log.warn(`couldn't write the MCP server's dissection options: ${(err as Error).message}`);
+    }
+  };
+  write();
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (DISSECTION_SETTINGS.some((key) => e.affectsConfiguration(`${SECTION}.${key}`))) {
+        write();
+      }
+    }),
+    vscode.workspace.onDidChangeWorkspaceFolders(write),
+    vscode.workspace.onDidGrantWorkspaceTrust(write),
+  );
 }
 
 /** VS Code's agent mode: the server, reading the workspace folders (else the home folder). */
@@ -139,14 +216,15 @@ function registerProvider(context: vscode.ExtensionContext, log: vscode.LogOutpu
           return [];
         }
         const { command, args } = serverCommand(l);
+        const env = serverEnv(l);
         // (The version changes with the arguments, so VS Code restarts the server.)
         const definition = new found.Stdio(
           "PCAP Lens",
           command,
           args,
-          serverEnv(l),
+          env,
           `${version}+${createHash("sha256")
-            .update(JSON.stringify([command, args]))
+            .update(JSON.stringify([command, args, env]))
             .digest("hex")
             .slice(0, 8)}`,
         );
@@ -240,6 +318,7 @@ export function registerMcp(context: vscode.ExtensionContext, log: vscode.LogOut
   } catch (err) {
     log.warn(`couldn't copy the backend for the MCP server: ${(err as Error)?.message ?? err}`);
   }
+  followDissection(context, log);
   registerProvider(context, log);
   context.subscriptions.push(
     vscode.commands.registerCommand("pcapViewer.copyMcpConfig", (args?: CopyArgs) =>
