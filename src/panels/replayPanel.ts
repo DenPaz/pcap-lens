@@ -26,6 +26,7 @@ import {
   withoutPreset,
 } from "../replayModel";
 import { panelHtml, webviewRoot } from "./panelHtml";
+import { panelColumn, placePanel } from "./placement";
 
 /** The destinations used last, per recorded target (globalState). */
 const DESTINATIONS_KEY = "pcapViewer.replay.destinations";
@@ -148,13 +149,14 @@ export class ReplayPanel {
     this.panel = vscode.window.createWebviewPanel(
       "pcapViewer.replay",
       title,
-      vscode.ViewColumn.Beside,
+      panelColumn(session),
       {
         enableScripts: true,
         localResourceRoots: [root],
         retainContextWhenHidden: true,
       },
     );
+    this.disposables.push(placePanel(this.panel, session));
     this.panel.webview.html = panelHtml(this.panel.webview, root, "replay.js", title);
     session.replayControl = {
       reveal: () => this.panel.reveal(undefined, false),

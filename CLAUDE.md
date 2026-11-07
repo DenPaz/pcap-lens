@@ -939,6 +939,18 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   `Set-Culture pt-BR`.
 - **Never `str.splitlines()` on packet-derived text**: it also splits on
   `\x1c`–`\x1e`, `\x85`, `\u2028`… Stats parsers use `_lines()` (split on `\n`).
+- **Panel placement** (`pcapViewer.panelPlacement`: beside, below;
+  `panels/placement.ts`): every panel but the coloring rules editor opens in
+  `panelColumn(session)` and calls `placePanel` after creating it. VS Code's
+  `Panel` area (Terminal, Problems) only holds single-instance webview
+  _views_, so "below" means an editor group under the capture's: there is
+  no column for it, so the first panel opens in the capture's own group and
+  `workbench.action.moveEditorToBelowGroup` moves it (the new panel is the
+  active editor), making the group when there is none; the column it lands
+  in is remembered per session (`onDidChangeViewState`, also after a drag)
+  and the next panels open there while that group is open. A panel already
+  open stays put when the setting changes. The smoke test checks the layout
+  with `vscode.getEditorLayout` (orientation 1, two groups).
 - **Panels** (`src/panels/`) are separate webview panels beside the editor. They
   share the editor's backend (`session.backend`), close with it
   (`session.onDidDispose`), and send filters/goto back to it. One stats panel

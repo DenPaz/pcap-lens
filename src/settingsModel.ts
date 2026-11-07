@@ -372,6 +372,14 @@ export function normalizePaneLayout(raw: unknown): PaneLayout {
   return PANE_LAYOUTS.find((l) => l === raw) ?? "below";
 }
 
+/** Where analysis panels open (pcapViewer.panelPlacement): beside the capture or below it. */
+export const PANEL_PLACEMENTS = ["beside", "below"] as const;
+export type PanelPlacement = (typeof PANEL_PLACEMENTS)[number];
+
+export function normalizePanelPlacement(raw: unknown): PanelPlacement {
+  return PANEL_PLACEMENTS.find((p) => p === raw) ?? "beside";
+}
+
 /** Packet-list column order and hidden columns (pcapViewer.columnLayout), by column id. */
 export interface ColumnLayout {
   order: string[];

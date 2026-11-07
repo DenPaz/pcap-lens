@@ -1818,6 +1818,19 @@
           ],
           "markdownDescription": "Where the packet details and bytes go in the viewer. The viewer's _Pane Layout_ button changes it too."
         },
+        "pcapViewer.panelPlacement": {
+          "type": "string",
+          "enum": [
+            "beside",
+            "below"
+          ],
+          "default": "beside",
+          "markdownEnumDescriptions": [
+            "Statistics, Follow Stream and the other panels open as tabs beside the capture.",
+            "They open in an editor group under the capture, as tabs there: the capture keeps the whole width."
+          ],
+          "markdownDescription": "Where analysis panels (statistics, Follow Stream, VoIP, Export Objects…) open. A panel already open stays where it is; drag a tab to move it."
+        },
         "pcapViewer.showBytesPane": {
           "type": "boolean",
           "default": true,

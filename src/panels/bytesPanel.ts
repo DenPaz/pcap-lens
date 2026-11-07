@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import type { PcapEditorSession } from "../pcapEditor";
 import { exportFileName, safeFileName } from "../settingsModel";
 import { panelHtml, webviewRoot } from "./panelHtml";
+import { panelColumn, placePanel } from "./placement";
 
 /** A field's bytes as the viewer sends them (the detail's own bytes). */
 export interface PacketBytes {
@@ -90,9 +91,10 @@ export class BytesPanel {
     this.panel = vscode.window.createWebviewPanel(
       "pcapViewer.packetBytes",
       title,
-      vscode.ViewColumn.Beside,
+      panelColumn(session),
       { enableScripts: true, localResourceRoots: [root], retainContextWhenHidden: true },
     );
+    this.disposables.push(placePanel(this.panel, session));
     this.panel.webview.html = panelHtml(this.panel.webview, root, "bytes.js", title);
     this.disposables.push(
       this.panel.webview.onDidReceiveMessage((msg: FromPanel) => void this.onMessage(msg)),

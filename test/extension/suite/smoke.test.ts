@@ -677,6 +677,49 @@ suite("PCAP Lens smoke test", () => {
     await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
   });
 
+  test("panels below the capture: one group under it, shared by the next panel", async () => {
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    const api = (await ext!.activate()) as PcapViewerApi;
+    const cfg = vscode.workspace.getConfiguration("pcapViewer");
+    await cfg.update("panelPlacement", "below", vscode.ConfigurationTarget.Global);
+    try {
+      const uri = vscode.Uri.file(path.join(FIXTURES, "http.pcap"));
+      await vscode.commands.executeCommand("vscode.openWith", uri, "pcapViewer.editor");
+      const session = await waitFor(() =>
+        api.provider.allSessions.find((s) => s.uri.fsPath === uri.fsPath && indexed(s)),
+      );
+      const captureColumn = session.panel.viewColumn;
+      await vscode.commands.executeCommand("pcapViewer.statistics.conversations");
+      const conversations = await waitFor(() =>
+        api.panels.StatsPanel.all.find((p) => p.kind === "conversations" && p.session === session),
+      );
+      // Moved out of the capture's group into a new one under it.
+      const lower = await waitFor(() => {
+        const c = conversations.panel.viewColumn;
+        return c !== undefined && c !== captureColumn ? c : undefined;
+      });
+      const layout = await vscode.commands.executeCommand<{
+        orientation: number;
+        groups: unknown[];
+      }>("vscode.getEditorLayout");
+      assert.equal(layout.orientation, 1, "one group above the other");
+      assert.equal(layout.groups.length, 2);
+      assert.equal(session.panel.viewColumn, captureColumn, "the capture stayed where it was");
+      // The next panel joins that group.
+      session.reveal();
+      await vscode.commands.executeCommand("pcapViewer.statistics.endpoints");
+      const endpoints = await waitFor(() =>
+        api.panels.StatsPanel.all.find((p) => p.kind === "endpoints" && p.session === session),
+      );
+      await waitFor(() => (endpoints.panel.viewColumn === lower ? true : undefined));
+      assert.equal(vscode.window.tabGroups.all.length, 2);
+    } finally {
+      await cfg.update("panelPlacement", undefined, vscode.ConfigurationTarget.Global);
+    }
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
+  });
+
   test("changing name resolution re-indexes open captures", async () => {
     const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
     const api = (await ext!.activate()) as PcapViewerApi;

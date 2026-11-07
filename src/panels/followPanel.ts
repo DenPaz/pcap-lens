@@ -4,6 +4,7 @@ import { ErrorCodes, RpcError } from "../backendClient";
 import type { PcapEditorSession } from "../pcapEditor";
 import { filterOutExpr } from "../settingsModel";
 import { panelHtml, webviewRoot } from "./panelHtml";
+import { panelColumn, placePanel } from "./placement";
 
 export type FollowProto = "tcp" | "udp" | "tls" | "http" | "http2" | "quic" | "websocket";
 
@@ -94,13 +95,14 @@ export class FollowPanel {
     this.panel = vscode.window.createWebviewPanel(
       "pcapViewer.follow",
       title,
-      vscode.ViewColumn.Beside,
+      panelColumn(session),
       {
         enableScripts: true,
         localResourceRoots: [root],
         retainContextWhenHidden: true,
       },
     );
+    this.disposables.push(placePanel(this.panel, session));
     this.panel.webview.html = panelHtml(this.panel.webview, root, "follow.js", title);
     this.disposables.push(
       this.panel.webview.onDidReceiveMessage((msg: FromPanel) => void this.onMessage(msg)),

@@ -5,6 +5,7 @@ import { ErrorCodes, RpcError } from "../backendClient";
 import type { PcapEditorSession } from "../pcapEditor";
 import { safeFileName } from "../settingsModel";
 import { panelHtml, webviewRoot } from "./panelHtml";
+import { panelColumn, placePanel } from "./placement";
 
 /** An object as the backend's export_objects lists it. */
 export interface ExportedObject {
@@ -65,13 +66,14 @@ export class ObjectsPanel {
     this.panel = vscode.window.createWebviewPanel(
       "pcapViewer.objects",
       title,
-      vscode.ViewColumn.Beside,
+      panelColumn(session),
       {
         enableScripts: true,
         localResourceRoots: [root],
         retainContextWhenHidden: true,
       },
     );
+    this.disposables.push(placePanel(this.panel, session));
     this.panel.webview.html = panelHtml(this.panel.webview, root, "objects.js", title);
     this.disposables.push(
       this.panel.webview.onDidReceiveMessage((msg: FromPanel) => void this.onMessage(msg)),

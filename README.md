@@ -208,6 +208,7 @@ The most used:
 | `tlsKeyLogFile`, `wiresharkProfile`                    | TLS key log; Wireshark profile tshark uses         |
 | `columns`, `columnLayout`, `timeFormat`, `listDensity` | The packet list                                    |
 | `paneLayout`, `showBytesPane`                          | Where the details and bytes go                     |
+| `panelPlacement`                                       | Panels beside the capture or below it              |
 | `coloringRules`, `coloringStyle`                       | Coloring rules and how they are drawn              |
 | `savedFilters`, `filterButtons`                        | Named filters and filter buttons                   |
 | `nameResolution.*`                                     | Which names to show; `external` allows DNS lookups |
