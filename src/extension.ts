@@ -28,6 +28,7 @@ import {
   SECTION,
   readColoringStyle,
   readListDensity,
+  readPaneLayout,
   readQuickDetail,
   readSettings,
 } from "./config";
@@ -176,6 +177,14 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
       if (e.affectsConfiguration(`${SECTION}.listDensity`)) {
         for (const s of p.allSessions) {
           s.setListDensity(readListDensity(s.uri));
+        }
+      }
+      if (
+        e.affectsConfiguration(`${SECTION}.paneLayout`) ||
+        e.affectsConfiguration(`${SECTION}.showBytesPane`)
+      ) {
+        for (const s of p.allSessions) {
+          s.setPaneLayout(readPaneLayout(s.uri));
         }
       }
       if (e.affectsConfiguration(`${SECTION}.filterButtons`)) {

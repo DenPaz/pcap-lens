@@ -18,6 +18,7 @@ import {
   getSetting,
   readColoringStyle,
   readListDensity,
+  readPaneLayout,
   readQuickDetail,
   readSettings,
   updateSetting,
@@ -54,6 +55,8 @@ import {
   ColoringRule,
   ColoringStyle,
   ListDensity,
+  normalizePaneLayout,
+  PaneLayout,
   ColumnLayout,
   ColumnSetting,
   DEFAULT_NAME_RESOLUTION,
@@ -239,6 +242,7 @@ export class PcapEditorSession {
           this.post({ type: "commands", commands: this.menuCommands });
           this.setColoringStyle(readColoringStyle(this.uri));
           this.setListDensity(readListDensity(this.uri));
+          this.setPaneLayout(readPaneLayout(this.uri));
           this.setFilterButtons(readSettings().filterButtons);
         }
         void this.onMessage(msg);
@@ -855,6 +859,15 @@ export class PcapEditorSession {
         return;
       case "reload":
         return this.load("Reload");
+      case "setPaneLayout":
+        // (Every viewer gets the new layout from the configuration change.)
+        if (msg.layout !== undefined) {
+          await updateSetting("paneLayout", normalizePaneLayout(msg.layout), this.uri);
+        }
+        if (typeof msg.bytes === "boolean") {
+          await updateSetting("showBytesPane", msg.bytes, this.uri);
+        }
+        return;
       case "filterApplied":
         this.filter = msg.expr;
         this.filterEmitter.fire(msg.expr);
@@ -1618,6 +1631,10 @@ export class PcapEditorSession {
 
   setListDensity(density: ListDensity): void {
     this.post({ type: "listDensity", density });
+  }
+
+  setPaneLayout(p: { layout: PaneLayout; bytes: boolean }): void {
+    this.post({ type: "paneLayout", layout: p.layout, bytes: p.bytes });
   }
 
   setFilterButtons(buttons: FilterButton[]): void {

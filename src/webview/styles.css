@@ -4,8 +4,10 @@
  * follows the active theme.
  */
 :root {
-  --list-height: 50%;
-  --tree-width: 55%;
+  /* The list's share of the editor and the details' share of the rest
+     (pcapViewer.paneLayout decides along which axis; the splitters set them). */
+  --list-size: 50%;
+  --detail-size: 55%;
   /* Detail tree: each level's indent, and where its guide line sits (under the parent's chevron). */
   --tree-indent: 14px;
   --field-highlight: var(--vscode-editor-selectionBackground, rgba(38, 79, 120, 0.8));
@@ -351,9 +353,17 @@ body {
   flex-direction: column;
 }
 
+/* pcapViewer.paneLayout: "below" (the list on top, details and bytes side by
+   side under it), "stacked" (all three one under the other), "beside" (the
+   list on the left, details over bytes on the right). */
+#main[data-layout="beside"] {
+  flex-direction: row;
+}
+
 #list {
-  height: var(--list-height);
+  flex: 0 1 var(--list-size);
   min-height: 60px;
+  min-width: 160px;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -362,19 +372,31 @@ body {
 #bottom {
   flex: 1;
   min-height: 60px;
+  min-width: 120px;
   display: flex;
 }
 
+#main:is([data-layout="stacked"], [data-layout="beside"]) #bottom {
+  flex-direction: column;
+}
+
 #detail {
-  width: var(--tree-width);
+  flex: 0 1 var(--detail-size);
   min-width: 120px;
+  min-height: 40px;
   overflow: auto;
   position: relative;
+}
+
+/* pcapViewer.showBytesPane off: the details take the whole area. */
+#main.no-bytes #detail {
+  flex: 1;
 }
 
 #bytes {
   flex: 1;
   min-width: 120px;
+  min-height: 40px;
   display: flex;
   flex-direction: column;
   overflow: hidden;

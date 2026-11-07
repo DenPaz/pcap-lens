@@ -236,7 +236,9 @@ export function persist() {
     recentCommands: state.recentCommands,
     detailView: state.detailView,
     diagramValues: state.diagramValues,
-    listHeight: root.getPropertyValue("--list-height"),
-    treeWidth: root.getPropertyValue("--tree-width"),
+    listHeight: root.getPropertyValue("--list-size"),
+    treeWidth: root.getPropertyValue("--detail-size"),
+    paneLayout: state.paneLayout,
+    bytesPane: state.bytesPane,
   });
 }

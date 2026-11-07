@@ -7,6 +7,12 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- Pane layout: the packet details and bytes below the list (as before),
+  stacked under it or beside it, with or without the bytes pane, from the
+  toolbar's _Pane Layout_ button or `pcapViewer.paneLayout`
+
 ### Changed
 
 - The MCP server dissects captures as the viewer does: your Lua dissectors,

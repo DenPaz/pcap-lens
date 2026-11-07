@@ -7,6 +7,7 @@ import type { FollowProto } from "./panels/followPanel";
 import type {
   ColoringStyle,
   ListDensity,
+  PaneLayout,
   ColumnLayout,
   ColumnSetting,
   FilterButton,
@@ -140,6 +141,8 @@ export type WebviewToHost =
   | { type: "cancel"; id: number }
   | { type: "cancelLoad" }
   | { type: "reload" }
+  /** The layout menu: change pcapViewer.paneLayout and/or showBytesPane. */
+  | { type: "setPaneLayout"; layout?: unknown; bytes?: unknown }
   | { type: "filterApplied"; expr: string }
   | { type: "saveFilter"; expr: string }
   /** The focused packet (detail pane) and, for a multi-selection, every selected frame. */
@@ -238,6 +241,8 @@ export type HostToWebview =
   | { type: "coloringStyle"; style: ColoringStyle }
   /** `pcapViewer.listDensity` (sent on "ready" and when the setting changes). */
   | { type: "listDensity"; density: ListDensity }
+  /** `pcapViewer.paneLayout` and `showBytesPane` (sent on "ready" and when they change). */
+  | { type: "paneLayout"; layout: PaneLayout; bytes: boolean }
   /** `pcapViewer.filterButtons` (sent on "ready" and when the setting changes). */
   | { type: "filterButtons"; buttons: FilterButton[] }
   | { type: "error"; message: string; canReload: boolean }

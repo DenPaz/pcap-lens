@@ -1144,6 +1144,26 @@ suite("webview lib: coloring", () => {
     assert.equal(lib.rowColors(undefined, coloring), null);
   });
 
+  test("paneLayout and splitterOrientations: where the panes go", () => {
+    assert.deepEqual(lib.PANE_LAYOUTS, ["below", "stacked", "beside"]);
+    assert.equal(lib.paneLayout("stacked"), "stacked");
+    assert.equal(lib.paneLayout("sideways"), "below");
+    assert.equal(lib.paneLayout(undefined), "below");
+    assert.deepEqual(lib.splitterOrientations("below"), {
+      list: "horizontal",
+      detail: "vertical",
+    });
+    assert.deepEqual(lib.splitterOrientations("stacked"), {
+      list: "horizontal",
+      detail: "horizontal",
+    });
+    assert.deepEqual(lib.splitterOrientations("beside"), {
+      list: "vertical",
+      detail: "horizontal",
+    });
+    assert.deepEqual(lib.splitterOrientations(42), lib.splitterOrientations("below"));
+  });
+
   test("themeKind reads the theme class VS Code puts on <body>", () => {
     const classes = (...names) => ({ contains: (n) => names.includes(n) });
     assert.equal(lib.themeKind(classes("vscode-light")), "light");

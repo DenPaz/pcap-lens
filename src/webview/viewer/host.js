@@ -2,6 +2,7 @@
 /** Messages from the extension host, and the progress bar. */
 
 import { el, lib, rpc, rpcPending, state } from "./core.js";
+import { applyPaneLayout } from "./layout.js";
 import { hideOverlay, showOverlay } from "./overlay.js";
 import {
   onCaptureEvent,
@@ -97,6 +98,9 @@ window.addEventListener("message", (event) => {
       break;
     case "listDensity":
       setRowHeight(lib.densityRowHeight(msg.density));
+      break;
+    case "paneLayout":
+      applyPaneLayout(msg.layout, msg.bytes !== false);
       break;
     case "indexProgress":
       onIndexProgress(msg);

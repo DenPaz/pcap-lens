@@ -1803,6 +1803,26 @@
           ],
           "markdownDescription": "Row height of the packet list, the packet details and the bytes pane."
         },
+        "pcapViewer.paneLayout": {
+          "type": "string",
+          "enum": [
+            "below",
+            "stacked",
+            "beside"
+          ],
+          "default": "below",
+          "markdownEnumDescriptions": [
+            "The packet list on top, the details and the bytes side by side below it.",
+            "The list, the details and the bytes one under the other: for a tall or narrow editor.",
+            "The list on the left, the details over the bytes on the right: for a wide editor."
+          ],
+          "markdownDescription": "Where the packet details and bytes go in the viewer. The viewer's _Pane Layout_ button changes it too."
+        },
+        "pcapViewer.showBytesPane": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show the packet bytes pane. Without it the packet details take the whole area. The viewer's _Pane Layout_ button changes it too."
+        },
         "pcapViewer.coloringRules": {
           "type": "array",
           "scope": "resource",

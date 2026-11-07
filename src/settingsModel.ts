@@ -360,6 +360,18 @@ export function normalizeListDensity(raw: unknown): ListDensity {
   return LIST_DENSITIES.find((d) => d === raw) ?? "normal";
 }
 
+/**
+ * Where the viewer's panes go (pcapViewer.paneLayout): details and bytes
+ * below the list, all three stacked, or details and bytes beside the list;
+ * pcapViewer.showBytesPane hides the bytes.
+ */
+export const PANE_LAYOUTS = ["below", "stacked", "beside"] as const;
+export type PaneLayout = (typeof PANE_LAYOUTS)[number];
+
+export function normalizePaneLayout(raw: unknown): PaneLayout {
+  return PANE_LAYOUTS.find((l) => l === raw) ?? "below";
+}
+
 /** Packet-list column order and hidden columns (pcapViewer.columnLayout), by column id. */
 export interface ColumnLayout {
   order: string[];

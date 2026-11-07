@@ -2802,6 +2802,20 @@ action (null = disabled), checked, children, title}` and `"-"`
   buttons run the webview's `runCommand` or post `runCommand` for host
   commands (Go to Packet, Toggle Packet Coloring, whose `aria-pressed`
   follows `state.coloring`); `updateToolbar()` runs from `updateStatus`.
+- **Pane layout** (`pcapViewer.paneLayout`: below, stacked, beside;
+  `pcapViewer.showBytesPane`; posted as `paneLayout {layout, bytes}` on
+  "ready" and on change, like `listDensity`): `#main[data-layout]` and
+  `.no-bytes` decide where `#list`, `#detail` and `#bytes` go (beside makes
+  `#main` a row; stacked and beside make `#bottom` a column). Sizes are
+  flex-bases (`--list-size`, `--detail-size`; the saved state keeps its old
+  `listHeight`/`treeWidth` keys), so one percentage works along either axis.
+  `lib.splitterOrientations` gives each splitter's `aria-orientation`, and
+  `layout.js` takes a splitter's drag axis and arrow keys from it. The
+  toolbar's last button (`#tool-layout`, `aria-haspopup`) opens a menu of
+  `radio` items (`menuitemradio`, a menus.js option), Show Packet Bytes and
+  Reset Pane Sizes; picking posts `setPaneLayout`, the host writes the
+  settings (`updateSetting`) and every viewer gets them back. The webview
+  state keeps the last layout, so a reload doesn't flash the default.
 - **List density** (`pcapViewer.listDensity`: compact, normal, comfortable;
   posted as `listDensity` on "ready" and on change, like `coloringStyle`):
   `lib.densityRowHeight` (20/22/26 px) → `setRowHeight` sets

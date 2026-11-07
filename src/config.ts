@@ -4,6 +4,7 @@ import {
   ColoringRule,
   ColoringStyle,
   ListDensity,
+  PaneLayout,
   ColumnLayout,
   ColumnSetting,
   FilterButton,
@@ -16,6 +17,7 @@ import {
   normalizeColoringRules,
   normalizeColoringStyle,
   normalizeListDensity,
+  normalizePaneLayout,
   normalizeColumnLayout,
   normalizeColumns,
   normalizeFilterButtons,
@@ -82,6 +84,15 @@ export function readListDensity(scope?: vscode.Uri): ListDensity {
   return normalizeListDensity(
     vscode.workspace.getConfiguration(SECTION, scope).get<unknown>("listDensity"),
   );
+}
+
+/** pcapViewer.paneLayout and pcapViewer.showBytesPane. */
+export function readPaneLayout(scope?: vscode.Uri): { layout: PaneLayout; bytes: boolean } {
+  const cfg = vscode.workspace.getConfiguration(SECTION, scope);
+  return {
+    layout: normalizePaneLayout(cfg.get<unknown>("paneLayout")),
+    bytes: cfg.get<unknown>("showBytesPane") !== false,
+  };
 }
 
 export function readQuickDetail(scope?: vscode.Uri): QuickDetail {

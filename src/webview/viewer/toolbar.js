@@ -11,6 +11,7 @@
 import { el, icon, state, vscode } from "./core.js";
 import { commandKeys, viewerKeys } from "./menu.js";
 import { runCommand } from "./navigation.js";
+import { showLayoutMenu } from "./layout.js";
 import { selectIndex } from "./selection.js";
 
 /**
@@ -22,6 +23,7 @@ import { selectIndex } from "./selection.js";
  * @property {() => void} run
  * @property {() => boolean} [enabled]
  * @property {() => boolean} [pressed] a toggle button
+ * @property {boolean} [menu] opens a menu (aria-haspopup)
  */
 
 const hasPackets = () => state.ready && state.total > 0;
@@ -119,6 +121,15 @@ const TOOLS = [
     run: host("pcapViewer.toggleColoring"),
     pressed: () => state.coloring !== null,
   },
+  "-",
+  {
+    id: "layout",
+    label: "Pane Layout…",
+    icon: "layout",
+    keys: () => "",
+    run: () => showLayoutMenu(/** @type {HTMLElement} */ (document.getElementById("tool-layout"))),
+    menu: true,
+  },
 ];
 
 /** @type {{tool: Tool, node: HTMLButtonElement}[]} */
@@ -141,6 +152,9 @@ el.navTools.replaceChildren(
     node.setAttribute("aria-label", tool.label);
     if (tool.pressed) {
       node.setAttribute("aria-pressed", "false");
+    }
+    if (tool.menu) {
+      node.setAttribute("aria-haspopup", "menu");
     }
     node.append(icon(tool.icon));
     node.addEventListener("click", () => tool.run());

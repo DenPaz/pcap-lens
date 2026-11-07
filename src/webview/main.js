@@ -11,7 +11,7 @@
  * Security: packet data is untrusted. It is only ever inserted with
  * textContent / createElement — never innerHTML.
  */
-import { saved, state, vscode } from "./viewer/core.js";
+import { state, vscode } from "./viewer/core.js";
 import "./viewer/host.js";
 import { showOverlay } from "./viewer/overlay.js";
 import "./viewer/columns.js";
@@ -31,12 +31,6 @@ import "./viewer/ai.js";
 import "./viewer/layout.js";
 import "./viewer/status.js";
 
-if (saved.listHeight) {
-  document.documentElement.style.setProperty("--list-height", saved.listHeight);
-}
-if (saved.treeWidth) {
-  document.documentElement.style.setProperty("--tree-width", saved.treeWidth);
-}
 const rh = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--row-height"));
 if (rh > 0) {
   state.rowHeight = rh;

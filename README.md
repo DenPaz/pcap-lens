@@ -49,6 +49,8 @@ dissector you pick).
   open resumes.
 - **Protocol tree and hex view** with two-way highlighting and reassembled
   data; right-click a field to filter on it, colorize, add a column or copy.
+  The panes go below, stacked or beside the list, with or without the bytes
+  (the toolbar's _Pane Layout_ button).
 - **Packet diagram**: each header drawn 32 bits a row, every field to the
   bit, as in Wireshark.
 - **Show Packet Bytes**: a field's bytes decoded (Base64, gzip/deflate, hex,
@@ -204,6 +206,7 @@ The most used:
 | `luaScripts`, `dissectorsFolder`, `decodeAs`, `prefs`  | Dissection, per workspace folder                   |
 | `tlsKeyLogFile`, `wiresharkProfile`                    | TLS key log; Wireshark profile tshark uses         |
 | `columns`, `columnLayout`, `timeFormat`, `listDensity` | The packet list                                    |
+| `paneLayout`, `showBytesPane`                          | Where the details and bytes go                     |
 | `coloringRules`, `coloringStyle`                       | Coloring rules and how they are drawn              |
 | `savedFilters`, `filterButtons`                        | Named filters and filter buttons                   |
 | `nameResolution.*`                                     | Which names to show; `external` allows DNS lookups |

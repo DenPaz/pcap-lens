@@ -26,6 +26,7 @@
    * @property {string} [keys] a key binding as shown ("Ctrl+M")
    * @property {(() => void) | null} [action] null: disabled
    * @property {boolean} [checked] a checkbox item
+   * @property {boolean} [radio] with `checked`: one of a set of choices (menuitemradio)
    * @property {MenuEntry[] | (() => Promise<MenuEntry[]>)} [children]
    * @property {string} [title] tooltip
    */
@@ -162,7 +163,14 @@
         pane.items.push(item);
         pane.models.push(entry);
         item.className = "item" + (enabled(entry) ? "" : " disabled");
-        item.setAttribute("role", entry.checked !== undefined ? "menuitemcheckbox" : "menuitem");
+        item.setAttribute(
+          "role",
+          entry.checked === undefined
+            ? "menuitem"
+            : entry.radio
+              ? "menuitemradio"
+              : "menuitemcheckbox",
+        );
         item.tabIndex = -1;
         if (!enabled(entry)) {
           item.setAttribute("aria-disabled", "true");
@@ -176,7 +184,13 @@
         }
         if (withIcons) {
           const glyph =
-            entry.checked !== undefined ? (entry.checked ? "check" : "blank") : entry.icon;
+            entry.checked !== undefined
+              ? entry.checked
+                ? entry.radio
+                  ? "circle-filled"
+                  : "check"
+                : "blank"
+              : entry.icon;
           const slot = icon(glyph || "blank");
           slot.classList.add("menu-icon");
           item.append(slot);

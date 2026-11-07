@@ -40,6 +40,33 @@
     return { first, count, top, virtualHeight, scaled };
   }
 
+  /**
+   * pcapViewer.paneLayout: "below" (details and bytes side by side under the
+   * list), "stacked" (list, details and bytes one under the other) or
+   * "beside" (the list on the left, details over bytes on the right).
+   */
+  const PANE_LAYOUTS = /** @type {const} */ (["below", "stacked", "beside"]);
+
+  /** @param {unknown} raw @returns {"below" | "stacked" | "beside"} */
+  function paneLayout(raw) {
+    return PANE_LAYOUTS.find((l) => l === raw) ?? "below";
+  }
+
+  /**
+   * Which way each splitter lies in a layout: the one after the list and the
+   * one between details and bytes. A "horizontal" splitter is a bar between
+   * panes above and below it (dragged up and down).
+   * @param {unknown} layout
+   * @returns {{list: "horizontal" | "vertical", detail: "horizontal" | "vertical"}}
+   */
+  function splitterOrientations(layout) {
+    const l = paneLayout(layout);
+    return {
+      list: l === "beside" ? "vertical" : "horizontal",
+      detail: l === "below" ? "vertical" : "horizontal",
+    };
+  }
+
   /** Row heights per pcapViewer.listDensity (px; "normal" for anything else). */
   const DENSITY_ROW_HEIGHTS = { compact: 20, normal: 22, comfortable: 26 };
 
@@ -3333,6 +3360,9 @@
     computeWindow,
     scrollTopForIndex,
     densityRowHeight,
+    PANE_LAYOUTS,
+    paneLayout,
+    splitterOrientations,
     pagesForRange,
     LruMap,
     quoteFilterString,
