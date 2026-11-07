@@ -2971,4 +2971,6 @@ targets: 0.25.4 (0.25.3's tag went out before its merge and names 0.25.2's
 code; tags can't move, so it was skipped).
 Then Follow Growing File and the HTTP Requests, DNS Queries and TLS Servers
 session tables: 0.26.0.
-Then the Capture Overview, and the real-capture harness weekly in CI.
+Then the Capture Overview, and the real-capture harness weekly in CI:
+0.27.0. Then large UDP datagrams in Replay to… on macOS, and what the first
+weekly real-capture run found: 0.27.1.

@@ -7,6 +7,13 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.27.1 — 2026-11-07
+
+### Changed
+
+- The weekly real-capture run keeps its downloaded captures when it finds
+  problems, and counts tshark's own crashes and positions as notes [88c6f7a]
+
 ### Fixed
 
 - Replay to… sends UDP datagrams up to UDP's limit on macOS too (it refused
