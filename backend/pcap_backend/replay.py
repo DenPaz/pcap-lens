@@ -85,6 +85,12 @@ MAX_LOG = 200  # log lines a progress report carries (the rest are counted)
 # the gap is taken as bytes the capture lacks.
 REORDER_WINDOW_S = 0.5
 MAX_HELD = 4 << 20
+# The largest UDP payload per address family (a recorded IPv6 jumbogram or a
+# malformed length can be larger: it can't be sent), and the send buffer a
+# UDP socket asks for: macOS refuses datagrams above SO_SNDBUF, which starts
+# at net.inet.udp.maxdgram (9216 bytes).
+MAX_DATAGRAM = {socket.AF_INET: 65507, socket.AF_INET6: 65527}
+UDP_SEND_BUFFER = 1 << 18
 _CONNECTING = (0, errno.EINPROGRESS, errno.EWOULDBLOCK, errno.EALREADY, 10035)  # WSAEWOULDBLOCK
 
 
@@ -489,6 +495,7 @@ class TargetStats:
     received: int = 0
     datagrams: int = 0
     lost: int = 0  # datagrams left out on purpose (the replay's loss)
+    too_large: int = 0  # datagrams larger than UDP carries (not sent)
     errors: list[str] = field(default_factory=list)
     error_count: int = 0
 
@@ -515,6 +522,7 @@ class TargetStats:
             "received": self.received,
             "datagrams": self.datagrams,
             "lost": self.lost,
+            "tooLarge": self.too_large,
             "errors": self.errors,
             "errorCount": self.error_count,
         }
@@ -928,6 +936,8 @@ class Replayer:
             family, proto_num, address = dest.addresses[0]
             sock = socket.socket(family, socket.SOCK_DGRAM, proto_num)
             sock.setblocking(False)
+            with contextlib.suppress(OSError):  # (a smaller buffer still sends most)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, UDP_SEND_BUFFER)
             conn = _Conn(flow, sock, stats, udp=True, connected=True)
             self._conns[flow] = conn
             try:
@@ -938,6 +948,17 @@ class Replayer:
             self._sel.register(sock, selectors.EVENT_READ, conn)
         if conn.dead:
             stats.dropped += len(data)
+            return False
+        limit = MAX_DATAGRAM.get(conn.sock.family, MAX_DATAGRAM[socket.AF_INET])
+        if len(data) > limit:
+            stats.dropped += len(data)
+            stats.too_large += 1
+            ip = "IPv6" if conn.sock.family == socket.AF_INET6 else "IPv4"
+            self._error(
+                stats,
+                f"{dest.label}: a datagram of {len(data):,} bytes is larger than UDP"
+                f" carries over {ip} ({limit:,}): not sent",
+            )
             return False
         try:
             conn.sock.send(data)

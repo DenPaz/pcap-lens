@@ -492,6 +492,30 @@ def test_data_a_service_does_not_read_is_reported(monkeypatch: pytest.MonkeyPatc
     assert (last["level"], last["text"]) == ("error", stats.errors[0])
 
 
+def test_large_datagrams_go_and_oversized_ones_are_explained(services: Any) -> None:
+    # 60,000 bytes is above macOS's default UDP send limit (9216 bytes, unless
+    # the socket asks for a bigger send buffer); 70,000 is more than UDP
+    # carries at all (an IPv6 jumbogram, or a malformed length, recorded).
+    _, _, udp = services
+    address = (socket.AF_INET, socket.IPPROTO_UDP, ("127.0.0.1", udp.port))
+    dest = replay.Destination("udp", [address], f"127.0.0.1:{udp.port}")
+    big, oversized = bytes(60_000), bytes(70_000)
+    events = [
+        replay.Event("datagram", 0.0, 1, "u", big),
+        replay.Event("datagram", 0.0, 1, "u", oversized),
+        replay.Event("datagram", 0.0, 1, "u", b"after"),
+    ]
+    runner = replay.Replayer({"u": dest}, 0, CancelToken())
+    runner.run(lambda: iter(events))
+    _settle()
+    assert udp.received == [big, b"after"]
+    stats = runner.stats["u"]
+    assert (stats.datagrams, stats.too_large, stats.dropped) == (2, 1, 70_000)
+    message = "a datagram of 70,000 bytes is larger than UDP carries over IPv4 (65,507): not sent"
+    assert stats.errors == [f"127.0.0.1:{udp.port}: {message}"]
+    assert stats.to_json()["tooLarge"] == 1
+
+
 # -- replays of replay.pcap -------------------------------------------------------------
 
 
