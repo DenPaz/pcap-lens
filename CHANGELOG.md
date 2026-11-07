@@ -13,7 +13,7 @@ commit) that made it. The format follows
   stacked under it or beside it, with or without the bytes pane, from the
   toolbar's _Pane Layout_ button or `pcapViewer.paneLayout` [5dc38b0]
 - The filter bar underlines the part of a filter tshark refused, and shows
-  fields, operators, functions, values and strings in colour
+  fields, operators, functions, values and strings in colour [0a4898b]
 
 ### Changed
 
@@ -23,6 +23,7 @@ commit) that made it. The format follows
 
 [1c63cd2]: https://github.com/DenPaz/pcap-lens/commit/1c63cd2
 [5dc38b0]: https://github.com/DenPaz/pcap-lens/commit/5dc38b0
+[0a4898b]: https://github.com/DenPaz/pcap-lens/commit/0a4898b
 
 ## 0.27.1 — 2026-11-07
 
