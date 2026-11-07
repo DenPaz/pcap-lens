@@ -77,7 +77,8 @@ def test_invalid_filter(opened: PcapService, ctx: RequestContext) -> None:
     before = opened.list_packets({"offset": 0, "limit": 1}, ctx)["filterId"]
     with pytest.raises(FilterError) as info:
         opened.set_filter({"expr": "tcp.port =="}, ctx)
-    assert info.value.data == {"expr": "tcp.port =="}
+    # (With where tshark says the filter went wrong: here, it ends too soon.)
+    assert info.value.data == {"expr": "tcp.port ==", "span": [11, 11]}
     # An invalid filter never replaces the current view.
     assert opened.list_packets({"offset": 0, "limit": 1}, ctx)["filterId"] == before
     assert opened.validate_filter({"expr": "tcp.port =="}, ctx)["valid"] is False

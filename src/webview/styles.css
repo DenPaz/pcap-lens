@@ -240,14 +240,100 @@ body {
   font-family: var(--mono);
 }
 
-#filter-input {
+/* The input and, behind it, its text drawn in colours (viewer/filterpaint.js):
+   same box, font and padding, so the copy sits on the input's own pixels. */
+#filter-text {
+  position: relative;
   flex: 1;
   min-width: 0;
+  align-self: stretch;
+  display: flex;
+}
+
+#filter-input,
+#filter-paint {
   padding-left: var(--space-2);
+  padding-right: var(--space-3);
   font-family: var(--mono);
   font-size: var(--mono-size);
+}
+
+#filter-input {
+  position: relative;
+  flex: 1;
+  min-width: 0;
   background: transparent;
   border: none;
+}
+
+#filter-paint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  white-space: pre;
+  pointer-events: none;
+  color: var(--vscode-input-foreground);
+}
+
+#filter-field:not(.ai-mode) #filter-text.painted #filter-input {
+  color: transparent;
+  caret-color: var(--vscode-input-foreground);
+}
+
+#filter-field:not(.ai-mode) #filter-text.painted #filter-input::selection {
+  color: var(--vscode-input-foreground);
+}
+
+#filter-text #filter-input::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+#filter-field.ai-mode #filter-paint {
+  visibility: hidden;
+}
+
+/* The debugger's and outline's token colours: every theme defines them. */
+#filter-paint .tok-field {
+  color: var(--vscode-symbolIcon-fieldForeground, #75beff);
+}
+
+#filter-paint .tok-operator {
+  color: var(--vscode-debugTokenExpression-name, #c586c0);
+}
+
+#filter-paint .tok-function {
+  color: var(--vscode-symbolIcon-functionForeground, #b180d7);
+}
+
+#filter-paint .tok-value {
+  color: var(--vscode-debugTokenExpression-number, #b5cea8);
+}
+
+#filter-paint .tok-string {
+  color: var(--vscode-debugTokenExpression-string, #ce9178);
+}
+
+/* What tshark refused: a wavy underline, or a mark where the filter stops
+   too soon (an empty piece: no width, so nothing after it moves). */
+#filter-paint .tok-error {
+  text-decoration: underline wavy var(--vscode-editorError-foreground, #f14c4c);
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
+}
+
+#filter-paint .tok-error:empty {
+  position: relative;
+}
+
+#filter-paint .tok-error:empty::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -4px;
+  width: 1ch;
+  border-bottom: 2px solid var(--vscode-editorError-foreground, #f14c4c);
 }
 
 #filter-input:focus-visible {

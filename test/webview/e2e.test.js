@@ -237,8 +237,13 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
         pending.promise.catch(() => undefined).then(() => inflight.delete(msg.id));
         pending.promise.then(
           (result) => post({ type: "rpcResult", id: msg.id, result }),
+          // (As the host does: the error's data too, e.g. a filter error's span.)
           (err) =>
-            post({ type: "rpcError", id: msg.id, error: { code: err.code, message: err.message } }),
+            post({
+              type: "rpcError",
+              id: msg.id,
+              error: { code: err.code, message: err.message, data: err.data },
+            }),
         );
       }
     });
@@ -313,9 +318,65 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
   test("invalid filter is flagged and not applied", async () => {
     await page.fill("#filter-input", "tcp.port ==");
     await page.waitForSelector("#filter-input.invalid");
+    assert.equal(await page.getAttribute("#filter-input", "aria-invalid"), "true");
     await page.press("#filter-input", "Enter");
     await page.waitForSelector("#filter-error:not(.hidden)");
     assert.equal((await rowNumbers()).length, 11);
+  });
+
+  test("the filter is drawn in colours, and the part tshark refused is underlined", async () => {
+    const pieces = () =>
+      page.$$eval("#filter-paint-text > span", (spans) =>
+        spans
+          .filter((s) => s.textContent.trim() || s.classList.contains("tok-error"))
+          .map((s) => [s.textContent, s.className]),
+      );
+    // The copy behind the input shows the text; the input's own is transparent.
+    await page.fill("#filter-input", 'ip.addr == 10.0.0.300 && http.host contains "x"');
+    assert.equal(
+      await page.$eval("#filter-input", (i) => getComputedStyle(i).color),
+      "rgba(0, 0, 0, 0)",
+    );
+    await page.waitForSelector("#filter-paint-text .tok-error");
+    assert.deepEqual(await pieces(), [
+      ["ip.addr", "tok-field"],
+      ["==", "tok-operator"],
+      ["10.0.0.300", "tok-value tok-error"],
+      ["&&", "tok-operator"],
+      ["http.host", "tok-field"],
+      ["contains", "tok-operator"],
+      ['"x"', "tok-string"],
+    ]);
+    // Typing drops the old underline until the new text is checked.
+    await page.press("#filter-input", "Backspace");
+    assert.equal(await page.locator("#filter-paint-text .tok-error").count(), 0);
+    // A filter that stops too soon: a mark at its end, also when applied.
+    await page.fill("#filter-input", "tcp.port == 80 &&");
+    await page.waitForSelector("#filter-paint-text .tok-error:empty", { state: "attached" });
+    await page.press("#filter-input", "Enter");
+    await page.waitForSelector("#filter-error:not(.hidden)");
+    await page.waitForSelector("#filter-paint-text .tok-error:empty", { state: "attached" });
+    // The copy stays on the input's pixels: same left edge as the input's text.
+    const [input, copy] = await page.evaluate(() => [
+      document.getElementById("filter-input")?.getBoundingClientRect().left,
+      document.getElementById("filter-paint-text")?.getBoundingClientRect().left,
+    ]);
+    assert.ok(Math.abs(input + 4 - copy) <= 1, `${input} vs ${copy}`); // (padding-left)
+    // A long filter scrolled to its end: the copy moves with it.
+    const long = Array.from({ length: 30 }, (_, i) => `tcp.port == ${i}`).join(" || ");
+    await page.fill("#filter-input", long);
+    await page.press("#filter-input", "End");
+    await page.waitForFunction(() => {
+      const input = /** @type {HTMLInputElement} */ (document.getElementById("filter-input"));
+      const copy = document.getElementById("filter-paint-text");
+      return input.scrollLeft > 0 && copy?.style.transform === `translateX(${-input.scrollLeft}px)`;
+    });
+    // Ask-AI mode shows the input's own text.
+    await page.fill("#filter-input", "");
+    await page.press("#filter-input", "Enter");
+    await page.waitForSelector("#filter-input:not(.invalid)");
+    assert.equal(await page.getAttribute("#filter-input", "aria-invalid"), null);
+    assert.deepEqual(await axeViolations(page, { exclude: [["#bytes"]] }), []);
   });
 
   test("valid filter narrows the list", async () => {

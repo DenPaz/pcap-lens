@@ -1144,6 +1144,59 @@ suite("webview lib: coloring", () => {
     assert.equal(lib.rowColors(undefined, coloring), null);
   });
 
+  test("filterSegments: a filter's pieces to draw, the refused part marked", () => {
+    const shown = (text, span) =>
+      lib
+        .filterSegments(text, span)
+        .filter((p) => p.text.trim() || p.error)
+        .map((p) => [p.text, p.kind, p.error]);
+    assert.deepEqual(shown("ip.addr == 10.0.0.300 && tcp.port in {80, 443}", [11, 21]), [
+      ["ip.addr", "field", false],
+      ["==", "operator", false],
+      ["10.0.0.300", "value", true],
+      ["&&", "operator", false],
+      ["tcp.port", "field", false],
+      ["in", "operator", false],
+      ["{", null, false],
+      ["80", "value", false],
+      [",", null, false],
+      ["443", "value", false],
+      ["}", null, false],
+    ]);
+    assert.deepEqual(shown('not eth.dst == ff:ff:ff:ff:ff:ff or len(http.host) > 3 xor "a\\"b"'), [
+      ["not", "operator", false],
+      ["eth.dst", "field", false],
+      ["==", "operator", false],
+      ["ff:ff:ff:ff:ff:ff", "value", false],
+      ["or", "operator", false],
+      ["len", "function", false],
+      ["(", null, false],
+      ["http.host", "field", false],
+      [")", null, false],
+      [">", "operator", false],
+      ["3", "value", false],
+      ["xor", "operator", false],
+      ['"a\\"b"', "string", false],
+    ]);
+    // A span inside a token cuts it; the pieces still add up to the text.
+    const text = 'frame contains "abc" && udp.prt';
+    const pieces = lib.filterSegments(text, [17, 30]);
+    assert.equal(pieces.map((p) => p.text).join(""), text);
+    assert.deepEqual(
+      pieces.filter((p) => p.error).map((p) => p.text),
+      ['bc"', " ", "&&", " ", "udp.pr"],
+    );
+    // An empty span: an empty marker piece at its place; an unterminated string runs to the end.
+    assert.deepEqual(shown('http.host == "abc', [17, 17]).slice(-2), [
+      ['"abc', "string", false],
+      ["", null, true],
+    ]);
+    assert.deepEqual(lib.filterSegments("", [0, 0]), [{ text: "", kind: null, error: true }]);
+    // Spans that don't fit are ignored.
+    assert.ok(lib.filterSegments("tcp", [2, 1]).every((p) => !p.error));
+    assert.ok(lib.filterSegments("tcp", null).every((p) => !p.error));
+  });
+
   test("paneLayout and splitterOrientations: where the panes go", () => {
     assert.deepEqual(lib.PANE_LAYOUTS, ["below", "stacked", "beside"]);
     assert.equal(lib.paneLayout("stacked"), "stacked");

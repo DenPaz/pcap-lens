@@ -75,7 +75,8 @@ dissector you pick).
 
 ### Filters and navigation
 
-- **Display filters** in Wireshark syntax, validated as you type, with
+- **Display filters** in Wireshark syntax, validated as you type (the part
+  tshark refuses is underlined, fields, operators and values in colour), with
   autocomplete from tshark's fields (Lua ones too), history, saved filters
   and one-click **filter buttons**.
 - **Filter builder**: find a field by name or description, pick a relation

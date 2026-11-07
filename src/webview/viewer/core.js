@@ -85,6 +85,8 @@ export const el = {
   navTools: $("nav-tools"),
   filterAi: $("filter-ai"),
   filterField: $("filter-field"),
+  filterText: $("filter-text"),
+  filterPaint: $("filter-paint-text"),
   suggest: $("suggest"),
   busyBar: progressBar.bar,
   busyFill: progressBar.fill,

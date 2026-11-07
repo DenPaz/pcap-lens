@@ -33,17 +33,21 @@
             <span class="codicon codicon-star-full" aria-hidden="true"></span>
           </button>
           <label for="filter-input" class="visually-hidden">Display filter</label>
-          <input
-            id="filter-input"
-            type="text"
-            spellcheck="false"
-            autocomplete="off"
-            role="combobox"
-            aria-autocomplete="list"
-            aria-expanded="false"
-            aria-controls="suggest"
-            placeholder="Apply a display filter … (Enter to apply, Ctrl+Space for suggestions)"
-          />
+          <div id="filter-text">
+            <div id="filter-paint" aria-hidden="true"><span id="filter-paint-text"></span></div>
+            <input
+              id="filter-input"
+              type="text"
+              spellcheck="false"
+              autocomplete="off"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded="false"
+              aria-controls="suggest"
+              aria-describedby="filter-error"
+              placeholder="Apply a display filter … (Enter to apply, Ctrl+Space for suggestions)"
+            />
+          </div>
           <button
             id="filter-clear"
             type="button"

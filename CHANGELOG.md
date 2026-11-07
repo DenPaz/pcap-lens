@@ -12,6 +12,8 @@ commit) that made it. The format follows
 - Pane layout: the packet details and bytes below the list (as before),
   stacked under it or beside it, with or without the bytes pane, from the
   toolbar's _Pane Layout_ button or `pcapViewer.paneLayout` [5dc38b0]
+- The filter bar underlines the part of a filter tshark refused, and shows
+  fields, operators, functions, values and strings in colour
 
 ### Changed
 

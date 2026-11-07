@@ -598,7 +598,26 @@ frame.number==N` (no `-c`, both the PDML and the `-x` run), so references
   read the same across versions.
 - **Filter validation**: compile against a shared 24-byte empty pcap
   (`tshark -Y expr -r empty.pcap`), with the same `-X/-d/-o` options so Lua
-  fields validate.
+  fields validate. **Where the error is**: tshark (4.0+) echoes a refused
+  filter indented four spaces and marks the part under it (`^~~~`, byte
+  columns); `filterhelp.error_span` turns that into [start, end) in UTF-16
+  code units (the webview's string indexes), "Unexpected end of filter
+  expression" into an empty span at the end, an echo that isn't the filter (a
+  macro) into none. `validate_filter` returns it as `span`, and `FilterError`
+  computes it from its message and `data.expr` (so set_filter's error has
+  `data.span`). **Painting** (`viewer/filterpaint.js`, `lib.filterSegments`):
+  `#filter-paint` behind the input (in `#filter-text`, same font and
+  padding; `aria-hidden`) holds the text as spans `tok-field/operator/
+function/value/string` (the debugger's and outline's theme colours) and
+  `tok-error` (wavy underline; an empty one is a zero-width mark, so nothing
+  moves); the input's own text is transparent (caret, selection and
+  placeholder aren't), and the copy follows its `scrollLeft` (CSSOM
+  transform). The input's `value` setter is wrapped, so every code path that
+  sets the text repaints; a changed text drops the span; a
+  MutationObserver on the input's class gives `aria-invalid` and drops the
+  span when it stops being `invalid`. Ask-AI mode shows the input's own
+  text. `lib.filterSegments` is a display tokenizer, not a parser: a word
+  after a comparison or in a set is a value, one before `(` a function.
 - **Sorting** is backend-side over the current filter's frames: one column is
   read from the row store (cached, 3 columns max), sorted in Python, and the
   resulting order is cached per (filter, column, direction). Source/Destination

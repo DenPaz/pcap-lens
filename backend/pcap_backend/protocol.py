@@ -46,7 +46,21 @@ class NotOpenError(RpcError):
 
 
 class FilterError(RpcError):
+    """A display filter tshark refused; ``data.expr`` names it, and
+    ``data.span`` ([start, end) in UTF-16 code units) is the part tshark
+    pointed at, when it did."""
+
     code = INVALID_FILTER
+
+    def __init__(self, message: str, data: Mapping[str, Any] | None = None) -> None:
+        super().__init__(message, data)
+        expr = self.data.get("expr") if self.data else None
+        if self.data is not None and isinstance(expr, str):
+            from .filterhelp import error_span  # noqa: PLC0415 (protocol stays import-light)
+
+            span = error_span(message, expr)
+            if span is not None:
+                self.data["span"] = list(span)
 
 
 class UnsupportedFormatError(RpcError):

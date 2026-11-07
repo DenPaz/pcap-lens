@@ -8,6 +8,7 @@ import { resetView } from "./list.js";
 import { hideSuggest } from "./autocomplete.js";
 import { askAi, leaveAskMode } from "./ai.js";
 import { updateStatus } from "./status.js";
+import { setFilterSpan } from "./filterpaint.js";
 
 /** @param {string} message @param {boolean} [info] */
 export function showFilterError(message, info = false) {
@@ -46,6 +47,7 @@ async function validateNow() {
     el.filterInput.classList.toggle("valid", res.valid);
     el.filterInput.classList.toggle("invalid", !res.valid);
     el.filterInput.title = res.valid ? "" : res.error;
+    setFilterSpan(res.valid ? null : res.span, expr);
     if (!res.valid) {
       showFilterError(res.error);
     } else if (el.filterError.dataset.info !== "1") {
@@ -109,6 +111,7 @@ export async function applyFilter(raw) {
     el.filterInput.classList.remove("valid");
     el.filterInput.classList.add("invalid");
     showFilterError(e?.code === INVALID_FILTER ? e.message : `Filter failed: ${e?.message ?? e}`);
+    setFilterSpan(e?.code === INVALID_FILTER ? e.data?.span : null, expr);
   } finally {
     if (state.filterRequest === req.id) {
       state.filterRequest = null;

@@ -23,10 +23,43 @@ _STRING_TYPES = frozenset(
 )
 # `field == "literal"` (or eq), the field possibly wrapped in nothing else.
 _EQUALS_STRING = re.compile(r'(?<![\w.])([A-Za-z_][\w.\-]*)\s*(?:==|\beq\b)\s*"((?:[^"\\]|\\.)*)"')
+# tshark (4.0+) echoes a refused filter indented by four spaces, then marks
+# the part it refused on the next line: "    ^~~~" (byte columns).
+_ECHO_INDENT = "    "
+_CARET = re.compile(r"^( *)\^(~*)\s*$")
+_UNEXPECTED_END = "Unexpected end of filter expression"
 # Fields tshark names but no protocol row would: always "present".
 ALWAYS_PRESENT = ("frame", "_ws", "geninfo")
 # field_values: distinct values kept (the rest are only counted as "more").
 MAX_DISTINCT = 10_000
+
+
+def _utf16_length(data: bytes) -> int:
+    return len(data.decode("utf-8", "replace").encode("utf-16-le")) // 2
+
+
+def error_span(message: str, expr: str) -> tuple[int, int] | None:
+    """The part of ``expr`` tshark's filter error ``message`` points at, as
+    [start, end) in UTF-16 code units (what a webview's strings count), or
+    None when the message doesn't say. tshark marks it under its echo of the
+    expression; "Unexpected end of filter expression" means the very end. A
+    caret under anything else (a macro tshark expanded) gives no span.
+    """
+    lines = [line.removesuffix("\r") for line in message.split("\n")]
+    for i, line in enumerate(lines[:-1]):
+        caret = _CARET.match(lines[i + 1])
+        if line != _ECHO_INDENT + expr or not caret or len(caret[1]) < len(_ECHO_INDENT):
+            continue
+        data = expr.encode("utf-8")
+        start = len(caret[1]) - len(_ECHO_INDENT)
+        end = start + 1 + len(caret[2])
+        if start > len(data):
+            return None
+        return _utf16_length(data[:start]), _utf16_length(data[: min(end, len(data))])
+    if _UNEXPECTED_END in message:
+        end = _utf16_length(expr.rstrip().encode("utf-8"))
+        return end, end
+    return None
 
 
 def filter_fields(expr: str, known: Callable[[str], bool]) -> list[str]:
