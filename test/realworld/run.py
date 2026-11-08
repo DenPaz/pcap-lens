@@ -1215,12 +1215,14 @@ def segment_payloads(path: Path) -> tuple[list[bytes], list[bytes]]:
         cells = line.split("\t")
         if len(cells) != 7:
             continue
+        # TCP first, as replay.parse_record: a UDP header inside a TCP
+        # payload (IKE over TCP in ipsec_tcp_coverage) is TCP data.
         with contextlib.suppress(ValueError):
-            if cells[6]:
-                udp.append(bytes.fromhex(cells[6].replace(":", "")))
-            elif cells[4] and cells[5]:
+            if cells[4] and cells[5]:
                 side = sides.setdefault((cells[0], cells[1] or cells[2], cells[3]), {})
                 side.setdefault(int(cells[4]), bytes.fromhex(cells[5].replace(":", "")))
+            elif cells[6]:
+                udp.append(bytes.fromhex(cells[6].replace(":", "")))
     tcp = []
     for segments in sides.values():
         data = bytearray()
