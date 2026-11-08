@@ -347,7 +347,12 @@ def _setup(cols: Columns, cells: list[str], row: _Row, guid: str) -> _Call:
     source = (ids[0] if ids else digits[0]) if has_source and aliases else ""
     destination = ""
     if has_destination and aliases:
-        destination = digits[-1] if digits and (not has_source or ids) else ids[-1]
+        if digits and (not has_source or ids):
+            destination = digits[-1]
+        elif ids:
+            destination = ids[-1]
+        elif len(digits) > 1:  # (the source's were digits too: its own come first)
+            destination = digits[-1]
     calling = cols.get(cells, "q931.calling_party_number.digits")
     called = cols.get(cells, "q931.called_party_number.digits")
     return _Call(
