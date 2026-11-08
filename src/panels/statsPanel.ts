@@ -2,7 +2,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { ErrorCodes, RpcError } from "../backendClient";
 import { ANOMALY_LIMITS, ExpertRow } from "../aiAnomaly";
-import type { PcapEditorSession } from "../pcapEditor";
+import { type PcapEditorSession, describeError } from "../pcapEditor";
 import { BytesPanel } from "./bytesPanel";
 import { PacketPanel } from "./packetPanel";
 import { panelHtml, webviewRoot } from "./panelHtml";
@@ -296,7 +296,7 @@ export class StatsPanel {
         hex: body.hex,
       });
     } catch (err) {
-      void vscode.window.showErrorMessage(`Couldn't read the response body: ${String(err)}`);
+      void vscode.window.showErrorMessage(`Couldn't read the response body: ${describeError(err)}`);
     }
   }
 

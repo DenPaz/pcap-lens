@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { ErrorCodes, Progress, RpcError } from "../backendClient";
-import type { PcapEditorSession } from "../pcapEditor";
+import { type PcapEditorSession, describeError } from "../pcapEditor";
 import {
   MAX_FILES,
   MAX_SAVED_LOG,
@@ -478,7 +478,7 @@ export class ReplayPanel {
     try {
       entries = await vscode.workspace.fs.readDirectory(dir);
     } catch (err) {
-      void vscode.window.showWarningMessage(`Can't read ${dir.fsPath}: ${String(err)}`);
+      void vscode.window.showWarningMessage(`Can't read ${dir.fsPath}: ${describeError(err)}`);
       return;
     }
     const files = entries
@@ -549,7 +549,7 @@ export class ReplayPanel {
     try {
       text = new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
     } catch (err) {
-      void vscode.window.showWarningMessage(`Can't read ${uri.fsPath}: ${String(err)}`);
+      void vscode.window.showWarningMessage(`Can't read ${uri.fsPath}: ${describeError(err)}`);
       return;
     }
     const parsed = parseSetup(text, path.dirname(uri.fsPath));

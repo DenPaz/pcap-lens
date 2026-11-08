@@ -14,7 +14,7 @@ import {
   validate,
   withKey,
 } from "../decryptionKeys";
-import type { PcapEditorProvider } from "../pcapEditor";
+import { type PcapEditorProvider, describeError } from "../pcapEditor";
 
 const SECRET = "pcapViewer.decryptionKeys";
 
@@ -64,7 +64,7 @@ class KeyStore {
     } catch (err) {
       // (No OS keyring, say: the keys still apply until VS Code closes.)
       void vscode.window.showWarningMessage(
-        `PCAP Lens: the decryption keys couldn't be saved (${String(err)}); they apply until VS Code closes.`,
+        `PCAP Lens: the decryption keys couldn't be saved (${describeError(err)}); they apply until VS Code closes.`,
       );
     }
     if (changed) {
