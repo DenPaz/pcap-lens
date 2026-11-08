@@ -13,7 +13,43 @@ commit) that made it. The format follows
   sequence field's numbers say are missing, duplicated, late or restarted,
   with wrapping counters and filters to each stream and problem [3dbfca8]
 
+### Fixed
+
+- A capture opens when a preference or Decode As rule is one tshark doesn't
+  know (a Lua protocol's, when the capture doesn't load that script): it is
+  left out with a warning instead of the open failing [076f493]
+- The Capture Overview and Replay to… no longer wait forever after a reload
+  that failed or opened from the saved index [d1a4eb4]
+- Packet details whose dissector loops (gigabytes of tree for one packet)
+  stop with a message instead of never arriving [22b2dec]
+- VoIP Calls no longer fails on an H.323 call whose parties are dialled
+  digits only [d0ae24a]
+- Exporting as pcap explains a link type that appears after the first
+  packets (export as pcapng), with tshark 4.6 too [df2cc48] [7b42762]
+- Absolute times of packets dated outside years 1–9999 [1884699]
+- The bytes of an IPv4 header holding its fragment list, and of H.265
+  parameter sets in SDP, are highlighted in the right buffer [d116ff0]
+- AI address stand-ins also hide IPv6 addresses spelled out in reverse
+  lookup names, and every spelling of an IPv6 address is one host [de4c1ea]
+- A filter that fails because the capture file was deleted is no longer
+  marked as an invalid filter; opening a folder says so [076f493]
+- When the system kills tshark (most often out of memory), the message says
+  so [46bda82]
+- The Capture Overview shows addresses, hosts and content types whole
+  [da79f4e]
+
 [3dbfca8]: https://github.com/DenPaz/pcap-lens/commit/3dbfca8
+[076f493]: https://github.com/DenPaz/pcap-lens/commit/076f493
+[d1a4eb4]: https://github.com/DenPaz/pcap-lens/commit/d1a4eb4
+[22b2dec]: https://github.com/DenPaz/pcap-lens/commit/22b2dec
+[d0ae24a]: https://github.com/DenPaz/pcap-lens/commit/d0ae24a
+[df2cc48]: https://github.com/DenPaz/pcap-lens/commit/df2cc48
+[7b42762]: https://github.com/DenPaz/pcap-lens/commit/7b42762
+[1884699]: https://github.com/DenPaz/pcap-lens/commit/1884699
+[d116ff0]: https://github.com/DenPaz/pcap-lens/commit/d116ff0
+[de4c1ea]: https://github.com/DenPaz/pcap-lens/commit/de4c1ea
+[46bda82]: https://github.com/DenPaz/pcap-lens/commit/46bda82
+[da79f4e]: https://github.com/DenPaz/pcap-lens/commit/da79f4e
 
 ## 0.28.0 — 2026-11-08
 
