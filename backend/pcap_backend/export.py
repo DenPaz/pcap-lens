@@ -64,6 +64,16 @@ def pcap_time_error() -> InvalidParamsError:
     )
 
 
+def pcap_link_type_error() -> InvalidParamsError:
+    """Packets a pcap file can't hold (several link types, or not packets)."""
+    return InvalidParamsError(
+        "These packets can't be saved as pcap: a pcap file holds packets of one link "
+        "type, and this capture has several, one pcap can't store, or records that aren't "
+        "packets. Export them as pcapng instead.",
+        {"format": "pcap", "pcapng": True},
+    )
+
+
 def unwritable_error(stderr: str) -> InvalidParamsError | None:
     """An explanation for a tool's refusal to write the capture's packets in a
     format (None for any other failure)."""
@@ -74,12 +84,7 @@ def unwritable_error(stderr: str) -> InvalidParamsError | None:
         return None
     fmt = match["format"]
     if fmt == "pcap":
-        return InvalidParamsError(
-            "These packets can't be saved as pcap: a pcap file holds packets of one link "
-            "type, and this capture has several, one pcap can't store, or records that aren't "
-            "packets. Export them as pcapng instead.",
-            {"format": fmt, "pcapng": True},
-        )
+        return pcap_link_type_error()
     return InvalidParamsError(
         f"Wireshark can't write this capture's packets as {fmt}: some have a link type or "
         "record type it can only read (shown as UNKNOWN). Exporting, editing or saving "

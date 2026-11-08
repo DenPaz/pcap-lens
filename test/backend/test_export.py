@@ -214,13 +214,22 @@ def _pcapng_block(kind: int, body: bytes) -> bytes:
 
 
 @pytest.mark.tshark
+@pytest.mark.parametrize("says_why", [True, False])
 def test_export_as_pcap_refuses_a_link_type_declared_late(
-    service: PcapService, ctx: RequestContext, tmp_path: Path
+    service: PcapService,
+    ctx: RequestContext,
+    tmp_path: Path,
+    patch_service: Callable[[str, object], None],
+    says_why: bool,
 ) -> None:
     # Wireshark's Bluetooth *_coverage captures declare their second interface
     # (another link type) after the first packets: tshark notices only while
     # writing, with another message ("Frame N … has a network type that
     # differs…"), which came through as a tshark failure (test/realworld).
+    # tshark 4.6 says "Undefined error: 0" (Windows "No error."), so the
+    # packets' link types are checked (played here by not reading 4.2's message).
+    if not says_why:
+        patch_service("unwritable_error", lambda _stderr: None)
     eth = bytes(12) + b"\x08\x00" + bytes(46)
     raw_ip = bytes.fromhex("4500001c000000004011000001020304050607080035003500080000")
 
