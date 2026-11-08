@@ -7,6 +7,7 @@ instead of scanning.
 
 from __future__ import annotations
 
+import sys
 from bisect import bisect_left
 from dataclasses import dataclass, field
 from typing import Any
@@ -25,6 +26,12 @@ def parse_field_list(text: str) -> dict[str, list[Entry]]:
     protocols: list[Entry] = []
     fields: list[Entry] = []
     seen: set[tuple[str, str]] = set()
+    # (~250k fields share 46 types and ~2,000 protocols: one string each,
+    # interned, instead of one per field; and a third of the descriptions
+    # repeat, so they are shared too, through a pool kept for the parse.)
+    intern = sys.intern
+    pool: dict[str, str] = {}
+    share = pool.setdefault
     for line in text.splitlines():
         parts = line.split("\t")
         if len(parts) < 3 or (parts[0], parts[2]) in seen:
@@ -36,10 +43,10 @@ def parse_field_list(text: str) -> dict[str, list[Entry]]:
             fields.append(
                 {
                     "name": parts[2],
-                    "desc": parts[1],
-                    "type": parts[3],
-                    "proto": parts[4],
-                    "blurb": parts[7] if len(parts) > 7 else "",
+                    "desc": share(parts[1], parts[1]),
+                    "type": intern(parts[3]),
+                    "proto": intern(parts[4]),
+                    "blurb": share(parts[7], parts[7]) if len(parts) > 7 else "",
                 }
             )
     protocols.sort(key=lambda p: p["name"].lower())
@@ -57,6 +64,13 @@ def _prefix_slice(keys: list[str], entries: list[Entry], prefix: str, limit: int
     return out
 
 
+def _key(name: str) -> str:
+    """``name`` lower-cased, the same string when it already is (most field
+    names are: no second copy of each)."""
+    lower = name.lower()
+    return name if lower == name else lower
+
+
 @dataclass
 class FieldCatalog:
     protocols: list[Entry]
@@ -67,8 +81,8 @@ class FieldCatalog:
     _text: list[tuple[str, Entry]] | None = field(init=False, repr=False, default=None)
 
     def __post_init__(self) -> None:
-        self._pkeys = [p["name"].lower() for p in self.protocols]
-        self._fkeys = [f["name"].lower() for f in self.fields]
+        self._pkeys = [_key(p["name"]) for p in self.protocols]
+        self._fkeys = [_key(f["name"]) for f in self.fields]
 
     @classmethod
     def parse(cls, text: str) -> FieldCatalog:
