@@ -11,7 +11,6 @@
   const vscode = acquireVsCodeApi();
   /** @type {any} */
   const lib = /** @type {any} */ (window).PcapLib;
-  const SVG = "http://www.w3.org/2000/svg";
   const HEIGHT = 340;
   const MARGIN = { top: 14, right: 18, bottom: 34, left: 78 };
   const MAX_DRAWN = 6000;
@@ -35,26 +34,12 @@
   const app = /** @type {HTMLElement} */ (document.getElementById("app"));
 
   /** @param {string} tag @param {Record<string, string>} [attrs] @param {(Node | string)[]} [children] */
-  function h(tag, attrs = {}, children = []) {
-    const node = document.createElement(tag);
-    for (const [k, v] of Object.entries(attrs)) {
-      node.setAttribute(k, v);
-    }
-    node.append(...children);
-    return node;
-  }
+  const h = /** @type {any} */ (window).PcapPanel.h;
 
   /** A Codicons glyph (codicons/codicon.css), hidden from screen readers. @param {string} name */
   const icon = (name) => h("span", { class: `codicon codicon-${name}`, "aria-hidden": "true" });
 
-  /** @param {string} tag @param {Record<string, string | number>} [attrs] */
-  function s(tag, attrs = {}) {
-    const node = document.createElementNS(SVG, tag);
-    for (const [k, v] of Object.entries(attrs)) {
-      node.setAttribute(k, String(v));
-    }
-    return node;
-  }
+  const s = /** @type {any} */ (window).PcapPanel.s;
 
   const title = h("h1", { class: "panel-title" }, ["TCP Stream Graph"]);
   const kindSelect = /** @type {HTMLSelectElement} */ (h("select", { "aria-label": "Graph" }));

@@ -91,23 +91,7 @@
 
   const app = /** @type {HTMLElement} */ (document.getElementById("app"));
 
-  /**
-   * @param {string} tag
-   * @param {Record<string, string>} [attrs]
-   * @param {(Node | string)[]} [children]
-   */
-  function h(tag, attrs = {}, children = []) {
-    const node = document.createElement(tag);
-    for (const [k, v] of Object.entries(attrs)) {
-      if (k === "class") {
-        node.className = v;
-      } else {
-        node.setAttribute(k, v);
-      }
-    }
-    node.append(...children);
-    return node;
-  }
+  const h = /** @type {any} */ (window).PcapPanel.h;
 
   const kit = /** @type {any} */ (window).PcapPanel;
   /** A Codicons glyph (codicons/codicon.css), hidden from screen readers. @param {string} name */
@@ -969,14 +953,7 @@
   /** Chart width at the last render: only a width change needs a redraw. */
   let renderedWidth = -1;
 
-  /** @param {string} tag @param {Record<string, string | number>} attrs */
-  function s(tag, attrs) {
-    const node = document.createElementNS(SVG, tag);
-    for (const [k, v] of Object.entries(attrs)) {
-      node.setAttribute(k, String(v));
-    }
-    return node;
-  }
+  const s = /** @type {any} */ (window).PcapPanel.s;
 
   /**
    * The graphs the table holds: each series' column and how it is drawn (the

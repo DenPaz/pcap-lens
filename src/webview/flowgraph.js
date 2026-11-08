@@ -14,7 +14,6 @@
   const vscode = acquireVsCodeApi();
   /** @type {any} */
   const lib = /** @type {any} */ (window).PcapLib;
-  const SVG = "http://www.w3.org/2000/svg";
   const ROW = 26;
   const GUTTER = 150;
   const COLUMN = 160;
@@ -41,26 +40,9 @@
 
   const app = /** @type {HTMLElement} */ (document.getElementById("app"));
 
-  /**
-   * @param {string} tag @param {Record<string, string>} [attrs] @param {(Node | string)[]} [children]
-   */
-  function h(tag, attrs = {}, children = []) {
-    const node = document.createElement(tag);
-    for (const [k, v] of Object.entries(attrs)) {
-      node.setAttribute(k === "class" ? "class" : k, v);
-    }
-    node.append(...children);
-    return node;
-  }
+  const h = /** @type {any} */ (window).PcapPanel.h;
 
-  /** @param {string} tag @param {Record<string, string | number>} [attrs] */
-  function s(tag, attrs = {}) {
-    const node = document.createElementNS(SVG, tag);
-    for (const [k, v] of Object.entries(attrs)) {
-      node.setAttribute(k, String(v));
-    }
-    return node;
-  }
+  const s = /** @type {any} */ (window).PcapPanel.s;
 
   const title = h("h1", { class: "panel-title" }, ["Flow Graph"]);
   const statusText = h("span");

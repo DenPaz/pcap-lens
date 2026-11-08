@@ -8,6 +8,39 @@
 (function () {
   "use strict";
 
+  /**
+   * An element with attributes (`class` too) and children: what every panel
+   * builds its page with (never markup, so packet text stays text).
+   * @param {string} tag
+   * @param {Record<string, string>} [attrs]
+   * @param {(Node | string)[]} [children]
+   */
+  function h(tag, attrs = {}, children = []) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      node.setAttribute(k, v);
+    }
+    node.append(...children);
+    return node;
+  }
+
+  /**
+   * An SVG element with attributes and, optionally, its text (charts and maps).
+   * @param {string} tag
+   * @param {Record<string, string | number>} [attrs]
+   * @param {string} [text]
+   */
+  function s(tag, attrs = {}, text) {
+    const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      node.setAttribute(k, String(v));
+    }
+    if (text !== undefined) {
+      node.textContent = text;
+    }
+    return node;
+  }
+
   /** A Codicons glyph (codicons/codicon.css), hidden from screen readers. @param {string} name */
   function icon(name) {
     const span = document.createElement("span");
@@ -98,5 +131,5 @@
     });
   }
 
-  /** @type {any} */ (window).PcapPanel = { icon, withIcon, rowMenu };
+  /** @type {any} */ (window).PcapPanel = { h, s, icon, withIcon, rowMenu };
 })();

@@ -14,7 +14,6 @@
   const vscode = acquireVsCodeApi();
   /** @type {any} */
   const lib = /** @type {any} */ (window).PcapLib;
-  const SVG = "http://www.w3.org/2000/svg";
   const FLOW = { gutter: 96, column: 190, row: 26, top: 30 };
   const CHART = { height: 220, top: 12, right: 16, bottom: 32, left: 56 };
 
@@ -33,26 +32,9 @@
   const app = /** @type {HTMLElement} */ (document.getElementById("app"));
 
   /** @param {string} tag @param {Record<string, string>} [attrs] @param {(Node | string)[]} [children] */
-  function h(tag, attrs = {}, children = []) {
-    const node = document.createElement(tag);
-    for (const [k, v] of Object.entries(attrs)) {
-      node.setAttribute(k, v);
-    }
-    node.append(...children);
-    return node;
-  }
+  const h = /** @type {any} */ (window).PcapPanel.h;
 
-  /** @param {string} tag @param {Record<string, string | number>} [attrs] @param {string} [text] */
-  function s(tag, attrs = {}, text) {
-    const node = document.createElementNS(SVG, tag);
-    for (const [k, v] of Object.entries(attrs)) {
-      node.setAttribute(k, String(v));
-    }
-    if (text !== undefined) {
-      node.textContent = text;
-    }
-    return node;
-  }
+  const s = /** @type {any} */ (window).PcapPanel.s;
 
   const kit = /** @type {any} */ (window).PcapPanel;
   /** Codicons for the buttons, by label. @type {Record<string, string>} */

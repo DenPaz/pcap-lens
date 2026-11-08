@@ -210,8 +210,8 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   scripts and `worldmap.js`, the Endpoints map's land outline that
   `scripts/world-map.mjs` generates from world-atlas); `menus.js` (classic,
   `window.PcapMenus`: the context-menu engine, loaded by the editor and every
-  panel) and `panelkit.js` (classic, `window.PcapPanel`, panels only: icon
-  buttons, row menus); `main.js` = the editor's entry, an ES module (`<script
+  panel) and `panelkit.js` (classic, `window.PcapPanel`, panels only: the
+  element builders `h` and `s` (SVG), icon buttons, row menus); `main.js` = the editor's entry, an ES module (`<script
 type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   server allows the CORS fetch) that imports `viewer/*.js`, one module per
   part of the UI (`core` = shared state, constants, element lookups and
