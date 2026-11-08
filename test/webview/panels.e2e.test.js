@@ -18,6 +18,7 @@ const {
   newPage,
   codiconFontLoaded,
   axeViolations,
+  trackCoverage,
 } = require("./harness");
 
 const deps = loadDeps();
@@ -80,6 +81,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     await client.request("open", { path: path.join(FIXTURES, "mixed.pcapng") }, { timeoutMs: 0 });
     try {
       browser = await deps.chromium.launch();
+      trackCoverage(browser);
     } catch (err) {
       console.warn(`skipping panel e2e: no Chromium available (${err.message.split("\n")[0]})`);
       this.skip();

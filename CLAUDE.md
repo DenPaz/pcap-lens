@@ -105,10 +105,16 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
 - **Coverage**: pytest-cov (`[tool.coverage.*]` in pyproject: branch,
   `patch = ["subprocess"]` so the backend started as a child process counts,
   data in `coverage/`) and c8 (`.c8rc.json`: the compiled `out/src` the unit
-  tests load, mapped to the `.ts` sources, plus `lib.js` and `release.mjs`;
-  the VS Code-dependent host code only runs in the smoke test, which isn't
-  measured). No thresholds: the numbers are for finding untested code
-  (backend 93%, unit-tested TS 96% when added).
+  tests load, mapped to the `.ts` sources, `src/webview/**` (not codicons or
+  worldmap.js), `release.mjs` and `grade.mjs`). The webview scripts run in
+  the Chromium e2e tests: under c8, `trackCoverage(browser)`
+  (`test/webview/harness.js`) collects each page's V8 coverage with
+  Playwright and writes it into c8's `NODE_V8_COVERAGE` folder, the served
+  URLs mapped back to the files (one numbering per process: both e2e suites
+  run in one mocha). The VS Code-dependent host code only runs in the smoke
+  test, which isn't measured. No thresholds: the numbers are for finding
+  untested code (backend 93%; TypeScript and webview 95%, the viewer's
+  modules 89%).
 - **Accessibility checks**: `axeViolations(page)` in `test/webview/harness.js`
   runs axe-core (WCAG 2.0/2.1 A and AA, evaluated through the debugging
   protocol, so the CSP doesn't block it; `preload: false`, since its
