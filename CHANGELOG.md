@@ -11,7 +11,9 @@ commit) that made it. The format follows
 
 - Sequence Check: per stream (the values of fields you name), the messages a
   sequence field's numbers say are missing, duplicated, late or restarted,
-  with wrapping counters and filters to each stream and problem
+  with wrapping counters and filters to each stream and problem [3dbfca8]
+
+[3dbfca8]: https://github.com/DenPaz/pcap-lens/commit/3dbfca8
 
 ## 0.28.0 — 2026-11-08
 
