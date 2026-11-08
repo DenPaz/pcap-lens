@@ -300,8 +300,10 @@ class Run:
             status = (
                 "expected"
                 if exc.code in EXPECTED_CODES
-                else "note"  # (Wireshark's newer test captures crash tshark 4.2.2)
-                if exc.message.startswith("tshark crashed (")
+                # (Wireshark's newer test captures crash tshark 4.2.2, and some
+                # make a dissector loop: a million-item tree for one packet.)
+                else "note"
+                if exc.message.startswith("tshark crashed (") or "too large to show" in exc.message
                 else "problem"
             )
             data = f" {json.dumps(exc.data)[:300]}" if exc.data else ""
@@ -315,6 +317,28 @@ class Run:
 
     def check(self, name: str, ok: bool, detail: str) -> None:
         self.report.steps.append(Step(name, "ok" if ok else "problem", 0.0, "" if ok else detail))
+
+    def check_written(self, name: str, dest: Path, kind: str, frames: int) -> None:
+        """An export of every packet holds them all, or as many as tshark's
+        own ``-w`` writes (tshark 4.2.2 writes a damaged block for some
+        fuzzed pcapng blocks: a note, not ours)."""
+        got = record_count(dest)
+        if got == frames:
+            self.check(name, True, "")
+            return
+        own = self.work / f"tshark-own.{kind}"
+        with contextlib.suppress(OSError, subprocess.TimeoutExpired):
+            subprocess.run(
+                ["tshark", "-n", "-r", self.report.capture, "-F", kind, "-w", str(own)],  # noqa: S607
+                capture_output=True,
+                timeout=300,
+                check=False,
+            )
+        detail = f"{got} packets written, {frames} in capture"
+        if own.exists() and record_count(own) == got:
+            self.report.steps.append(Step(name, "note", 0.0, f"{detail} (as tshark's own -w)"))
+        else:
+            self.check(name, False, detail)
 
     def first_frame(self, flt: str) -> int | None:
         res = self.call(f"count {flt}", "count_matches", {"filter": flt, "limit": 1})
@@ -473,10 +497,7 @@ def _quick(run: Run, frames: int) -> None:
     run.call("comments", "packet_comments", {"frames": list(range(1, min(frames, 50) + 1))})
     dest = run.work / "all.pcapng"
     if run.call("export pcapng", "export", {"kind": "pcapng", "dest": str(dest), "filter": ""}):
-        got = record_count(dest)
-        run.check(
-            "export pcapng count", got == frames, f"{got} packets written, {frames} in capture"
-        )
+        run.check_written("export pcapng count", dest, "pcapng", frames)
 
 
 def _packet_list(run: Run, frames: int) -> None:
@@ -737,11 +758,8 @@ def _exports(run: Run, path: Path, frames: int) -> None:
             is None
         ):
             continue
-        got = record_count(dest)
         # pcap can't hold every link type; a refusal is reported as an error above.
-        run.check(
-            f"export {kind} count", got == frames, f"{got} packets written, {frames} in capture"
-        )
+        run.check_written(f"export {kind} count", dest, kind, frames)
     for kind in ("csv", "json"):
         dest = run.work / f"list.{kind}"
         if run.call(f"export {kind}", "export", {"kind": kind, "dest": str(dest)}) is None:
