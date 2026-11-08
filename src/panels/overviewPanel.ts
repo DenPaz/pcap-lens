@@ -117,6 +117,15 @@ export class OverviewPanel {
   }
 
   private async query(id: number, limit: boolean): Promise<void> {
+    // (Counted once every packet is read: a capture still being read isn't cached.)
+    let read = false;
+    const indexed = this.session.whenIndexed().then(() => (read = true));
+    await Promise.resolve();
+    if (!read) {
+      this.post({ type: "progress", id, fraction: null, message: "Waiting for the packets…" });
+    }
+    await indexed;
+    // (After the wait: the capture may have been reloaded meanwhile, with a new backend.)
     const client = this.session.backend;
     if (!client?.running) {
       this.post({
@@ -126,14 +135,6 @@ export class OverviewPanel {
       });
       return;
     }
-    // (Counted once every packet is read: a capture still being read isn't cached.)
-    let read = false;
-    const indexed = this.session.whenIndexed().then(() => (read = true));
-    await Promise.resolve();
-    if (!read) {
-      this.post({ type: "progress", id, fraction: null, message: "Waiting for the packets…" });
-    }
-    await indexed;
     const filter = limit ? this.session.currentFilter : "";
     const pending = client.send(
       "overview",

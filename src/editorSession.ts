@@ -346,6 +346,7 @@ export class PcapEditorSession {
     client.onExit(({ expected }) => {
       if (!expected && this.client === client && !this.disposed) {
         this.client = undefined;
+        this.indexed();
         this.post({
           type: "error",
           message: "The PCAP backend stopped unexpectedly. See the PCAP Lens log for details.",
@@ -432,6 +433,9 @@ export class PcapEditorSession {
       }
       this.reportWarnings([...settings.luaWarnings, ...info.warnings]);
       this.indexing = !!info.indexing;
+      if (!this.indexing) {
+        this.indexed(); // (waiters from a load this one replaced: nothing left to read)
+      }
       this.coloringStale = false;
       void vscode.commands.executeCommand("setContext", CAPTURE_OPENED, true);
       if (!this.document.temporary) {
@@ -484,6 +488,7 @@ export class PcapEditorSession {
       if (seq !== this.loadSeq || this.disposed) {
         return;
       }
+      this.indexed(); // (no capture to wait for: the waiters see no backend)
       if (err instanceof RpcError && err.cancelled) {
         this.post({ type: "error", message: "Loading was cancelled.", canReload: true });
         await this.stopBackend();
@@ -641,8 +646,7 @@ export class PcapEditorSession {
         `${path.basename(this.uri.fsPath)}: ${info.frames.toLocaleString("en-US")} packets indexed, ${took} s after loading started`,
       );
     }
-    this.indexing = false;
-    this.indexedWaiters.splice(0).forEach((resolve) => resolve());
+    this.indexed();
     if (this.capturing) {
       this.capturing = false; // (its "stopped" event normally came first)
       this.captureEmitter.fire();
@@ -1154,11 +1158,21 @@ export class PcapEditorSession {
     }
   }
 
-  /** Resolves once the index pass is done (at once when it is). */
+  /**
+   * Resolves once the index pass is done (at once when it is). A reload in
+   * between keeps waiting for the new load's pass; a failed load or a stopped
+   * backend resolves it too, so read `backend` again afterwards.
+   */
   whenIndexed(): Promise<void> {
     return this.indexing
       ? new Promise((resolve) => this.indexedWaiters.push(resolve))
       : Promise.resolve();
+  }
+
+  /** Nothing is being indexed (any more): resolve whenIndexed's waiters. */
+  private indexed(): void {
+    this.indexing = false;
+    this.indexedWaiters.splice(0).forEach((resolve) => resolve());
   }
 
   private async forwardRpc(
@@ -1702,7 +1716,7 @@ export class PcapEditorSession {
     this.disposeEmitter.fire();
     this.disposeEmitter.dispose();
     this.activateEmitter.dispose();
-    this.indexedWaiters.splice(0).forEach((resolve) => resolve());
+    this.indexed();
     this.capturing = false;
     this.captureEmitter.fire();
     this.captureEmitter.dispose();
