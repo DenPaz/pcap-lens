@@ -5,6 +5,7 @@ import {
   McpLaunch,
   claudeCodeCommand,
   dissectionFile,
+  dissectionFileName,
   mcpConfigText,
   mcpDissection,
   mcpServersJson,
@@ -147,5 +148,39 @@ suite("mcpConfig", () => {
       [{ root: "/work/li", options: li }],
       "same as default: left out",
     );
+  });
+
+  test("dissectionFile keeps a folder that overrides its outer folder, even with the defaults", () => {
+    const decode = { decodeAs: ["udp.port==9999,syslog"] };
+    const file = (folders: { root: string; options: object }[]) =>
+      JSON.parse(dissectionFile({}, folders)).folders.map((f: { root: string }) => f.root);
+    // The inner folder uses the defaults inside an outer one that doesn't: kept,
+    // else the server would take the outer folder's options for its captures.
+    assert.deepEqual(
+      file([
+        { root: "/work/outer/inner", options: {} },
+        { root: "/work/outer", options: decode },
+        { root: "/work/outer-not-inside", options: {} },
+      ]),
+      ["/work/outer/inner", "/work/outer"],
+    );
+    // An inner folder with its outer folder's options adds nothing; Windows paths too.
+    assert.deepEqual(
+      file([
+        { root: "C:\\work\\outer", options: decode },
+        { root: "C:\\work\\outer\\inner", options: decode },
+        { root: "C:\\work\\outer\\inner\\deeper", options: {} },
+      ]),
+      ["C:\\work\\outer", "C:\\work\\outer\\inner\\deeper"],
+    );
+  });
+
+  test("dissectionFileName: one file per workspace", () => {
+    assert.equal(dissectionFileName([]), "dissection.json");
+    const a = dissectionFileName(["file:///work/a"]);
+    assert.match(a, /^dissection-[0-9a-f]{16}\.json$/);
+    assert.equal(dissectionFileName(["file:///work/a"]), a);
+    assert.notEqual(dissectionFileName(["file:///work/b"]), a);
+    assert.notEqual(dissectionFileName(["file:///work/a", "file:///work/b"]), a);
   });
 });

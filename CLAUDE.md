@@ -2506,9 +2506,16 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   configuration pasted into another assistant survives updates (refreshing
   only when VS Code started a server left Claude Code on the old code after
   an update or an F5). **Dissection as in the viewer**: `--options`
-  names `globalStorage/mcp/dissection.json` (`writeDissection`:
-  `mcpConfig.dissectionFile`, format `pcap-lens-dissection`, the settings
-  outside any folder as `default`, then each workspace folder's that differ;
+  names `globalStorage/mcp/dissection-<workspace>.json` (`dissectionFileName`:
+  a digest of the `.code-workspace` file or the folders, so each window's
+  server reads its own workspace's settings; `dissection.json` without a
+  workspace; Codex review: one shared file let the last window written
+  decide) (`writeDissection`: `mcpConfig.dissectionFile`, format
+  `pcap-lens-dissection`, the settings outside any folder as `default`, then
+  each workspace folder whose options differ from what the server's lookup
+  would find without it: its nearest kept outer folder's, else the default
+  (Codex review: an inner folder with the default options took its outer
+  folder's);
   `mcpDissection` takes Lua scripts, Decode As, prefs (with the TLS key log),
   profile, protocol and heuristic switches and GeoIP folders: never
   decryption keys, which stay in secret storage, nor name resolution: the

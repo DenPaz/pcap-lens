@@ -10,6 +10,7 @@ import {
   McpLaunch,
   McpTarget,
   dissectionFile,
+  dissectionFileName,
   mcpConfigText,
   mcpDissection,
   serverCommand,
@@ -27,7 +28,7 @@ import { whereLabel } from "../remote";
  * (`globalStorage/mcp/backend`), refreshed when the extension's version
  * changes, so a configuration pasted elsewhere survives updates. The server
  * dissects captures as the viewer does: `--options` names
- * `globalStorage/mcp/dissection.json` (each workspace folder's Lua scripts,
+ * `globalStorage/mcp/dissection-<workspace>.json` (each workspace folder's Lua scripts,
  * Decode As, preferences, profile and protocol switches), which is rewritten
  * when those settings change and read again by the server, and Wireshark's
  * plugin and configuration folder variables go into its environment.
@@ -110,7 +111,10 @@ const DISSECTION_SETTINGS = [
  * temporary file and renamed, so the server never reads half of one.
  */
 export function writeDissection(context: vscode.ExtensionContext): string {
-  const file = path.join(context.globalStorageUri.fsPath, "mcp", "dissection.json");
+  const workspace = vscode.workspace.workspaceFile
+    ? [vscode.workspace.workspaceFile.toString()]
+    : (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.toString());
+  const file = path.join(context.globalStorageUri.fsPath, "mcp", dissectionFileName(workspace));
   const folders = (vscode.workspace.workspaceFolders ?? [])
     .filter((f) => f.uri.scheme === "file")
     .map((f) => ({ root: f.uri.fsPath, options: mcpDissection(readSettings(f.uri)) }));

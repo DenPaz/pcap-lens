@@ -6,6 +6,8 @@
  * `vscode` import: unit-tested.
  */
 
+import { createHash } from "node:crypto";
+
 /** What the server needs to start (paths on the machine where it runs). */
 export interface McpLaunch {
   /** The Python interpreter and its leading arguments (`py -3.14` on Windows). */
@@ -92,11 +94,22 @@ export function dissectionFile(
   folders: readonly { root: string; options: McpDissection }[],
 ): string {
   const same = (a: McpDissection, b: McpDissection) => JSON.stringify(a) === JSON.stringify(b);
+  // The server uses the deepest folder holding a capture, else the default, so
+  // a folder is left out only when it matches what that lookup would find
+  // without it: its nearest kept ancestor's options, else the default (Codex
+  // review: an inner folder with the default options took its outer one's).
+  const kept: { root: string; options: McpDissection }[] = [];
+  for (const f of [...folders].sort((a, b) => a.root.length - b.root.length)) {
+    const parent = kept.filter((k) => isInside(f.root, k.root)).at(-1);
+    if (!same(f.options, parent ? parent.options : defaults)) {
+      kept.push(f);
+    }
+  }
   return `${JSON.stringify(
     {
       format: DISSECTION_FORMAT,
       default: defaults,
-      folders: folders.filter((f) => !same(f.options, defaults)),
+      folders: folders.filter((f) => kept.includes(f)),
     },
     null,
     2,
@@ -121,6 +134,26 @@ export function wiresharkEnv(env: Record<string, string | undefined>): Record<st
     }
   }
   return out;
+}
+
+/** Whether `child` is `root` or a folder inside it (either separator). */
+function isInside(child: string, root: string): boolean {
+  const base = root.replace(/[\\/]+$/, "");
+  return child === base || child.startsWith(`${base}/`) || child.startsWith(`${base}\\`);
+}
+
+/**
+ * The options file's name for one workspace (its `.code-workspace` file or
+ * its folders, in order), so each window's server reads its own workspace's
+ * settings: one file shared by every window let the last one written decide
+ * (Codex review). A window without a workspace gets `dissection.json`.
+ */
+export function dissectionFileName(workspace: readonly string[]): string {
+  if (!workspace.length) {
+    return "dissection.json";
+  }
+  const digest = createHash("sha256").update(workspace.join("\n")).digest("hex").slice(0, 16);
+  return `dissection-${digest}.json`;
 }
 
 export const SERVER_ID = "pcap-lens";
