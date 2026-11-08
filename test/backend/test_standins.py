@@ -56,6 +56,24 @@ def test_ipv4_mapped_ipv6() -> None:
     assert m.restore(m.mask(text)) == text
 
 
+def test_reverse_lookup_names_and_ipv6_spellings() -> None:
+    # PTR and mDNS queries name the address backwards: the ip6.arpa form spells
+    # out a whole IPv6 address, which stayed readable.
+    m = AddressMasker()
+    v6 = "b.a.9.0.8.7.6.5.3.0.0.0.2.0.0.0.1.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2"
+    text = (
+        f"PTR 4.1.168.192.in-addr.arpa for 192.168.1.4; PTR {v6}.ip6.arpa for "
+        "2001:db8:0:1:2:3:5678:9ab and 2001:0DB8:0000:0001:0002:0003:5678:09AB; "
+        "zone 1.168.192.in-addr.arpa and 8.b.d.0.1.0.0.2.ip6.arpa stay"
+    )
+    assert m.mask(text) == (
+        "PTR IP_PRIVATE_1.in-addr.arpa for IP_PRIVATE_1; PTR IP6_PUBLIC_1.ip6.arpa for "
+        "IP6_PUBLIC_1 and IP6_PUBLIC_1; "
+        "zone 1.168.192.in-addr.arpa and 8.b.d.0.1.0.0.2.ip6.arpa stay"
+    )
+    assert m.mask("2001:0db8:0:0:1:2:3:4") == m.mask("2001:db8::1:2:3:4")
+
+
 def test_filters_and_deep_restore() -> None:
     m = AddressMasker()
     masked = m.mask("ip.addr == 10.1.2.3 && eth.src == 00:1a:2b:3c:4d:5e && ip.dst == 8.8.8.0/24")

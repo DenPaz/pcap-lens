@@ -2099,6 +2099,10 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   IPv4's token (the IPv6 pattern tries the dotted form first and never stops
   before `.<digit>`: `IP6_PUBLIC_1.168.1.2` leaked three octets; Codex
   review; `standins.py` the same);
+  reverse lookup names take their address's token (`d.c.b.a.in-addr.arpa`,
+  and a whole 32-nibble `ip6.arpa` name, which spelled out the IPv6 address:
+  found in an evaluation), and IPv6 tokens are keyed by the canonical form
+  (`2001:0db8::1` is `2001:db8::1`; `standins.py` the same);
   0/8, 127/8, ≥ 224, `::`, `::1`, ff00::/8, group and all-zero MACs stay
   (they say something and identify no one). Host names come from
   `namesInRows` (cells vs `addresses`) and `namesInTree` (`*.src_host`… with

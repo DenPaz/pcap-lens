@@ -39,6 +39,11 @@ const IPV6_RE =
 // An IPv4-mapped address written dotted: that IPv4 host.
 const MAPPED_RE = /^(?:::|(?:0{1,4}:){5})ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i;
 const MAC_RE = /(?<![\w:-])[0-9A-Fa-f]{2}([:-])[0-9A-Fa-f]{2}(?:\1[0-9A-Fa-f]{2}){4}(?![\w:-])/g;
+// Reverse lookup names (PTR, mDNS): an address written backwards. A whole one
+// takes that address's token (an ip6.arpa name spells out every nibble).
+const REVERSE_V4_RE =
+  /(?<![\w.-])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?=\.in-addr\.arpa\b)/gi;
+const REVERSE_V6_RE = /(?<![\w.-])((?:[0-9A-Fa-f]\.){32})(?=ip6\.arpa\b)/gi;
 // tshark's resolved form: the vendor and the last three bytes ("Apple_12:34:56").
 const VENDOR_MAC_RE = /(?<![\w:-])[A-Za-z][\w-]*_[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){2}(?![\w:-])/g;
 
@@ -72,6 +77,15 @@ function macKind(text: string): StandInKind | undefined {
   // Group addresses (broadcast, multicast) name no machine; all-zero neither.
   const first = parseInt(text.slice(0, 2), 16);
   return first & 1 || /^0{2}([:-]0{2}){5}$/.test(text) ? undefined : "MAC";
+}
+
+/** One spelling per IPv6 address (2001:0db8:0::1 is 2001:db8::1): the URL parser's. */
+function canonicalV6(text: string): string {
+  try {
+    return new URL(`http://[${text}]/`).hostname.slice(1, -1);
+  } catch {
+    return text.toLowerCase();
+  }
 }
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -134,6 +148,18 @@ export class AddressMasker {
 
   private maskAddresses(text: string): string {
     return text
+      .replace(REVERSE_V4_RE, (m, ...groups: string[]) => {
+        const octets = groups.slice(0, 4).map(Number).reverse();
+        const kind = ipv4Kind(octets);
+        const forward = octets.join(".");
+        return kind ? this.token(kind, forward, forward) : m;
+      })
+      .replace(REVERSE_V6_RE, (m, nibbles: string) => {
+        const hex = nibbles.replace(/\./g, "").split("").reverse().join("");
+        const forward = canonicalV6((hex.match(/.{4}/g) ?? []).join(":"));
+        const kind = ipv6Kind(forward);
+        return kind ? `${this.token(kind, forward, forward)}.` : m;
+      })
       .replace(MAC_RE, (m) => {
         const kind = macKind(m);
         return kind ? this.token(kind, m.toLowerCase().replace(/-/g, ":"), m) : m;
@@ -148,7 +174,7 @@ export class AddressMasker {
           return v4Kind ? m.slice(0, m.length - v4.length) + this.token(v4Kind, v4, v4) : m;
         }
         const kind = ipv6Kind(m);
-        return kind ? this.token(kind, m.toLowerCase(), m) : m;
+        return kind ? this.token(kind, canonicalV6(m), m) : m;
       })
       .replace(IPV4_RE, (m, ...groups: string[]) => {
         const kind = ipv4Kind(groups.slice(0, 4).map(Number));
