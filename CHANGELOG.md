@@ -37,6 +37,11 @@ commit) that made it. The format follows
   so [46bda82]
 - The Capture Overview shows addresses, hosts and content types whole
   [da79f4e]
+- HTTP Requests, DNS Queries and TLS Servers list their first 10,000 rows
+  (the summary counts all): a capture with 300k DNS queries made a panel that
+  never finished drawing and a backend of 450 MB [4d63b99]
+- The field catalogue each capture's backend loads takes a third less memory
+  (121 → 83 MB) [1f45d07]
 
 [3dbfca8]: https://github.com/DenPaz/pcap-lens/commit/3dbfca8
 [076f493]: https://github.com/DenPaz/pcap-lens/commit/076f493
@@ -50,6 +55,8 @@ commit) that made it. The format follows
 [de4c1ea]: https://github.com/DenPaz/pcap-lens/commit/de4c1ea
 [46bda82]: https://github.com/DenPaz/pcap-lens/commit/46bda82
 [da79f4e]: https://github.com/DenPaz/pcap-lens/commit/da79f4e
+[4d63b99]: https://github.com/DenPaz/pcap-lens/commit/4d63b99
+[1f45d07]: https://github.com/DenPaz/pcap-lens/commit/1f45d07
 
 ## 0.28.0 — 2026-11-08
 
