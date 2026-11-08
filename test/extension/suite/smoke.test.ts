@@ -730,6 +730,47 @@ suite("PCAP Lens smoke test", () => {
     await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
   });
 
+  test("every statistics command opens its panel and the backend answers it", async () => {
+    // The statistics kinds share one panel class; each command's wiring and
+    // its query through the host are only exercised here (the webview e2e
+    // tests talk to the backend directly).
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    const api = (await ext!.activate()) as PcapViewerApi;
+    const uri = vscode.Uri.file(path.join(FIXTURES, "http.pcap"));
+    await vscode.commands.executeCommand("vscode.openWith", uri, "pcapViewer.editor");
+    const session = await waitFor(() =>
+      api.provider.allSessions.find((s) => s.uri.fsPath === uri.fsPath && indexed(s)),
+    );
+    const statistics = (ext!.packageJSON.contributes.commands as { command: string }[])
+      .map((c) => c.command)
+      .filter(
+        (id) =>
+          id.startsWith("pcapViewer.statistics.") &&
+          // (Their own panels, covered above; the sequence check runs once asked.)
+          ![
+            "pcapViewer.statistics.flowGraph",
+            "pcapViewer.statistics.tcpStreamGraph",
+            "pcapViewer.statistics.voipCalls",
+            "pcapViewer.statistics.overview",
+            "pcapViewer.statistics.sequences",
+          ].includes(id),
+      );
+    assert.ok(statistics.length >= 18, statistics.join(", "));
+    for (const id of statistics) {
+      session.reveal();
+      const before = new Set(api.panels.StatsPanel.all);
+      await vscode.commands.executeCommand(id);
+      const panel = await waitFor(() =>
+        api.panels.StatsPanel.all.find((p) => p.session === session && !before.has(p)),
+      );
+      const outcome = await waitFor(() => panel.lastOutcome);
+      assert.ok(outcome.ok, `${id}: ${outcome.message}`);
+      panel.panel.dispose();
+    }
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
+  });
+
   test("changing name resolution re-indexes open captures", async () => {
     const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
     const api = (await ext!.activate()) as PcapViewerApi;

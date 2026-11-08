@@ -300,6 +300,9 @@ export class StatsPanel {
     }
   }
 
+  /** How the latest query ended (the smoke test reads it). */
+  lastOutcome: { ok: boolean; message?: string } | undefined;
+
   private async query(id: number, params: QueryParams): Promise<void> {
     const client = this.session.backend;
     if (!client?.running) {
@@ -332,9 +335,13 @@ export class StatsPanel {
     this.inflight.set(id, pending.id);
     try {
       const table = await pending.promise;
+      this.lastOutcome = { ok: true };
       this.post({ type: "result", id, table });
     } catch (err) {
       const e = err instanceof RpcError ? err : new RpcError(String(err), ErrorCodes.InternalError);
+      if (!e.cancelled) {
+        this.lastOutcome = { ok: false, message: e.message };
+      }
       // A refused graph's filter or field names the graph (FilterError data.series).
       const data = e.data as { series?: unknown; field?: unknown } | undefined;
       const series = data?.series;
