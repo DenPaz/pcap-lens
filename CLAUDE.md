@@ -532,7 +532,12 @@ matchCount, fraction}`; the end sends `done`, `stopped` (`stop_filter
   parallel. `-c N` stops reading after frame N (it counts packets _read_), so
   cost is proportional to N, and earlier packets are still dissected (TCP
   reassembly etc. stay correct). Detail of frame ~1M therefore costs about one
-  pass over the file (20 s on the benchmark capture). **Two-pass details**
+  pass over the file (20 s on the benchmark capture). The PDML is read up to
+  `MAX_DETAIL_BYTES` (64 MB, `_bounded_pdml`): a looping dissector fills
+  tshark's tree with a million items (4 GB for one packet of Wireshark's
+  dvb_s2_table_coverage, which was read whole and never answered); past it
+  tshark is stopped and a ToolError quotes its "Dissector bug" warning.
+  **Two-pass details**
   (`packet_detail {twoPass: true}`): the webview asks for them when the
   capture is complete (not indexing or capturing) and has at most
   `pcapViewer.twoPassDetail` packets (default 10,000; carried in the
@@ -598,7 +603,10 @@ frame.number==N` (no `-c`, both the PDML and the `-x` run), so references
   checks fields' raw `value`s (or `unmaskedvalue`s) against the `-x` buffers,
   at three levels: each top-level item and each nested item with children
   goes to the source its fields match best (`_matching_source`: +1 per match,
-  −1 per mismatch, the inherited source unless another scores higher;
+  −1 per mismatch, the inherited source unless another scores higher; a
+  `*.fragments`/`*.segments` list inside it doesn't vote (an IPv4 header
+  holding 44 fragments went to "Reassembled IPv4"), and bit fields' values,
+  which may be masked, only break a tie (H.265 parameter sets from SDP);
   without evidence a top-level item stays in the previous one's source,
   moving to the next after a `*.segments`/`*.fragments` node); an item's own
   range stays on the enclosing source when it doesn't fit the matched one
