@@ -2015,12 +2015,6 @@
     return offset.toString(16).padStart(width, "0");
   }
 
-  /** "0.001000000" -> "0.001000" (Wireshark's default precision). @param {string} s */
-  function formatRelativeTime(s) {
-    const n = Number(s);
-    return s === "" || !Number.isFinite(n) ? s : n.toFixed(6);
-  }
-
   /** @param {number} bytes */
   function formatBytes(bytes) {
     const units = ["B", "KB", "MB", "GB", "TB"];
@@ -3560,7 +3554,6 @@
     hexToBytes,
     asciiChar,
     formatOffset,
-    formatRelativeTime,
     formatBytes,
     formatDuration,
     formatInterval,

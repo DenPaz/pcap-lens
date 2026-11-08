@@ -554,8 +554,6 @@ suite("webview lib: bytes", () => {
     assert.equal(lib.asciiChar(0x0a), ".");
     assert.equal(lib.formatOffset(16, 100), "0010");
     assert.equal(lib.formatOffset(16, 70000), "00000010");
-    assert.equal(lib.formatRelativeTime("0.001000000"), "0.001000");
-    assert.equal(lib.formatRelativeTime(""), "");
     assert.equal(lib.formatBytes(512), "512 B");
     assert.equal(lib.formatBytes(1536), "1.5 KB");
     assert.equal(lib.formatDuration(5.9), "0:05");
