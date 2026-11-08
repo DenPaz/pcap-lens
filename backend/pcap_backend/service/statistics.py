@@ -20,6 +20,11 @@ MAX_SEQUENCE_KEYS = 4
 MAX_IO_INTERVAL_S = 100 * 365 * 86400
 # The largest HTTP body http_body returns (as Show Packet Bytes shows at most).
 MAX_BODY_BYTES = 16 * 1024 * 1024
+# Rows a session table (HTTP requests, DNS queries, TLS servers) lists, in
+# capture order; its summary counts them all. The panel draws every row, and
+# a capture of 1M packets can hold 300k DNS queries (a 450 MB backend, a
+# panel that never finished drawing).
+MAX_SESSION_ROWS = 10_000
 _HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
 _SESSIONS = {
     "http_requests": (sessions.HTTP_FILTER, sessions.HTTP_FIELDS, sessions.http_requests),
@@ -399,10 +404,21 @@ class StatisticsMixin(DissectionMixin):
         flt, fields, build = _SESSIONS[kind]
         flt = f"({flt}) && ({counted})" if counted else flt
         args = ["-Y", flt, *_fields_args(fields), "-E", f"aggregator={sessions.AGGREGATOR}"]
-        res = run(f.tshark.argv(*args, capture=str(f.path)), ctx.token)
-        if failed(res.returncode, res.stderr) and not res.stdout:
-            raise f.tshark.error(res.stderr, res.returncode, "tshark failed")
-        return build(res.stdout.decode("utf-8", "replace").split("\n"))
+        result = StreamResult()
+        lines = stream_lines(f.tshark.argv(*args, capture=str(f.path)), result, ctx.token)
+        decoded = (raw.decode("utf-8", "replace") for raw in lines)
+        # (The DNS table keeps only its listed queries' details.)
+        table = (
+            sessions.dns_queries(decoded, MAX_SESSION_ROWS)
+            if kind == "dns_queries"
+            else build(decoded)
+        )
+        if failed(result.returncode, result.stderr) and not result.lines:
+            raise f.tshark.error(result.stderr, result.returncode, "tshark failed")
+        if len(table.rows) > MAX_SESSION_ROWS:
+            table.extra["more"] = len(table.rows) - MAX_SESSION_ROWS
+            del table.rows[MAX_SESSION_ROWS:]
+        return table
 
     def _sequences(
         self, f: _Open, params: dict[str, Any], counted: str, ctx: RequestContext

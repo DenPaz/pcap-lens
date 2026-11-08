@@ -1656,6 +1656,11 @@ dns_queries | tls_servers}`, `http_body {frame}`): one row per HTTP
   request, DNS query or TLS server, each from one `-Y` fields pass
   (aggregator `\x1e`), in the statistics panel (`SESSION_KINDS`,
   `lib.sessionSummary` for the status line from the result's `summary`).
+  The pass is streamed and at most `MAX_SESSION_ROWS` (10,000) rows are
+  listed, in capture order (`more` counts the rest; the summary counts all):
+  the panel draws every row, and the 1M-packet benchmark capture holds 334k
+  DNS queries (457 MB before; `dns_queries(lines, limit)` keeps details only
+  for the listed ones: 64 MB).
   HTTP: a row per request message (pipelined ones share a packet), the
   responses paired per TCP stream in order (HTTP/1.1; tshark's
   `http.request_in` names only the first of pipelined responses; 1xx don't
@@ -3024,6 +3029,15 @@ makes tshark super-linear (filter 165 s for 1M vs 4.5 s for 100k); real
 captures are not expected to behave like that. Sorting streams one column from
 the row store and sorts indices with a stable key list (no per-row tuples):
 this took the backend from 710 MB to 125 MB peak.
+
+Re-measured 2026-11 (4 CPUs, same flags): open 27 s, filter 18 s, sort 0.45 s,
+detail of last frame 18 s, quick view 0.24 s. The field catalogue, which the
+viewer warms in every backend, adds 83 MB (121 MB before 1f45d07). Never
+benched before (1M packets): expert summary 6 s; phs, conversations,
+endpoints, io 3–4 s each; overview 23 s; session tables 18–22 s; field values
+18 s; VoIP calls 17 s; triage 18 s; capture profile 25 s; find in the list
+2.4 s; pcapng export of everything 0.5 s; CSV 3.9 s; set_coloring 20 s;
+view_overview 0.1 s.
 
 ## Status
 

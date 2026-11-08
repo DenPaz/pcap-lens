@@ -578,7 +578,11 @@
             : t.kind === "sequences"
               ? `${lib.sequenceSummary(t.summary)}${scope}`
               : t.summary
-                ? `${lib.sessionSummary(t.kind, t.summary)}${scope}`
+                ? `${lib.sessionSummary(t.kind, t.summary)}${scope}${
+                    t.more
+                      ? ` · the first ${n.toLocaleString()} listed (${t.more.toLocaleString()} more: limit to a display filter to see them)`
+                      : ""
+                  }`
                 : `${n.toLocaleString()} ${n === 1 ? "row" : "rows"}${scope}`;
     chartBox.classList.toggle("hidden", t.kind !== "io");
     legend.classList.toggle("hidden", t.kind !== "io");

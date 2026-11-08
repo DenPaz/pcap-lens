@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -110,6 +111,21 @@ def test_dns_queries(service: PcapService) -> None:
     assert [_cell(table, r, "ID") for r in table["rows"]][:2] == ["0x3000", "0x3001"]
     for row in table["rows"]:
         assert _matches(service, row["filter"]) in (1, 2)
+
+
+@pytest.mark.tshark
+def test_a_long_session_table_lists_its_first_rows(
+    service: PcapService, patch_service: Callable[[str, object], None]
+) -> None:
+    # A capture can hold hundreds of thousands of DNS queries: the panel draws
+    # every row, so the table lists the first ones; the summary counts all.
+    patch_service("MAX_SESSION_ROWS", 2)
+    _open(service, "sessions.pcap")
+    table = _table(service, "dns_queries")
+    assert table["summary"] == {"queries": 5, "unanswered": 1, "failed": 1}
+    assert len(table["rows"]) == 2 and table["more"] == 3
+    assert [_cell(table, r, "ID") for r in table["rows"]] == ["0x3000", "0x3001"]
+    assert "more" not in _table(service, "tls_servers")
 
 
 @pytest.mark.tshark
