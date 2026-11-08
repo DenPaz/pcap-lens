@@ -22,6 +22,8 @@ from pcap_backend.protocol import RequestContext
 from pcap_backend.standins import AddressMasker
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+EXAMPLE_LUA = Path(__file__).resolve().parents[2] / "backend" / "dissectors" / "example.lua"
+AS_ROOT = hasattr(os, "geteuid") and os.geteuid() == 0
 BACKEND = Path(__file__).resolve().parents[2] / "backend"
 
 
@@ -125,6 +127,7 @@ def test_handshake_tools_and_errors(client_for: Any) -> None:
     assert str(FIXTURES) in init["result"]["instructions"]
     assert "not available" in init["result"]["instructions"]
     assert "running tshark" in init["result"]["instructions"]
+    assert "plugins lists them" in init["result"]["instructions"]
     unknown = c.request("initialize", {"protocolVersion": "1999-01-01"})
     assert unknown["result"]["protocolVersion"] == mcp.DEFAULT_PROTOCOL
     c.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
@@ -140,6 +143,7 @@ def test_handshake_tools_and_errors(client_for: Any) -> None:
         "field_values",
         "validate_filter",
         "search_fields",
+        "plugins",
     }, "no packet contents without --allow-packet-data"
     assert all(t["annotations"]["readOnlyHint"] for t in tools.values())
     assert tools["statistics"]["inputSchema"]["required"] == ["capture", "kind"]
@@ -504,6 +508,118 @@ def test_progress_notifications(client_for: Any) -> None:
     assert notes and all(n["params"]["progressToken"] == "tok" for n in notes)
 
 
+def _options(path: Path, default: Any = None, folders: Any = None) -> Path:
+    """A dissection options file as the extension writes it (--options)."""
+    data = {"format": mcp.OPTIONS_FORMAT, "default": default or {}, "folders": folders or []}
+    path.write_text(json.dumps(data))
+    return path
+
+
+def test_read_dissection(tmp_path: Path) -> None:
+    missing = mcp.read_dissection(tmp_path / "none.json")
+    assert missing.default == {} and missing.warning and "none.json" in missing.warning
+    bad = tmp_path / "bad.json"
+    bad.write_text("{")
+    with pytest.raises(mcp.ToolFailureError, match="valid JSON"):
+        mcp.read_dissection(bad)
+    bad.write_text('{"format": "other"}')
+    with pytest.raises(mcp.ToolFailureError, match="isn't a PCAP Lens"):
+        mcp.read_dissection(bad)
+    outer, inner = tmp_path / "work", tmp_path / "work" / "li"
+    inner.mkdir(parents=True)
+    path = _options(
+        tmp_path / "options.json",
+        default={"decodeAs": ["udp.port==1,dns"], "names": {"network": True}},
+        folders=[
+            {"root": str(outer), "options": {"profile": "Work"}},
+            {"root": str(inner), "options": {"lua": ["/x/li.lua"], "keys": [{"type": "ssh"}]}},
+        ],
+    )
+    got = mcp.read_dissection(path)
+    # Only dissection settings: never keys (secrets), and the MCP server's own -n stays.
+    assert got.default == {"decodeAs": ["udp.port==1,dns"]}
+    assert got.for_path(inner.resolve() / "a.pcap") == {"lua": ["/x/li.lua"]}, "deepest wins"
+    assert got.for_path(outer.resolve() / "a.pcap") == {"profile": "Work"}
+    assert got.for_path(tmp_path / "a.pcap") == got.default
+    assert mcp._summary({"lua": ["/x/li.lua"], "prefs": {"b": 1, "a": 2}}) == {
+        "luaScripts": ["li.lua"],
+        "preferences": ["a", "b"],
+    }
+
+
+@pytest.mark.tshark
+def test_captures_are_dissected_with_the_viewers_settings(client_for: Any, tmp_path: Path) -> None:
+    for folder in ("a", "b"):
+        (tmp_path / folder).mkdir()
+        shutil.copy(FIXTURES / "mixed.pcapng", tmp_path / folder / "mixed.pcapng")
+    decode = {"decodeAs": ["udp.port==9999,syslog"]}
+    options = _options(
+        tmp_path / "options.json", folders=[{"root": str(tmp_path / "a"), "options": decode}]
+    )
+    c = client_for(roots=[tmp_path], options_file=options)
+    in_a, _ = c.call("count_packets", capture="a/mixed.pcapng", filter="syslog")
+    in_b, _ = c.call("count_packets", capture="b/mixed.pcapng", filter="syslog")
+    assert in_a["count"] > 0 and in_b["count"] == 0, "each folder's own settings"
+    info, _ = c.call("capture_info", capture="a/mixed.pcapng")
+    assert info["dissectedWith"] == {"decodeAs": ["udp.port==9999,syslog"]}
+    # The settings change (VS Code rewrites the file): the capture is dissected again.
+    _options(options, default=decode)
+    again, _ = c.call("count_packets", capture="a/mixed.pcapng", filter="syslog")
+    assert again["count"] == in_a["count"]
+    now_b, _ = c.call("count_packets", capture="b/mixed.pcapng", filter="syslog")
+    assert now_b["count"] == in_a["count"], "the default now decodes it too"
+    _options(options)
+    gone, _ = c.call("count_packets", capture="a/mixed.pcapng", filter="syslog")
+    assert gone["count"] == 0
+    # A file that can't be read fails the call rather than dissect differently.
+    options.write_text("{")
+    text, failed = c.call("count_packets", capture="a/mixed.pcapng", filter="syslog")
+    assert failed and "valid JSON" in text
+
+
+@pytest.mark.tshark
+def test_a_missing_options_file_is_a_warning(client_for: Any, tmp_path: Path) -> None:
+    c = client_for(options_file=tmp_path / "options.json")
+    info, failed = c.call("capture_info", capture="http.pcap")
+    assert not failed and info["dissectedWith"] == {}
+    assert any("options.json" in w for w in info["warnings"])
+
+
+@pytest.mark.tshark
+@pytest.mark.skipif(AS_ROOT, reason="tshark disables Lua dissectors when running as root")
+def test_lua_fields_validate_and_are_found(client_for: Any, tmp_path: Path) -> None:
+    plain = client_for()
+    res, _ = plain.call("validate_filter", filter="example.seq == 1")
+    assert res["valid"] is False
+    options = _options(tmp_path / "options.json", default={"lua": [str(EXAMPLE_LUA)]})
+    c = client_for(options_file=options)
+    res, _ = c.call("validate_filter", filter="example.seq == 1")
+    assert res == {"valid": True}
+    found, _ = c.call("search_fields", query="example sequence")
+    assert "example.seq" in [f["name"] for f in found["fields"]]
+    listed, _ = c.call("plugins")
+    assert listed["luaScripts"] == ["example.lua"]
+
+
+@pytest.mark.tshark
+def test_plugins(client_for: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    c = client_for()
+    res, failed = c.call("plugins")
+    assert not failed and isinstance(res["plugins"], list) and res["tshark"]
+    assert set(res["folders"]) >= {"personalPlugins", "globalPlugins"}
+    if AS_ROOT:
+        assert "root" in res["warnings"][0]
+        return
+    # A plugin folder given by WIRESHARK_PLUGIN_DIR (which the extension passes
+    # on to the server) is where tshark looks for plugins.
+    folder = tmp_path / "plugins"
+    folder.mkdir()
+    (folder / "mine.lua").write_text('local p = Proto("mineproto", "Mine")\n')
+    monkeypatch.setenv("WIRESHARK_PLUGIN_DIR", str(folder))
+    res, _ = client_for().call("plugins")
+    assert "mine.lua" in [p["name"] for p in res["plugins"]]
+
+
 def test_arguments_and_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     config, level = mcp.parse_args([])
@@ -519,6 +635,9 @@ def test_arguments_and_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         ["--allow-packet-data", "--allow-packet-bytes", "--cache-dir", "~/c"]
     )
     assert config.allow_packet_bytes and config.cache_dir == Path("~/c").expanduser()
+    assert config.options_file is None
+    config, _ = mcp.parse_args(["--options", "~/o.json"])
+    assert config.options_file == Path("~/o.json").expanduser()
     with pytest.raises(SystemExit):
         mcp.parse_args(["--root", str(tmp_path / "missing")])
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))

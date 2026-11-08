@@ -85,6 +85,8 @@ export const el = {
   navTools: $("nav-tools"),
   filterAi: $("filter-ai"),
   filterField: $("filter-field"),
+  filterText: $("filter-text"),
+  filterPaint: $("filter-paint-text"),
   suggest: $("suggest"),
   busyBar: progressBar.bar,
   busyFill: progressBar.fill,
@@ -94,6 +96,9 @@ export const el = {
   spacer: $("list-spacer"),
   rows: $("list-rows"),
   empty: $("list-empty"),
+  main: $("main"),
+  bottom: $("bottom"),
+  bytes: $("bytes"),
   splitH: $("split-h"),
   splitV: $("split-v"),
   detail: $("detail"),
@@ -218,6 +223,10 @@ export const state = {
   diagramValues: saved.diagramValues === true,
   activeSource: 0,
   rowHeight: 22,
+  /** Where the panes go (pcapViewer.paneLayout; the last one, until the host says). */
+  paneLayout: lib.paneLayout(saved.paneLayout),
+  /** The bytes pane is shown (pcapViewer.showBytesPane). */
+  bytesPane: saved.bytesPane !== false,
   /** @type {string[]} */ history: [],
   /** @type {{name: string, filter: string}[]} */ savedFilters: [],
   /** `pcapViewer.filterButtons`: the bar under the filter bar. */

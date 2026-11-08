@@ -7,6 +7,29 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.28.0 — 2026-11-08
+
+### Added
+
+- Pane layout: the packet details and bytes below the list (as before),
+  stacked under it or beside it, with or without the bytes pane, from the
+  toolbar's _Pane Layout_ button or `pcapViewer.paneLayout` [5dc38b0]
+- Statistics, Follow Stream and the other panels can open below the capture
+  (`pcapViewer.panelPlacement`), as tabs of one group under it [e258c06]
+- The filter bar underlines the part of a filter tshark refused, and shows
+  fields, operators, functions, values and strings in colour [0a4898b]
+
+### Changed
+
+- The MCP server dissects captures as the viewer does: your Lua dissectors,
+  Decode As rules, preferences and Wireshark profile, and plugins from
+  `WIRESHARK_PLUGIN_DIR`; a new `plugins` tool lists what tshark loads [1c63cd2]
+
+[1c63cd2]: https://github.com/DenPaz/pcap-lens/commit/1c63cd2
+[5dc38b0]: https://github.com/DenPaz/pcap-lens/commit/5dc38b0
+[0a4898b]: https://github.com/DenPaz/pcap-lens/commit/0a4898b
+[e258c06]: https://github.com/DenPaz/pcap-lens/commit/e258c06
+
 ## 0.27.1 — 2026-11-07
 
 ### Changed

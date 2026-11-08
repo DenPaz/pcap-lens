@@ -49,6 +49,8 @@ dissector you pick).
   open resumes.
 - **Protocol tree and hex view** with two-way highlighting and reassembled
   data; right-click a field to filter on it, colorize, add a column or copy.
+  The panes go below, stacked or beside the list, with or without the bytes
+  (the toolbar's _Pane Layout_ button).
 - **Packet diagram**: each header drawn 32 bits a row, every field to the
   bit, as in Wireshark.
 - **Show Packet Bytes**: a field's bytes decoded (Base64, gzip/deflate, hex,
@@ -73,7 +75,8 @@ dissector you pick).
 
 ### Filters and navigation
 
-- **Display filters** in Wireshark syntax, validated as you type, with
+- **Display filters** in Wireshark syntax, validated as you type (the part
+  tshark refuses is underlined, fields, operators and values in colour), with
   autocomplete from tshark's fields (Lua ones too), history, saved filters
   and one-click **filter buttons**.
 - **Filter builder**: find a field by name or description, pick a relation
@@ -172,7 +175,9 @@ capture data needs your consent first, and addresses become stand-ins such as
   graph and VoIP panels.
 - **MCP server** for Claude Code, Claude Desktop, Cursor and VS Code's agent
   mode: read-only tools over capture files (counts, statistics, triage,
-  comparison and, if allowed, packets). VS Code 1.101+ lists it by itself;
+  comparison and, if allowed, packets). It dissects captures as the viewer
+  does: your Lua dissectors, Decode As rules, preferences, Wireshark profile
+  and tshark's plugins (compiled ones too). VS Code 1.101+ lists it by itself;
   _PCAP: Copy MCP Server Configuration…_ gives the setup for the others.
 
 ## Keyboard shortcuts
@@ -202,6 +207,8 @@ The most used:
 | `luaScripts`, `dissectorsFolder`, `decodeAs`, `prefs`  | Dissection, per workspace folder                   |
 | `tlsKeyLogFile`, `wiresharkProfile`                    | TLS key log; Wireshark profile tshark uses         |
 | `columns`, `columnLayout`, `timeFormat`, `listDensity` | The packet list                                    |
+| `paneLayout`, `showBytesPane`                          | Where the details and bytes go                     |
+| `panelPlacement`                                       | Panels beside the capture or below it              |
 | `coloringRules`, `coloringStyle`                       | Coloring rules and how they are drawn              |
 | `savedFilters`, `filterButtons`                        | Named filters and filter buttons                   |
 | `nameResolution.*`                                     | Which names to show; `external` allows DNS lookups |

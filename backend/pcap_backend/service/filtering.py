@@ -8,6 +8,7 @@ from typing import Any
 
 from pcap_backend.cache import FrameIndex
 from pcap_backend.cancellation import CancelledError
+from pcap_backend.filterhelp import error_span
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, param
 from pcap_backend.tshark import StreamResult, stream_lines
 
@@ -33,7 +34,10 @@ class FilteringMixin(PacketsMixin):
         expr = param(params, "expr", str, "")
         tshark = self._file.tshark if self._file else self._require_tshark()
         error = tshark.validate_filter(expr, ctx.token)
-        return {"valid": error is None, "error": error} if error else {"valid": True}
+        if error is None:
+            return {"valid": True}
+        span = error_span(error, expr)
+        return {"valid": False, "error": error, **({"span": list(span)} if span else {})}
 
     def count_matches(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """How many packets match display filter ``filter`` (``""``: all), without

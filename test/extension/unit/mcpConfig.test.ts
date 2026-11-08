@@ -1,13 +1,19 @@
 import * as assert from "node:assert/strict";
 import {
+  DISSECTION_FORMAT,
   MCP_TARGETS,
   McpLaunch,
   claudeCodeCommand,
+  dissectionFile,
+  dissectionFileName,
   mcpConfigText,
+  mcpDissection,
   mcpServersJson,
   serverCommand,
+  serverEnv,
   shellQuote,
   vscodeMcpJson,
+  wiresharkEnv,
 } from "../../../src/mcpConfig";
 
 const LAUNCH: McpLaunch = {
@@ -80,5 +86,101 @@ suite("mcpConfig", () => {
     for (const t of MCP_TARGETS) {
       assert.ok(mcpConfigText(t.id, LAUNCH, false).includes("pcap_backend.mcp"), t.id);
     }
+  });
+
+  test("the dissection options and Wireshark's variables reach the server", () => {
+    const l: McpLaunch = {
+      ...LAUNCH,
+      optionsFile: "/home/ann/.config/Code/User/globalStorage/x/mcp/dissection.json",
+      env: { WIRESHARK_PLUGIN_DIR: "/opt/li/plugins" },
+    };
+    assert.deepEqual(serverCommand(l).args.slice(-2), ["--options", l.optionsFile]);
+    assert.deepEqual(serverEnv(l), {
+      WIRESHARK_PLUGIN_DIR: "/opt/li/plugins",
+      PYTHONPATH: LAUNCH.backendDir,
+    });
+    assert.ok(
+      claudeCodeCommand(l, false).includes("--env WIRESHARK_PLUGIN_DIR=/opt/li/plugins "),
+      "a pasted configuration carries them too",
+    );
+    assert.deepEqual(
+      wiresharkEnv({ WIRESHARK_PLUGIN_DIR: "/p", WIRESHARK_CONFIG_DIR: "", PATH: "/bin" }),
+      { WIRESHARK_PLUGIN_DIR: "/p" },
+    );
+  });
+
+  test("dissection options from the settings, per workspace folder", () => {
+    const none = {
+      luaScripts: [],
+      decodeAs: [],
+      prefs: {},
+      wiresharkProfile: "",
+      protocols: {},
+      heuristics: {},
+      geoipFolders: [],
+    };
+    assert.deepEqual(mcpDissection(none), {});
+    const li = mcpDissection({
+      ...none,
+      luaScripts: ["/work/li/hi2.lua"],
+      decodeAs: ["tcp.port==11001,hi2"],
+      prefs: { "tls.keylog_file": "/work/keys.log" },
+      wiresharkProfile: "LI",
+      protocols: { sip: false },
+    });
+    assert.deepEqual(li, {
+      lua: ["/work/li/hi2.lua"],
+      decodeAs: ["tcp.port==11001,hi2"],
+      prefs: { "tls.keylog_file": "/work/keys.log" },
+      profile: "LI",
+      protocols: { sip: false },
+    });
+    const file = JSON.parse(
+      dissectionFile({}, [
+        { root: "/work/li", options: li },
+        { root: "/work/other", options: {} },
+      ]),
+    );
+    assert.equal(file.format, DISSECTION_FORMAT);
+    assert.deepEqual(file.default, {});
+    assert.deepEqual(
+      file.folders,
+      [{ root: "/work/li", options: li }],
+      "same as default: left out",
+    );
+  });
+
+  test("dissectionFile keeps a folder that overrides its outer folder, even with the defaults", () => {
+    const decode = { decodeAs: ["udp.port==9999,syslog"] };
+    const file = (folders: { root: string; options: object }[]) =>
+      JSON.parse(dissectionFile({}, folders)).folders.map((f: { root: string }) => f.root);
+    // The inner folder uses the defaults inside an outer one that doesn't: kept,
+    // else the server would take the outer folder's options for its captures.
+    assert.deepEqual(
+      file([
+        { root: "/work/outer/inner", options: {} },
+        { root: "/work/outer", options: decode },
+        { root: "/work/outer-not-inside", options: {} },
+      ]),
+      ["/work/outer/inner", "/work/outer"],
+    );
+    // An inner folder with its outer folder's options adds nothing; Windows paths too.
+    assert.deepEqual(
+      file([
+        { root: "C:\\work\\outer", options: decode },
+        { root: "C:\\work\\outer\\inner", options: decode },
+        { root: "C:\\work\\outer\\inner\\deeper", options: {} },
+      ]),
+      ["C:\\work\\outer", "C:\\work\\outer\\inner\\deeper"],
+    );
+  });
+
+  test("dissectionFileName: one file per workspace", () => {
+    assert.equal(dissectionFileName([]), "dissection.json");
+    const a = dissectionFileName(["file:///work/a"]);
+    assert.match(a, /^dissection-[0-9a-f]{16}\.json$/);
+    assert.equal(dissectionFileName(["file:///work/a"]), a);
+    assert.notEqual(dissectionFileName(["file:///work/b"]), a);
+    assert.notEqual(dissectionFileName(["file:///work/a", "file:///work/b"]), a);
   });
 });

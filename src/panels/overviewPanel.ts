@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { ErrorCodes, RpcError } from "../backendClient";
 import type { PcapEditorSession } from "../pcapEditor";
 import { panelHtml, webviewRoot } from "./panelHtml";
+import { panelColumn, placePanel } from "./placement";
 
 type FromPanel =
   | { type: "ready" }
@@ -64,9 +65,10 @@ export class OverviewPanel {
     this.panel = vscode.window.createWebviewPanel(
       "pcapViewer.overview",
       title,
-      vscode.ViewColumn.Beside,
+      panelColumn(session),
       { enableScripts: true, localResourceRoots: [root], retainContextWhenHidden: true },
     );
+    this.disposables.push(placePanel(this.panel, session));
     this.panel.webview.html = panelHtml(this.panel.webview, root, "overview.js", title);
     this.disposables.push(
       this.panel.webview.onDidReceiveMessage((msg: FromPanel) => void this.onMessage(msg)),

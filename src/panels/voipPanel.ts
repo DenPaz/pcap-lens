@@ -9,6 +9,7 @@ import { ErrorCodes, RpcError } from "../backendClient";
 import type { PcapEditorSession } from "../pcapEditor";
 import { audioFileName, exportFileName } from "../settingsModel";
 import { panelHtml, webviewRoot } from "./panelHtml";
+import { panelColumn, placePanel } from "./placement";
 
 /** A media stream as the backend's voip_calls lists it: RTP, or an IAX2 call's voice frames. */
 export interface RtpStream {
@@ -101,16 +102,12 @@ export class VoipPanel {
       "audio",
       crypto.randomBytes(8).toString("hex"),
     );
-    this.panel = vscode.window.createWebviewPanel(
-      "pcapViewer.voip",
-      title,
-      vscode.ViewColumn.Beside,
-      {
-        enableScripts: true,
-        localResourceRoots: [root, vscode.Uri.file(this.audioDir)],
-        retainContextWhenHidden: true,
-      },
-    );
+    this.panel = vscode.window.createWebviewPanel("pcapViewer.voip", title, panelColumn(session), {
+      enableScripts: true,
+      localResourceRoots: [root, vscode.Uri.file(this.audioDir)],
+      retainContextWhenHidden: true,
+    });
+    this.disposables.push(placePanel(this.panel, session));
     this.panel.webview.html = panelHtml(this.panel.webview, root, "voip.js", title, {
       media: true,
     });

@@ -40,6 +40,33 @@
     return { first, count, top, virtualHeight, scaled };
   }
 
+  /**
+   * pcapViewer.paneLayout: "below" (details and bytes side by side under the
+   * list), "stacked" (list, details and bytes one under the other) or
+   * "beside" (the list on the left, details over bytes on the right).
+   */
+  const PANE_LAYOUTS = /** @type {const} */ (["below", "stacked", "beside"]);
+
+  /** @param {unknown} raw @returns {"below" | "stacked" | "beside"} */
+  function paneLayout(raw) {
+    return PANE_LAYOUTS.find((l) => l === raw) ?? "below";
+  }
+
+  /**
+   * Which way each splitter lies in a layout: the one after the list and the
+   * one between details and bytes. A "horizontal" splitter is a bar between
+   * panes above and below it (dragged up and down).
+   * @param {unknown} layout
+   * @returns {{list: "horizontal" | "vertical", detail: "horizontal" | "vertical"}}
+   */
+  function splitterOrientations(layout) {
+    const l = paneLayout(layout);
+    return {
+      list: l === "beside" ? "vertical" : "horizontal",
+      detail: l === "below" ? "vertical" : "horizontal",
+    };
+  }
+
   /** Row heights per pcapViewer.listDensity (px; "normal" for anything else). */
   const DENSITY_ROW_HEIGHTS = { compact: 20, normal: 22, comfortable: 26 };
 
@@ -900,6 +927,103 @@
       /("(?:[^"\\]|\\.)*"|\{[^}]*\}|===|!==|==|!=|>=|<=|~=|&&|\|\||\^\^|[<>!~()]|[A-Za-z0-9_.:-]+)$/,
     );
     return m ? m[1] : t.slice(-1);
+  }
+
+  /** Words of the filter language drawn as operators. */
+  const FILTER_OPERATOR_WORDS = new Set([
+    ...[...COMPARISON_WORDS].filter((w) => /^[a-z]/.test(w)),
+    ...["and", "or", "not", "xor", "any", "all", "bitand", "bitwise_and"],
+    ...["any_eq", "all_eq", "any_ne", "all_ne"],
+  ]);
+  const FILTER_TOKEN =
+    /\s+|r?"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|===|!==|==|!=|>=|<=|~=|&&|\|\||\^\^|[<>!~&|^+\-*/%]|[@$]?[A-Za-z0-9_][A-Za-z0-9_.:-]*|\$\{[^}]*\}?|[\s\S]/gy;
+
+  /**
+   * A display filter cut into pieces to draw (the filter bar paints them
+   * behind its input): fields, operators, functions, values and strings get
+   * a `kind`, the rest none, and `error` marks the part tshark refused,
+   * `span` [start, end) (validate_filter's). An empty span (the filter ends
+   * too soon) adds an empty piece at its place, drawn as a marker.
+   *
+   * @param {string} text
+   * @param {[number, number] | null | undefined} [span]
+   * @returns {{text: string, kind: "field" | "operator" | "function" | "value" | "string" | null, error: boolean}[]}
+   */
+  function filterSegments(text, span) {
+    /** @type {{start: number, end: number, kind: "field" | "operator" | "function" | "value" | "string" | null}[]} */
+    const tokens = [];
+    let afterComparison = false;
+    let setDepth = 0;
+    FILTER_TOKEN.lastIndex = 0;
+    for (let m = FILTER_TOKEN.exec(text); m; m = FILTER_TOKEN.exec(text)) {
+      const word = m[0];
+      const start = m.index;
+      /** @type {"field" | "operator" | "function" | "value" | "string" | null} */
+      let kind = null;
+      if (/^\s/.test(word)) {
+        tokens.push({ start, end: start + word.length, kind });
+        continue;
+      }
+      if (/^r?["']/.test(word)) {
+        kind = "string";
+      } else if (/^[@$A-Za-z0-9_]/.test(word) && !word.startsWith("${")) {
+        const lower = word.toLowerCase();
+        if (FILTER_OPERATOR_WORDS.has(lower)) {
+          kind = "operator";
+        } else if (
+          text
+            .slice(start + word.length)
+            .trimStart()
+            .startsWith("(")
+        ) {
+          kind = "function";
+        } else if (
+          setDepth > 0 ||
+          afterComparison ||
+          /^\d/.test(word) ||
+          /^[0-9a-f]{1,2}(:[0-9a-f]{1,2})+$/i.test(word)
+        ) {
+          kind = "value";
+        } else {
+          kind = "field";
+        }
+      } else if (/^[=!<>~&|^]/.test(word)) {
+        kind = "operator";
+      }
+      if (word === "{") {
+        setDepth++;
+      } else if (word === "}") {
+        setDepth = Math.max(0, setDepth - 1);
+      }
+      afterComparison =
+        kind === "operator" && COMPARISON_WORDS.has(word.toLowerCase()) && word !== "in";
+      tokens.push({ start, end: start + word.length, kind });
+    }
+    const [from, to] = span && span[0] >= 0 && span[1] >= span[0] ? span : [-1, -1];
+    /** @type {{text: string, kind: "field" | "operator" | "function" | "value" | "string" | null, error: boolean}[]} */
+    const out = [];
+    for (const t of tokens) {
+      // Cut each token where the error starts and ends.
+      const cuts = [t.start, ...[from, to].filter((c) => c > t.start && c < t.end), t.end];
+      for (let i = 0; i + 1 < cuts.length; i++) {
+        out.push({
+          text: text.slice(cuts[i], cuts[i + 1]),
+          kind: t.kind,
+          error: cuts[i] >= from && cuts[i + 1] <= to && from < to,
+        });
+      }
+    }
+    if (from >= 0 && from === to && from <= text.length) {
+      // An empty span: a marker where the rest of the filter should be.
+      let at = 0;
+      let index = 0;
+      while (index < out.length && at + out[index].text.length <= from) {
+        at += out[index].text.length;
+        index++;
+      }
+      out.splice(index, 0, { text: "", kind: null, error: true });
+    }
+    return out;
   }
 
   /**
@@ -3333,6 +3457,10 @@
     computeWindow,
     scrollTopForIndex,
     densityRowHeight,
+    filterSegments,
+    PANE_LAYOUTS,
+    paneLayout,
+    splitterOrientations,
     pagesForRange,
     LruMap,
     quoteFilterString,

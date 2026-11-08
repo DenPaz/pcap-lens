@@ -20,6 +20,8 @@ import {
   looksLikeKeyLog,
   normalizeColoringRules,
   normalizeColumns,
+  normalizePaneLayout,
+  normalizePanelPlacement,
   prependColoringRule,
   filterOutExpr,
   normalizeSavedFilters,
@@ -175,6 +177,19 @@ suite("settingsModel", () => {
       ["A", "B", "C"],
     );
     assert.equal(list[0].filter, "a"); // not mutated
+  });
+
+  test("normalizePanelPlacement: beside or below, beside otherwise", () => {
+    assert.equal(normalizePanelPlacement("below"), "below");
+    assert.equal(normalizePanelPlacement("bottom"), "beside");
+    assert.equal(normalizePanelPlacement(undefined), "beside");
+  });
+
+  test("normalizePaneLayout keeps the three layouts and falls back to below", () => {
+    assert.equal(normalizePaneLayout("beside"), "beside");
+    assert.equal(normalizePaneLayout("stacked"), "stacked");
+    assert.equal(normalizePaneLayout("left"), "below");
+    assert.equal(normalizePaneLayout(undefined), "below");
   });
 
   test("configTargetFor writes where the setting is defined for the scope", () => {

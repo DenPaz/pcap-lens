@@ -14,6 +14,7 @@ import { isMac, lib, state } from "./core.js";
  * @property {string} [keys] a key binding as shown ("Ctrl+M")
  * @property {(() => void) | null} [action] null: disabled
  * @property {boolean} [checked] a checkbox item
+ * @property {boolean} [radio] with `checked`: one of a set of choices (menuitemradio)
  * @property {MenuEntry[] | (() => Promise<MenuEntry[]>)} [children]
  * @property {string} [title] tooltip
  */

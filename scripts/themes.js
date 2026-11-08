@@ -78,6 +78,13 @@ const DARK_MODERN = {
   "charts-blue": "#3794ff",
   "charts-red": "#f14c4c",
   "testing-iconPassed": "#73c991",
+  // The filter bar's token colours (viewer/filterpaint.js).
+  "symbolIcon-fieldForeground": "#75beff",
+  "symbolIcon-functionForeground": "#b180d7",
+  "debugTokenExpression-name": "#c586c0",
+  "debugTokenExpression-number": "#b5cea8",
+  "debugTokenExpression-string": "#ce9178",
+  "editorError-foreground": "#f14c4c",
 };
 
 const FONTS = {
@@ -157,6 +164,13 @@ const LIGHT_MODERN = {
   "charts-blue": "#1a85ff",
   "charts-red": "#e51400",
   "testing-iconPassed": "#388a34",
+  // The filter bar's token colours (viewer/filterpaint.js).
+  "symbolIcon-fieldForeground": "#007acc",
+  "symbolIcon-functionForeground": "#652d90",
+  "debugTokenExpression-name": "#9b46b0",
+  "debugTokenExpression-number": "#098658",
+  "debugTokenExpression-string": "#a31515",
+  "editorError-foreground": "#e51400",
 };
 
 /**
@@ -221,6 +235,13 @@ const HIGH_CONTRAST = {
   "charts-blue": "#3794ff",
   "charts-red": "#f14c4c",
   "testing-iconPassed": "#73c991",
+  // The filter bar's token colours (viewer/filterpaint.js).
+  "symbolIcon-fieldForeground": "#75beff",
+  "symbolIcon-functionForeground": "#b180d7",
+  "debugTokenExpression-name": "#ffffff",
+  "debugTokenExpression-number": "#89d185",
+  "debugTokenExpression-string": "#f48771",
+  "editorError-foreground": "#f48771",
 };
 
 /** --theme → [variables, the <body> class VS Code sets]. */

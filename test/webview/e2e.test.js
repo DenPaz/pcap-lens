@@ -178,6 +178,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
           "compare",
           "addFilterButton",
           "editFilterButton",
+          "setPaneLayout",
         ].includes(msg.type)
       ) {
         hostLog.push(msg);
@@ -236,8 +237,13 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
         pending.promise.catch(() => undefined).then(() => inflight.delete(msg.id));
         pending.promise.then(
           (result) => post({ type: "rpcResult", id: msg.id, result }),
+          // (As the host does: the error's data too, e.g. a filter error's span.)
           (err) =>
-            post({ type: "rpcError", id: msg.id, error: { code: err.code, message: err.message } }),
+            post({
+              type: "rpcError",
+              id: msg.id,
+              error: { code: err.code, message: err.message, data: err.data },
+            }),
         );
       }
     });
@@ -312,9 +318,65 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
   test("invalid filter is flagged and not applied", async () => {
     await page.fill("#filter-input", "tcp.port ==");
     await page.waitForSelector("#filter-input.invalid");
+    assert.equal(await page.getAttribute("#filter-input", "aria-invalid"), "true");
     await page.press("#filter-input", "Enter");
     await page.waitForSelector("#filter-error:not(.hidden)");
     assert.equal((await rowNumbers()).length, 11);
+  });
+
+  test("the filter is drawn in colours, and the part tshark refused is underlined", async () => {
+    const pieces = () =>
+      page.$$eval("#filter-paint-text > span", (spans) =>
+        spans
+          .filter((s) => s.textContent.trim() || s.classList.contains("tok-error"))
+          .map((s) => [s.textContent, s.className]),
+      );
+    // The copy behind the input shows the text; the input's own is transparent.
+    await page.fill("#filter-input", 'ip.addr == 10.0.0.300 && http.host contains "x"');
+    assert.equal(
+      await page.$eval("#filter-input", (i) => getComputedStyle(i).color),
+      "rgba(0, 0, 0, 0)",
+    );
+    await page.waitForSelector("#filter-paint-text .tok-error");
+    assert.deepEqual(await pieces(), [
+      ["ip.addr", "tok-field"],
+      ["==", "tok-operator"],
+      ["10.0.0.300", "tok-value tok-error"],
+      ["&&", "tok-operator"],
+      ["http.host", "tok-field"],
+      ["contains", "tok-operator"],
+      ['"x"', "tok-string"],
+    ]);
+    // Typing drops the old underline until the new text is checked.
+    await page.press("#filter-input", "Backspace");
+    assert.equal(await page.locator("#filter-paint-text .tok-error").count(), 0);
+    // A filter that stops too soon: a mark at its end, also when applied.
+    await page.fill("#filter-input", "tcp.port == 80 &&");
+    await page.waitForSelector("#filter-paint-text .tok-error:empty", { state: "attached" });
+    await page.press("#filter-input", "Enter");
+    await page.waitForSelector("#filter-error:not(.hidden)");
+    await page.waitForSelector("#filter-paint-text .tok-error:empty", { state: "attached" });
+    // The copy stays on the input's pixels: same left edge as the input's text.
+    const [input, copy] = await page.evaluate(() => [
+      document.getElementById("filter-input")?.getBoundingClientRect().left,
+      document.getElementById("filter-paint-text")?.getBoundingClientRect().left,
+    ]);
+    assert.ok(Math.abs(input + 4 - copy) <= 1, `${input} vs ${copy}`); // (padding-left)
+    // A long filter scrolled to its end: the copy moves with it.
+    const long = Array.from({ length: 30 }, (_, i) => `tcp.port == ${i}`).join(" || ");
+    await page.fill("#filter-input", long);
+    await page.press("#filter-input", "End");
+    await page.waitForFunction(() => {
+      const input = /** @type {HTMLInputElement} */ (document.getElementById("filter-input"));
+      const copy = document.getElementById("filter-paint-text");
+      return input.scrollLeft > 0 && copy?.style.transform === `translateX(${-input.scrollLeft}px)`;
+    });
+    // Ask-AI mode shows the input's own text.
+    await page.fill("#filter-input", "");
+    await page.press("#filter-input", "Enter");
+    await page.waitForSelector("#filter-input:not(.invalid)");
+    assert.equal(await page.getAttribute("#filter-input", "aria-invalid"), null);
+    assert.deepEqual(await axeViolations(page, { exclude: [["#bytes"]] }), []);
   });
 
   test("valid filter narrows the list", async () => {
@@ -2425,12 +2487,13 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
         "tool-mark",
         "tool-find",
         "tool-coloring",
+        "tool-layout",
       ],
     );
     assert.equal(await page.getAttribute("#nav-tools", "role"), "toolbar");
     assert.deepEqual(
       all.map((t) => t[3]),
-      [0, -1, -1, -1, -1, -1, -1, -1, -1, -1],
+      [0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
       "one Tab stop",
     );
     assert.equal(
@@ -2442,7 +2505,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.keyboard.press("ArrowRight");
     assert.equal(await page.evaluate(() => document.activeElement?.id), "tool-first");
     await page.keyboard.press("End");
-    assert.equal(await page.evaluate(() => document.activeElement?.id), "tool-coloring");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "tool-layout");
     // Last, previous, first, next select packets.
     await page.click("#tool-last");
     await waitSelected(11);
@@ -2522,6 +2585,102 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.waitForFunction(
       () => document.querySelector("#list-rows .list-row")?.getBoundingClientRect().height === 22,
     );
+  });
+
+  test("pane layout: below, stacked, beside, without bytes; the menu asks the host", async () => {
+    await cleanView();
+    await rowEl(1).click();
+    await waitSelected(1);
+    const boxes = () =>
+      page.evaluate(() =>
+        Object.fromEntries(
+          ["list", "detail", "bytes", "split-h", "split-v"].map((id) => {
+            const node = /** @type {HTMLElement} */ (document.getElementById(id));
+            const r = node.getBoundingClientRect();
+            return [
+              id,
+              {
+                x: Math.round(r.left),
+                y: Math.round(r.top),
+                w: Math.round(r.width),
+                h: Math.round(r.height),
+                shown: node.offsetParent !== null,
+                orientation: node.getAttribute("aria-orientation"),
+              },
+            ];
+          }),
+        ),
+      );
+    // Below (the default): details and bytes side by side under the list.
+    let b = await boxes();
+    assert.equal(b["split-h"].orientation, "horizontal");
+    assert.equal(b["split-v"].orientation, "vertical");
+    assert.ok(b.detail.y > b.list.y + b.list.h - 1 && b.bytes.x > b.detail.x);
+    assert.equal(b.bytes.y, b.detail.y);
+    // Stacked: one under the other, full width.
+    await post({ type: "paneLayout", layout: "stacked", bytes: true });
+    await page.waitForSelector("#main[data-layout='stacked']");
+    b = await boxes();
+    assert.equal(b["split-v"].orientation, "horizontal");
+    assert.ok(b.detail.y > b.list.y && b.bytes.y > b.detail.y + b.detail.h - 1);
+    assert.equal(b.bytes.x, b.detail.x);
+    assert.equal(b.detail.w, b.list.w);
+    // Beside: the list on the left, details over bytes on the right.
+    await post({ type: "paneLayout", layout: "beside", bytes: true });
+    await page.waitForSelector("#main[data-layout='beside']");
+    b = await boxes();
+    assert.equal(b["split-h"].orientation, "vertical");
+    assert.equal(b["split-v"].orientation, "horizontal");
+    assert.ok(b.detail.x > b.list.x + b.list.w - 1 && b.bytes.y > b.detail.y);
+    assert.equal(b.detail.y, b.list.y);
+    // The list still shows its rows, and its splitter now moves with ←/→.
+    assert.ok(await rowEl(1).isVisible());
+    await page.focus("#split-h");
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await page.getAttribute("#split-h", "aria-valuenow"), "52");
+    await page.keyboard.press("ArrowDown"); // (not this splitter's direction)
+    assert.equal(await page.getAttribute("#split-h", "aria-valuenow"), "52");
+    assert.ok((await boxes()).list.w > b.list.w);
+    // Without the bytes pane the details take the rest.
+    await post({ type: "paneLayout", layout: "below", bytes: false });
+    await page.waitForSelector("#main.no-bytes[data-layout='below']");
+    b = await boxes();
+    assert.ok(!b.bytes.shown && !b["split-v"].shown);
+    assert.equal(b.detail.w, b.list.w);
+    assert.deepEqual(await axeViolations(page), []);
+    // The toolbar's button opens the layout menu, which asks the host.
+    await page.click("#tool-layout");
+    assert.deepEqual(await menuLabels(), [
+      "Details and Bytes Below the List",
+      "List, Details and Bytes Stacked",
+      "Details and Bytes Beside the List",
+      "Show Packet Bytes",
+      "Reset Pane Sizes",
+    ]);
+    assert.deepEqual(
+      await page.$$eval("#context-menu .item", (items) =>
+        items.slice(0, 4).map((i) => [i.getAttribute("role"), i.getAttribute("aria-checked")]),
+      ),
+      [
+        ["menuitemradio", "true"],
+        ["menuitemradio", "false"],
+        ["menuitemradio", "false"],
+        ["menuitemcheckbox", "false"],
+      ],
+    );
+    await pickMenu("Show Packet Bytes");
+    await expectHostLast({ type: "setPaneLayout", bytes: true }, { ofType: true });
+    await page.click("#tool-layout");
+    await pickMenu("List, Details and Bytes Stacked");
+    await expectHostLast({ type: "setPaneLayout", layout: "stacked" }, { ofType: true });
+    // Reset Pane Sizes puts both splitters back.
+    await page.click("#tool-layout");
+    await pickMenu("Reset Pane Sizes");
+    assert.equal(await page.getAttribute("#split-h", "aria-valuenow"), "50");
+    assert.equal(await page.getAttribute("#split-v", "aria-valuenow"), "55");
+    await post({ type: "paneLayout", layout: "below", bytes: true });
+    await page.waitForSelector("#main:not(.no-bytes)[data-layout='below']");
+    assert.ok(await page.isVisible("#bytes"));
   });
 
   test("the busy bar goes away once a sort is done", async () => {

@@ -598,7 +598,26 @@ frame.number==N` (no `-c`, both the PDML and the `-x` run), so references
   read the same across versions.
 - **Filter validation**: compile against a shared 24-byte empty pcap
   (`tshark -Y expr -r empty.pcap`), with the same `-X/-d/-o` options so Lua
-  fields validate.
+  fields validate. **Where the error is**: tshark (4.0+) echoes a refused
+  filter indented four spaces and marks the part under it (`^~~~`, byte
+  columns); `filterhelp.error_span` turns that into [start, end) in UTF-16
+  code units (the webview's string indexes), "Unexpected end of filter
+  expression" into an empty span at the end, an echo that isn't the filter (a
+  macro) into none. `validate_filter` returns it as `span`, and `FilterError`
+  computes it from its message and `data.expr` (so set_filter's error has
+  `data.span`). **Painting** (`viewer/filterpaint.js`, `lib.filterSegments`):
+  `#filter-paint` behind the input (in `#filter-text`, same font and
+  padding; `aria-hidden`) holds the text as spans `tok-field/operator/
+function/value/string` (the debugger's and outline's theme colours) and
+  `tok-error` (wavy underline; an empty one is a zero-width mark, so nothing
+  moves); the input's own text is transparent (caret, selection and
+  placeholder aren't), and the copy follows its `scrollLeft` (CSSOM
+  transform). The input's `value` setter is wrapped, so every code path that
+  sets the text repaints; a changed text drops the span; a
+  MutationObserver on the input's class gives `aria-invalid` and drops the
+  span when it stops being `invalid`. Ask-AI mode shows the input's own
+  text. `lib.filterSegments` is a display tokenizer, not a parser: a word
+  after a comparison or in a set is a value, one before `(` a function.
 - **Sorting** is backend-side over the current filter's frames: one column is
   read from the row store (cached, 3 columns max), sorted in Python, and the
   resulting order is cached per (filter, column, direction). Source/Destination
@@ -920,6 +939,18 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   `Set-Culture pt-BR`.
 - **Never `str.splitlines()` on packet-derived text**: it also splits on
   `\x1c`–`\x1e`, `\x85`, `\u2028`… Stats parsers use `_lines()` (split on `\n`).
+- **Panel placement** (`pcapViewer.panelPlacement`: beside, below;
+  `panels/placement.ts`): every panel but the coloring rules editor opens in
+  `panelColumn(session)` and calls `placePanel` after creating it. VS Code's
+  `Panel` area (Terminal, Problems) only holds single-instance webview
+  _views_, so "below" means an editor group under the capture's: there is
+  no column for it, so the first panel opens in the capture's own group and
+  `workbench.action.moveEditorToBelowGroup` moves it (the new panel is the
+  active editor), making the group when there is none; the column it lands
+  in is remembered per session (`onDidChangeViewState`, also after a drag)
+  and the next panels open there while that group is open. A panel already
+  open stays put when the setting changes. The smoke test checks the layout
+  with `vscode.getEditorLayout` (orientation 1, two groups).
 - **Panels** (`src/panels/`) are separate webview panels beside the editor. They
   share the editor's backend (`session.backend`), close with it
   (`session.onDidDispose`), and send filters/goto back to it. One stats panel
@@ -2474,7 +2505,39 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   at activation (`registerMcp`) and whenever VS Code starts a server, so a
   configuration pasted into another assistant survives updates (refreshing
   only when VS Code started a server left Claude Code on the old code after
-  an update or an F5). _PCAP:
+  an update or an F5). **Dissection as in the viewer**: `--options`
+  names `globalStorage/mcp/dissection-<workspace>.json` (`dissectionFileName`:
+  a digest of the `.code-workspace` file or the folders, so each window's
+  server reads its own workspace's settings; `dissection.json` without a
+  workspace; Codex review: one shared file let the last window written
+  decide) (`writeDissection`: `mcpConfig.dissectionFile`, format
+  `pcap-lens-dissection`, the settings outside any folder as `default`, then
+  each workspace folder whose options differ from what the server's lookup
+  would find without it: its nearest kept outer folder's, else the default
+  (Codex review: an inner folder with the default options took its outer
+  folder's);
+  `mcpDissection` takes Lua scripts, Decode As, prefs (with the TLS key log),
+  profile, protocol and heuristic switches and GeoIP folders: never
+  decryption keys, which stay in secret storage, nor name resolution: the
+  server keeps `-n`), written at activation, when one of
+  `DISSECTION_SETTINGS` or the workspace folders change, and on granted
+  trust. The server (`read_dissection`, `Dissection.for_path`: the deepest
+  folder holding the capture, else `default`; only `OPTION_KEYS`) reads it
+  again when its size or mtime change, reopens a capture whose options
+  changed (they are in `_Entry.stamp`), fails a call when the file is
+  unreadable (results would be dissected differently from the viewer) and
+  only warns when it is missing; capture_info gives `dissectedWith`. The
+  capture-less service (validate_filter, search_fields) gets the default
+  through `PcapService.configure` (open's dissection parameters without a
+  capture, not an RPC), so Lua fields validate. Compiled plugins need
+  nothing: the server runs the same tshark as the same user; but a folder
+  given by `WIRESHARK_PLUGIN_DIR` (which replaces the global plugin folder:
+  `<dir>/<major.minor>/` for compiled plugins, `<dir>` for Lua ones) or
+  `WIRESHARK_CONFIG_DIR` in the shell VS Code started from is copied into
+  the server's environment (`wiresharkEnv`), so a configuration pasted
+  into another assistant keeps them. The `plugins` tool lists what tshark
+  loads (`tshark_plugins`) plus the Lua scripts from the options; as root
+  it warns that personal plugins are ignored. _PCAP:
   Copy MCP Server Configuration…_ (`MCP_TARGETS`: `claude mcp add pcap-lens
 --scope user --env PYTHONPATH=… -- …` with `shellQuote`; the name first, as
   `--env` takes several values and swallowed it, an
@@ -2777,6 +2840,20 @@ action (null = disabled), checked, children, title}` and `"-"`
   buttons run the webview's `runCommand` or post `runCommand` for host
   commands (Go to Packet, Toggle Packet Coloring, whose `aria-pressed`
   follows `state.coloring`); `updateToolbar()` runs from `updateStatus`.
+- **Pane layout** (`pcapViewer.paneLayout`: below, stacked, beside;
+  `pcapViewer.showBytesPane`; posted as `paneLayout {layout, bytes}` on
+  "ready" and on change, like `listDensity`): `#main[data-layout]` and
+  `.no-bytes` decide where `#list`, `#detail` and `#bytes` go (beside makes
+  `#main` a row; stacked and beside make `#bottom` a column). Sizes are
+  flex-bases (`--list-size`, `--detail-size`; the saved state keeps its old
+  `listHeight`/`treeWidth` keys), so one percentage works along either axis.
+  `lib.splitterOrientations` gives each splitter's `aria-orientation`, and
+  `layout.js` takes a splitter's drag axis and arrow keys from it. The
+  toolbar's last button (`#tool-layout`, `aria-haspopup`) opens a menu of
+  `radio` items (`menuitemradio`, a menus.js option), Show Packet Bytes and
+  Reset Pane Sizes; picking posts `setPaneLayout`, the host writes the
+  settings (`updateSetting`) and every viewer gets them back. The webview
+  state keeps the last layout, so a reload doesn't flash the default.
 - **List density** (`pcapViewer.listDensity`: compact, normal, comfortable;
   posted as `listDensity` on "ready" and on change, like `coloringStyle`):
   `lib.densityRowHeight` (20/22/26 px) → `setRowHeight` sets
@@ -2974,3 +3051,6 @@ session tables: 0.26.0.
 Then the Capture Overview, and the real-capture harness weekly in CI:
 0.27.0. Then large UDP datagrams in Replay to… on macOS, and what the first
 weekly real-capture run found: 0.27.1.
+Then the MCP server dissecting as the viewer does (Lua, Decode As, prefs,
+profile, plugins), a choice of pane layouts, filter errors underlined with
+the filter in colour, and panels below the capture: 0.28.0.

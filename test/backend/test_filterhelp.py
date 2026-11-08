@@ -75,6 +75,45 @@ def test_case_hints() -> None:
     assert hint["filter"] == r'lower(http.host) == "a\"b\\c"'
 
 
+def test_error_span() -> None:
+    def message(expr: str, column: int, width: int) -> str:
+        caret = " " * (4 + column) + "^" + "~" * (width - 1)
+        return f'"x" was unexpected in this context.\n    {expr}\n{caret}'
+
+    expr = "tcp.port in {80 443}"
+    assert filterhelp.error_span(message(expr, 16, 3), expr) == (16, 19)
+    # Windows line ends; a caret running past the end stops there.
+    assert filterhelp.error_span(message(expr, 16, 9).replace("\n", "\r\n"), expr) == (16, 20)
+    # tshark counts bytes, the span UTF-16 code units: "é" is two bytes, "🦈" four (two units).
+    expr = 'frame contains "é🦈" or udp.prt'
+    assert filterhelp.error_span(message(expr, 27, 7), expr) == (24, 31)
+    # The end of the filter, for a filter that stops too soon.
+    expr = "tcp.port == 80 && "
+    assert filterhelp.error_span("Unexpected end of filter expression.", expr) == (17, 17)
+    # No location: a message without one, or an echo that isn't the filter (a macro).
+    assert filterhelp.error_span("Some error.", "tcp") is None
+    assert filterhelp.error_span(message("${m}", 0, 4), "tcp") is None
+    # FilterError carries it as data.span.
+    assert FilterError(message("ab", 0, 2), {"expr": "ab"}).data == {"expr": "ab", "span": [0, 2]}
+    assert FilterError("Some error.", {"expr": "ab"}).data == {"expr": "ab"}
+
+
+@pytest.mark.tshark
+def test_validate_filter_span(opened: PcapService, ctx: RequestContext) -> None:
+    res = opened.validate_filter({"expr": "ip.addr == 10.0.0.300"}, ctx)
+    assert res["valid"] is False
+    assert res["span"] == [11, 21]
+    assert opened.validate_filter({"expr": "ip.addr == 10.0.0.30"}, ctx) == {"valid": True}
+    # Applying it says the same.
+    # (tshark 4.2 marks the whole comparison of the unknown field.)
+    expr = "tcp.port == 80 or udp.prt == 53"
+    with pytest.raises(FilterError) as raised:
+        opened.set_filter({"expr": expr}, ctx)
+    assert raised.value.data is not None
+    start, end = raised.value.data["span"]
+    assert expr[start:end].startswith("udp.prt")
+
+
 def test_count_values() -> None:
     counted = filterhelp.count_values(["a", "b\x1ea\x1ea", "", "c", "a"])
     assert dict(counted["counts"]) == {"a": 3, "b": 1, "c": 1}

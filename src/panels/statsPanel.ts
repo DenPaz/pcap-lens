@@ -6,6 +6,7 @@ import type { PcapEditorSession } from "../pcapEditor";
 import { BytesPanel } from "./bytesPanel";
 import { PacketPanel } from "./packetPanel";
 import { panelHtml, webviewRoot } from "./panelHtml";
+import { panelColumn, placePanel } from "./placement";
 
 export type StatsKind =
   | "conversations"
@@ -170,16 +171,12 @@ export class StatsPanel {
   ) {
     const title = `${STATS_TITLES[kind]} · ${path.basename(session.uri.fsPath)}`;
     const root = webviewRoot(context);
-    this.panel = vscode.window.createWebviewPanel(
-      "pcapViewer.stats",
-      title,
-      vscode.ViewColumn.Beside,
-      {
-        enableScripts: true,
-        localResourceRoots: [root],
-        retainContextWhenHidden: true,
-      },
-    );
+    this.panel = vscode.window.createWebviewPanel("pcapViewer.stats", title, panelColumn(session), {
+      enableScripts: true,
+      localResourceRoots: [root],
+      retainContextWhenHidden: true,
+    });
+    this.disposables.push(placePanel(this.panel, session));
     this.panel.webview.html = panelHtml(this.panel.webview, root, "stats.js", title, {
       // (Endpoints draw GeoIP locations on a map.)
       scripts: kind === "endpoints" ? ["worldmap.js"] : [],

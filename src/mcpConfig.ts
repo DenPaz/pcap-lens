@@ -6,6 +6,8 @@
  * `vscode` import: unit-tested.
  */
 
+import { createHash } from "node:crypto";
+
 /** What the server needs to start (paths on the machine where it runs). */
 export interface McpLaunch {
   /** The Python interpreter and its leading arguments (`py -3.14` on Windows). */
@@ -18,6 +20,140 @@ export interface McpLaunch {
   standIns: boolean;
   /** pcapViewer.tsharkPath, when set. */
   tsharkPath?: string;
+  /** The dissection options file (`dissectionFile`), which VS Code keeps up to date. */
+  optionsFile?: string;
+  /** Wireshark's own variables the server needs too (`wiresharkEnv`). */
+  env?: Record<string, string>;
+}
+
+/**
+ * The `open` parameters that decide how a capture is dissected, as the
+ * server's options file holds them: Lua scripts, Decode As, preferences, the
+ * Wireshark profile, protocol and heuristic switches, GeoIP databases. Never
+ * decryption keys (VS Code's secret storage keeps them) nor name resolution
+ * (the server shows addresses: its rows become address filters).
+ */
+export interface McpDissection {
+  lua?: string[];
+  decodeAs?: string[];
+  prefs?: Record<string, string | number | boolean>;
+  profile?: string;
+  protocols?: Record<string, boolean>;
+  heuristics?: Record<string, boolean>;
+  geoip?: string[];
+}
+
+/** A capture's settings as the viewer reads them (config.ts `Settings`). */
+interface DissectionSettings {
+  luaScripts: readonly string[];
+  decodeAs: readonly string[];
+  prefs: Record<string, string | number | boolean>;
+  wiresharkProfile: string;
+  protocols: Record<string, boolean>;
+  heuristics: Record<string, boolean>;
+  geoipFolders: readonly string[];
+}
+
+/** `settings` as options for the server (empty ones left out). */
+export function mcpDissection(settings: DissectionSettings): McpDissection {
+  const out: McpDissection = {};
+  if (settings.luaScripts.length) {
+    out.lua = [...settings.luaScripts];
+  }
+  if (settings.decodeAs.length) {
+    out.decodeAs = [...settings.decodeAs];
+  }
+  if (Object.keys(settings.prefs).length) {
+    out.prefs = { ...settings.prefs };
+  }
+  if (settings.wiresharkProfile) {
+    out.profile = settings.wiresharkProfile;
+  }
+  if (Object.keys(settings.protocols).length) {
+    out.protocols = { ...settings.protocols };
+  }
+  if (Object.keys(settings.heuristics).length) {
+    out.heuristics = { ...settings.heuristics };
+  }
+  if (settings.geoipFolders.length) {
+    out.geoip = [...settings.geoipFolders];
+  }
+  return out;
+}
+
+/** What `--options` names: the format the server checks (mcp.py OPTIONS_FORMAT). */
+export const DISSECTION_FORMAT = "pcap-lens-dissection";
+
+/**
+ * The options file: the settings outside any folder, then each workspace
+ * folder's own (the server takes the deepest folder holding a capture), the
+ * folders whose options are the default's left out.
+ */
+export function dissectionFile(
+  defaults: McpDissection,
+  folders: readonly { root: string; options: McpDissection }[],
+): string {
+  const same = (a: McpDissection, b: McpDissection) => JSON.stringify(a) === JSON.stringify(b);
+  // The server uses the deepest folder holding a capture, else the default, so
+  // a folder is left out only when it matches what that lookup would find
+  // without it: its nearest kept ancestor's options, else the default (Codex
+  // review: an inner folder with the default options took its outer one's).
+  const kept: { root: string; options: McpDissection }[] = [];
+  for (const f of [...folders].sort((a, b) => a.root.length - b.root.length)) {
+    const parent = kept.filter((k) => isInside(f.root, k.root)).at(-1);
+    if (!same(f.options, parent ? parent.options : defaults)) {
+      kept.push(f);
+    }
+  }
+  return `${JSON.stringify(
+    {
+      format: DISSECTION_FORMAT,
+      default: defaults,
+      folders: folders.filter((f) => kept.includes(f)),
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+/**
+ * Wireshark's variables that change what tshark loads, from VS Code's
+ * environment: a plugin folder (compiled and Lua plugins) or a configuration
+ * folder set in the shell VS Code started from. An assistant started
+ * elsewhere (Claude Desktop, Claude Code from another terminal) wouldn't have
+ * them, so the server's configuration carries them.
+ */
+export const WIRESHARK_VARIABLES = ["WIRESHARK_PLUGIN_DIR", "WIRESHARK_CONFIG_DIR"] as const;
+
+export function wiresharkEnv(env: Record<string, string | undefined>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const name of WIRESHARK_VARIABLES) {
+    const value = env[name];
+    if (value) {
+      out[name] = value;
+    }
+  }
+  return out;
+}
+
+/** Whether `child` is `root` or a folder inside it (either separator). */
+function isInside(child: string, root: string): boolean {
+  const base = root.replace(/[\\/]+$/, "");
+  return child === base || child.startsWith(`${base}/`) || child.startsWith(`${base}\\`);
+}
+
+/**
+ * The options file's name for one workspace (its `.code-workspace` file or
+ * its folders, in order), so each window's server reads its own workspace's
+ * settings: one file shared by every window let the last one written decide
+ * (Codex review). A window without a workspace gets `dissection.json`.
+ */
+export function dissectionFileName(workspace: readonly string[]): string {
+  if (!workspace.length) {
+    return "dissection.json";
+  }
+  const digest = createHash("sha256").update(workspace.join("\n")).digest("hex").slice(0, 16);
+  return `dissection-${digest}.json`;
 }
 
 export const SERVER_ID = "pcap-lens";
@@ -40,12 +176,15 @@ export function serverCommand(l: McpLaunch): { command: string; args: string[] }
   if (l.tsharkPath) {
     args.push("--tshark", l.tsharkPath);
   }
+  if (l.optionsFile) {
+    args.push("--options", l.optionsFile);
+  }
   return { command, args };
 }
 
-/** Its environment: Python finds the package through PYTHONPATH. */
+/** Its environment: Python finds the package through PYTHONPATH; tshark its plugins. */
 export function serverEnv(l: McpLaunch): Record<string, string> {
-  return { PYTHONPATH: l.backendDir };
+  return { PYTHONPATH: l.backendDir, ...l.env };
 }
 
 /**
