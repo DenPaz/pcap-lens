@@ -44,7 +44,15 @@
     dests: "Destinations and Ports",
   };
   /** Reports that are trees: their row order is the tree's, so no sorting. */
-  const TREES = ["phs", "http", "dns", "plen", "sip", "ipv4", "ipv6"];
+  const TREES = ["phs", "http", "dns", "plen", "sip", "ipv4", "ipv6", "sequences"];
+  /** The sequence check's counter wraps (sequenceModel.SEQUENCE_WRAPS). */
+  const WRAPS = [
+    [0, "Doesn't wrap"],
+    [2 ** 8, "8 bits (256)"],
+    [2 ** 16, "16 bits (65,536)"],
+    [2 ** 24, "24 bits"],
+    [2 ** 32, "32 bits"],
+  ];
   /** @type {Record<string, string>} */
   const DEFAULT_TYPE = { http: "packets", srt: "auto", ipv4: "addresses", ipv6: "addresses" };
   const INTERVALS = [
@@ -75,6 +83,10 @@
     /** @type {number | null} */ pending: null,
     /** AI help is available (the host said so): offer "Ask Copilot…" on expert information. */
     ai: false,
+    /** The sequence check's fields, wrap and restart window. */
+    sequence: { key: /** @type {string[]} */ ([]), seq: "", wrap: 0, reorder: 1000 },
+    /** The field the last sequence check refused. @type {string | null} */
+    badField: null,
   };
 
   const app = /** @type {HTMLElement} */ (document.getElementById("app"));
@@ -310,6 +322,9 @@
       });
       toolbar.append(h("label", {}, ["Interval ", interval]), h("label", {}, [log, "Log scale"]));
     }
+    if (state.kind === "sequences") {
+      toolbar.append(...sequenceInputs());
+    }
     seriesBox.classList.toggle("hidden", state.kind !== "io");
     if (state.kind === "io") {
       renderSeriesEditor();
@@ -342,6 +357,7 @@
           ? [applyBtn, prepareBtn, gotoBtn, bodyBtn]
           : state.kind === "srt" ||
               state.kind === "credentials" ||
+              state.kind === "sequences" ||
               lib.SESSION_KINDS.includes(state.kind)
             ? [applyBtn, prepareBtn, gotoBtn]
             : state.kind === "properties" || state.kind === "io"
@@ -350,6 +366,87 @@
       copyBtn,
     );
     updateActions();
+  }
+
+  /**
+   * The sequence check's inputs: the fields naming a stream (comma-separated),
+   * the field numbering its messages, the counter's wrap and the drop that
+   * counts as a restart; Check (or Enter) runs it.
+   */
+  function sequenceInputs() {
+    const text = (/** @type {string} */ id, /** @type {string} */ value, placeholder = "") => {
+      const input = /** @type {HTMLInputElement} */ (
+        h("input", { type: "text", id, spellcheck: "false", placeholder })
+      );
+      input.value = value;
+      return input;
+    };
+    const key = text("seq-key", state.sequence.key.join(", "), "e.g. gtp.teid");
+    const seq = text("seq-field", state.sequence.seq, "e.g. gtp.seq_number");
+    const wrap = /** @type {HTMLSelectElement} */ (h("select", { id: "seq-wrap" }));
+    for (const [value, label] of WRAPS) {
+      wrap.append(h("option", { value: String(value) }, [String(label)]));
+    }
+    wrap.value = String(state.sequence.wrap);
+    const reorder = /** @type {HTMLInputElement} */ (
+      h("input", { type: "number", id: "seq-reorder", min: "1", step: "1" })
+    );
+    reorder.value = String(state.sequence.reorder);
+    for (const [input, field] of [
+      [key, state.sequence.key],
+      [seq, [state.sequence.seq]],
+    ]) {
+      if (state.badField && /** @type {string[]} */ (field).includes(state.badField)) {
+        /** @type {HTMLElement} */ (input).setAttribute("aria-invalid", "true");
+      }
+    }
+    const run = iconButton("play", "Check", { id: "seq-run" });
+    const start = () => {
+      state.sequence = {
+        key: key.value
+          .split(",")
+          .map((k) => k.trim())
+          .filter((k) => k),
+        seq: seq.value.trim(),
+        wrap: Number(wrap.value),
+        reorder: Math.max(1, Math.round(Number(reorder.value)) || 1000),
+      };
+      if (!state.sequence.seq) {
+        seq.focus();
+        status.textContent = "Name the field that numbers the messages.";
+        return;
+      }
+      query();
+    };
+    run.addEventListener("click", start);
+    for (const input of [key, seq, reorder]) {
+      input.addEventListener("keydown", (/** @type {KeyboardEvent} */ e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          start();
+        }
+      });
+    }
+    return [
+      h("label", { title: "The fields whose values name a stream, separated by commas" }, [
+        "Streams by ",
+        key,
+      ]),
+      h("label", { title: "The field that numbers each stream's messages" }, [
+        "Sequence field ",
+        seq,
+      ]),
+      h("label", { title: "Where the counter starts again at 0" }, ["Counter wraps at ", wrap]),
+      h(
+        "label",
+        {
+          title:
+            "A number this much lower than the highest seen is a restart of the numbering, not a late message",
+        },
+        ["Restart after a drop of more than ", reorder],
+      ),
+      run,
+    ];
   }
 
   /** The HTTP report or SRT protocol picker; protocols with traffic are marked. */
@@ -399,6 +496,7 @@
           state.kind === "io"
             ? state.series.map(({ metric, filter, field }) => ({ metric, filter, field }))
             : undefined,
+        sequence: state.kind === "sequences" ? state.sequence : undefined,
       },
     });
   }
@@ -420,13 +518,32 @@
         state.series = series.length ? series : state.series;
         state.logScale = !!msg.io.logScale;
       }
+      if (msg.sequence) {
+        state.sequence = msg.sequence;
+      }
       title.textContent = msg.title;
+      buildToolbar();
+      if (state.kind !== "sequences" || state.sequence.seq) {
+        query();
+      } else {
+        status.textContent =
+          "Name the field that numbers the messages, and the fields that name a stream, then Check.";
+        document.getElementById("seq-key")?.focus();
+      }
+    } else if (msg.type === "sequence") {
+      // A new sequence check in this panel (a command with fields).
+      state.sequence = msg.sequence;
+      state.badField = null;
       buildToolbar();
       query();
     } else if (msg.type === "result" && msg.id === state.pending) {
       state.pending = null;
       state.table = msg.table;
       markBadSeries(null);
+      if (state.badField) {
+        state.badField = null;
+        buildToolbar();
+      }
       state.selected = null;
       state.sort = null;
       title.textContent = msg.table.title;
@@ -444,6 +561,10 @@
           typeof msg.series === "number" ? `Graph ${msg.series + 1}: ${msg.message}` : msg.message;
         notice.classList.remove("hidden");
         markBadSeries(typeof msg.series === "number" ? msg.series : null);
+        if (state.kind === "sequences") {
+          state.badField = typeof msg.field === "string" ? msg.field : null;
+          buildToolbar();
+        }
       }
     }
   });
@@ -470,9 +591,11 @@
           ? ""
           : t.unfiltered
             ? `${n.toLocaleString()} ${n === 1 ? "row" : "rows"} (this report covers the whole capture: it can't be limited to the display filter)`
-            : t.summary
-              ? `${lib.sessionSummary(t.kind, t.summary)}${scope}`
-              : `${n.toLocaleString()} ${n === 1 ? "row" : "rows"}${scope}`;
+            : t.kind === "sequences"
+              ? `${lib.sequenceSummary(t.summary)}${scope}`
+              : t.summary
+                ? `${lib.sessionSummary(t.kind, t.summary)}${scope}`
+                : `${n.toLocaleString()} ${n === 1 ? "row" : "rows"}${scope}`;
     chartBox.classList.toggle("hidden", t.kind !== "io");
     legend.classList.toggle("hidden", t.kind !== "io");
     if (t.kind === "io") {

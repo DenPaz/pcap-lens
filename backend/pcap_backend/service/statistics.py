@@ -5,15 +5,17 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from pcap_backend import overview, sessions, stats, triage
+from pcap_backend import overview, sequence, sessions, stats, triage
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, param
 from pcap_backend.stats import IoSeries, Table
 from pcap_backend.tshark import StreamResult, ToolError, failed, run, stream_lines
 
-from .base import ServiceBase
+from .dissection import DissectionMixin
 from .helpers import _fields_args
 from .state import _FIELD_NAME_RE, _Open
 
+# Key fields a sequence check may name.
+MAX_SEQUENCE_KEYS = 4
 # The IO graph's longest interval (100 years), so a default always fits.
 MAX_IO_INTERVAL_S = 100 * 365 * 86400
 # The largest HTTP body http_body returns (as Show Packet Bytes shows at most).
@@ -26,7 +28,12 @@ _SESSIONS = {
 }
 
 
-class StatisticsMixin(ServiceBase):
+def _split(cell: str) -> list[str]:
+    """A fields cell's occurrences (none when empty)."""
+    return cell.split(sessions.AGGREGATOR) if cell else []
+
+
+class StatisticsMixin(DissectionMixin):
     """Statistics from tshark's -z reports."""
 
     def stats(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
@@ -44,7 +51,9 @@ class StatisticsMixin(ServiceBase):
         streams), ``hosts`` (resolved addresses), ``sctp`` (associations), or a
         session table (sessions.py): ``http_requests`` (each request with its
         response), ``dns_queries`` (each query with its answer) or
-        ``tls_servers`` (servers by name, with the TLS they chose).
+        ``tls_servers`` (servers by name, with the TLS they chose), or
+        ``sequences`` (sequence.py: ``seq``, the field numbering messages per
+        stream, ``key``, the fields naming a stream, ``wrap`` and ``reorder``).
         ``filter`` limits the statistics to packets matching a display filter
         (``hosts`` and ``sctp`` can't be limited: the result says
         ``unfiltered``).
@@ -82,6 +91,8 @@ class StatisticsMixin(ServiceBase):
                 table = stats.parse_sip_stat(self._tap(f, f"sip,stat{suffix}", ctx))
             case "http_requests" | "dns_queries" | "tls_servers":
                 table = self._sessions(f, kind, counted, ctx)
+            case "sequences":
+                return {**self._sequences(f, params, counted, ctx), "filter": flt}
             case "credentials":
                 # (The tap takes no filter: rows outside it, or ignored, are left out here.)
                 table = stats.parse_credentials(self._tap(f, "credentials", ctx))
@@ -392,6 +403,58 @@ class StatisticsMixin(ServiceBase):
         if failed(res.returncode, res.stderr) and not res.stdout:
             raise f.tshark.error(res.stderr, res.returncode, "tshark failed")
         return build(res.stdout.decode("utf-8", "replace").split("\n"))
+
+    def _sequences(
+        self, f: _Open, params: dict[str, Any], counted: str, ctx: RequestContext
+    ) -> dict[str, Any]:
+        """The sequence check (sequence.py): one fields pass over the packets
+        holding ``seq`` (and matching ``counted``), with progress."""
+        seq = param(params, "seq", str, "").strip()
+        key = params.get("key", [])
+        if not isinstance(key, list) or not all(isinstance(k, str) for k in key):
+            raise InvalidParamsError("key must be a list of field names")
+        key = [k.strip() for k in key if k.strip()]
+        if not seq:
+            raise InvalidParamsError("name the field that numbers the messages")
+        if len(key) > MAX_SEQUENCE_KEYS:
+            raise InvalidParamsError(f"at most {MAX_SEQUENCE_KEYS} key fields")
+        catalog = self._catalog(ctx)
+        for name in [seq, *key]:
+            if not _FIELD_NAME_RE.match(name) or catalog.lookup(name) is None:
+                raise InvalidParamsError(f"tshark has no field {name!r}", {"field": name})
+        if len(set(key)) != len(key) or seq in key:
+            raise InvalidParamsError("each field may be named once")
+        try:
+            checker = sequence.Checker(
+                param(params, "wrap", int, 0),
+                param(params, "reorder", int, sequence.DEFAULT_REORDER),
+            )
+        except ValueError as e:
+            raise InvalidParamsError(str(e)) from None
+        flt = f"({seq}) && ({counted})" if counted else seq
+        fields = ["frame.number", "frame.time_relative", *key, seq]
+        args = ["-Y", flt, *_fields_args(fields), "-E", f"aggregator={sessions.AGGREGATOR}"]
+        argv = f.tshark.argv(*args, capture=str(f.path))
+        total = max(f.frame_count(), 1)
+        result = StreamResult()
+        ctx.progress({"phase": "sequences", "fraction": 0.0})
+        for i, raw in enumerate(stream_lines(argv, result, ctx.token)):
+            cells = raw.decode("utf-8", "replace").split("\t")
+            if len(cells) != len(fields) or not cells[0].isdigit():
+                continue
+            frame = int(cells[0])
+            if i % 2000 == 0:
+                ctx.progress({"phase": "sequences", "fraction": min(frame / total, 1.0)})
+            try:
+                time: float | None = float(cells[1])
+            except ValueError:
+                time = None
+            checker.add_packet(frame, time, [_split(c) for c in cells[2:-1]], _split(cells[-1]))
+        ctx.token.raise_if_cancelled()
+        if failed(result.returncode, result.stderr) and not checker.streams():
+            raise f.tshark.error(result.stderr, result.returncode, "tshark failed")
+        types = {n: (catalog.lookup(n) or {}).get("type") for n in key}
+        return sequence.table(checker, key, seq, types.get)
 
     def overview(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """The capture at a glance (overview.py): packets over time in at most

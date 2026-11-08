@@ -7,6 +7,12 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- Sequence Check: per stream (the values of fields you name), the messages a
+  sequence field's numbers say are missing, duplicated, late or restarted,
+  with wrapping counters and filters to each stream and problem
+
 ## 0.28.0 — 2026-11-08
 
 ### Added

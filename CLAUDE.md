@@ -203,6 +203,7 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   `src/commands/report.ts`. `src/commands/compare.ts` the other capture of
   a comparison (picking it, its profile). `src/replayModel.ts` Replay to
   Service's presets, remembered destinations and options (pure).
+  `src/sequenceModel.ts` the sequence check's parameters (pure).
 - `src/webview/` plain JS/CSS/HTML (no build step). `lib.js` = pure helpers
   shared with Node tests (a classic script, `window.PcapLib`, like the panels'
   scripts and `worldmap.js`, the Endpoints map's land outline that
@@ -262,6 +263,7 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   `compare.py` (capture profiles and diffs),
   `mcp.py` (the MCP server) and `standins.py` (its address stand-ins),
   `replay.py` (Replay to Service: records, planner, socket engine),
+  `sequence.py` (the sequence check: gaps, duplicates, late, restarts),
   `filterhelp.py` (a filter's
   field names, case hints, value counts), `plugins.py` (`tshark -G
 plugins` and the plugin folders), `decryption.py` (decryption keys and
@@ -1650,6 +1652,42 @@ http.file_data`: the decoded body, de-chunked and decompressed, at most
   ones at the end (frames 59 and 61), five DNS queries (an
   MX, an NXDOMAIN, one unanswered) and three TLS connections (TLS 1.2 and
   1.3 to one SNI with ALPN h2, one without a ServerHello).
+- **Sequence check** (`sequence.py`, `stats {kind: "sequences", key, seq,
+wrap, reorder}`, `src/sequenceModel.ts`; `pcapViewer.statistics.sequences`,
+  ☰ Statistics): per stream (the values of up to `MAX_SEQUENCE_KEYS` key
+  fields), the numbers a sequence field gives its messages. One `-Y <seq>`
+  fields pass (frame, time, keys, seq; aggregator `\x1e`, progress `phase:
+"sequences"`, the scope and ignored packets as for statistics) feeds
+  `Checker.add_packet`: a packet's occurrences pair one by one when a key
+  field has as many as the sequence field, else its single one applies to
+  all. Numbers are kept as sorted ranges (`Ranges`), so a mostly complete
+  stream is a few ranges; `wrap` (`WRAPS`: none, 8/16/24/32-bit) unwraps a
+  counter to the cycle nearest the last number. Each number is the next
+  (fine), higher (a `gap` problem with the numbers skipped), more than
+  `reorder` (default 1000) below the highest (a `restart`: a new run, checked
+  before duplicates, since a restart repeats old numbers), already seen
+  (`duplicate`) or else `late` (reordered). At the end a gap's
+  `stillMissing` says how many never came ("Reordered: 8 arrived late" when
+  none); `missing` counts the runs' holes. Hex values (`0x…`, BASE_HEX
+  fields) are read; others count as `unreadable`. `sequence.table` builds
+  the statistics panel's tree (`TREES` in stats.js): a row per stream
+  (problems first; key values, messages, first/last number, counts, result;
+  filter `key == value && … && seq`, string fields quoted by the catalogue's
+  type, `!key` for none) and its problems under it (`depth` 1, `frame.number
+== N`), at most `MAX_ROWS` streams and `MAX_PROBLEMS` per stream (counts
+  always complete). StatisticsMixin now inherits DissectionMixin for the
+  catalogue (fields are checked: an unknown one is an InvalidParamsError
+  with `data.field`, which the panel marks `aria-invalid`). The panel's
+  toolbar (`sequenceInputs`): Streams by (comma-separated), Sequence field,
+  Counter wraps at, Restart after a drop of more than, Check (or Enter);
+  nothing runs until the sequence field is named. The host keeps the last
+  parameters (`SEQUENCE_KEY` in globalState, `normalizeSequenceParams`) for
+  the next check, and the command with `{key, seq, wrap, reorder}` runs those
+  at once (posted as `sequence` to an open panel). `sequences.pcap`
+  (`generate.sequences_packets`, `SEQUENCE_TUNNELS`): four interleaved
+  GTP-U tunnels (UDP 2152, decoded as GTP by default; `gtp.teid`,
+  `gtp.seq_number`): complete, a gap with a late and a duplicate message, a
+  16-bit wrap, a restart.
 - **Extcap helpers** (`extcap.py`, `extcap_config {interface}`,
   `extcapModel.ts`, `commands/capture.ts`): dumpcap doesn't know extcap
   interfaces; tshark runs the helper (into a FIFO) and dumpcap together. So

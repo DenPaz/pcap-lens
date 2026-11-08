@@ -1197,6 +1197,33 @@ suite("webview lib: coloring", () => {
     assert.ok(lib.filterSegments("tcp", null).every((p) => !p.error));
   });
 
+  test("sequenceSummary: the sequence check's status line", () => {
+    const base = { streams: 4, messages: 28, withProblems: 0, missing: 0, duplicates: 0 };
+    assert.equal(
+      lib.sequenceSummary(base),
+      "4 streams · 28 messages · every stream complete and in order",
+    );
+    assert.equal(
+      lib.sequenceSummary({
+        ...base,
+        withProblems: 2,
+        missing: 1,
+        duplicates: 3,
+        late: 1,
+        restarts: 2,
+        unreadable: 1,
+        untracked: 5,
+        more: 7,
+      }),
+      "4 streams · 28 messages · 2 with problems · 1 missing · 3 duplicates · 1 late · " +
+        "2 restarts · 1 value not a number · 5 messages past the stream limit · 7 streams not listed",
+    );
+    assert.equal(
+      lib.sequenceSummary({ streams: 0, messages: 0 }),
+      "No packet has the sequence field",
+    );
+  });
+
   test("paneLayout and splitterOrientations: where the panes go", () => {
     assert.deepEqual(lib.PANE_LAYOUTS, ["below", "stacked", "beside"]);
     assert.equal(lib.paneLayout("stacked"), "stacked");

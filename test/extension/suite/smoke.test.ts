@@ -225,6 +225,16 @@ suite("PCAP Lens smoke test", () => {
     const stats = await waitFor(() =>
       api.panels.StatsPanel.all.find((p) => p.kind === "conversations" && p.session === session),
     );
+    // The sequence check with fields from a command: its panel opens on this capture.
+    session.reveal();
+    await vscode.commands.executeCommand("pcapViewer.statistics.sequences", {
+      key: ["tcp.stream"],
+      seq: "tcp.seq",
+    });
+    const sequences = await waitFor(() =>
+      api.panels.StatsPanel.all.find((p) => p.kind === "sequences" && p.session === session),
+    );
+    sequences.panel.dispose();
 
     // Export Objects lists what the capture carried (tshark's --export-objects).
     session.reveal();

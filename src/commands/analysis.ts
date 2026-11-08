@@ -6,6 +6,7 @@ import { OverviewPanel } from "../panels/overviewPanel";
 import { PacketPanel } from "../panels/packetPanel";
 import { ReplayPanel } from "../panels/replayPanel";
 import { StatsKind, StatsPanel } from "../panels/statsPanel";
+import { normalizeSequenceParams } from "../sequenceModel";
 import { ComparePanel } from "../panels/comparePanel";
 import { TcpGraphPanel } from "../panels/tcpGraphPanel";
 import { VoipPanel } from "../panels/voipPanel";
@@ -72,6 +73,18 @@ export function registerAnalysisCommands(
     ...(Object.entries(FOLLOW_COMMANDS) as [FollowProto, string][]).map(([proto, command]) =>
       vscode.commands.registerCommand(command, (frame?: number) => follow(proto, frame)),
     ),
+    // Args {key, seq, wrap, reorder} run the check with those fields at once.
+    vscode.commands.registerCommand("pcapViewer.statistics.sequences", (args?: unknown) => {
+      const session = requireSession(provider);
+      return session
+        ? StatsPanel.show(
+            context,
+            session,
+            "sequences",
+            args ? normalizeSequenceParams(args) : undefined,
+          )
+        : undefined;
+    }),
     ...Object.entries(STATS_COMMANDS).map(([command, kind]) =>
       vscode.commands.registerCommand(command, () => {
         const session = requireSession(provider);

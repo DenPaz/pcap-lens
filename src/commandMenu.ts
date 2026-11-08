@@ -109,6 +109,7 @@ const GROUP_OF: Readonly<Record<string, CommandGroup>> = {
   "pcapViewer.statistics.ioGraph": "Statistics",
   "pcapViewer.statistics.expertInfo": "Statistics",
   "pcapViewer.statistics.packetLengths": "Statistics",
+  "pcapViewer.statistics.sequences": "Statistics",
   "pcapViewer.statistics.ipv4": "Network Statistics",
   "pcapViewer.statistics.ipv6": "Network Statistics",
   "pcapViewer.statistics.multicast": "Network Statistics",
