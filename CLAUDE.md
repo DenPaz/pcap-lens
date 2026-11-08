@@ -20,6 +20,7 @@ CONTRIBUTING.md for building, testing and releasing (not packaged).
 | Regenerate fixtures       | `uv run python test/fixtures/generate.py`                                                                                                                |
 | Coverage                  | `make coverage` (pytest-cov and c8; summaries in the terminal, HTML in `coverage/`; CI's Linux job adds both to the run summary)                         |
 | Perf check                | `uv run python test/fixtures/generate.py --large 1000000 test/fixtures/large-1m.pcap && uv run python -u test/perf/bench.py test/fixtures/large-1m.pcap` |
+| Stress check              | `uv run python -u test/perf/stress.py --seeds 20 <small and large captures>` (overlapping random requests at one backend)                                |
 | Real captures             | `make realworld` (`test/realworld/run.py --fetch wireshark`, then `--fetch tcpdump --quick`; downloads into `~/.cache/pcap-lens-realworld`)              |
 | AI answer evals (by hand) | `pnpm run evals` (asks a model the cases in `test/evals/cases.json`; `-- --prompts <dir>` / `--answers <dir>` without a model)                           |
 | Package                   | `pnpm run package` (vsce, `--no-dependencies`)                                                                                                           |
@@ -383,6 +384,16 @@ true`), else when done. The pass then reports through backend notifications
   generator). The old bug: at shutdown the server kills every child before
   the pass's token is cancelled, tshark's output just ended, and the rows so
   far were saved as a finished index.
+- **Overlapping opens** (`_supersede_open`, `_open_lock`): one open (or
+  capture_start) at a time per backend. A newer open or a `close` cancels the
+  open in progress (its request answers -32800) and waits for it; before, it
+  removed that open's work folder, which then attached a capture whose rows
+  file was gone. A store read after its capture closed raises
+  `StoreClosedError` (a CancelledError), not FileNotFoundError, and a saved
+  index whose rows vanish while opening (another window) means indexing
+  again. Neither client overlaps opens today (the host starts a backend per
+  load; the MCP server opens each service once), so this is the protocol's
+  own safety; `test/perf/stress.py` (by hand) found it.
 - **Progress bar** (webview): `div#busy-bar.progress-bar` (created by
   `main.js`, between the filter bar and `#main`: `role="progressbar"`,
   `aria-valuemin/max`, `aria-valuenow` only when determinate, `aria-label`)
