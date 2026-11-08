@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.29.0 — 2026-11-08
+
 ### Added
 
 - Sequence Check: per stream (the values of fields you name), the messages a

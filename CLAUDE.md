@@ -3141,3 +3141,6 @@ weekly real-capture run found: 0.27.1.
 Then the MCP server dissecting as the viewer does (Lua, Decode As, prefs,
 profile, plugins), a choice of pane layouts, filter errors underlined with
 the filter in colour, and panels below the capture: 0.28.0.
+Then the Sequence Check, and an evaluation of what was there (review,
+coverage of the webview, error paths, every real capture, a re-benchmark)
+with its fixes: 0.29.0.
