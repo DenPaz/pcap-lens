@@ -39,7 +39,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Any
 
-from . import compare
+from . import compare, navigation
 from .cancellation import CancelledError, CancelToken
 from .pcap_service import PcapService
 from .protocol import (
@@ -526,7 +526,11 @@ def _next_step(check_id: str) -> str | None:
 def _iso(seconds: float | None) -> str | None:
     if seconds is None:
         return None
-    return datetime.fromtimestamp(seconds, UTC).isoformat().replace("+00:00", "Z")
+    try:
+        return datetime.fromtimestamp(seconds, UTC).isoformat().replace("+00:00", "Z")
+    except (ValueError, OverflowError, OSError):
+        # (A packet dated outside years 1-9999: see navigation.format_civil.)
+        return navigation.format_civil(int(seconds)).replace(" ", "T") + "Z"
 
 
 def _top_rows(table: dict[str, Any], limit: int) -> tuple[list[dict[str, Any]], int]:

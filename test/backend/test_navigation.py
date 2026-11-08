@@ -126,6 +126,21 @@ def test_time_helpers() -> None:
         navigation.format_absolute(1_700_000_000_000_001_000, utc=True)
         == "2023-11-14 22:13:20.000001"
     )
+    # Dates Python's datetime can't hold (Wireshark's cosine_coverage capture
+    # has packets tshark dates "Nov 30, -1"): plain arithmetic, UTC.
+    for utc in (True, False):
+        assert (
+            navigation.format_absolute(-62_169_984_000_000_000_000 + 500_000, utc=utc)
+            == "-0001-11-30 00:00:00.000500"
+        )
+        assert (
+            navigation.format_absolute(-62_167_219_200_000_000_000, utc=utc)
+            == "0000-01-01 00:00:00.000000"
+        )
+        assert (
+            navigation.format_absolute(253_402_300_800_000_000_000, utc=utc)
+            == "10000-01-01 00:00:00.000000"
+        )
 
 
 # ---------------------------------------------------------------------- integration
