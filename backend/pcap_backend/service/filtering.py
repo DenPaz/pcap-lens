@@ -308,5 +308,7 @@ class FilteringMixin(PacketsMixin):
         if result.returncode not in (0, None) and not frames and result.stderr:
             if any(h in result.stderr for h in _TRUNCATION_HINTS):
                 return FrameIndex(frames, len(frames))
-            raise FilterError(result.stderr.removeprefix("tshark: "), {"expr": expr})
+            # (The filter was validated before: this is tshark failing to read
+            # the capture, e.g. a file deleted meanwhile, not a filter error.)
+            raise f.tshark.error(result.stderr, result.returncode, "tshark can't read the file")
         return FrameIndex(frames, len(frames))

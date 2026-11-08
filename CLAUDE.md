@@ -1171,7 +1171,11 @@ heuristics}` (`pcapViewer.enabledProtocols` / `heuristicDissectors`,
   (`switches`). tshark refuses to start for an unknown name ("No such
   protocol", exit 1), so `open` checks the names against the listings
   (`_known_switches`, only when there are switches) and drops unknown ones
-  with a warning. Listings: `-G protocols` (name, short, filter, enabled,
+  with a warning. Preferences and Decode As rules tshark doesn't know (a Lua
+  protocol's, when the capture doesn't load its script; a hand edit) are
+  dropped the same way: `Tshark.refused_option` runs the options against the
+  empty capture (only when there are prefs or rules; 0.1 s) and names the
+  one tshark refused (it stops at the first), until it starts. Listings: `-G protocols` (name, short, filter, enabled,
   enabled by default, can toggle) and `-G heuristic-decodes` (underlying,
   protocol, enabled, enabled by default, short name, description) through
   `Tshark.glossary` (Lua scripts' included), cached per tshark and scripts

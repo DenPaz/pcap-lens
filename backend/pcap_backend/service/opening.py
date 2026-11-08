@@ -590,12 +590,21 @@ class OpeningMixin(CommentsMixin):
     def _known_switches(
         self, options: DissectionOptions, ctx: RequestContext
     ) -> tuple[DissectionOptions, list[str]]:
-        """``options`` without the protocols and heuristic dissectors this
-        tshark doesn't know (it won't start for one), and warnings for them."""
-        if not options.protocols and not options.heuristics:
-            return options, []
-        known = self._protocol_list(self._require_tshark().with_options(options), ctx.token)
-        return options.without_unknown(known.protocols, known.heuristics)
+        """``options`` without the protocols, heuristic dissectors,
+        preferences and Decode As rules this tshark doesn't know (it won't
+        start for one), and warnings for them. (A Lua protocol's preference
+        or rule when this capture doesn't load its script is one.)"""
+        warnings: list[str] = []
+        if options.protocols or options.heuristics:
+            known = self._protocol_list(self._require_tshark().with_options(options), ctx.token)
+            options, warnings = options.without_unknown(known.protocols, known.heuristics)
+        for _ in range(len(options.prefs) + len(options.decode_as)):
+            refused = self._require_tshark().with_options(options).refused_option(ctx.token)
+            if refused is None:
+                break
+            options, warning = options.without(refused)
+            warnings.append(warning)
+        return options, warnings
 
     def _index_key(
         self,
