@@ -208,6 +208,38 @@ def test_export_as_pcap_refuses_mixed_link_types(
     assert res["packets"] == _count(mixed)
 
 
+def _pcapng_block(kind: int, body: bytes) -> bytes:
+    body += b"\0" * (-len(body) % 4)
+    return struct.pack("<II", kind, len(body) + 12) + body + struct.pack("<I", len(body) + 12)
+
+
+@pytest.mark.tshark
+def test_export_as_pcap_refuses_a_link_type_declared_late(
+    service: PcapService, ctx: RequestContext, tmp_path: Path
+) -> None:
+    # Wireshark's Bluetooth *_coverage captures declare their second interface
+    # (another link type) after the first packets: tshark notices only while
+    # writing, with another message ("Frame N … has a network type that
+    # differs…"), which came through as a tshark failure (test/realworld).
+    eth = bytes(12) + b"\x08\x00" + bytes(46)
+    raw_ip = bytes.fromhex("4500001c000000004011000001020304050607080035003500080000")
+
+    def idb(link: int) -> bytes:
+        return _pcapng_block(1, struct.pack("<HHI", link, 0, 65535))
+
+    def epb(iface: int, data: bytes) -> bytes:
+        return _pcapng_block(6, struct.pack("<IIIII", iface, 0, 0, len(data), len(data)) + data)
+
+    shb = _pcapng_block(0x0A0D0D0A, struct.pack("<IHHq", 0x1A2B3C4D, 1, 0, -1))
+    capture = tmp_path / "late-interface.pcapng"
+    capture.write_bytes(shb + idb(1) + epb(0, eth) + epb(0, eth) + idb(101) + epb(1, raw_ip))
+    service.open({"path": str(capture)}, ctx)
+    with pytest.raises(InvalidParamsError, match="as pcapng") as exc:
+        service.export({"kind": "pcap", "dest": str(tmp_path / "out.pcap"), "filter": ""}, ctx)
+    assert exc.value.data == {"format": "pcap", "pcapng": True}
+    assert not (tmp_path / "out.pcap").exists()
+
+
 @pytest.mark.tshark
 @pytest.mark.parametrize("says_why", [True, False])
 def test_export_as_pcap_refuses_packets_after_2038(

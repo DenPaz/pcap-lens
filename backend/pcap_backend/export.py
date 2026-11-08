@@ -40,6 +40,13 @@ _FORMULA_START = ("=", "+", "@", "\t", "\r")
 # link type Wireshark can only read ("Unknown"), which no format can store.
 # Found by test/realworld.
 _UNWRITABLE_RE = re.compile(r"can't be (?:written as|saved in) an? \"(?P<format>[\w-]+)\" file")
+# A link type that appears only after the first packets (a pcapng interface
+# declared late): tshark notices while writing, in other words, naming the
+# format by its description ("Wireshark/tcpdump/... - pcap").
+_LATE_LINK_TYPE_RE = re.compile(
+    r"network type that differs from the network type of earlier packets, which isn't "
+    r"supported in an? \"(?:[^\"]* - )?(?P<format>[\w-]+)\" file"
+)
 # Wireshark's pcap writer takes a packet's seconds in 31 bits: nothing after
 # January 2038 (arp_coverage.pcap.gz, Wireshark's test captures). tshark 4.2
 # says so; 4.6 lost the text ("Undefined error: 0", Windows "No error."), so
@@ -62,7 +69,7 @@ def unwritable_error(stderr: str) -> InvalidParamsError | None:
     format (None for any other failure)."""
     if _UNWRITABLE_TIME in stderr:
         return pcap_time_error()
-    match = _UNWRITABLE_RE.search(stderr)
+    match = _UNWRITABLE_RE.search(stderr) or _LATE_LINK_TYPE_RE.search(stderr)
     if match is None:
         return None
     fmt = match["format"]
