@@ -332,6 +332,11 @@ CRASH_HINT = (
     "That is a bug in tshark (Wireshark's dissectors), not in the capture or PCAP Lens: "
     "a newer Wireshark may read it."
 )
+# SIGKILL from outside (PCAP Lens's own kills end as cancelled): most often
+# the system out of memory; some fuzzed captures take tshark past 10 GB.
+KILLED_HINT = (
+    "Something outside PCAP Lens killed it, most often the system when it runs out of memory."
+)
 
 
 def crash(returncode: int | None) -> str | None:
@@ -722,6 +727,10 @@ class Tshark:
         message = stderr or default
         if what := crash(returncode):
             message = f"tshark crashed ({what}) while reading this capture. {CRASH_HINT}"
+            if stderr.strip():
+                message += f"\n\n{stderr.strip()}"
+        elif returncode == -9:  # (SIGKILL; not numbered on Windows)
+            message = f"tshark was killed (signal 9) while reading this capture. {KILLED_HINT}"
             if stderr.strip():
                 message += f"\n\n{stderr.strip()}"
         hint = permission_hint(self.path, stderr)

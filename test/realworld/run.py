@@ -280,6 +280,17 @@ class Report:
         return [s for s in self.steps if s.status == "problem"]
 
 
+def _tsharks_own(message: str) -> bool:
+    """A failure that is tshark's: Wireshark's newer test captures crash
+    tshark 4.2.2, some make a dissector loop (a million-item tree for one
+    packet), and some take it past the memory there is (killed: signal 9)."""
+    return (
+        message.startswith("tshark crashed (")
+        or "too large to show" in message
+        or "(signal 9)" in message
+    )
+
+
 class Run:
     def __init__(
         self, server: Server, report: Report, timeout: float, work: Path, quick: bool = False
@@ -300,10 +311,8 @@ class Run:
             status = (
                 "expected"
                 if exc.code in EXPECTED_CODES
-                # (Wireshark's newer test captures crash tshark 4.2.2, and some
-                # make a dissector loop: a million-item tree for one packet.)
                 else "note"
-                if exc.message.startswith("tshark crashed (") or "too large to show" in exc.message
+                if _tsharks_own(exc.message)
                 else "problem"
             )
             data = f" {json.dumps(exc.data)[:300]}" if exc.data else ""
@@ -414,8 +423,7 @@ def _exercise(run: Run, path: Path, cache: Path) -> None:
         if done.get("event") == "failed":
             # A tshark crash is tshark's bug (Wireshark's newer test captures
             # crash 4.2.2 while indexing too), as for a request.
-            crashed = str(done.get("message", "")).startswith("tshark crashed (")
-            status = "note" if crashed else "problem"
+            status = "note" if _tsharks_own(str(done.get("message", ""))) else "problem"
             run.report.steps.append(Step("index", status, took, json.dumps(done)[:400]))
             return
         run.report.steps.append(Step("index", "ok", took))
