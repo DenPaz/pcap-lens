@@ -342,6 +342,8 @@ export async function editCapture(
   context: vscode.ExtensionContext,
   log: vscode.LogOutputChannel,
   op?: EditOperation,
+  /** The operation's parameters (the edit_capture request's): skip the questions (smoke test). */
+  given?: Record<string, unknown>,
 ): Promise<string[] | undefined> {
   const session = requireSession(provider);
   const client = session?.backend;
@@ -362,6 +364,9 @@ export async function editCapture(
   }
   const temporary = session.document.temporary;
   const params = await (async () => {
+    if (given) {
+      return given;
+    }
     switch (entry.op) {
       case "timeShift":
         return timeShiftParams(session);
@@ -465,7 +470,15 @@ export function registerEditCaptureCommands(
   ];
   for (const [id, op] of commands) {
     context.subscriptions.push(
-      vscode.commands.registerCommand(id, () => editCapture(provider, context, log, op)),
+      vscode.commands.registerCommand(id, (args?: unknown) =>
+        editCapture(
+          provider,
+          context,
+          log,
+          op,
+          op && args && typeof args === "object" ? (args as Record<string, unknown>) : undefined,
+        ),
+      ),
     );
   }
 }

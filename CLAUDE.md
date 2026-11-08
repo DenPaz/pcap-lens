@@ -1968,7 +1968,9 @@ pcapng` always: `timeShift` `-t` (offset as an exact decimal string; the
 N`/`-i S` into a scratch folder inside `dir`, then each piece moved out
   under a free name (`objects.unique_path`); editcap's
   `<name>_NNNNN_<time>.pcapng` names are what `rotation.ts` recognises.
-  Refused while indexing or capturing. Results report `packets`
+  Refused while indexing or capturing. The operation commands take the
+  request's parameters as an argument and skip the questions (smoke test).
+  Results report `packets`
   (`comments.packet_count`) and `removed`. The host writes into a new unsaved
   capture and opens it.
 - **AI filter help** (`src/aiFilter.ts` pure, `src/ai.ts` host, `src/commands/ai.ts`):
