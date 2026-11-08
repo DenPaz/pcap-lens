@@ -3044,3 +3044,6 @@ session tables: 0.26.0.
 Then the Capture Overview, and the real-capture harness weekly in CI:
 0.27.0. Then large UDP datagrams in Replay to… on macOS, and what the first
 weekly real-capture run found: 0.27.1.
+Then the MCP server dissecting as the viewer does (Lua, Decode As, prefs,
+profile, plugins), a choice of pane layouts, filter errors underlined with
+the filter in colour, and panels below the capture: 0.28.0.

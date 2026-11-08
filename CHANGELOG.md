@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.28.0 — 2026-11-08
+
 ### Added
 
 - Pane layout: the packet details and bytes below the list (as before),
