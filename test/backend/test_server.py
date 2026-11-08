@@ -18,6 +18,7 @@ import pytest
 from pcap_backend.cancellation import CancelledError
 from pcap_backend.protocol import InvalidParamsError, RequestContext
 from pcap_backend.server import JsonRpcServer
+from pcap_backend.tshark import ConfigError, ToolError, ToolNotFoundError
 
 BACKEND_DIR = Path(__file__).resolve().parents[2] / "backend"
 
@@ -77,6 +78,71 @@ def test_request_response_and_errors() -> None:
     _send(server, {"id": 6, "method": "ping"})
     assert out.next()["result"] == {"pong": True}
     server.shutdown()
+
+
+def test_tool_errors_bad_requests_and_notifications() -> None:
+    # What each kind of failure answers (the host and the webview read these
+    # codes), malformed requests, a reused id, and notifications (no id), which
+    # never get an answer, not even an error.
+    gate = threading.Event()
+
+    def fail(params: dict[str, Any], _ctx: RequestContext) -> Any:
+        kind = params.get("kind")
+        if kind == "missing":
+            raise ToolNotFoundError("tshark", ["/usr/bin"])
+        if kind == "tool":
+            raise ToolError("tshark failed", stderr="oops", returncode=2)
+        if kind == "config":
+            raise ConfigError("no such profile")
+        if kind == "wait":
+            gate.wait(5)
+            return "done"
+        raise RuntimeError("boom")
+
+    server, out = _server({"fail": fail})
+    _send(server, {"id": 1, "method": "fail", "params": {"kind": "missing"}})
+    err = out.next()["error"]
+    assert err["code"] == -32001 and err["data"] == {"tool": "tshark", "searched": ["/usr/bin"]}
+    _send(server, {"id": 2, "method": "fail", "params": {"kind": "tool"}})
+    err = out.next()["error"]
+    assert err["code"] == -32002 and err["data"] == {"stderr": "oops", "returncode": 2}
+    _send(server, {"id": 3, "method": "fail", "params": {"kind": "config"}})
+    assert out.next()["error"] == {"code": -32602, "message": "no such profile"}
+
+    _send(server, "[1, 2]")  # not an object
+    assert out.next()["error"]["code"] == -32600
+    _send(server, {"id": 7, "params": {}})  # no method: the id is still answered
+    assert out.next() == {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "error": {"code": -32600, "message": "invalid request"},
+    }
+    _send(server, {"id": [1], "method": "fail"})
+    assert out.next() == {
+        "jsonrpc": "2.0",
+        "id": None,
+        "error": {"code": -32600, "message": "id must be a number or string"},
+    }
+
+    # A reused id while the first request runs: refused, the first still answers.
+    _send(server, {"id": 8, "method": "fail", "params": {"kind": "wait"}})
+    _send(server, {"id": 8, "method": "fail", "params": {"kind": "wait"}})
+    assert out.next()["error"] == {"code": -32600, "message": "duplicate request id 8"}
+    gate.set()
+    assert out.next() == {"jsonrpc": "2.0", "id": 8, "result": "done"}
+
+    # Notifications: nothing comes back, whatever happens.
+    for msg in (
+        {"method": "fail", "params": {"kind": "tool"}},
+        {"method": "fail"},  # RuntimeError
+        {"method": "nope"},
+        {"method": "ping"},
+        {"method": "cancel", "params": {"requestId": 8}},
+        {"method": "cancel", "params": {"requestId": [8]}},
+    ):
+        _send(server, msg)
+    server.shutdown()
+    assert out.lines.empty()
 
 
 def test_progress_and_cancel() -> None:

@@ -137,6 +137,44 @@ def test_kill_process_never_raises(capsys: pytest.CaptureFixture[str]) -> None:
     assert capsys.readouterr().out == "", "stdout is the JSON-RPC channel"
 
 
+class SignalledProc(FakeProc):
+    """A FakeProc whose send_signal (SIGINT) does what it's told, like its kill."""
+
+    def __init__(self, error: BaseException | None) -> None:
+        super().__init__(error)
+        self.signals: list[int] = []
+
+    def send_signal(self, sig: int) -> None:
+        self.signals.append(sig)
+        if self.kill_error:
+            raise self.kill_error
+
+
+def test_interrupt_process_never_raises(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # SIGINT asks dumpcap to finish its file; every refusal is an answer, not an exception.
+    monkeypatch.setattr(procs.sys, "platform", "linux")
+    ok = SignalledProc(None)
+    assert procs.interrupt_process(ok) and ok.signals == [signal.SIGINT]  # type: ignore[arg-type]
+    done = SignalledProc(None)
+    done.exit(0)
+    assert procs.interrupt_process(done) and done.signals == []  # type: ignore[arg-type]
+    assert procs.interrupt_process(SignalledProc(ProcessLookupError()))  # type: ignore[arg-type]
+    assert not procs.interrupt_process(SignalledProc(PermissionError(13, "denied")))  # type: ignore[arg-type]
+    assert not procs.interrupt_process(SignalledProc(OSError(5, "I/O error")))  # type: ignore[arg-type]
+    assert "could not interrupt tshark (pid 4242): [Errno 5] I/O error" in capsys.readouterr().err
+    # Windows has no SIGINT for a child without a console: it is killed.
+    monkeypatch.setattr(procs.sys, "platform", "win32")
+    windows = SignalledProc(None)
+    assert procs.interrupt_process(windows) and windows.kills == 1 and windows.signals == []  # type: ignore[arg-type]
+
+
+def test_kill_process_reports_other_os_errors(capsys: pytest.CaptureFixture[str]) -> None:
+    assert not procs.kill_process(FakeProc(OSError(5, "I/O error")))  # type: ignore[arg-type]
+    assert "could not stop tshark (pid 4242): [Errno 5] I/O error" in capsys.readouterr().err
+
+
 def test_refused_kill_names_the_apparmor_rules(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

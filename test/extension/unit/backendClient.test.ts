@@ -142,6 +142,40 @@ suite("BackendClient", function () {
     assert.deepEqual(pythonCandidates("/opt/py/bin/python3", "linux"), [["/opt/py/bin/python3"]]);
   });
 
+  test("without a Python on PATH, the one uv knows is used (a desktop-launched VS Code)", function () {
+    const python = testPython();
+    if (process.platform === "win32" || !python) {
+      this.skip(); // (a shell script stands in for uv)
+    }
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "pcap-uv-"));
+    const emptyPath = fs.mkdtempSync(path.join(os.tmpdir(), "pcap-path-"));
+    const saved = { HOME: process.env.HOME, PATH: process.env.PATH };
+    try {
+      const bin = path.join(home, ".local", "bin");
+      fs.mkdirSync(bin, { recursive: true });
+      const uv = path.join(bin, "uv");
+      const script = (found: string) =>
+        `#!/bin/sh\n[ "$1" = "--version" ] && { echo "uv 0.9.0"; exit 0; }\n` +
+        `[ "$1 $2" = "python find" ] && ${found}\nexit 2\n`;
+      fs.writeFileSync(uv, script(`{ echo "${python}"; exit 0; }`), { mode: 0o755 });
+      process.env.HOME = home;
+      process.env.PATH = emptyPath;
+      const found = findPython(undefined);
+      assert.ok("python" in found, JSON.stringify(found));
+      assert.deepEqual(found.python, [python]);
+      // uv without a recent enough Python: the error says it was asked too.
+      fs.writeFileSync(uv, script("exit 2"), { mode: 0o755 });
+      const missing = findPython(undefined);
+      assert.ok("error" in missing);
+      assert.match(missing.error, /uv python find/);
+    } finally {
+      process.env.HOME = saved.HOME;
+      process.env.PATH = saved.PATH;
+      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(emptyPath, { recursive: true, force: true });
+    }
+  });
+
   test("uv is looked for on PATH and in its usual folders", () => {
     assert.deepEqual(uvCandidates("linux", "/home/u"), [
       "uv",
