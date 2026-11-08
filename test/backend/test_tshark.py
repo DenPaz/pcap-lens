@@ -95,6 +95,23 @@ def test_error_explains_a_crash() -> None:
     assert str(abort).endswith("\n\nERROR:packet-x.c:12: assertion failed")
 
 
+def test_an_index_pass_killed_from_outside_says_so() -> None:
+    from pcap_backend.service.indexing import _finish_index_pass  # noqa: PLC0415
+    from pcap_backend.service.state import CaptureInfo  # noqa: PLC0415
+
+    def finish(code: int) -> str:
+        with pytest.raises(ts.ToolError) as raised:
+            _finish_index_pass(
+                CaptureInfo(path="x"), ts.StreamResult(returncode=code), 0, 284, None
+            )
+        return str(raised.value)
+
+    assert "tshark crashed (a segmentation fault) after 284 packets" in finish(-11)
+    # SIGKILL from the system, most often for lack of memory (fuzzed captures, 10+ GB).
+    assert "runs out of memory" in finish(-9)
+    assert finish(-15) == "tshark was stopped (signal 15) after 284 packets"
+
+
 @pytest.mark.parametrize(
     ("code", "stderr", "result"),
     [

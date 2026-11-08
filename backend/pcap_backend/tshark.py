@@ -18,7 +18,7 @@ import sys
 import tempfile
 import threading
 import weakref
-from collections.abc import Container, Generator, Iterator, Mapping, Sequence
+from collections.abc import Container, Generator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -516,7 +516,7 @@ def stream_lines(
     token: CancelToken | None = None,
     env: Mapping[str, str] | None = None,
     stdin: int | None = None,
-) -> Iterator[bytes]:
+) -> Generator[bytes]:
     """Yield stdout lines (with trailing newline stripped) as the process runs.
 
     ``result`` receives the exit code and stderr when the generator finishes.

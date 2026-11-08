@@ -218,6 +218,14 @@ def _finish_index_pass(
             f"tshark crashed ({what}) after {frames:,} packets. {CRASH_HINT}"
             if what
             else f"tshark was stopped (signal {-result.returncode}) after {frames:,} packets"
+            + (
+                # (By the system, not us: most often for lack of memory, as
+                # with some of Wireshark's fuzzed test captures, 10+ GB.)
+                ": something outside PCAP Lens killed it, most often the system"
+                " when it runs out of memory"
+                if -result.returncode == 9
+                else ""
+            )
         )
     if bad_lines:
         info.warnings.append(f"{bad_lines} unparseable line(s) in tshark output skipped")
