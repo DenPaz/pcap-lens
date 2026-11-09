@@ -1861,6 +1861,23 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     assert.ok(rowsNow.length > 10 && rowsNow.length < 300, `${rowsNow.length} rows drawn`);
     assert.deepEqual(rowsNow[0], [2, "1"]);
     assert.equal(await page.getAttribute("table.stats", "aria-rowcount"), String(n + 1));
+    // Narrower than the sized columns: the text column keeps its room (the
+    // table scrolls sideways) instead of being squeezed to nothing.
+    const size = page.viewportSize();
+    await page.setViewportSize({ width: 200, height: size?.height ?? 600 });
+    const nameWidth = await page.$eval("table.stats th:nth-child(2)", (th) => th.clientWidth);
+    const charWidth = await page.$eval("table.stats td", (td) => {
+      const probe = document.createElement("span");
+      probe.textContent = "0".repeat(10);
+      td.append(probe);
+      const w = probe.getBoundingClientRect().width / 10;
+      probe.remove();
+      return w;
+    });
+    assert.ok(nameWidth >= 20 * charWidth, `Name column ${nameWidth}px wide`);
+    if (size) {
+      await page.setViewportSize(size);
+    }
     assert.match(
       await page.textContent(".status"),
       /^60,000 queries · the first 50,000 listed \(10,000 more: limit to a display filter/,

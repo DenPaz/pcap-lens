@@ -13,6 +13,8 @@
   /** @type {any} */
   const lib = /** @type {any} */ (window).PcapLib;
   const SVG = "http://www.w3.org/2000/svg";
+  /** The least room (characters) the widest text column of a long table keeps. */
+  const FLEX_MIN_CH = 24;
 
   const TYPE_LABELS = { eth: "Ethernet", ip: "IPv4", ipv6: "IPv6", tcp: "TCP", udp: "UDP" };
   const HTTP_REPORTS = {
@@ -760,6 +762,14 @@
         cols.append(col);
       });
       table.append(cols);
+      // Never narrower than every column needs, the flexible one at least
+      // FLEX_MIN_CH: when the sized columns fill the panel, the table
+      // scrolls sideways instead of squeezing that column to nothing.
+      const need = chars.reduce(
+        (sum, width, j) => sum + (j === flexible ? Math.min(width, FLEX_MIN_CH) : width),
+        0,
+      );
+      table.style.minWidth = `calc(${need}ch + ${chars.length * 2 * 8}px)`;
       table.setAttribute("aria-rowcount", String(rows.length + 1));
       headRow.setAttribute("aria-rowindex", "1");
     }
