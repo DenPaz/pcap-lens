@@ -967,6 +967,25 @@ suite("webview lib: follow stream and statistics helpers", () => {
     assert.equal(lib.formatCell(undefined), "");
   });
 
+  test("tableWindow: the rows on screen plus an overscan, within the table", () => {
+    // The body's top 100 px above the screen, rows of 20 px, 400 px of screen.
+    assert.deepEqual(lib.tableWindow(100, 400, 20, 10000, 0), { start: 5, end: 25 });
+    assert.deepEqual(lib.tableWindow(100, 400, 20, 10000, 3), { start: 2, end: 28 });
+    // Not scrolled to it yet (body below the top), or past its end.
+    assert.deepEqual(lib.tableWindow(-300, 400, 20, 10000, 0), { start: 0, end: 5 });
+    assert.deepEqual(lib.tableWindow(1e9, 400, 20, 10000, 5), { start: 10000, end: 10000 });
+    assert.deepEqual(lib.tableWindow(0, 400, 0, 3), { start: 0, end: 3 }, "unmeasured rows");
+  });
+
+  test("columnChars: the widest cell or header per shown column, trees indented", () => {
+    const rows = [{ cells: ["eth", 1234567, "x"] }, { cells: ["udp", 2, "y"], depth: 3 }];
+    assert.deepEqual(lib.columnChars(["Protocol", "Packets"], rows, [0, 1]), [10, 9]);
+    assert.deepEqual(
+      lib.columnChars(["P", "Bytes"], [{ cells: ["a".repeat(500)] }], [0], 80),
+      [80],
+    );
+  });
+
   test("sortRows is stable, numeric for numbers, natural for text", () => {
     const rows = [
       { cells: ["b", 2] },

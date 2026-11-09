@@ -1844,6 +1844,48 @@
       : v.toLocaleString("en-US", { maximumFractionDigits: 6 });
   }
 
+  /** Tables of more rows than this draw only the rows on screen (stats.js). */
+  const VIRTUAL_TABLE_ROWS = 2000;
+
+  /**
+   * The rows of a long table to draw: those on screen plus `overscan` either
+   * side. `offset` is how far the table body's top is above the viewport's
+   * top (px; negative while the body starts lower down), `viewport` its
+   * height, `rowHeight` one row's.
+   * @param {number} offset @param {number} viewport @param {number} rowHeight
+   * @param {number} total @param {number} [overscan]
+   * @returns {{start: number, end: number}}
+   */
+  function tableWindow(offset, viewport, rowHeight, total, overscan = 30) {
+    const h = Math.max(1, rowHeight);
+    const start = Math.max(0, Math.min(total, Math.floor(offset / h) - overscan));
+    const end = Math.max(start, Math.min(total, Math.ceil((offset + viewport) / h) + overscan));
+    return { start, end };
+  }
+
+  /**
+   * Each column's width in characters for a long table drawn a window at a
+   * time (its cells are monospaced): the widest cell as shown (a tree's
+   * indentation counted in the first column) or the header, at most `max`.
+   * Measured once, so columns don't jump while scrolling.
+   * @param {string[]} labels @param {{cells: unknown[], depth?: number}[]} rows
+   * @param {number[]} columns the cell indexes shown, in order @param {number} [max]
+   * @returns {number[]}
+   */
+  function columnChars(labels, rows, columns, max = 120) {
+    const widths = columns.map((_, j) => (labels[j] || "").length + 2);
+    for (const row of rows) {
+      columns.forEach((i, j) => {
+        const text = formatCell(row.cells[i]);
+        const width = text.length + (j === 0 && row.depth ? row.depth * 2 : 0);
+        if (width > widths[j]) {
+          widths[j] = width;
+        }
+      });
+    }
+    return widths.map((w) => Math.min(w, max));
+  }
+
   /**
    * Stable sort of table rows by one column (numbers numerically, text case-insensitively).
    * @param {{cells: unknown[]}[]} rows @param {number} col @param {boolean} desc
@@ -3544,6 +3586,9 @@
     findRanges,
     findTreeMatch,
     formatCell,
+    VIRTUAL_TABLE_ROWS,
+    tableWindow,
+    columnChars,
     filterButtonTitle,
     sortRows,
     tableToCsv,

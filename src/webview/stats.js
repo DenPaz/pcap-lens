@@ -179,7 +179,7 @@
 
   // A row's menu: right-click, or Shift+F10 / the menu key for the selected row.
   kit.rowMenu(tableBox, {
-    rows: "table.stats tbody tr",
+    rows: "table.stats tbody tr:not(.spacer)",
     select: (/** @type {HTMLElement} */ tr) => {
       if (!tr.classList.contains("selected")) {
         tr.click();
@@ -644,7 +644,7 @@
         renderMap();
         renderTable();
         updateActions();
-        tableBox.querySelector("tr.selected")?.scrollIntoView({ block: "nearest" });
+        revealSelected();
       });
       svg.append(dot);
     }
@@ -695,8 +695,14 @@
       headRow.append(th);
     });
     const body = h("tbody");
-    for (const row of sortedRows()) {
+    const rows = sortedRows();
+    const virtual = rows.length > lib.VIRTUAL_TABLE_ROWS;
+    /** One <tr> for row `index` of `rows`. @param {any} row @param {number} index */
+    const rowElement = (row, index) => {
       const tr = h("tr");
+      if (virtual) {
+        tr.setAttribute("aria-rowindex", String(index + 2)); // (the header is row 1)
+      }
       shown.forEach((/** @type {number} */ i) => {
         const value = row.cells[i];
         const col = t.columns[i];
@@ -727,9 +733,117 @@
         updateActions();
       });
       tr.addEventListener("dblclick", () => (row.frame ? rowGoto() : rowFilter(true)));
-      body.append(tr);
+      return tr;
+    };
+    const table = h("table", { class: virtual ? "stats virtual" : "stats" });
+    if (virtual) {
+      // Fixed column widths (the cells are monospaced), so the columns don't
+      // move as other rows are drawn; the screen reader hears every row.
+      const chars = lib.columnChars(
+        shown.map((/** @type {number} */ i) => t.columns[i].label),
+        rows,
+        shown,
+      );
+      // The widest text column takes the room left over (no width of its own).
+      let flexible = -1;
+      shown.forEach((/** @type {number} */ i, /** @type {number} */ j) => {
+        if (!t.columns[i].numeric && (flexible < 0 || chars[j] > chars[flexible])) {
+          flexible = j;
+        }
+      });
+      const cols = h("colgroup");
+      chars.forEach((width, j) => {
+        const col = h("col");
+        if (j !== flexible) {
+          col.style.width = `calc(${width}ch + ${2 * 8}px)`;
+        }
+        cols.append(col);
+      });
+      table.append(cols);
+      table.setAttribute("aria-rowcount", String(rows.length + 1));
+      headRow.setAttribute("aria-rowindex", "1");
     }
-    tableBox.replaceChildren(h("table", { class: "stats" }, [h("thead", {}, [headRow]), body]));
+    table.append(h("thead", {}, [headRow]), body);
+    tableBox.replaceChildren(table);
+    if (!virtual) {
+      virtualTable = null;
+      rows.forEach((row, index) => body.append(rowElement(row, index)));
+      return;
+    }
+    virtualTable = {
+      rows,
+      body,
+      rowElement,
+      columns: shown.length,
+      rowHeight: 0,
+      start: -1,
+      end: -1,
+    };
+    drawWindow();
+  }
+
+  /**
+   * The table drawn a window at a time (more than lib.VIRTUAL_TABLE_ROWS
+   * rows: drawing all of a 300k-row DNS table never finished): its sorted
+   * rows, its <tbody>, a row's element, the measured row height and the
+   * window drawn. @type {any}
+   */
+  let virtualTable = null;
+
+  /** A spacer row standing for `count` rows not drawn. @param {number} count */
+  function spacer(count) {
+    const td = h("td", { colspan: String(virtualTable.columns) });
+    td.style.height = `${count * virtualTable.rowHeight}px`;
+    return h("tr", { class: "spacer", "aria-hidden": "true" }, [td]);
+  }
+
+  /** Draws the rows on screen (and a margin) of a long table; again on scroll. */
+  function drawWindow() {
+    const v = virtualTable;
+    if (!v || !v.body.isConnected) {
+      return;
+    }
+    if (!v.rowHeight) {
+      // One row tells every row's height (cells don't wrap in a long table).
+      const probe = v.rowElement(v.rows[0], 0);
+      v.body.replaceChildren(probe);
+      v.rowHeight = probe.getBoundingClientRect().height || 20;
+    }
+    const offset = -v.body.getBoundingClientRect().top;
+    const { start, end } = lib.tableWindow(offset, window.innerHeight, v.rowHeight, v.rows.length);
+    if (start === v.start && end === v.end) {
+      return;
+    }
+    v.start = start;
+    v.end = end;
+    const parts = [];
+    if (start > 0) {
+      parts.push(spacer(start));
+    }
+    for (let i = start; i < end; i++) {
+      parts.push(v.rowElement(v.rows[i], i));
+    }
+    if (end < v.rows.length) {
+      parts.push(spacer(v.rows.length - end));
+    }
+    v.body.replaceChildren(...parts);
+  }
+
+  /** Scrolls a long table's selected row into view (it may not be drawn). */
+  function revealSelected() {
+    const v = virtualTable;
+    const index = v ? v.rows.indexOf(state.selected) : -1;
+    if (index < 0) {
+      tableBox.querySelector("tr.selected")?.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    const top = v.body.getBoundingClientRect().top + window.scrollY + index * v.rowHeight;
+    window.scrollTo({ top: Math.max(0, top - window.innerHeight / 2) });
+    drawWindow();
+  }
+
+  for (const event of ["scroll", "resize"]) {
+    window.addEventListener(event, () => requestAnimationFrame(drawWindow), { passive: true });
   }
 
   function updateActions() {

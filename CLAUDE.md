@@ -769,7 +769,12 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   only `!(…)` when there is no filter or it is that stream's.
 - **Statistics** parse tshark's human-readable `-z` reports into one generic
   table model (`stats.py`: columns, rows with optional `filter`/`frame`/`depth`),
-  rendered by one panel (`src/webview/stats.js`). Sizes like "12 kB" are
+  rendered by one panel (`src/webview/stats.js`); a table of more than
+  `lib.VIRTUAL_TABLE_ROWS` (2,000) rows draws only the rows on screen
+  (`drawWindow` on the page's scroll, `lib.tableWindow`; spacer rows stand
+  for the rest; `aria-rowcount`/`aria-rowindex`; fixed column widths from
+  `lib.columnChars`, the cells being monospaced, the widest text column
+  taking what is left). Sizes like "12 kB" are
   converted with SI units. tshark 4.6 adds a top-level `frame` row to the
   protocol hierarchy (eth at depth 1, dns at 4; 4.2: 0 and 3), so tests check
   parent rows ("dns one level below udp") and totals, never absolute depths.
@@ -1656,11 +1661,11 @@ dns_queries | tls_servers}`, `http_body {frame}`): one row per HTTP
   request, DNS query or TLS server, each from one `-Y` fields pass
   (aggregator `\x1e`), in the statistics panel (`SESSION_KINDS`,
   `lib.sessionSummary` for the status line from the result's `summary`).
-  The pass is streamed and at most `MAX_SESSION_ROWS` (10,000) rows are
+  The pass is streamed and at most `MAX_SESSION_ROWS` (50,000) rows are
   listed, in capture order (`more` counts the rest; the summary counts all):
-  the panel draws every row, and the 1M-packet benchmark capture holds 334k
-  DNS queries (457 MB before; `dns_queries(lines, limit)` keeps details only
-  for the listed ones: 64 MB).
+  the 1M-packet benchmark capture holds 334k DNS queries (457 MB and a
+  60 MB reply before; `dns_queries`/`http_requests(lines, limit)` keep
+  details only for the listed ones: ~100 MB, an 8 MB reply).
   HTTP: a row per request message (pipelined ones share a packet), the
   responses paired per TCP stream in order (HTTP/1.1; tshark's
   `http.request_in` names only the first of pipelined responses; 1xx don't
