@@ -44,6 +44,11 @@ const MAC_RE = /(?<![\w:-])[0-9A-Fa-f]{2}([:-])[0-9A-Fa-f]{2}(?:\1[0-9A-Fa-f]{2}
 const REVERSE_V4_RE =
   /(?<![\w.-])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?=\.in-addr\.arpa\b)/gi;
 const REVERSE_V6_RE = /(?<![\w.-])((?:[0-9A-Fa-f]\.){32})(?=ip6\.arpa\b)/gi;
+// A token standing for a reverse name's address: restored written backwards.
+const REVERSE_TOKEN_RE = new RegExp(
+  `\\b((?:${KINDS.join("|")})_\\d+)(\\.(?:in-addr|ip6)\\.arpa)\\b`,
+  "gi",
+);
 // tshark's resolved form: the vendor and the last three bytes ("Apple_12:34:56").
 const VENDOR_MAC_RE = /(?<![\w:-])[A-Za-z][\w-]*_[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){2}(?![\w:-])/g;
 
@@ -196,7 +201,13 @@ export class AddressMasker {
     if (!this.enabled || !text) {
       return text;
     }
-    return text.replace(TOKEN_RE, (m) => this.reals.get(m) ?? m);
+    return text
+      .replace(REVERSE_TOKEN_RE, (m, token: string, suffix: string) => {
+        const real = this.reals.get(token);
+        const name = real ? reverseName(real, suffix) : undefined;
+        return name ? name + suffix : m;
+      })
+      .replace(TOKEN_RE, (m) => this.reals.get(m) ?? m);
   }
 
   /** Strings inside a value (a tool call's input) restored. */
@@ -249,6 +260,42 @@ export class AddressMasker {
       },
     };
   }
+}
+
+/**
+ * `real`'s address written backwards for `suffix` (".in-addr.arpa": octets,
+ * ".ip6.arpa": nibbles); undefined when it isn't that kind of address. A
+ * reverse name restored as the forward address names another host.
+ */
+function reverseName(real: string, suffix: string): string | undefined {
+  if (suffix.toLowerCase().startsWith(".in-addr")) {
+    const octets = real.split(".");
+    return octets.length === 4 && octets.every((o) => /^\d{1,3}$/.test(o))
+      ? octets.reverse().join(".")
+      : undefined;
+  }
+  const nibbles = v6Nibbles(real);
+  return nibbles ? nibbles.split("").reverse().join(".") : undefined;
+}
+
+/** An IPv6 address's 32 hex digits, lower case; undefined if it isn't one. */
+function v6Nibbles(address: string): string | undefined {
+  const halves = address.split("::");
+  if (halves.length > 2) {
+    return undefined;
+  }
+  const groups = (part: string) => (part ? part.split(":") : []);
+  const head = groups(halves[0]);
+  const tail = halves.length === 2 ? groups(halves[1]) : [];
+  const missing = 8 - head.length - tail.length;
+  if (halves.length === 1 ? missing !== 0 : missing < 1) {
+    return undefined;
+  }
+  const all = [...head, ...Array<string>(missing).fill("0"), ...tail];
+  if (!all.every((g) => /^[0-9a-f]{1,4}$/i.test(g))) {
+    return undefined;
+  }
+  return all.map((g) => g.padStart(4, "0").toLowerCase()).join("");
 }
 
 /** Whether `run` is the start of a token (or a whole one, which may still grow digits). */

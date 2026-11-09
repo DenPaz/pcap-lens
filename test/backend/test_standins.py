@@ -72,6 +72,12 @@ def test_reverse_lookup_names_and_ipv6_spellings() -> None:
         "zone 1.168.192.in-addr.arpa and 8.b.d.0.1.0.0.2.ip6.arpa stay"
     )
     assert m.mask("2001:0db8:0:0:1:2:3:4") == m.mask("2001:db8::1:2:3:4")
+    # Restored, a reverse name is written backwards again (a filter or a tool
+    # call naming it finds the same packets).
+    assert m.restore(m.mask(f'dns.qry.name == "4.1.168.192.in-addr.arpa" || {v6}.IP6.ARPA')) == (
+        f'dns.qry.name == "4.1.168.192.in-addr.arpa" || {v6}.IP6.ARPA'
+    )
+    assert m.restore("MAC_1.in-addr.arpa HOST_9.ip6.arpa") == "MAC_1.in-addr.arpa HOST_9.ip6.arpa"
 
 
 def test_filters_and_deep_restore() -> None:
