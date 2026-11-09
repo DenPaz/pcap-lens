@@ -7,6 +7,19 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- A packet's bytes no longer move to another buffer because a masked bit
+  field's value happens to be there [1279c4d]
+- AI address stand-ins restore a reverse lookup name as it was written, so
+  filters and tool calls naming one find its packets [931f5d3]
+- The Sequence Check and the session tables report a tshark that fails
+  partway instead of showing what it read as the whole capture [9e8a3a5]
+
+[1279c4d]: https://github.com/DenPaz/pcap-lens/commit/1279c4d
+[931f5d3]: https://github.com/DenPaz/pcap-lens/commit/931f5d3
+[9e8a3a5]: https://github.com/DenPaz/pcap-lens/commit/9e8a3a5
+
 ## 0.29.0 — 2026-11-08
 
 ### Added
