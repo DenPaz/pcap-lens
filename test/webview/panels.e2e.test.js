@@ -18,6 +18,7 @@ const {
   newPage,
   codiconFontLoaded,
   axeViolations,
+  trackCoverage,
 } = require("./harness");
 
 const deps = loadDeps();
@@ -80,6 +81,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     await client.request("open", { path: path.join(FIXTURES, "mixed.pcapng") }, { timeoutMs: 0 });
     try {
       browser = await deps.chromium.launch();
+      trackCoverage(browser);
     } catch (err) {
       console.warn(`skipping panel e2e: no Chromium available (${err.message.split("\n")[0]})`);
       this.skip();
@@ -1820,6 +1822,112 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       assert.equal((await rows(tls.page))[0][1], "api.example.com");
     } finally {
       await sessions.dispose();
+    }
+  });
+
+  test("sequence check: name the fields, Check, streams with their problems, a refused field", async () => {
+    const gtp = await startBackend(deps);
+    try {
+      await gtp.request("open", { path: path.join(FIXTURES, "sequences.pcap") }, { timeoutMs: 0 });
+      const { page, log, post } = await openGraphPanel("stats.js", async (msg, reply) => {
+        // A stand-in for StatsPanel: no fields chosen yet.
+        if (msg.type === "ready") {
+          await reply({ type: "init", kind: "sequences", title: "Sequence Check", filter: "" });
+        } else if (msg.type === "query") {
+          const params = { kind: "sequences", ...msg.params.sequence };
+          gtp.request("stats", params, { timeoutMs: 0 }).then(
+            (table) => reply({ type: "result", id: msg.id, table }),
+            (err) =>
+              reply({ type: "error", id: msg.id, message: err.message, field: err.data?.field }),
+          );
+        }
+      });
+      // Nothing runs until the sequence field is named.
+      await page.waitForSelector("#seq-field");
+      assert.match(await page.textContent(".status"), /^Name the field that numbers/);
+      assert.equal(log.filter((m) => m.type === "query").length, 0);
+      await page.fill("#seq-key", "gtp.teid");
+      await page.click("#seq-run");
+      assert.equal(await page.textContent(".status"), "Name the field that numbers the messages.");
+      await page.fill("#seq-field", "gtp.seq_number");
+      await page.selectOption("#seq-wrap", String(2 ** 16));
+      await page.fill("#seq-reorder", "2");
+      await page.press("#seq-field", "Enter");
+      await waitRows(page, 9);
+      assert.deepEqual(log.findLast((m) => m.type === "query").params.sequence, {
+        key: ["gtp.teid"],
+        seq: "gtp.seq_number",
+        wrap: 65536,
+        reorder: 2,
+      });
+      assert.equal(
+        await page.textContent(".status"),
+        "4 streams · 28 messages · 2 with problems · 2 missing · 1 duplicate · 1 late · 1 restart",
+      );
+      const table = await rows(page);
+      assert.deepEqual(table[0], [
+        "0x00000200",
+        "9",
+        "1",
+        "10",
+        "2",
+        "1",
+        "1",
+        "0",
+        "2 missing, 1 duplicate, 1 late",
+      ]);
+      assert.deepEqual(
+        table.slice(1, 5).map((r) => r[0]),
+        ["Missing 4\u20135 (2)", "Reordered: 8 arrived late", "Late 8", "Duplicate 9"],
+      );
+      assert.equal(table[5][0], "0x00000400");
+      // Problem rows are indented under their stream, and go to their packet.
+      assert.ok(
+        (await page.$eval("table.stats tbody tr:nth-child(2) td", (td) =>
+          parseInt(getComputedStyle(td).paddingLeft),
+        )) > 16,
+      );
+      await page.click("table.stats tbody tr >> nth=1 >> td >> nth=0", { button: "right" });
+      assert.deepEqual(await menuLabels(page), [
+        "Apply as Filter",
+        "Prepare as Filter",
+        "Go to Packet 14",
+        "Copy",
+      ]);
+      await pickMenu(page, "Apply as Filter", "Selected");
+      assert.deepEqual(
+        log.findLast((m) => m.type === "filter"),
+        {
+          type: "filter",
+          expr: "frame.number == 14",
+          apply: true,
+        },
+      );
+      // The stream's own filter.
+      await page.click("table.stats tbody tr >> nth=0");
+      await page.click("button:has-text('Prepare as Filter')");
+      assert.equal(
+        log.findLast((m) => m.type === "filter").expr,
+        "gtp.teid == 0x00000200 && gtp.seq_number",
+      );
+      assert.deepEqual(await axeViolations(page), []);
+      // A field tshark doesn't know: the notice, and its input marked.
+      await page.fill("#seq-key", "gtp.tied");
+      await page.click("#seq-run");
+      await page.waitForSelector(".notice:not(.hidden)");
+      assert.match(await page.textContent(".notice"), /no field 'gtp.tied'/);
+      assert.equal(await page.getAttribute("#seq-key", "aria-invalid"), "true");
+      assert.equal(await page.getAttribute("#seq-field", "aria-invalid"), null);
+      // A command with fields runs them in the open panel.
+      await post({
+        type: "sequence",
+        sequence: { key: ["gtp.teid"], seq: "gtp.seq_number", wrap: 0, reorder: 1000 },
+      });
+      await waitRows(page, 12);
+      assert.equal(await page.inputValue("#seq-key"), "gtp.teid");
+      assert.equal(await page.getAttribute("#seq-key", "aria-invalid"), null);
+    } finally {
+      await gtp.dispose();
     }
   });
 

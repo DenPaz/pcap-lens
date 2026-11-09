@@ -283,3 +283,46 @@ def test_parse_pdml_ignores_masked_bit_field_values() -> None:
         b"</field></proto></packet></pdml>"
     )
     assert _find(parse_pdml(pdml, 2, sources), "ip.dsfield.dscp")["src"] == 0
+
+
+def test_parse_pdml_a_reassembly_list_does_not_outvote_its_header() -> None:
+    # An IPv4 header in the frame holding the list of its fragments, which
+    # are ranges of "Reassembled IPv4": the list has its own source, and its
+    # many fields must not pull the header there (hicp_coverage.pcap).
+    frame = bytes.fromhex("4500002c") + bytes(20)
+    reassembled = bytes(range(40))
+    fragments = b"".join(
+        b'<field name="ip.fragment" pos="%d" size="4" value="%s"/>'
+        % (i * 4, reassembled[i * 4 : i * 4 + 4].hex().encode())
+        for i in range(10)
+    )
+    pdml = (
+        b'<pdml><packet><proto name="ip" pos="0" size="4">'
+        b'<field name="ip.len" pos="2" size="2" value="002c"/>'
+        b'<field name="ip.version" showname="0100 .... = Version: 4" pos="0" size="1" value="45"/>'
+        b'<field name="ip.fragments" pos="0" size="40">' + fragments + b"</field>"
+        b"</proto></packet></pdml>"
+    )
+    tree = parse_pdml(pdml, 2, [frame, reassembled])
+    assert tree[0]["src"] == 0
+    assert _find(tree, "ip.len")["src"] == 0 and _find(tree, "ip.version")["src"] == 0
+    assert _find(tree, "ip.fragments")["src"] == 1
+
+
+def test_parse_pdml_bit_fields_break_a_tie() -> None:
+    # An SDP line's base64 parameter set (its own bytes: the decoded buffer,
+    # at another position) whose fields are all bit fields in the unescaped
+    # buffer: nothing else decides, so their values do (h265_coverage).
+    sources = [b"sprop-pps=RAHkcYES" + bytes(10), bytes.fromhex("4401e4718112"),
+               bytes.fromhex("e4718112")]  # fmt: skip
+    pdml = (
+        b'<pdml><packet><proto name="sdp" pos="0" size="18">'
+        b'<field name="pps" pos="10" size="6" value="4401e4718112">'
+        b'<field name="pps.id" showname="1... .... = id: 0" pos="0" size="1" value="e4"/>'
+        b'<field name="pps.flag" showname=".1.. .... = flag: 1" pos="0" size="1" value="e4"/>'
+        b'<field name="pps.qp" showname="...1 .... = qp: 0" pos="1" size="1" value="71"/>'
+        b"</field></proto></packet></pdml>"
+    )
+    tree = parse_pdml(pdml, 3, sources)
+    assert (_find(tree, "pps")["src"], _find(tree, "pps")["pos"]) == (1, 0)
+    assert {_find(tree, n)["src"] for n in ("pps.id", "pps.flag", "pps.qp")} == {2}

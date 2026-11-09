@@ -1261,15 +1261,27 @@ table.replay .replay-failed {
   font-variant-numeric: tabular-nums;
 }
 
+/* One grid per list (rows are subgrids): labels as wide as they need, up to
+   60% (an address or a host name used to be cut at a fixed width), the
+   meters lined up across the rows in what is left. */
 .overview-list {
+  display: grid;
+  grid-template-columns: fit-content(60%) minmax(3rem, 1fr) max-content;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+.overview-list > li {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
 button.overview-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 28% 11ch;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: center;
   gap: var(--space-4);
   width: 100%;

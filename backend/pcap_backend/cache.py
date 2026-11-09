@@ -20,6 +20,16 @@ from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import BinaryIO
 
+from .cancellation import CancelledError
+
+
+class StoreClosedError(CancelledError):
+    """A request read the rows of a capture that was closed (or reopened)
+    meanwhile: its answer would be for a gone capture, so it ends as cancelled."""
+
+    def __init__(self) -> None:
+        super().__init__("the capture was closed")
+
 
 class RowStore:
     """Append-only on-disk table of tab-separated tshark field rows, keyed by frame number.
@@ -41,6 +51,7 @@ class RowStore:
         self.fields: tuple[str, ...] = tuple(fields)
         self._reader: BinaryIO | None = None
         self._lock = threading.Lock()
+        self._closed = False
         if offsets is None:
             self._offsets = array("Q")
             self._writer: BinaryIO | None = path.open("wb")
@@ -155,7 +166,7 @@ class RowStore:
         """Read column ``idx`` for every published frame, streaming the file (used for sorting)."""
         out: list[str] = []
         limit = len(self)
-        with self.path.open("rb") as fh:
+        with self._open_file() as fh:
             for raw in fh:
                 if len(out) >= limit:
                     break
@@ -165,10 +176,25 @@ class RowStore:
 
     def _open_reader(self) -> BinaryIO:
         if self._reader is None:
-            self._reader = self.path.open("rb")
+            self._reader = self._open_file()
         return self._reader
 
+    def _open_file(self) -> BinaryIO:
+        """The rows file, opened for reading. Closing the capture closes the
+        store and then removes its folder, possibly while a page or a sort was
+        about to read it: that is a StoreClosedError (the request was
+        superseded), not a missing file."""
+        if self._closed:
+            raise StoreClosedError
+        try:
+            return self.path.open("rb")
+        except FileNotFoundError:
+            if self._closed:
+                raise StoreClosedError from None
+            raise
+
     def close(self) -> None:
+        self._closed = True
         with self._lock:
             if self._writer is not None and not self._writer.closed:
                 self._writer.close()

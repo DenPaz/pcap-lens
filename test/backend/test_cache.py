@@ -12,6 +12,7 @@ from pcap_backend.cache import (
     sort_frames,
     sort_frames_by_key,
 )
+from pcap_backend.cancellation import CancelledError
 
 
 def _store(tmp_path: Path, rows: list[str]) -> RowStore:
@@ -29,6 +30,27 @@ def test_row_store_random_access(tmp_path: Path) -> None:
     assert store.get_many([3, 1]) == [["3", "", "z"], ["1", "x", "y"]]
     # Out-of-range frames yield blank rows rather than raising.
     assert store.get(99) == ["", "", ""]
+    store.close()
+
+
+def test_a_closed_row_store_answers_as_cancelled(tmp_path: Path) -> None:
+    # Closing (or reopening) a capture closes its store and removes the work
+    # folder while a page or a sort may still be reading it: that request is
+    # superseded (cancelled), not an internal error (found by a stress test).
+    store = _store(tmp_path, ["1\tx\ty", "2\tz\t"])
+    store.close()
+    (tmp_path / "rows.tsv").unlink()
+    with pytest.raises(CancelledError, match="closed"):
+        store.column(1)
+    with pytest.raises(CancelledError, match="closed"):
+        store.get_many([1])
+
+
+def test_a_row_store_removed_while_open_is_a_real_error(tmp_path: Path) -> None:
+    store = _store(tmp_path, ["1\tx\ty"])
+    (tmp_path / "rows.tsv").unlink()
+    with pytest.raises(FileNotFoundError):
+        store.column(1)
     store.close()
 
 

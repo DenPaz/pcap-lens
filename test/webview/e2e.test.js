@@ -21,6 +21,7 @@ const {
   startBackend,
   codiconFontLoaded,
   axeViolations,
+  trackCoverage,
   FIXTURES,
 } = require("./harness");
 
@@ -97,6 +98,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
 
     try {
       browser = await deps.chromium.launch();
+      trackCoverage(browser);
     } catch (err) {
       console.warn(`skipping webview e2e: no Chromium available (${err.message.split("\n")[0]})`);
       this.skip();

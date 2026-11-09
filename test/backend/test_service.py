@@ -232,6 +232,59 @@ def test_decode_as_changes_dissection(
     assert page["rows"][0]["cells"][4] == "Syslog"
 
 
+def test_unknown_preferences_and_decode_as_rules_are_dropped_with_a_warning(
+    service: PcapService, fixtures: Path, ctx: RequestContext
+) -> None:
+    """tshark refuses to start for an -o preference or a -d rule it doesn't
+    know (a Lua protocol's, when this capture doesn't load its script; a
+    setting edited by hand): the capture opened nothing but tshark's error.
+    Such entries are left out with a warning, as unknown protocol switches
+    are, and every pass (filters too) runs without them."""
+    info = service.open(
+        {
+            "path": str(fixtures / "udp_custom.pcap"),
+            "decodeAs": [
+                "udp.port==9999,nosuchproto",
+                "nosuch.layer==1,http",
+                "udp.port==9999,syslog",
+            ],
+            "prefs": {
+                "nosuchmodule.x": "1",
+                "tcp.nosuch": "TRUE",
+                "udp.try_heuristic_first": "TRUE",
+            },
+        },
+        ctx,
+    )
+    warnings = "\n".join(info["warnings"])
+    for name in ("nosuchproto", "nosuch.layer", "nosuchmodule.x", "tcp.nosuch"):
+        assert name in warnings
+    assert "syslog" not in warnings and "try_heuristic_first" not in warnings
+    page = service.list_packets({"offset": 0, "limit": 1}, ctx)
+    assert page["rows"][0]["cells"][4] == "Syslog"
+    assert service.set_filter({"expr": "syslog"}, ctx)["matchCount"] == page["total"]
+
+
+def test_open_a_folder(service: PcapService, tmp_path: Path, ctx: RequestContext) -> None:
+    with pytest.raises(InvalidParamsError, match="is a folder"):
+        service.open({"path": str(tmp_path)}, ctx)
+
+
+def test_a_filter_over_a_capture_deleted_meanwhile_is_not_an_invalid_filter(
+    service: PcapService, fixtures: Path, tmp_path: Path, ctx: RequestContext
+) -> None:
+    # (The viewer marks the filter itself as wrong for an invalid-filter error.)
+    capture = tmp_path / "gone.pcap"
+    capture.write_bytes((fixtures / "http.pcap").read_bytes())
+    service.open({"path": str(capture)}, ctx)
+    assert service._file is not None
+    service._file.comments_ready.wait(10)  # (Windows: nothing may hold it open)
+    capture.unlink()
+    with pytest.raises(ToolError, match="doesn't exist") as raised:
+        service.set_filter({"expr": "tcp.port == 80"}, ctx)
+    assert not isinstance(raised.value, FilterError)
+
+
 @pytest.mark.skipif(
     hasattr(os, "geteuid") and os.geteuid() == 0, reason="tshark disables Lua for root"
 )

@@ -20,6 +20,7 @@ from pcap_backend.export import (
     PacketListWriter,
     atomic_output,
     check_destination,
+    pcap_link_type_error,
     pcap_time_error,
     unwritable_error,
 )
@@ -279,12 +280,13 @@ class ExportMixin(DetailMixin, PacketsMixin):
             truncated = any(h in result.stderr for h in _TRUNCATION_HINTS)
             if refused := unwritable_error(result.stderr):
                 raise refused
-            if (
-                fmt == "pcap"
-                and failed(result.returncode, result.stderr)
-                and self._undatable_in_pcap(f, ctx)
-            ):
-                raise pcap_time_error()
+            if fmt == "pcap" and failed(result.returncode, result.stderr):
+                # (tshark 4.6 lost the reasons: "Undefined error: 0", Windows "No
+                # error.". The packets say which.)
+                if self._undatable_in_pcap(f, ctx):
+                    raise pcap_time_error()
+                if self._mixed_link_types(f, ctx):
+                    raise pcap_link_type_error()
             if result.returncode not in (0, None) and not (truncated and tmp.exists()):
                 raise f.tshark.error(
                     result.stderr, result.returncode, f"tshark exited with code {result.returncode}"
@@ -309,6 +311,16 @@ class ExportMixin(DetailMixin, PacketsMixin):
             (ns := navigation.parse_ns(v)) is not None and not 0 <= ns < PCAP_TIME_LIMIT_NS
             for v in rows.column(idx)
         )
+
+    def _mixed_link_types(self, f: _Open, ctx: RequestContext) -> bool:
+        """Whether the capture's packets have more than one link type (a pcapng
+        interface declared after the first packets: tshark 4.2 says so while
+        writing, 4.6 not)."""
+        self._ensure_columns(f, ["frame.encap_type"], ctx)
+        loc = self._locate(f, "frame.encap_type")
+        assert loc is not None
+        rows, idx = loc
+        return len({v for v in rows.column(idx) if v}) > 1
 
     def _export_frames(
         self, f: _Open, fmt: str, dest: Path, frames: list[int], label: str, ctx: RequestContext

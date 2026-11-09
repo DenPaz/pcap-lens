@@ -58,6 +58,24 @@ suite("AI address stand-ins", () => {
     assert.equal(m.restore(m.mask(text)), text);
   });
 
+  test("reverse lookup names take their address's token; IPv6 spellings are one host", () => {
+    // PTR and mDNS queries name the address backwards: the ip6.arpa form spells
+    // out a whole IPv6 address, which stayed readable.
+    const m = new AddressMasker();
+    const v6 = "b.a.9.0.8.7.6.5.3.0.0.0.2.0.0.0.1.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2";
+    const text =
+      `PTR 4.1.168.192.in-addr.arpa for 192.168.1.4; PTR ${v6}.ip6.arpa for ` +
+      "2001:db8:0:1:2:3:5678:9ab and 2001:0DB8:0000:0001:0002:0003:5678:09AB; " +
+      "zone 1.168.192.in-addr.arpa and 8.b.d.0.1.0.0.2.ip6.arpa stay";
+    assert.equal(
+      m.mask(text),
+      "PTR IP_PRIVATE_1.in-addr.arpa for IP_PRIVATE_1; PTR IP6_PUBLIC_1.ip6.arpa for " +
+        "IP6_PUBLIC_1 and IP6_PUBLIC_1; " +
+        "zone 1.168.192.in-addr.arpa and 8.b.d.0.1.0.0.2.ip6.arpa stay",
+    );
+    assert.equal(m.mask("2001:0db8:0:0:1:2:3:4"), m.mask("2001:db8::1:2:3:4"));
+  });
+
   test("display filters keep working with tokens; unknown tokens stay", () => {
     const m = new AddressMasker();
     const masked = m.mask(

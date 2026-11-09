@@ -120,6 +120,24 @@ def test_h323_call_without_guid_on_its_connection() -> None:
     )  # fmt: skip
 
 
+def test_h323_setup_with_dialled_digits_only() -> None:
+    """Both parties' aliases dialled digits, no h323-IDs: the source's come
+    first (Wireshark's h225_coverage failed the VoIP calls with an
+    IndexError); one alias only names the source."""
+    a, b = "10.9.0.1", "10.9.0.2"
+    cols = voip_protocols.Columns(FIELDS)
+
+    def setup(digits: str) -> str:
+        return _line(_common(1, 0.0, a, b, 30000, 1720, "tcp"), q931__message_type="0x05",
+                     h225__guid="g1", h225__dialledDigits=digits, h225__sourceAddress="1",
+                     h225__destinationAddress="1")  # fmt: skip
+
+    (call,) = voip_protocols.parse_h323_calls([setup("100\x1e200")], cols)
+    assert (call.from_uri, call.to_uri) == ("100", "200")
+    (call,) = voip_protocols.parse_h323_calls([setup("100")], cols)
+    assert (call.from_uri, call.to_uri) == ("100", b)
+
+
 def test_mgcp_messages_outside_calls() -> None:
     """Only endpoints that went off-hook and then took part in a call are
     kept; an audit or an off-hook that ends without a connection are not."""

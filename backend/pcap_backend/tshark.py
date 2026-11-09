@@ -18,7 +18,7 @@ import sys
 import tempfile
 import threading
 import weakref
-from collections.abc import Container, Generator, Iterator, Mapping, Sequence
+from collections.abc import Container, Generator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -107,6 +107,13 @@ def find_tool(exe: str, configured: str | None = None, sibling_of: Path | None =
 
 _DECODE_AS_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.\-]*(==|:)[^,\s]+,[A-Za-z0-9_.\-]+$")
 _PREF_KEY_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.\-]*$")
+# tshark refuses to start for an -o preference or a -d rule it can't use (the
+# first one it meets), saying so in one of these ways.
+_UNKNOWN_PREF_RE = re.compile(r'-o flag "([^":]+):.*" specifies unknown preference')
+_UNKNOWN_DECODE_AS_RE = re.compile(
+    r'Unknown protocol -- "(?P<proto>[^"]+)"|Unknown layer type -- (?P<layer>\S+)'
+    r'|Invalid selector number "(?P<selector>[^"]*)"'
+)
 # A protocol's filter name (``_ws.expert``, ``ieee802.11``…) or a heuristic
 # dissector's short name (``sip_sctp``).
 _PROTOCOL_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.\-]*$")
@@ -212,6 +219,18 @@ class DissectionOptions:
             out += ["-o", f"{key}:{value}"]
         return out
 
+    def without(self, refused: tuple[str, str]) -> tuple[DissectionOptions, str]:
+        """These options without the preference or Decode As rule tshark
+        refused (``Tshark.refused_option``), and a warning saying so."""
+        kind, item = refused
+        if kind == "pref":
+            return replace(self, prefs=tuple(p for p in self.prefs if p[0] != item)), (
+                f"Unknown preference {item!r} in pcapViewer.prefs: ignored"
+            )
+        return replace(self, decode_as=tuple(r for r in self.decode_as if r != item)), (
+            f"Decode As rule {item!r} names something tshark doesn't know: ignored"
+        )
+
     def without_unknown(
         self, protocols: Container[str], heuristics: Container[str]
     ) -> tuple[DissectionOptions, list[str]]:
@@ -312,6 +331,11 @@ _CRASH_STATUSES = {
 CRASH_HINT = (
     "That is a bug in tshark (Wireshark's dissectors), not in the capture or PCAP Lens: "
     "a newer Wireshark may read it."
+)
+# SIGKILL from outside (PCAP Lens's own kills end as cancelled): most often
+# the system out of memory; some fuzzed captures take tshark past 10 GB.
+KILLED_HINT = (
+    "Something outside PCAP Lens killed it, most often the system when it runs out of memory."
 )
 
 
@@ -497,7 +521,7 @@ def stream_lines(
     token: CancelToken | None = None,
     env: Mapping[str, str] | None = None,
     stdin: int | None = None,
-) -> Iterator[bytes]:
+) -> Generator[bytes]:
     """Yield stdout lines (with trailing newline stripped) as the process runs.
 
     ``result`` receives the exit code and stderr when the generator finishes.
@@ -705,6 +729,10 @@ class Tshark:
             message = f"tshark crashed ({what}) while reading this capture. {CRASH_HINT}"
             if stderr.strip():
                 message += f"\n\n{stderr.strip()}"
+        elif returncode == -9:  # (SIGKILL; not numbered on Windows)
+            message = f"tshark was killed (signal 9) while reading this capture. {KILLED_HINT}"
+            if stderr.strip():
+                message += f"\n\n{stderr.strip()}"
         hint = permission_hint(self.path, stderr)
         if hint:
             message = f"{message}\n\n{hint}"
@@ -741,6 +769,29 @@ class Tshark:
         res = run([str(self.path), "--version"])
         first = res.stdout.decode("utf-8", "replace").splitlines()
         return first[0].strip() if first else "unknown"
+
+    def refused_option(self, token: CancelToken | None = None) -> tuple[str, str] | None:
+        """The first preference (``("pref", key)``) or Decode As rule
+        (``("decodeAs", rule)``) of the options that this tshark, with their
+        Lua scripts and profile, refuses to start with; None if there is none
+        (or tshark fails for another reason, which the caller then meets)."""
+        res = run(self.argv(capture=str(EMPTY_CAPTURE.get())), token)
+        if res.returncode == 0:
+            return None
+        if found := _UNKNOWN_PREF_RE.search(res.stderr):
+            key = found.group(1)
+            return ("pref", key) if key in {k for k, _ in self.options.prefs} else None
+        if found := _UNKNOWN_DECODE_AS_RE.search(res.stderr):
+            for rule in self.options.decode_as:
+                layer, _, rest = re.split(r"(==|:)", rule, maxsplit=1)
+                selector, _, proto = rest.rpartition(",")
+                if (
+                    (found["proto"] is not None and proto == found["proto"])
+                    or (found["layer"] is not None and layer == found["layer"])
+                    or (found["selector"] is not None and selector == found["selector"])
+                ):
+                    return ("decodeAs", rule)
+        return None
 
     def validate_filter(self, expr: str, token: CancelToken | None = None) -> str | None:
         """Return ``None`` if ``expr`` compiles, else tshark's error message."""

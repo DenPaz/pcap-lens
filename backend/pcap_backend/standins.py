@@ -36,6 +36,12 @@ _IPV6 = re.compile(
     r"|(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4})(?![\w:]|\.\d)"
 )
 _MAC = re.compile(r"(?<![\w:-])[0-9A-Fa-f]{2}([:-])[0-9A-Fa-f]{2}(?:\1[0-9A-Fa-f]{2}){4}(?![\w:-])")
+# Reverse lookup names (PTR, mDNS): an address written backwards. A whole one
+# takes that address's token (an ip6.arpa name spells out every nibble).
+_REVERSE_V4 = re.compile(
+    r"(?<![\w.-])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?=\.in-addr\.arpa\b)", re.IGNORECASE
+)
+_REVERSE_V6 = re.compile(r"(?<![\w.-])((?:[0-9A-Fa-f]\.){32})(?=ip6\.arpa\b)", re.IGNORECASE)
 # tshark's resolved form: the vendor and the last three bytes ("Apple_12:34:56").
 _VENDOR_MAC = re.compile(
     r"(?<![\w:-])[A-Za-z][\w-]*_[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){2}(?![\w:-])"
@@ -128,13 +134,31 @@ class AddressMasker:
                 v4_kind = _ipv4_kind([int(o) for o in v4.split(".")])
                 return f"{prefix}:{self._token(v4_kind, v4, v4)}" if v4_kind else real
             kind = _ipv6_kind(real)
-            return self._token(kind, real.lower(), real) if kind else real
+            # (One host however it is written: 2001:0db8:0::1 is 2001:db8::1.)
+            return self._token(kind, ipaddress.IPv6Address(real).compressed, real) if kind else real
 
         def ipv4(m: re.Match[str]) -> str:
             real = m.group(0)
             kind = _ipv4_kind([int(g) for g in m.groups()])
             return self._token(kind, real, real) if kind else real
 
+        def reverse_v4(m: re.Match[str]) -> str:
+            octets = [int(g) for g in reversed(m.groups())]
+            kind = _ipv4_kind(octets)
+            forward = ".".join(str(o) for o in octets)
+            return self._token(kind, forward, forward) if kind else m.group(0)
+
+        def reverse_v6(m: re.Match[str]) -> str:
+            nibbles = m.group(1).replace(".", "")[::-1]
+            forward = ":".join(nibbles[i : i + 4] for i in range(0, 32, 4))
+            kind = _ipv6_kind(forward)
+            if not kind:
+                return m.group(0)
+            real = ipaddress.IPv6Address(forward).compressed
+            return self._token(kind, real, real) + "."
+
+        text = _REVERSE_V4.sub(reverse_v4, text)
+        text = _REVERSE_V6.sub(reverse_v6, text)
         text = _MAC.sub(mac, text)
         text = _VENDOR_MAC.sub(lambda m: self._token("MAC", m.group(0).lower(), m.group(0)), text)
         text = _IPV6.sub(ipv6, text)

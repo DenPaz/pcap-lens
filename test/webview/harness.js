@@ -10,6 +10,7 @@ const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { pathToFileURL } = require("node:url");
 
 const ROOT = path.resolve(__dirname, "../..");
 const WEBVIEW = path.join(ROOT, "src", "webview");
@@ -193,6 +194,81 @@ function startIsolated(client) {
   }
 }
 
+/**
+ * Under c8 (`make coverage`, CI), measure the webview scripts too: every page
+ * of `browser` collects V8 coverage, written when the page or the browser
+ * closes into c8's folder (NODE_V8_COVERAGE), with the served URLs mapped back
+ * to the files in src/webview, so c8's report covers the code the e2e tests
+ * run in Chromium. Does nothing otherwise.
+ */
+let coverageFiles = 0; // (one numbering for every browser of this process)
+
+function trackCoverage(browser) {
+  const dir = process.env.NODE_V8_COVERAGE;
+  if (!dir || !browser) {
+    return;
+  }
+  const pages = new Set();
+  const save = async (page) => {
+    if (!pages.delete(page)) {
+      return;
+    }
+    let entries;
+    try {
+      entries = await page.coverage.stopJSCoverage();
+    } catch {
+      return; // (the page crashed or is gone)
+    }
+    const result = [];
+    for (const entry of entries) {
+      let pathname;
+      try {
+        pathname = new URL(entry.url).pathname;
+      } catch {
+        continue; // (inline scripts and evaluated code have no URL)
+      }
+      const file = path.join(
+        pathname.startsWith("/viewer/") ? path.join(WEBVIEW, "viewer") : WEBVIEW,
+        path.basename(pathname),
+      );
+      if (!file.endsWith(".js") || !fs.existsSync(file)) {
+        continue;
+      }
+      result.push({
+        scriptId: String(result.length),
+        url: pathToFileURL(file).href,
+        functions: entry.functions,
+      });
+    }
+    if (result.length) {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, `coverage-webview-${process.pid}-${++coverageFiles}.json`),
+        JSON.stringify({ result }),
+      );
+    }
+  };
+  const newPage = browser.newPage.bind(browser);
+  browser.newPage = async (...args) => {
+    const page = await newPage(...args);
+    await page.coverage.startJSCoverage({ resetOnNavigation: false });
+    pages.add(page);
+    const close = page.close.bind(page);
+    page.close = async (...closeArgs) => {
+      await save(page);
+      return close(...closeArgs);
+    };
+    return page;
+  };
+  const closeBrowser = browser.close.bind(browser);
+  browser.close = async () => {
+    for (const page of [...pages]) {
+      await save(page);
+    }
+    return closeBrowser();
+  };
+}
+
 /** A page that records script errors and CSP violations. */
 async function newPage(browser) {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
@@ -248,6 +324,7 @@ async function axeViolations(page, { exclude = [], disable = [] } = {}) {
 
 module.exports = {
   axeViolations,
+  trackCoverage,
   codiconFontLoaded,
   ROOT,
   WEBVIEW,

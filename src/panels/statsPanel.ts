@@ -2,11 +2,12 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { ErrorCodes, RpcError } from "../backendClient";
 import { ANOMALY_LIMITS, ExpertRow } from "../aiAnomaly";
-import type { PcapEditorSession } from "../pcapEditor";
+import { type PcapEditorSession, describeError } from "../pcapEditor";
 import { BytesPanel } from "./bytesPanel";
 import { PacketPanel } from "./packetPanel";
 import { panelHtml, webviewRoot } from "./panelHtml";
 import { panelColumn, placePanel } from "./placement";
+import { normalizeSequenceParams, SequenceParams } from "../sequenceModel";
 
 export type StatsKind =
   | "conversations"
@@ -28,7 +29,8 @@ export type StatsKind =
   | "sctp"
   | "http_requests"
   | "dns_queries"
-  | "tls_servers";
+  | "tls_servers"
+  | "sequences";
 
 export const STATS_TITLES: Record<StatsKind, string> = {
   conversations: "Conversations",
@@ -51,7 +53,11 @@ export const STATS_TITLES: Record<StatsKind, string> = {
   http_requests: "HTTP Requests",
   dns_queries: "DNS Queries",
   tls_servers: "TLS Servers",
+  sequences: "Sequence Check",
 };
+
+/** The sequence check's last parameters (any capture). */
+export const SEQUENCE_KEY = "pcapViewer.sequenceCheck";
 
 /** Expert rows as the panel sent them, checked (the webview is ours, but its data came from the capture). */
 export function expertRows(raw: unknown): ExpertRow[] {
@@ -102,6 +108,8 @@ interface QueryParams {
   limit?: boolean;
   /** The IO graph's graphs ({metric, filter, field}; the backend checks them). */
   series?: unknown;
+  /** The sequence check's fields, wrap and window (normalizeSequenceParams). */
+  sequence?: unknown;
 }
 
 /** The IO graphs kept in globalState: what the panel posted, capped (it is checked again there). */
@@ -144,14 +152,19 @@ export class StatsPanel {
     context: vscode.ExtensionContext,
     session: PcapEditorSession,
     kind: StatsKind,
+    sequence?: SequenceParams,
   ): StatsPanel {
     const key = `${session.id}:${kind}`;
     const existing = StatsPanel.open.get(key);
     if (existing) {
       existing.panel.reveal(undefined, false);
+      if (sequence) {
+        // (A new sequence check in the open panel: it runs with these fields.)
+        existing.post({ type: "sequence", sequence });
+      }
       return existing;
     }
-    const panel = new StatsPanel(context, session, kind, key);
+    const panel = new StatsPanel(context, session, kind, key, sequence);
     StatsPanel.open.set(key, panel);
     return panel;
   }
@@ -168,6 +181,7 @@ export class StatsPanel {
     readonly session: PcapEditorSession,
     readonly kind: StatsKind,
     private readonly key: string,
+    private readonly sequence?: SequenceParams,
   ) {
     const title = `${STATS_TITLES[kind]} · ${path.basename(session.uri.fsPath)}`;
     const root = webviewRoot(context);
@@ -203,6 +217,11 @@ export class StatsPanel {
           filter: this.session.currentFilter,
           ai: this.kind === "expert" && (await this.session.aiAvailable()),
           io: this.kind === "io" ? this.context.globalState.get(IO_GRAPHS_KEY) : undefined,
+          sequence:
+            this.kind === "sequences"
+              ? (this.sequence ??
+                normalizeSequenceParams(this.context.globalState.get(SEQUENCE_KEY)))
+              : undefined,
         });
         return;
       case "ioGraphs":
@@ -277,9 +296,12 @@ export class StatsPanel {
         hex: body.hex,
       });
     } catch (err) {
-      void vscode.window.showErrorMessage(`Couldn't read the response body: ${String(err)}`);
+      void vscode.window.showErrorMessage(`Couldn't read the response body: ${describeError(err)}`);
     }
   }
+
+  /** How the latest query ended (the smoke test reads it). */
+  lastOutcome: { ok: boolean; message?: string } | undefined;
 
   private async query(id: number, params: QueryParams): Promise<void> {
     const client = this.session.backend;
@@ -292,6 +314,12 @@ export class StatsPanel {
       return;
     }
     const filter = params.limit ? this.session.currentFilter : "";
+    const sequence =
+      this.kind === "sequences" ? normalizeSequenceParams(params.sequence) : undefined;
+    if (sequence) {
+      // (The next sequence check, of any capture, starts with these fields.)
+      await this.context.globalState.update(SEQUENCE_KEY, sequence);
+    }
     const pending = client.send(
       "stats",
       {
@@ -300,23 +328,31 @@ export class StatsPanel {
         interval: params.interval,
         filter,
         series: this.kind === "io" && Array.isArray(params.series) ? params.series : undefined,
+        ...sequence,
       },
       { timeoutMs: 0 },
     );
     this.inflight.set(id, pending.id);
     try {
       const table = await pending.promise;
+      this.lastOutcome = { ok: true };
       this.post({ type: "result", id, table });
     } catch (err) {
       const e = err instanceof RpcError ? err : new RpcError(String(err), ErrorCodes.InternalError);
+      if (!e.cancelled) {
+        this.lastOutcome = { ok: false, message: e.message };
+      }
       // A refused graph's filter or field names the graph (FilterError data.series).
-      const series = (e.data as { series?: unknown } | undefined)?.series;
+      const data = e.data as { series?: unknown; field?: unknown } | undefined;
+      const series = data?.series;
       this.post({
         type: "error",
         id,
         message: e.message,
         cancelled: e.cancelled,
         series: typeof series === "number" ? series : undefined,
+        // (A sequence check's field tshark doesn't know.)
+        field: typeof data?.field === "string" ? data.field : undefined,
       });
     } finally {
       this.inflight.delete(id);

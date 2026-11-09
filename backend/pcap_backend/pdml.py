@@ -104,22 +104,55 @@ def _raw_value(el: ET.Element, size: int | None) -> bytes | None:
 
 def _matching_source(el: ET.Element, sources: Sequence[bytes], default: int) -> int:
     """The byte source whose bytes agree best with ``el``'s fields (each
-    field's raw ``value`` at its ``pos``), or ``default`` when none does better."""
+    field's raw ``value`` at its ``pos``), or ``default`` when none does better.
+    A reassembly list inside it (``*.fragments``, ``*.segments``) describes the
+    reassembled buffer, not ``el``: its many fields would outvote the header's
+    own (an IPv4 header holding the list of 44 fragments went to "Reassembled
+    IPv4"; Wireshark's hicp_coverage).
+
+    Bit fields' values (masked or not: PDML doesn't say) only break a tie:
+    H.265 parameter sets from an SDP line are all bit fields in an
+    "Unescaped RSP Data" buffer, under an item whose own bytes are another
+    buffer's at another position (Wireshark's h265_coverage)."""
     checks: list[tuple[int, bytes]] = []
-    for node in el.iter():
+    weak: list[tuple[int, bytes]] = []
+    stack = [el]
+    while stack:
+        node = stack.pop()
+        if node is not el and _NEW_SOURCE_RE.search(node.get("name") or ""):
+            continue
+        stack.extend(reversed(node))
         pos, size = _int(node.get("pos")), _int(node.get("size"))
-        value = _raw_value(node, size) if size else None
-        if value is not None and pos is not None:
+        if not size or pos is None:
+            continue
+        value = _raw_value(node, size)
+        if value is not None:
             checks.append((pos, value))
-    if not checks:
-        return default
+        elif (bits := _bit_field_value(node, size)) is not None:
+            weak.append((pos, bits))
+    current = min(default, len(sources) - 1)
+    for votes in (checks, weak):
+        if not votes:
+            continue
+        scores = [sum(1 if d[p : p + len(b)] == b else -1 for p, b in votes) for d in sources]
+        best = max(range(len(sources)), key=lambda i: (scores[i], i == default))
+        if scores[best] > scores[current]:
+            return best
+    return default
 
-    def score(data: bytes) -> int:
-        return sum(1 if data[pos : pos + len(b)] == b else -1 for pos, b in checks)
 
-    scores = [score(data) for data in sources]
-    best = max(range(len(sources)), key=lambda i: (scores[i], i == default))
-    return best if scores[best] > scores[min(default, len(sources) - 1)] else default
+def _bit_field_value(el: ET.Element, size: int) -> bytes | None:
+    """A bit field's ``value`` when it is as wide as the field (the masked
+    value, or the bytes themselves)."""
+    raw = el.get("value")
+    if el.get("unmaskedvalue") is not None or raw is None or len(raw) != 2 * size:
+        return None
+    if not _BITS_RE.match(el.get("showname", "")):
+        return None
+    try:
+        return bytes.fromhex(raw)
+    except ValueError:
+        return None
 
 
 class _Counter:

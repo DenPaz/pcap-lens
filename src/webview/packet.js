@@ -15,22 +15,7 @@
   /** @type {any} */
   const lib = /** @type {any} */ (window).PcapLib;
 
-  /**
-   * @param {string} tag @param {Record<string, string>} [attrs]
-   * @param {(Node | string)[]} [children]
-   */
-  function h(tag, attrs = {}, children = []) {
-    const node = document.createElement(tag);
-    for (const [k, v] of Object.entries(attrs)) {
-      if (k === "class") {
-        node.className = v;
-      } else {
-        node.setAttribute(k, v);
-      }
-    }
-    node.append(...children);
-    return node;
-  }
+  const h = /** @type {any} */ (window).PcapPanel.h;
   const icon = (/** @type {string} */ name) =>
     h("span", { class: `codicon codicon-${name}`, "aria-hidden": "true" });
 

@@ -7,7 +7,7 @@
     "color": "#0b3a73",
     "theme": "dark"
   },
-  "version": "0.28.0",
+  "version": "0.29.0",
   "publisher": "denpaz",
   "license": "MIT",
   "repository": {
@@ -511,6 +511,11 @@
         "category": "PCAP Statistics"
       },
       {
+        "command": "pcapViewer.statistics.sequences",
+        "title": "Sequence Check",
+        "category": "PCAP Statistics"
+      },
+      {
         "command": "pcapViewer.statistics.serviceResponseTime",
         "title": "Service Response Time",
         "category": "PCAP Statistics"
@@ -1006,6 +1011,10 @@
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
         },
         {
+          "command": "pcapViewer.statistics.sequences",
+          "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
+        },
+        {
           "command": "pcapViewer.statistics.serviceResponseTime",
           "when": "activeCustomEditorId =~ /^pcapViewer\\.editor(Optional)?$/ || activeWebviewPanelId == pcapViewer.stats || activeWebviewPanelId == pcapViewer.follow"
         },
@@ -1387,6 +1396,10 @@
         {
           "command": "pcapViewer.statistics.packetLengths",
           "group": "1_general@7"
+        },
+        {
+          "command": "pcapViewer.statistics.sequences",
+          "group": "1_general@8"
         },
         {
           "command": "pcapViewer.statistics.flowGraph",

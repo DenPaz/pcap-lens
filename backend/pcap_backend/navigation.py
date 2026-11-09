@@ -188,7 +188,30 @@ def format_seconds(ns: int) -> str:
 def format_absolute(epoch_ns: int, utc: bool) -> str:
     """``2023-11-14 22:13:20.000000`` in local time (the machine running VS Code) or UTC."""
     sec, rem = divmod(epoch_ns, NS)
-    dt = datetime.fromtimestamp(sec, UTC)
-    if not utc:
-        dt = dt.astimezone()  # the local time zone
+    try:
+        dt = datetime.fromtimestamp(sec, UTC)
+        if not utc:
+            dt = dt.astimezone()  # the local time zone
+    except (ValueError, OverflowError, OSError):
+        # Outside datetime's years 1-9999 (tshark dates some of Wireshark's test
+        # packets in year -1): the proleptic Gregorian calendar by hand, in UTC.
+        return format_civil(sec) + f".{rem // 1000:06d}"
     return dt.strftime("%Y-%m-%d %H:%M:%S") + f".{rem // 1000:06d}"
+
+
+def format_civil(sec: int) -> str:
+    """Seconds since 1970 as a UTC date and time in any year (astronomical
+    numbering: year 0, then -1…), by Howard Hinnant's days-to-civil algorithm."""
+    days, of_day = divmod(sec, 86_400)
+    z = days + 719_468  # days since 0000-03-01
+    era = z // 146_097
+    doe = z - era * 146_097
+    yoe = (doe - doe // 1_460 + doe // 36_524 - doe // 146_096) // 365
+    doy = doe - (365 * yoe + yoe // 4 - yoe // 100)
+    mp = (5 * doy + 2) // 153
+    day = doy - (153 * mp + 2) // 5 + 1
+    month = mp + 3 if mp < 10 else mp - 9
+    year = yoe + era * 400 + (month <= 2)
+    hours, rest = divmod(of_day, 3_600)
+    year_text = f"{year:04d}" if year >= 0 else f"-{-year:04d}"
+    return f"{year_text}-{month:02d}-{day:02d} {hours:02d}:{rest // 60:02d}:{rest % 60:02d}"

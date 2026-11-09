@@ -31,6 +31,7 @@ import h323  # test/fixtures/h323.py: H.225.0 and H.245 messages in aligned PER
 import mmdb  # test/fixtures/mmdb.py: MaxMind databases for the GeoIP tests
 import quic  # test/fixtures/quic.py: the hand-encrypted QUIC connection
 from scapy.asn1.asn1 import ASN1_OID
+from scapy.contrib.gtp import GTP_U_Header
 from scapy.layers.dns import DNS, DNSQR, DNSRR, DNSRRMX
 from scapy.layers.dot11 import Dot11
 from scapy.layers.dot15d4 import Dot15d4Data, Dot15d4FCS
@@ -2102,6 +2103,38 @@ def _sctp(src: str, dst: str, tag: int, chunk: Packet) -> Packet:
     )
 
 
+# sequences.pcap's tunnels: TEID → the GTP-U sequence numbers it carries, in
+# capture order (test_sequence_check.py checks what the sequence check finds).
+SEQUENCE_TUNNELS = {
+    0x100: [1, 2, 3, 4, 5, 6],  # complete
+    0x200: [1, 2, 3, 6, 7, 9, 8, 9, 10],  # 4-5 missing, 8 late, 9 twice
+    0x300: [65533, 65534, 65535, 0, 1, 2],  # a 16-bit counter that wraps
+    0x400: [1, 2, 3, 4, 1, 2, 3],  # the numbering restarts (seen with reorder 2)
+}
+
+
+def sequences_packets() -> list[Packet]:
+    """Sequence checks: GTP-U tunnels (UDP 2152, which tshark decodes as GTP)
+    numbering their packets per TEID (`SEQUENCE_TUNNELS`), interleaved, as an
+    interception delivery numbers its messages per stream."""
+    out: list[Packet] = []
+    queues = {teid: list(seqs) for teid, seqs in SEQUENCE_TUNNELS.items()}
+    while any(queues.values()):
+        for teid, queue in queues.items():
+            if not queue:
+                continue
+            seq = queue.pop(0)
+            inner = IP(src="10.45.0.2", dst="192.0.2.10") / UDP(sport=5000, dport=6000) / b"data"
+            out.append(
+                Ether(src="02:00:00:00:00:21", dst="02:00:00:00:00:22")
+                / IP(src="10.0.0.1", dst="10.0.0.2")
+                / UDP(sport=2152, dport=2152)
+                / GTP_U_Header(teid=teid, S=1, seq=seq, gtp_type=255)
+                / inner
+            )
+    return _stamp(out, step=0.01)
+
+
 def network_packets() -> list[Packet]:
     """Statistics → IPv4/IPv6, UDP Multicast Streams, Resolved Addresses and SCTP:
     two multicast streams (the first bursting: 60 packets in 60 ms, over the
@@ -2223,6 +2256,7 @@ def main() -> None:
     wrpcap(str(HERE / "office-after.pcap"), office_packets(problems=True))
     wrpcap(str(HERE / "replay.pcap"), replay_packets())
     wrpcap(str(HERE / "sessions.pcap"), sessions_packets())
+    wrpcap(str(HERE / "sequences.pcap"), sequences_packets())
     geoip_fixtures()
     hexdump_fixtures()
     (HERE / "comments.pcapng").write_bytes(

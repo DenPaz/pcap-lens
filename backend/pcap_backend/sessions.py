@@ -322,9 +322,12 @@ def _answers(c: dict[str, str]) -> str:
     return ", ".join(parts)
 
 
-def dns_queries(lines: Iterable[str]) -> Table:
-    """DNS queries (rows in capture order) with their responses."""
+def dns_queries(lines: Iterable[str], limit: int | None = None) -> Table:
+    """DNS queries (rows in capture order) with their responses: the first
+    ``limit`` as rows (``more`` counts the rest), all in the summary. Only the
+    listed queries keep their details: a capture can hold 300k queries."""
     queries: dict[int, dict[str, Any]] = {}
+    others: dict[int, int] = {}  # query frame -> 0 unanswered, 1 answered, 2 failed
     for line in lines:
         cells = _cells(line, len(DNS_FIELDS))
         if cells is None or not cells[0].isdigit():
@@ -332,6 +335,9 @@ def dns_queries(lines: Iterable[str]) -> Table:
         c = dict(zip(DNS_FIELDS, cells, strict=False))
         frame = int(c["frame.number"])
         is_response = _first(c["dns.flags.response"]).lower() in ("true", "1")
+        if not is_response and limit is not None and len(queries) >= limit:
+            others[frame] = 0
+            continue
         if not is_response:
             queries[frame] = {
                 "frame": frame,
@@ -344,9 +350,12 @@ def dns_queries(lines: Iterable[str]) -> Table:
             }
             continue
         query = _int(_first(c["dns.response_to"]))
+        rcode = _int(_first(c["dns.flags.rcode"]))
+        if query is not None and query in others:
+            others[query] = 1 if rcode in (None, 0) else 2
+            continue
         if query is None or query not in queries:
             continue
-        rcode = _int(_first(c["dns.flags.rcode"]))
         queries[query].update(
             response=frame,
             rcode="" if rcode is None else DNS_RCODES.get(rcode, str(rcode)),
@@ -393,9 +402,14 @@ def dns_queries(lines: Iterable[str]) -> Table:
                 "frame": q["frame"],
             }
         )
+    if others:
+        table.extra["more"] = len(others)
+    total = len(queries) + len(others)
+    answered += sum(1 for state in others.values() if state)
+    failed += sum(1 for state in others.values() if state == 2)
     table.extra["summary"] = {
-        "queries": len(queries),
-        "unanswered": len(queries) - answered,
+        "queries": total,
+        "unanswered": total - answered,
         "failed": failed,
     }
     return table

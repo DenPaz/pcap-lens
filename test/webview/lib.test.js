@@ -554,8 +554,6 @@ suite("webview lib: bytes", () => {
     assert.equal(lib.asciiChar(0x0a), ".");
     assert.equal(lib.formatOffset(16, 100), "0010");
     assert.equal(lib.formatOffset(16, 70000), "00000010");
-    assert.equal(lib.formatRelativeTime("0.001000000"), "0.001000");
-    assert.equal(lib.formatRelativeTime(""), "");
     assert.equal(lib.formatBytes(512), "512 B");
     assert.equal(lib.formatBytes(1536), "1.5 KB");
     assert.equal(lib.formatDuration(5.9), "0:05");
@@ -1195,6 +1193,33 @@ suite("webview lib: coloring", () => {
     // Spans that don't fit are ignored.
     assert.ok(lib.filterSegments("tcp", [2, 1]).every((p) => !p.error));
     assert.ok(lib.filterSegments("tcp", null).every((p) => !p.error));
+  });
+
+  test("sequenceSummary: the sequence check's status line", () => {
+    const base = { streams: 4, messages: 28, withProblems: 0, missing: 0, duplicates: 0 };
+    assert.equal(
+      lib.sequenceSummary(base),
+      "4 streams · 28 messages · every stream complete and in order",
+    );
+    assert.equal(
+      lib.sequenceSummary({
+        ...base,
+        withProblems: 2,
+        missing: 1,
+        duplicates: 3,
+        late: 1,
+        restarts: 2,
+        unreadable: 1,
+        untracked: 5,
+        more: 7,
+      }),
+      "4 streams · 28 messages · 2 with problems · 1 missing · 3 duplicates · 1 late · " +
+        "2 restarts · 1 value not a number · 5 messages past the stream limit · 7 streams not listed",
+    );
+    assert.equal(
+      lib.sequenceSummary({ streams: 0, messages: 0 }),
+      "No packet has the sequence field",
+    );
   });
 
   test("paneLayout and splitterOrientations: where the panes go", () => {

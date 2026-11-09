@@ -2015,12 +2015,6 @@
     return offset.toString(16).padStart(width, "0");
   }
 
-  /** "0.001000000" -> "0.001000" (Wireshark's default precision). @param {string} s */
-  function formatRelativeTime(s) {
-    const n = Number(s);
-    return s === "" || !Number.isFinite(n) ? s : n.toFixed(6);
-  }
-
   /** @param {number} bytes */
   function formatBytes(bytes) {
     const units = ["B", "KB", "MB", "GB", "TB"];
@@ -2170,6 +2164,45 @@
 
   /** The statistics kinds that are session tables (one row per request, query or server). */
   const SESSION_KINDS = ["http_requests", "dns_queries", "tls_servers"];
+
+  /**
+   * The sequence check's status line from its `summary`: "4 streams · 2
+   * with problems · 2 missing · 1 duplicate", plus what was left out.
+   * @param {Record<string, number>} s
+   */
+  function sequenceSummary(s) {
+    /** @param {number} n @param {string} one @param {string} many */
+    const count = (n, one, many) => `${(n || 0).toLocaleString("en-US")} ${n === 1 ? one : many}`;
+    const parts = [count(s.streams, "stream", "streams"), count(s.messages, "message", "messages")];
+    if (!s.streams) {
+      return "No packet has the sequence field";
+    }
+    parts.push(
+      s.withProblems
+        ? `${s.withProblems.toLocaleString("en-US")} with problems`
+        : "every stream complete and in order",
+    );
+    for (const [n, one, many] of /** @type {[number, string, string][]} */ ([
+      [s.missing, "missing", "missing"],
+      [s.duplicates, "duplicate", "duplicates"],
+      [s.late, "late", "late"],
+      [s.restarts, "restart", "restarts"],
+    ])) {
+      if (n) {
+        parts.push(count(n, one, many));
+      }
+    }
+    if (s.unreadable) {
+      parts.push(`${count(s.unreadable, "value", "values")} not a number`);
+    }
+    if (s.untracked) {
+      parts.push(`${count(s.untracked, "message", "messages")} past the stream limit`);
+    }
+    if (s.more) {
+      parts.push(`${count(s.more, "stream", "streams")} not listed`);
+    }
+    return parts.join(" · ");
+  }
 
   /**
    * A session table's status line: "5 requests · 1 without a response".
@@ -3457,6 +3490,7 @@
     computeWindow,
     scrollTopForIndex,
     densityRowHeight,
+    sequenceSummary,
     filterSegments,
     PANE_LAYOUTS,
     paneLayout,
@@ -3520,7 +3554,6 @@
     hexToBytes,
     asciiChar,
     formatOffset,
-    formatRelativeTime,
     formatBytes,
     formatDuration,
     formatInterval,

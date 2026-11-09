@@ -10,9 +10,18 @@ from pathlib import Path
 from typing import Any
 
 from pcap_backend import pdml
-from pcap_backend.cancellation import CancelledError
+from pcap_backend.cancellation import CancelledError, CancelToken
 from pcap_backend.protocol import InvalidParamsError, RequestContext, RpcError, param
-from pcap_backend.tshark import ToolError, ToolNotFoundError, Tshark, find_tool, run
+from pcap_backend.tshark import (
+    RunResult,
+    StreamResult,
+    ToolError,
+    ToolNotFoundError,
+    Tshark,
+    find_tool,
+    run,
+    stream_lines,
+)
 
 from .dissection import DissectionMixin
 from .helpers import _stderr_warnings
@@ -36,6 +45,12 @@ FILE_FORMAT_LIMIT = 256 * 1024
 _WRAPPERS = ("geninfo", "frame", "mime_dlt", "fake-field-wrapper")
 # Compressed captures can't be cut short (the rest wouldn't decompress).
 _COMPRESSED_MAGIC = (b"\x1f\x8b", b"\x28\xb5\x2f\xfd", b"\x04\x22\x4d\x18")
+
+# A packet's PDML stops being read past this: a dissector stuck in a loop
+# fills tshark's tree with a million items (its own limit), gigabytes of PDML
+# that were read whole and never answered (Wireshark's dvb_s2_table_coverage:
+# 4 GB for one packet). Real packets stay far below it.
+MAX_DETAIL_BYTES = 64 << 20
 
 # FT_FRAMENUM fields by name, while the field catalogue is still loading.
 _FRAMENUM_HINT = re.compile(
@@ -108,13 +123,16 @@ class DetailMixin(DissectionMixin):
         select += ["-Y", f"frame.number=={number}"]
         pdml_argv = tshark.argv(*select, "-T", "pdml", capture=str(capture))
         hex_argv = tshark.argv(*select, "-x", capture=str(capture))
-        hex_future = self._pool.submit(run, hex_argv, ctx.token)
+        hex_token = CancelToken()
+        ctx.token.on_cancel(hex_token.cancel)
+        hex_future = self._pool.submit(run, hex_argv, hex_token)
         try:
-            pdml_res = run(pdml_argv, ctx.token)
+            pdml_res = _bounded_pdml(pdml_argv, number, ctx)
         except BaseException:
-            # (A cancel.) Don't return while the -x run still reads the capture
-            # (a quick window is deleted right after): it stops at the same token.
+            # (A cancel, or a tree too large.) Don't return while the -x run
+            # still reads the capture (a quick window is deleted right after).
             if not hex_future.cancel():
+                hex_token.cancel()
                 wait([hex_future])
             raise
         hex_res = hex_future.result()
@@ -263,3 +281,34 @@ class DetailMixin(DissectionMixin):
             print(f"pcap-viewer: field catalogue not loaded: {exc}", file=sys.stderr)  # noqa: T201
         finally:
             self._catalog_warming.clear()
+
+
+def _bounded_pdml(argv: list[str], number: int, ctx: RequestContext) -> RunResult:
+    """tshark's PDML for one packet, read up to MAX_DETAIL_BYTES (a ToolError
+    past that: tshark is stopped)."""
+    result = StreamResult()
+    out: list[bytes] = []
+    size = 0
+    lines = stream_lines(argv, result, ctx.token)
+    try:
+        for line in lines:
+            size += len(line) + 1
+            if size > MAX_DETAIL_BYTES:
+                break
+            out.append(line)
+    finally:
+        lines.close()
+    if size > MAX_DETAIL_BYTES:
+        # ("** (tshark:123) 12:00:00.000 [Epan WARNING] -- Dissector bug, …")
+        why = "; ".join(
+            re.sub(r"^\*\* \(\S+\) [\d:.]+ \[[^\]]*\] (?:-- )?", "", w)
+            for w in _stderr_warnings(result.stderr)[:2]
+        )
+        raise ToolError(
+            f"The details of packet {number} are too large to show: tshark's tree for it"
+            f" passed {MAX_DETAIL_BYTES >> 20} MB, which usually means a dissector looping."
+            + (f" tshark said: {why}" if why else ""),
+            result.stderr,
+            result.returncode,
+        )
+    return RunResult(result.returncode or 0, b"\n".join(out), result.stderr)

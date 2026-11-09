@@ -93,6 +93,26 @@ def test_error_explains_a_crash() -> None:
     assert ts.CRASH_HINT in str(err)
     abort = Tshark(Path("tshark")).error("ERROR:packet-x.c:12: assertion failed", -6, "x")
     assert str(abort).endswith("\n\nERROR:packet-x.c:12: assertion failed")
+    killed = Tshark(Path("tshark")).error(" ** Dissector bug, …", -9, "tshark -z conv,ip failed")
+    assert str(killed).startswith("tshark was killed (signal 9) while reading this capture.")
+    assert ts.KILLED_HINT in str(killed) and str(killed).endswith("** Dissector bug, …")
+
+
+def test_an_index_pass_killed_from_outside_says_so() -> None:
+    from pcap_backend.service.indexing import _finish_index_pass  # noqa: PLC0415
+    from pcap_backend.service.state import CaptureInfo  # noqa: PLC0415
+
+    def finish(code: int) -> str:
+        with pytest.raises(ts.ToolError) as raised:
+            _finish_index_pass(
+                CaptureInfo(path="x"), ts.StreamResult(returncode=code), 0, 284, None
+            )
+        return str(raised.value)
+
+    assert "tshark crashed (a segmentation fault) after 284 packets" in finish(-11)
+    # SIGKILL from the system, most often for lack of memory (fuzzed captures, 10+ GB).
+    assert finish(-9) == f"tshark was stopped (signal 9) after 284 packets. {ts.KILLED_HINT}"
+    assert finish(-15) == "tshark was stopped (signal 15) after 284 packets"
 
 
 @pytest.mark.parametrize(

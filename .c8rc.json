@@ -1,11 +1,11 @@
 {
   "include": [
     "out/src/**/*.js",
-    "src/webview/lib.js",
+    "src/webview/**/*.js",
     "scripts/release.mjs",
     "scripts/evals/grade.mjs"
   ],
-  "exclude": ["out/test/**"],
+  "exclude": ["out/test/**", "src/webview/codicons/**", "src/webview/worldmap.js"],
   "reporter": ["text-summary", "html"],
   "reports-dir": "coverage/ts"
 }

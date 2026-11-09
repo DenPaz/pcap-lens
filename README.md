@@ -109,6 +109,10 @@ and its rows apply or prepare a filter, go to a packet or copy.
   response time and a button to view the response body), **DNS Queries**
   (answers, result and latency) and **TLS Servers** (SNI, versions, cipher
   suites, ALPN, connections and failed handshakes).
+- **Sequence Check**: name the fields that identify a stream (a LIID and
+  CIN, a GTP tunnel, your Lua dissector's fields) and the one that numbers
+  its messages; each stream's missing numbers, duplicates, late messages and
+  restarts, with 8–32-bit counters that wrap, each a click from its packets.
 - **Services**: HTTP, DNS, SIP, packet lengths, service response times,
   credentials sent in the clear.
 - **Network**: IPv4/IPv6, UDP multicast streams, resolved addresses, SCTP.

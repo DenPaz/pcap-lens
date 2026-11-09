@@ -20,6 +20,7 @@ CONTRIBUTING.md for building, testing and releasing (not packaged).
 | Regenerate fixtures       | `uv run python test/fixtures/generate.py`                                                                                                                |
 | Coverage                  | `make coverage` (pytest-cov and c8; summaries in the terminal, HTML in `coverage/`; CI's Linux job adds both to the run summary)                         |
 | Perf check                | `uv run python test/fixtures/generate.py --large 1000000 test/fixtures/large-1m.pcap && uv run python -u test/perf/bench.py test/fixtures/large-1m.pcap` |
+| Stress check              | `uv run python -u test/perf/stress.py --seeds 20 <small and large captures>` (overlapping random requests at one backend)                                |
 | Real captures             | `make realworld` (`test/realworld/run.py --fetch wireshark`, then `--fetch tcpdump --quick`; downloads into `~/.cache/pcap-lens-realworld`)              |
 | AI answer evals (by hand) | `pnpm run evals` (asks a model the cases in `test/evals/cases.json`; `-- --prompts <dir>` / `--answers <dir>` without a model)                           |
 | Package                   | `pnpm run package` (vsce, `--no-dependencies`)                                                                                                           |
@@ -104,10 +105,16 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
 - **Coverage**: pytest-cov (`[tool.coverage.*]` in pyproject: branch,
   `patch = ["subprocess"]` so the backend started as a child process counts,
   data in `coverage/`) and c8 (`.c8rc.json`: the compiled `out/src` the unit
-  tests load, mapped to the `.ts` sources, plus `lib.js` and `release.mjs`;
-  the VS Code-dependent host code only runs in the smoke test, which isn't
-  measured). No thresholds: the numbers are for finding untested code
-  (backend 93%, unit-tested TS 96% when added).
+  tests load, mapped to the `.ts` sources, `src/webview/**` (not codicons or
+  worldmap.js), `release.mjs` and `grade.mjs`). The webview scripts run in
+  the Chromium e2e tests: under c8, `trackCoverage(browser)`
+  (`test/webview/harness.js`) collects each page's V8 coverage with
+  Playwright and writes it into c8's `NODE_V8_COVERAGE` folder, the served
+  URLs mapped back to the files (one numbering per process: both e2e suites
+  run in one mocha). The VS Code-dependent host code only runs in the smoke
+  test, which isn't measured. No thresholds: the numbers are for finding
+  untested code (backend 93%; TypeScript and webview 95%, the viewer's
+  modules 89%).
 - **Accessibility checks**: `axeViolations(page)` in `test/webview/harness.js`
   runs axe-core (WCAG 2.0/2.1 A and AA, evaluated through the debugging
   protocol, so the CSP doesn't block it; `preload: false`, since its
@@ -203,13 +210,14 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   `src/commands/report.ts`. `src/commands/compare.ts` the other capture of
   a comparison (picking it, its profile). `src/replayModel.ts` Replay to
   Service's presets, remembered destinations and options (pure).
+  `src/sequenceModel.ts` the sequence check's parameters (pure).
 - `src/webview/` plain JS/CSS/HTML (no build step). `lib.js` = pure helpers
   shared with Node tests (a classic script, `window.PcapLib`, like the panels'
   scripts and `worldmap.js`, the Endpoints map's land outline that
   `scripts/world-map.mjs` generates from world-atlas); `menus.js` (classic,
   `window.PcapMenus`: the context-menu engine, loaded by the editor and every
-  panel) and `panelkit.js` (classic, `window.PcapPanel`, panels only: icon
-  buttons, row menus); `main.js` = the editor's entry, an ES module (`<script
+  panel) and `panelkit.js` (classic, `window.PcapPanel`, panels only: the
+  element builders `h` and `s` (SVG), icon buttons, row menus); `main.js` = the editor's entry, an ES module (`<script
 type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   server allows the CORS fetch) that imports `viewer/*.js`, one module per
   part of the UI (`core` = shared state, constants, element lookups and
@@ -262,6 +270,7 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   `compare.py` (capture profiles and diffs),
   `mcp.py` (the MCP server) and `standins.py` (its address stand-ins),
   `replay.py` (Replay to Service: records, planner, socket engine),
+  `sequence.py` (the sequence check: gaps, duplicates, late, restarts),
   `filterhelp.py` (a filter's
   field names, case hints, value counts), `plugins.py` (`tshark -G
 plugins` and the plugin folders), `decryption.py` (decryption keys and
@@ -381,6 +390,16 @@ true`), else when done. The pass then reports through backend notifications
   generator). The old bug: at shutdown the server kills every child before
   the pass's token is cancelled, tshark's output just ended, and the rows so
   far were saved as a finished index.
+- **Overlapping opens** (`_supersede_open`, `_open_lock`): one open (or
+  capture_start) at a time per backend. A newer open or a `close` cancels the
+  open in progress (its request answers -32800) and waits for it; before, it
+  removed that open's work folder, which then attached a capture whose rows
+  file was gone. A store read after its capture closed raises
+  `StoreClosedError` (a CancelledError), not FileNotFoundError, and a saved
+  index whose rows vanish while opening (another window) means indexing
+  again. Neither client overlaps opens today (the host starts a backend per
+  load; the MCP server opens each service once), so this is the protocol's
+  own safety; `test/perf/stress.py` (by hand) found it.
 - **Progress bar** (webview): `div#busy-bar.progress-bar` (created by
   `main.js`, between the filter bar and `#main`: `role="progressbar"`,
   `aria-valuemin/max`, `aria-valuenow` only when determinate, `aria-label`)
@@ -513,7 +532,12 @@ matchCount, fraction}`; the end sends `done`, `stopped` (`stop_filter
   parallel. `-c N` stops reading after frame N (it counts packets _read_), so
   cost is proportional to N, and earlier packets are still dissected (TCP
   reassembly etc. stay correct). Detail of frame ~1M therefore costs about one
-  pass over the file (20 s on the benchmark capture). **Two-pass details**
+  pass over the file (20 s on the benchmark capture). The PDML is read up to
+  `MAX_DETAIL_BYTES` (64 MB, `_bounded_pdml`): a looping dissector fills
+  tshark's tree with a million items (4 GB for one packet of Wireshark's
+  dvb_s2_table_coverage, which was read whole and never answered); past it
+  tshark is stopped and a ToolError quotes its "Dissector bug" warning.
+  **Two-pass details**
   (`packet_detail {twoPass: true}`): the webview asks for them when the
   capture is complete (not indexing or capturing) and has at most
   `pcapViewer.twoPassDetail` packets (default 10,000; carried in the
@@ -579,7 +603,10 @@ frame.number==N` (no `-c`, both the PDML and the `-x` run), so references
   checks fields' raw `value`s (or `unmaskedvalue`s) against the `-x` buffers,
   at three levels: each top-level item and each nested item with children
   goes to the source its fields match best (`_matching_source`: +1 per match,
-  −1 per mismatch, the inherited source unless another scores higher;
+  −1 per mismatch, the inherited source unless another scores higher; a
+  `*.fragments`/`*.segments` list inside it doesn't vote (an IPv4 header
+  holding 44 fragments went to "Reassembled IPv4"), and bit fields' values,
+  which may be masked, only break a tie (H.265 parameter sets from SDP);
   without evidence a top-level item stays in the previous one's source,
   moving to the next after a `*.segments`/`*.fragments` node); an item's own
   range stays on the enclosing source when it doesn't fit the matched one
@@ -1152,7 +1179,11 @@ heuristics}` (`pcapViewer.enabledProtocols` / `heuristicDissectors`,
   (`switches`). tshark refuses to start for an unknown name ("No such
   protocol", exit 1), so `open` checks the names against the listings
   (`_known_switches`, only when there are switches) and drops unknown ones
-  with a warning. Listings: `-G protocols` (name, short, filter, enabled,
+  with a warning. Preferences and Decode As rules tshark doesn't know (a Lua
+  protocol's, when the capture doesn't load its script; a hand edit) are
+  dropped the same way: `Tshark.refused_option` runs the options against the
+  empty capture (only when there are prefs or rules; 0.1 s) and names the
+  one tshark refused (it stops at the first), until it starts. Listings: `-G protocols` (name, short, filter, enabled,
   enabled by default, can toggle) and `-G heuristic-decodes` (underlying,
   protocol, enabled, enabled by default, short name, description) through
   `Tshark.glossary` (Lua scripts' included), cached per tshark and scripts
@@ -1625,6 +1656,11 @@ dns_queries | tls_servers}`, `http_body {frame}`): one row per HTTP
   request, DNS query or TLS server, each from one `-Y` fields pass
   (aggregator `\x1e`), in the statistics panel (`SESSION_KINDS`,
   `lib.sessionSummary` for the status line from the result's `summary`).
+  The pass is streamed and at most `MAX_SESSION_ROWS` (10,000) rows are
+  listed, in capture order (`more` counts the rest; the summary counts all):
+  the panel draws every row, and the 1M-packet benchmark capture holds 334k
+  DNS queries (457 MB before; `dns_queries(lines, limit)` keeps details only
+  for the listed ones: 64 MB).
   HTTP: a row per request message (pipelined ones share a packet), the
   responses paired per TCP stream in order (HTTP/1.1; tshark's
   `http.request_in` names only the first of pipelined responses; 1xx don't
@@ -1650,6 +1686,42 @@ http.file_data`: the decoded body, de-chunked and decompressed, at most
   ones at the end (frames 59 and 61), five DNS queries (an
   MX, an NXDOMAIN, one unanswered) and three TLS connections (TLS 1.2 and
   1.3 to one SNI with ALPN h2, one without a ServerHello).
+- **Sequence check** (`sequence.py`, `stats {kind: "sequences", key, seq,
+wrap, reorder}`, `src/sequenceModel.ts`; `pcapViewer.statistics.sequences`,
+  ☰ Statistics): per stream (the values of up to `MAX_SEQUENCE_KEYS` key
+  fields), the numbers a sequence field gives its messages. One `-Y <seq>`
+  fields pass (frame, time, keys, seq; aggregator `\x1e`, progress `phase:
+"sequences"`, the scope and ignored packets as for statistics) feeds
+  `Checker.add_packet`: a packet's occurrences pair one by one when a key
+  field has as many as the sequence field, else its single one applies to
+  all. Numbers are kept as sorted ranges (`Ranges`), so a mostly complete
+  stream is a few ranges; `wrap` (`WRAPS`: none, 8/16/24/32-bit) unwraps a
+  counter to the cycle nearest the last number. Each number is the next
+  (fine), higher (a `gap` problem with the numbers skipped), more than
+  `reorder` (default 1000) below the highest (a `restart`: a new run, checked
+  before duplicates, since a restart repeats old numbers), already seen
+  (`duplicate`) or else `late` (reordered). At the end a gap's
+  `stillMissing` says how many never came ("Reordered: 8 arrived late" when
+  none); `missing` counts the runs' holes. Hex values (`0x…`, BASE_HEX
+  fields) are read; others count as `unreadable`. `sequence.table` builds
+  the statistics panel's tree (`TREES` in stats.js): a row per stream
+  (problems first; key values, messages, first/last number, counts, result;
+  filter `key == value && … && seq`, string fields quoted by the catalogue's
+  type, `!key` for none) and its problems under it (`depth` 1, `frame.number
+== N`), at most `MAX_ROWS` streams and `MAX_PROBLEMS` per stream (counts
+  always complete). StatisticsMixin now inherits DissectionMixin for the
+  catalogue (fields are checked: an unknown one is an InvalidParamsError
+  with `data.field`, which the panel marks `aria-invalid`). The panel's
+  toolbar (`sequenceInputs`): Streams by (comma-separated), Sequence field,
+  Counter wraps at, Restart after a drop of more than, Check (or Enter);
+  nothing runs until the sequence field is named. The host keeps the last
+  parameters (`SEQUENCE_KEY` in globalState, `normalizeSequenceParams`) for
+  the next check, and the command with `{key, seq, wrap, reorder}` runs those
+  at once (posted as `sequence` to an open panel). `sequences.pcap`
+  (`generate.sequences_packets`, `SEQUENCE_TUNNELS`): four interleaved
+  GTP-U tunnels (UDP 2152, decoded as GTP by default; `gtp.teid`,
+  `gtp.seq_number`): complete, a gap with a late and a duplicate message, a
+  16-bit wrap, a restart.
 - **Extcap helpers** (`extcap.py`, `extcap_config {interface}`,
   `extcapModel.ts`, `commands/capture.ts`): dumpcap doesn't know extcap
   interfaces; tshark runs the helper (into a FIFO) and dumpcap together. So
@@ -1919,7 +1991,9 @@ pcapng` always: `timeShift` `-t` (offset as an exact decimal string; the
 N`/`-i S` into a scratch folder inside `dir`, then each piece moved out
   under a free name (`objects.unique_path`); editcap's
   `<name>_NNNNN_<time>.pcapng` names are what `rotation.ts` recognises.
-  Refused while indexing or capturing. Results report `packets`
+  Refused while indexing or capturing. The operation commands take the
+  request's parameters as an argument and skip the questions (smoke test).
+  Results report `packets`
   (`comments.packet_count`) and `removed`. The host writes into a new unsaved
   capture and opens it.
 - **AI filter help** (`src/aiFilter.ts` pure, `src/ai.ts` host, `src/commands/ai.ts`):
@@ -2050,6 +2124,10 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   IPv4's token (the IPv6 pattern tries the dotted form first and never stops
   before `.<digit>`: `IP6_PUBLIC_1.168.1.2` leaked three octets; Codex
   review; `standins.py` the same);
+  reverse lookup names take their address's token (`d.c.b.a.in-addr.arpa`,
+  and a whole 32-nibble `ip6.arpa` name, which spelled out the IPv6 address:
+  found in an evaluation), and IPv6 tokens are keyed by the canonical form
+  (`2001:0db8::1` is `2001:db8::1`; `standins.py` the same);
   0/8, 127/8, ≥ 224, `::`, `::1`, ff00::/8, group and all-zero MACs stay
   (they say something and identify no one). Host names come from
   `namesInRows` (cells vs `addresses`) and `namesInTree` (`*.src_host`… with
@@ -2952,6 +3030,15 @@ captures are not expected to behave like that. Sorting streams one column from
 the row store and sorts indices with a stable key list (no per-row tuples):
 this took the backend from 710 MB to 125 MB peak.
 
+Re-measured 2026-11 (4 CPUs, same flags): open 27 s, filter 18 s, sort 0.45 s,
+detail of last frame 18 s, quick view 0.24 s. The field catalogue, which the
+viewer warms in every backend, adds 83 MB (121 MB before 1f45d07). Never
+benched before (1M packets): expert summary 6 s; phs, conversations,
+endpoints, io 3–4 s each; overview 23 s; session tables 18–22 s; field values
+18 s; VoIP calls 17 s; triage 18 s; capture profile 25 s; find in the list
+2.4 s; pcapng export of everything 0.5 s; CSV 3.9 s; set_coloring 20 s;
+view_overview 0.1 s.
+
 ## Status
 
 Implemented: steps 1–7 of the brief (foundation, packet list with paging /
@@ -3054,3 +3141,6 @@ weekly real-capture run found: 0.27.1.
 Then the MCP server dissecting as the viewer does (Lua, Decode As, prefs,
 profile, plugins), a choice of pane layouts, filter errors underlined with
 the filter in colour, and panels below the capture: 0.28.0.
+Then the Sequence Check, and an evaluation of what was there (review,
+coverage of the webview, error paths, every real capture, a re-benchmark)
+with its fixes: 0.29.0.

@@ -201,6 +201,35 @@ def test_reopen_uses_the_saved_index(
 
 
 @pytest.mark.tshark
+def test_a_saved_index_gone_while_opening_means_indexing_again(
+    service: PcapService, ctx: RequestContext, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Another window can replace or prune the entry between finding it and
+    # linking its rows: the open then indexes the capture instead of failing.
+    capture = tmp_path / "http.pcap"
+    capture.write_bytes((FIXTURES / "http.pcap").read_bytes())
+    cache = {"dir": str(tmp_path / "cache")}
+    first = service.open({"path": str(capture), "cache": cache}, ctx)
+    for _ in range(50):  # the index is saved in the background
+        if list((tmp_path / "cache").glob("*/meta.json")):
+            break
+        time.sleep(0.05)
+    real_load = IndexCache.load
+
+    def load_then_lose_rows(self: IndexCache, key: str) -> Any:
+        hit = real_load(self, key)
+        if hit is not None:
+            hit.rows.unlink()
+        return hit
+
+    monkeypatch.setattr(IndexCache, "load", load_then_lose_rows)
+    again = service.open({"path": str(capture), "cache": cache}, ctx)
+    assert "fromCache" not in again
+    assert again["frames"] == first["frames"]
+    assert len(_all_rows(service, ctx)) == first["frames"]
+
+
+@pytest.mark.tshark
 def test_coloring_is_saved_with_the_index(
     service: PcapService, ctx: RequestContext, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

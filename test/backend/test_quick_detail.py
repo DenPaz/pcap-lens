@@ -15,6 +15,7 @@ from pcap_backend import tshark as ts
 from pcap_backend.cancellation import CancelledError
 from pcap_backend.pcap_service import PcapService
 from pcap_backend.protocol import InvalidParamsError, RequestContext
+from pcap_backend.service import detail
 from pcap_backend.tshark import ToolNotFoundError
 
 # Fields whose values must match the exact view when the referenced frame is in the window.
@@ -210,3 +211,19 @@ def test_cancel_race_leaves_no_pipe_open(
         assert all(p is None or p.closed for p in (proc.stdin, proc.stdout, proc.stderr))
     assert len(ts.PROCESSES) == 0
     assert opened._work_dir is not None and not list(opened._work_dir.glob("quick-*"))
+
+
+@pytest.mark.tshark
+def test_a_detail_too_large_stops_tshark(
+    opened: PcapService, ctx: RequestContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A dissector stuck in a loop fills tshark's tree with a million items:
+    gigabytes of PDML for one packet, which were read whole and never
+    answered (Wireshark's dvb_s2_table_coverage). Past MAX_DETAIL_BYTES
+    tshark is stopped and the request says why; nothing is left running."""
+    monkeypatch.setattr(detail, "MAX_DETAIL_BYTES", 2000)
+    with pytest.raises(ts.ToolError, match="too large to show"):
+        opened.packet_detail({"number": 4}, ctx)
+    assert len(ts.PROCESSES) == 0
+    monkeypatch.setattr(detail, "MAX_DETAIL_BYTES", 64 << 20)
+    assert opened.packet_detail({"number": 4}, ctx)["tree"]

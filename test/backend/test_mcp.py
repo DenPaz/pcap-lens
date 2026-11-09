@@ -694,3 +694,10 @@ def test_runs_as_a_program(tmp_path: Path) -> None:
     info = json.loads(answers[1]["result"]["content"][0]["text"])
     assert info["packets"] > 0
     assert any((tmp_path / "cache").iterdir()), "the index was saved"
+
+
+def test_packet_times_outside_datetime_years() -> None:
+    # Wireshark's cosine_coverage capture has packets tshark dates in year -1.
+    assert mcp._iso(1_700_000_000) == "2023-11-14T22:13:20Z"
+    assert mcp._iso(-62_169_984_000) == "-0001-11-30T00:00:00Z"
+    assert mcp._iso(None) is None

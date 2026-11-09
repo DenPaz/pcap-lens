@@ -36,7 +36,7 @@ from .state import MAX_FILTER_ARG, _Indexing, _Open, _View
 class ServiceBase:
     """State shared by every request handler, lifecycle and the guards."""
 
-    def __init__(self, max_cached_frames: int = 5_000_000, detail_cache_size: int = 64) -> None:
+    def __init__(self, max_cached_frames: int = 5_000_000, detail_cache_size: int = 64) -> None:  # noqa: PLR0915 - the whole session state, one attribute a line
         self._lock = threading.RLock()
         # Serialises expensive derived-data builds (sort orders, extra columns) so
         # concurrent page requests don't each redo the same tshark pass or sort.
@@ -45,6 +45,12 @@ class ServiceBase:
         self._file: _Open | None = None
         self._view: _View | None = None
         self._work_dir: Path | None = None
+        # One open (or capture_start) at a time: it sets up the work folder and
+        # the capture, and a close or a newer open would otherwise remove that
+        # folder under it. The newer one cancels the request of the one in
+        # progress (``_opening``) and waits for it (see _supersede_open).
+        self._open_lock = threading.Lock()
+        self._opening: CancelToken | None = None
         # Export Objects: (the capture they came from, the objects), and a lock
         # so concurrent requests extract once.
         self._objects: tuple[_Open, list[ExportedObject]] | None = None
@@ -135,9 +141,20 @@ class ServiceBase:
         }
 
     def close(self, _params: dict[str, Any] | None = None, _ctx: Any = None) -> dict[str, Any]:
-        with self._lock:
+        self._supersede_open(None)
+        with self._open_lock, self._lock:
             self._close_file()
         return {"ok": True}
+
+    def _supersede_open(self, token: CancelToken | None) -> None:
+        """Cancel the open in progress, if any (its request answers as
+        cancelled); ``token`` is the request taking its place (None: a close).
+        The caller then takes ``_open_lock``, which the cancelled open soon
+        lets go of."""
+        with self._lock:
+            previous, self._opening = self._opening, token
+        if previous is not None and previous is not token:
+            previous.cancel()
 
     def shutdown(self) -> None:
         self.close()

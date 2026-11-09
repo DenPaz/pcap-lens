@@ -15,7 +15,6 @@
   const lib = /** @type {any} */ (window).PcapLib;
   /** @type {any} */
   const kit = /** @type {any} */ (window).PcapPanel;
-  const SVG = "http://www.w3.org/2000/svg";
   const CHART_WIDTH = 1000;
   const CHART_HEIGHT = 120;
 
@@ -31,23 +30,9 @@
   };
 
   /** @param {string} tag @param {Record<string, string>} [attrs] @param {(Node | string)[]} [children] */
-  function h(tag, attrs = {}, children = []) {
-    const node = document.createElement(tag);
-    for (const [k, v] of Object.entries(attrs)) {
-      node.setAttribute(k, v);
-    }
-    node.append(...children);
-    return node;
-  }
+  const h = /** @type {any} */ (window).PcapPanel.h;
 
-  /** @param {string} tag @param {Record<string, string | number>} [attrs] */
-  function s(tag, attrs = {}) {
-    const node = document.createElementNS(SVG, tag);
-    for (const [k, v] of Object.entries(attrs)) {
-      node.setAttribute(k, String(v));
-    }
-    return node;
-  }
+  const s = /** @type {any} */ (window).PcapPanel.s;
 
   const count = (/** @type {number} */ n) => (n || 0).toLocaleString("en-US");
 

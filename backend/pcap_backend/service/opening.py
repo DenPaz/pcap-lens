@@ -123,7 +123,24 @@ class OpeningMixin(CommentsMixin):
         ctx: RequestContext,
         live: tuple[CaptureOptions, Path] | None = None,
     ) -> dict[str, Any]:
-        """``open``, or with ``live`` (capture_start) a capture into that file."""
+        """``open``, or with ``live`` (capture_start) a capture into that file.
+        A newer open (or a close) supersedes this one while it runs."""
+        self._supersede_open(ctx.token)
+        try:
+            with self._open_lock:
+                ctx.token.raise_if_cancelled()  # (superseded while it waited)
+                return self._open_now(params, ctx, live)
+        finally:
+            with self._lock:
+                if self._opening is ctx.token:
+                    self._opening = None
+
+    def _open_now(
+        self,
+        params: dict[str, Any],
+        ctx: RequestContext,
+        live: tuple[CaptureOptions, Path] | None,
+    ) -> dict[str, Any]:
         path = _readable_capture(param(params, "path", str)) if live is None else live[1]
         follow = live is None and bool(params.get("follow"))
         options = _dissection_options(params)
@@ -152,7 +169,12 @@ class OpeningMixin(CommentsMixin):
         if cache is not None and key is not None:
             hit = cache.load(key)
             if hit is not None and hit.complete:
-                return self._open_cached(path, tshark, hit, work_dir, cache, key, inline)
+                try:
+                    return self._open_cached(path, tshark, hit, work_dir, cache, key, inline)
+                except OSError as exc:
+                    # (Another window replaced or pruned the entry meanwhile.)
+                    print(f"pcap-viewer: saved index unusable ({exc}): indexing", file=sys.stderr)  # noqa: T201
+                    hit = None
             if hit is not None and stream:
                 resume = self._resume_from(hit, work_dir)
                 if resume is not None:
@@ -568,12 +590,21 @@ class OpeningMixin(CommentsMixin):
     def _known_switches(
         self, options: DissectionOptions, ctx: RequestContext
     ) -> tuple[DissectionOptions, list[str]]:
-        """``options`` without the protocols and heuristic dissectors this
-        tshark doesn't know (it won't start for one), and warnings for them."""
-        if not options.protocols and not options.heuristics:
-            return options, []
-        known = self._protocol_list(self._require_tshark().with_options(options), ctx.token)
-        return options.without_unknown(known.protocols, known.heuristics)
+        """``options`` without the protocols, heuristic dissectors,
+        preferences and Decode As rules this tshark doesn't know (it won't
+        start for one), and warnings for them. (A Lua protocol's preference
+        or rule when this capture doesn't load its script is one.)"""
+        warnings: list[str] = []
+        if options.protocols or options.heuristics:
+            known = self._protocol_list(self._require_tshark().with_options(options), ctx.token)
+            options, warnings = options.without_unknown(known.protocols, known.heuristics)
+        for _ in range(len(options.prefs) + len(options.decode_as)):
+            refused = self._require_tshark().with_options(options).refused_option(ctx.token)
+            if refused is None:
+                break
+            options, warning = options.without(refused)
+            warnings.append(warning)
+        return options, warnings
 
     def _index_key(
         self,

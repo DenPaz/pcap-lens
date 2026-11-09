@@ -280,6 +280,17 @@ class Report:
         return [s for s in self.steps if s.status == "problem"]
 
 
+def _tsharks_own(message: str) -> bool:
+    """A failure that is tshark's: Wireshark's newer test captures crash
+    tshark 4.2.2, some make a dissector loop (a million-item tree for one
+    packet), and some take it past the memory there is (killed: signal 9)."""
+    return (
+        message.startswith("tshark crashed (")
+        or "too large to show" in message
+        or "(signal 9)" in message
+    )
+
+
 class Run:
     def __init__(
         self, server: Server, report: Report, timeout: float, work: Path, quick: bool = False
@@ -300,8 +311,8 @@ class Run:
             status = (
                 "expected"
                 if exc.code in EXPECTED_CODES
-                else "note"  # (Wireshark's newer test captures crash tshark 4.2.2)
-                if exc.message.startswith("tshark crashed (")
+                else "note"
+                if _tsharks_own(exc.message)
                 else "problem"
             )
             data = f" {json.dumps(exc.data)[:300]}" if exc.data else ""
@@ -315,6 +326,28 @@ class Run:
 
     def check(self, name: str, ok: bool, detail: str) -> None:
         self.report.steps.append(Step(name, "ok" if ok else "problem", 0.0, "" if ok else detail))
+
+    def check_written(self, name: str, dest: Path, kind: str, frames: int) -> None:
+        """An export of every packet holds them all, or as many as tshark's
+        own ``-w`` writes (tshark 4.2.2 writes a damaged block for some
+        fuzzed pcapng blocks: a note, not ours)."""
+        got = record_count(dest)
+        if got == frames:
+            self.check(name, True, "")
+            return
+        own = self.work / f"tshark-own.{kind}"
+        with contextlib.suppress(OSError, subprocess.TimeoutExpired):
+            subprocess.run(
+                ["tshark", "-n", "-r", self.report.capture, "-F", kind, "-w", str(own)],  # noqa: S607
+                capture_output=True,
+                timeout=300,
+                check=False,
+            )
+        detail = f"{got} packets written, {frames} in capture"
+        if own.exists() and record_count(own) == got:
+            self.report.steps.append(Step(name, "note", 0.0, f"{detail} (as tshark's own -w)"))
+        else:
+            self.check(name, False, detail)
 
     def first_frame(self, flt: str) -> int | None:
         res = self.call(f"count {flt}", "count_matches", {"filter": flt, "limit": 1})
@@ -390,8 +423,7 @@ def _exercise(run: Run, path: Path, cache: Path) -> None:
         if done.get("event") == "failed":
             # A tshark crash is tshark's bug (Wireshark's newer test captures
             # crash 4.2.2 while indexing too), as for a request.
-            crashed = str(done.get("message", "")).startswith("tshark crashed (")
-            status = "note" if crashed else "problem"
+            status = "note" if _tsharks_own(str(done.get("message", ""))) else "problem"
             run.report.steps.append(Step("index", status, took, json.dumps(done)[:400]))
             return
         run.report.steps.append(Step("index", "ok", took))
@@ -473,10 +505,7 @@ def _quick(run: Run, frames: int) -> None:
     run.call("comments", "packet_comments", {"frames": list(range(1, min(frames, 50) + 1))})
     dest = run.work / "all.pcapng"
     if run.call("export pcapng", "export", {"kind": "pcapng", "dest": str(dest), "filter": ""}):
-        got = record_count(dest)
-        run.check(
-            "export pcapng count", got == frames, f"{got} packets written, {frames} in capture"
-        )
+        run.check_written("export pcapng count", dest, "pcapng", frames)
 
 
 def _packet_list(run: Run, frames: int) -> None:
@@ -737,11 +766,8 @@ def _exports(run: Run, path: Path, frames: int) -> None:
             is None
         ):
             continue
-        got = record_count(dest)
         # pcap can't hold every link type; a refusal is reported as an error above.
-        run.check(
-            f"export {kind} count", got == frames, f"{got} packets written, {frames} in capture"
-        )
+        run.check_written(f"export {kind} count", dest, kind, frames)
     for kind in ("csv", "json"):
         dest = run.work / f"list.{kind}"
         if run.call(f"export {kind}", "export", {"kind": kind, "dest": str(dest)}) is None:
@@ -1197,12 +1223,14 @@ def segment_payloads(path: Path) -> tuple[list[bytes], list[bytes]]:
         cells = line.split("\t")
         if len(cells) != 7:
             continue
+        # TCP first, as replay.parse_record: a UDP header inside a TCP
+        # payload (IKE over TCP in ipsec_tcp_coverage) is TCP data.
         with contextlib.suppress(ValueError):
-            if cells[6]:
-                udp.append(bytes.fromhex(cells[6].replace(":", "")))
-            elif cells[4] and cells[5]:
+            if cells[4] and cells[5]:
                 side = sides.setdefault((cells[0], cells[1] or cells[2], cells[3]), {})
                 side.setdefault(int(cells[4]), bytes.fromhex(cells[5].replace(":", "")))
+            elif cells[6]:
+                udp.append(bytes.fromhex(cells[6].replace(":", "")))
     tcp = []
     for segments in sides.values():
         data = bytearray()

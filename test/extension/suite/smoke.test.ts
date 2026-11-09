@@ -225,6 +225,16 @@ suite("PCAP Lens smoke test", () => {
     const stats = await waitFor(() =>
       api.panels.StatsPanel.all.find((p) => p.kind === "conversations" && p.session === session),
     );
+    // The sequence check with fields from a command: its panel opens on this capture.
+    session.reveal();
+    await vscode.commands.executeCommand("pcapViewer.statistics.sequences", {
+      key: ["tcp.stream"],
+      seq: "tcp.seq",
+    });
+    const sequences = await waitFor(() =>
+      api.panels.StatsPanel.all.find((p) => p.kind === "sequences" && p.session === session),
+    );
+    sequences.panel.dispose();
 
     // Export Objects lists what the capture carried (tshark's --export-objects).
     session.reveal();
@@ -677,6 +687,40 @@ suite("PCAP Lens smoke test", () => {
     await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
   });
 
+  test("editing a capture: each operation opens its result as an unsaved capture", async () => {
+    // Only the backend's editcap options were tested; the host's part (the
+    // dialog-free path, the unsaved capture it opens) ran nowhere, and 0.21.2's
+    // Keep Packets freeze was there.
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    const api = (await ext!.activate()) as PcapViewerApi;
+    const uri = vscode.Uri.file(path.join(FIXTURES, "http.pcap"));
+    await vscode.commands.executeCommand("vscode.openWith", uri, "pcapViewer.editor");
+    const session = await waitFor(() =>
+      api.provider.allSessions.find((s) => s.uri.fsPath === uri.fsPath && indexed(s)),
+    );
+    const total = session.openInfo!.frames;
+    for (const [id, args, frames] of [
+      ["pcapViewer.keepPackets", { frames: "2-4" }, 3],
+      ["pcapViewer.truncatePackets", { snaplen: 60 }, total],
+      ["pcapViewer.timeShift", { offset: "3600" }, total],
+      ["pcapViewer.removeDuplicates", { window: 5 }, total],
+    ] as const) {
+      session.reveal();
+      const out = await vscode.commands.executeCommand<string[] | undefined>(id, args);
+      assert.ok(out?.length === 1, `${id} wrote a capture`);
+      const edited = await waitFor(() =>
+        api.provider.allSessions.find((s) => s.uri.fsPath === out[0] && indexed(s)),
+      );
+      assert.ok(edited.document.temporary, `${id}: an unsaved capture`);
+      assert.equal(edited.openInfo!.frames, frames, id);
+      edited.reveal();
+      await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
+      await waitFor(() => (api.provider.allSessions.includes(edited) ? undefined : true), 10_000);
+    }
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
+  });
+
   test("panels below the capture: one group under it, shared by the next panel", async () => {
     const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
     const api = (await ext!.activate()) as PcapViewerApi;
@@ -715,6 +759,47 @@ suite("PCAP Lens smoke test", () => {
       assert.equal(vscode.window.tabGroups.all.length, 2);
     } finally {
       await cfg.update("panelPlacement", undefined, vscode.ConfigurationTarget.Global);
+    }
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
+  });
+
+  test("every statistics command opens its panel and the backend answers it", async () => {
+    // The statistics kinds share one panel class; each command's wiring and
+    // its query through the host are only exercised here (the webview e2e
+    // tests talk to the backend directly).
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    const api = (await ext!.activate()) as PcapViewerApi;
+    const uri = vscode.Uri.file(path.join(FIXTURES, "http.pcap"));
+    await vscode.commands.executeCommand("vscode.openWith", uri, "pcapViewer.editor");
+    const session = await waitFor(() =>
+      api.provider.allSessions.find((s) => s.uri.fsPath === uri.fsPath && indexed(s)),
+    );
+    const statistics = (ext!.packageJSON.contributes.commands as { command: string }[])
+      .map((c) => c.command)
+      .filter(
+        (id) =>
+          id.startsWith("pcapViewer.statistics.") &&
+          // (Their own panels, covered above; the sequence check runs once asked.)
+          ![
+            "pcapViewer.statistics.flowGraph",
+            "pcapViewer.statistics.tcpStreamGraph",
+            "pcapViewer.statistics.voipCalls",
+            "pcapViewer.statistics.overview",
+            "pcapViewer.statistics.sequences",
+          ].includes(id),
+      );
+    assert.ok(statistics.length >= 18, statistics.join(", "));
+    for (const id of statistics) {
+      session.reveal();
+      const before = new Set(api.panels.StatsPanel.all);
+      await vscode.commands.executeCommand(id);
+      const panel = await waitFor(() =>
+        api.panels.StatsPanel.all.find((p) => p.session === session && !before.has(p)),
+      );
+      const outcome = await waitFor(() => panel.lastOutcome);
+      assert.ok(outcome.ok, `${id}: ${outcome.message}`);
+      panel.panel.dispose();
     }
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
     await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);

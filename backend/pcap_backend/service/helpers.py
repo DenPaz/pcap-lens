@@ -80,6 +80,8 @@ def _readable_capture(raw: str) -> Path:
     """The capture's path, once we could read from it ourselves (a sandboxed
     tshark's permission errors are explained separately)."""
     path = Path(raw).expanduser()
+    if path.is_dir():
+        raise InvalidParamsError(f"{path} is a folder, not a capture file")
     if not path.is_file():
         raise InvalidParamsError(f"capture file not found: {path}")
     try:
