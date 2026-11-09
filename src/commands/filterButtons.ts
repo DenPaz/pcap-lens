@@ -44,6 +44,7 @@ async function askFilter(
 export async function addFilterButtonInteractive(
   expr: string,
   session?: PcapEditorSession,
+  given: { label?: string; comment?: string } = {},
 ): Promise<FilterButton | undefined> {
   const title = "Add Filter Button";
   if (buttons().length >= MAX_FILTER_BUTTONS) {
@@ -66,19 +67,23 @@ export async function addFilterButtonInteractive(
       return undefined;
     }
   }
-  const label = await vscode.window.showInputBox({
-    title,
-    prompt: `Button label for: ${filter}`,
-    value: labelFor(filter),
-    validateInput: (text) => (text.trim() ? undefined : "Enter a label"),
-  });
+  const label = given.label?.trim()
+    ? given.label
+    : await vscode.window.showInputBox({
+        title,
+        prompt: `Button label for: ${filter}`,
+        value: labelFor(filter),
+        validateInput: (text) => (text.trim() ? undefined : "Enter a label"),
+      });
   if (label === undefined) {
     return undefined;
   }
-  const comment = await vscode.window.showInputBox({
-    title,
-    prompt: "Comment shown as the button's tooltip (optional)",
-  });
+  const comment = given.label?.trim()
+    ? (given.comment ?? "")
+    : await vscode.window.showInputBox({
+        title,
+        prompt: "Comment shown as the button's tooltip (optional)",
+      });
   if (comment === undefined) {
     return undefined;
   }
@@ -250,11 +255,18 @@ export function registerFilterButtonCommands(
   provider: PcapEditorProvider,
 ): void {
   context.subscriptions.push(
-    vscode.commands.registerCommand("pcapViewer.addFilterButton", async (expr?: unknown) => {
+    // A filter, or {filter, label, comment}: a label answers both questions.
+    vscode.commands.registerCommand("pcapViewer.addFilterButton", async (arg?: unknown) => {
       const session = provider.activeSession;
-      await addFilterButtonInteractive(
+      const given = arg && typeof arg === "object" ? (arg as Record<string, unknown>) : {};
+      const expr = typeof arg === "string" ? arg : given.filter;
+      return addFilterButtonInteractive(
         typeof expr === "string" ? expr : (session?.currentFilter ?? ""),
         session,
+        {
+          label: typeof given.label === "string" ? given.label : undefined,
+          comment: typeof given.comment === "string" ? given.comment : undefined,
+        },
       );
     }),
     vscode.commands.registerCommand("pcapViewer.manageFilterButtons", () =>

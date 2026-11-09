@@ -1364,7 +1364,8 @@ fields -e frame.number` gives progress when filtering; without a filter
   `ExportArgs` (`{dest, scope, format, bytes, source}`; scopes and formats by
   id: displayed/all/selected/marked, pcapng/pcap, csv/json, text/pdml/json)
   that answer its questions, and then shows no notification (smoke test); so
-  do Colorize with Filter (`{filter, color, name}`), Save Filter (`{filter,
+  do Colorize with Filter (`{filter, color, name}`), Add Filter Button
+  (`{filter, label, comment}`), Save Filter (`{filter,
 name}`), Merge Captures (`files, {dest, append}`) and Set TLS Key Log File
   (`{file}` / `{clear: true}`).
 - **Merging** (`merge {inputs, dest, format, append}`, no open capture needed):

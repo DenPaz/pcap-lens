@@ -438,7 +438,14 @@ suite("PCAP Lens smoke test", () => {
     const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
     const api = (await ext!.activate()) as PcapViewerApi;
     const cfg = () => vscode.workspace.getConfiguration("pcapViewer");
-    const keys = ["savedFilters", "columns", "coloringRules", "colorize", "tlsKeyLogFile"];
+    const keys = [
+      "savedFilters",
+      "filterButtons",
+      "columns",
+      "coloringRules",
+      "colorize",
+      "tlsKeyLogFile",
+    ];
     const before = new Map(keys.map((k) => [k, cfg().inspect(k)?.globalValue]));
     const uri = vscode.Uri.file(path.join(FIXTURES, "http.pcap"));
     await vscode.commands.executeCommand("vscode.openWith", uri, "pcapViewer.editor");
@@ -468,6 +475,20 @@ suite("PCAP Lens smoke test", () => {
           .get<{ name: string }[]>("savedFilters")
           ?.some((f) => f.name === "Broken"),
       );
+
+      // Add Filter Button with its label and comment; an invalid filter isn't added.
+      const button = await run<{ label: string; comment?: string } | undefined>("addFilterButton", {
+        filter: "dns",
+        label: "DNS",
+        comment: "Name lookups",
+      });
+      assert.deepEqual(button, { label: "DNS", filter: "dns", comment: "Name lookups" });
+      assert.ok(
+        cfg()
+          .get<{ label: string; filter: string }[]>("filterButtons")
+          ?.some((b) => b.label === "DNS" && b.filter === "dns"),
+      );
+      assert.equal(await run("addFilterButton", { filter: "dns ==", label: "Broken" }), undefined);
 
       // Apply as Column: the field joins the columns once.
       await run("manageColumns", "http.host");
