@@ -254,19 +254,14 @@
           }),
         );
       }
-      // Centred above the arrow when it fits, else from the arrow's left end
-      // to the right edge (a row holds one arrow, so the text can run on).
       const text = `${arrow.protocol}: ${arrow.info}`;
-      const left = self ? x1 + 28 : Math.min(x1, x2) + 6;
-      const span = self ? 0 : Math.abs(x2 - x1) - 12;
-      const fits = text.length * CHAR <= span;
-      const room = GUTTER + columns * COLUMN - left - 6;
+      const place = lib.flowLabel(text, x1, x2, GUTTER + columns * COLUMN, CHAR, self);
       const label = s("text", {
-        x: fits ? (x1 + x2) / 2 : left,
+        x: place.x,
         y: y + 13,
-        class: fits ? "flow-label middle" : "flow-label",
+        class: place.middle ? "flow-label middle" : "flow-label",
       });
-      label.textContent = fits ? text : lib.truncate(text, Math.floor(room / CHAR));
+      label.textContent = place.text;
       const tip = s("title");
       tip.textContent = `${arrow.number}: ${text}`;
       g.append(label, tip);

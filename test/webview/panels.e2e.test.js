@@ -2327,7 +2327,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         if (msg.type === "ready") {
           await post({
             type: "init",
-            title: "Replay to Service · replay.pcap",
+            title: "Replay · replay.pcap",
             filter: "tcp",
             destinations: { [HI2]: { ip: "127.0.0.1", port: hi2.port } },
             options: { speed: 0, loops: 1, scope: "all", order: "sequence", jitter: 0, loss: 0 },

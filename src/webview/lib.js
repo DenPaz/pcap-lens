@@ -2378,6 +2378,26 @@
   }
 
   /**
+   * Where an arrow's label goes (flow graph, VoIP call flow): centred over the
+   * arrow when it fits between its ends, else from the arrow's left end
+   * towards `right` (a row holds one arrow, so the text can run on), cut to
+   * fit; never left of the arrow, where it would cover the time gutter.
+   * @param {string} text @param {number} x1 @param {number} x2
+   * @param {number} right the drawing's right edge
+   * @param {number} char approximate width of one character
+   * @param {boolean} [self] an arrow from a node to itself (drawn as a loop)
+   * @returns {{x: number, middle: boolean, text: string}}
+   */
+  function flowLabel(text, x1, x2, right, char, self = false) {
+    const span = self ? 0 : Math.abs(x2 - x1) - 12;
+    if (text.length * char <= span) {
+      return { x: (x1 + x2) / 2, middle: true, text };
+    }
+    const left = self ? x1 + 28 : Math.min(x1, x2) + 6;
+    return { x: left, middle: false, text: truncate(text, Math.floor((right - left - 6) / char)) };
+  }
+
+  /**
    * Round axis ticks covering `min`..`max` (for axes that don't start at 0).
    * @param {number} min @param {number} max @param {number} [target]
    * @returns {number[]}
@@ -3615,6 +3635,7 @@
     cellAddress,
     filterObjects,
     flowArrow,
+    flowLabel,
     niceRange,
     tcpGraphSeries,
     truncate,

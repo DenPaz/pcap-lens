@@ -1305,6 +1305,27 @@ suite("webview lib: coloring", () => {
 suite("webview lib: navigation and customisation", () => {
   const col = (id, extra = {}) => ({ id, field: id, ...extra });
 
+  test("flowLabel centres a label that fits and never starts left of its arrow", () => {
+    assert.deepEqual(lib.flowLabel("INVITE", 100, 300, 500, 7), {
+      x: 200,
+      middle: true,
+      text: "INVITE",
+    });
+    // Too long for the span: from the arrow's left end, cut at the edge.
+    const long = "RTP g711U · 1,234 packets · 5 lost (0.4%)";
+    const right = lib.flowLabel(long, 300, 100, 320, 7);
+    assert.equal(right.x, 106);
+    assert.equal(right.middle, false);
+    assert.equal(right.text.length, Math.floor((320 - 106 - 6) / 7));
+    assert.ok(right.text.endsWith("…"));
+    // A loop has no span: next to it.
+    assert.deepEqual(lib.flowLabel("x", 100, 100, 500, 7, true), {
+      x: 128,
+      middle: false,
+      text: "x",
+    });
+  });
+
   test("flowArrow places arrows between endpoint columns", () => {
     const layout = { gutter: 100, column: 50 };
     assert.deepEqual(lib.flowArrow(0, 2, 3, layout), { x1: 125, x2: 225, self: false });

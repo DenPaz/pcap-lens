@@ -14,7 +14,8 @@
   const vscode = acquireVsCodeApi();
   /** @type {any} */
   const lib = /** @type {any} */ (window).PcapLib;
-  const FLOW = { gutter: 96, column: 190, row: 26, top: 30 };
+  // char: approximate width of a character of the flow's monospaced font.
+  const FLOW = { gutter: 96, column: 190, row: 26, top: 30, char: 7.2 };
   const CHART = { height: 220, top: 12, right: 16, bottom: 32, left: 56 };
 
   const state = {
@@ -711,6 +712,7 @@
       const y = FLOW.top + i * FLOW.row;
       const { x1, x2 } = lib.flowArrow(row.from, row.to, nodes.length, FLOW);
       const rtp = row.stream !== undefined;
+      const place = lib.flowLabel(row.label, x1, x2, width, FLOW.char);
       const g = s("g", {
         class: `flow-row${rtp ? " voip-rtp" : ""}`,
         tabindex: "0",
@@ -722,8 +724,8 @@
         s("text", { x: 6, y: y + 17, class: "flow-time" }, num(row.time)),
         s(
           "text",
-          { x: (x1 + x2) / 2, y: y + 11, class: "flow-label middle" },
-          lib.truncate(row.label, 34),
+          { x: place.x, y: y + 11, class: place.middle ? "flow-label middle" : "flow-label" },
+          place.text,
         ),
         s("line", { x1, x2, y1: y + 18, y2: y + 18, class: `flow-arrow${rtp ? " rtp" : ""}` }),
       );

@@ -160,7 +160,7 @@ function tickReplay() {
   setStatusText(el.replayShow, lib.replayStatusLabel({ ...replay, seconds }));
   el.replayShow.title =
     `${lib.formatBytes(replay.received)} received from the services. ` +
-    "Click to show the Replay to Service panel.";
+    "Click to show the Replay panel.";
   replayTimer = window.setTimeout(tickReplay, 1000);
 }
 
