@@ -2526,16 +2526,17 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   when the job succeeds, and a run with problems fails. tshark 4.6.9 on
   macOS timed out (120 s) on `cosem_coverage.pcap.gz`'s conversations,
   expert, VoIP, triage and profile passes; not yet looked into.
-  The second weekly run's Linux runner was shut down mid-run (no report,
-  no cache saved): tshark 4.2.2 dissecting one SPOOLSS response of
-  `dcerpc_spoolss_coverage.pcap.gz` takes 4–5 GB per pass (its expert pass
-  over 10 GB; `gui.max_tree_items` doesn't help), and a backend runs
-  several passes at once. So on Linux the harness caps every process it
-  starts (`limit_memory`: RLIMIT_DATA, inherited; the machine's memory /
-  (jobs × `PROCESSES_PER_JOB` 6), at least 1 GB, `--memory MB`, 0 = none):
-  such a tshark aborts (a "failed internal check": tshark's crash, a note)
-  instead of the OOM killer picking a victim. The 20 largest captures run
-  unchanged under CI's 1.3 GB.
+  The second weekly run lost both runners mid-run (no report, no cache
+  saved; macOS left no log at all): tshark 4.2.2 dissecting one SPOOLSS
+  response of `dcerpc_spoolss_coverage.pcap.gz` takes 4–5 GB per pass (its
+  expert pass over 10 GB; `gui.max_tree_items` doesn't help), and a backend
+  runs several passes at once. So the harness watches the Wireshark tools it
+  starts (`MemoryWatch`: `ps` every 0.5 s over its descendants, never the
+  backends; macOS enforces no memory rlimit) and SIGKILLs one past the cap
+  (the machine's memory / (jobs × `PROCESSES_PER_JOB` 6), at least 1 GB,
+  `--memory MB`, 0 = none): "killed (signal 9)" is tshark's own failure, a
+  note. The 20 largest captures run unchanged under CI's 1.3 GB;
+  `test_realworld_watch.py` checks what it kills.
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage

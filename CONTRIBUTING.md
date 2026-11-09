@@ -96,9 +96,9 @@ The `Makefile` wraps everything (`make` lists the targets):
   hand (_Run workflow_, with _full_ for every step of Wireshark's captures) on
   Linux and macOS (Homebrew's tshark, the newest release); a problem fails
   the job, the run's summary lists them and its artifact has both reports.
-  On Linux each process it starts may use a share of the machine's memory
-  (`--memory MB` to change, 0 for none), so a dissector loop crashes that
-  tshark (a note) rather than running the machine out of memory.
+  Each tshark it starts may use a share of the machine's memory (change it
+  with `--memory <MB>`, 0 for none): one that grows past it is killed (a
+  note) rather than running the machine out of memory.
   Run it yourself after a tshark upgrade or a change to parsing:
 
   ```sh

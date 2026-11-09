@@ -24,11 +24,11 @@ problem: an internal error, a tshark failure, a timeout, a broken
 invariant, a traceback on the server's stderr. Exit status 1 when there
 are problems.
 
-On Linux every process it starts (the backends, their tshark passes, its own
-tshark runs) gets a share of the machine's memory (``--memory``): a
-dissector that takes tshark past it makes that tshark abort, which counts as
-tshark's own crash (a note), instead of the kernel's OOM killer stopping
-whatever it picks: the whole CI runner, once.
+Each Wireshark tool it starts (the backends' tshark passes, its own tshark
+runs) may use a share of the machine's memory (``--memory``): one that
+grows past it is killed, which counts as tshark's own failure (a note),
+instead of the machine running out of memory: that took down both CI
+runners of a weekly run.
 """
 
 from __future__ import annotations
@@ -40,6 +40,7 @@ import os
 import queue
 import re
 import selectors
+import signal
 import socket
 import subprocess
 import sys
@@ -71,14 +72,19 @@ TIMEOUT_CODE = 0
 # Answers the viewer shows as a message (no such stream, still indexing…).
 EXPECTED_CODES = {-32602, -32010, -32011, -32012}
 SLOW_S = 30.0
-# The memory each process may use is the machine's divided by the jobs times
-# this (a backend runs up to four tshark passes at once, the capture profile's
-# pool, next to its own and the harness's); never below MIN_MEMORY_MB.
-# tshark 4.2.2 takes dcerpc_spoolss_coverage.pcap.gz to 5 GB per pass and its
-# expert pass past 10 GB (a SPOOLSS response's dissection), which shut the
-# weekly run's Linux runner down (16 GB, two jobs).
+# The memory each Wireshark tool may use is the machine's divided by the jobs
+# times this (a backend runs up to four tshark passes at once, the capture
+# profile's pool, next to its own and the harness's); never below
+# MIN_MEMORY_MB. tshark 4.2.2 takes dcerpc_spoolss_coverage.pcap.gz to 5 GB
+# per pass and its expert pass past 10 GB (a SPOOLSS response's dissection):
+# the weekly run's Linux runner (16 GB, two jobs) was shut down on it, and its
+# macOS runner (7 GB, tshark 4.6.9) was lost without a log.
 PROCESSES_PER_JOB = 6
 MIN_MEMORY_MB = 1024
+WATCH_INTERVAL_S = 0.5
+# The programs MemoryWatch may stop (ps's comm: a path on macOS, 15
+# characters on Linux); never the backends or the harness, whose memory is ours.
+WIRESHARK_TOOLS = {"tshark", "editcap", "mergecap", "capinfos", "dumpcap", "text2pcap"}
 
 with (ROOT / "package.json").open(encoding="utf-8") as fh:
     _PROPS: dict[str, Any] = {}
@@ -1522,26 +1528,99 @@ def _replay_several(run: Run, path: Path, base: Baseline) -> None:
 # --- main --------------------------------------------------------------------
 
 
-def limit_memory(jobs: int, mb: int | None) -> int | None:
-    """Cap this process's data segment (Linux's RLIMIT_DATA counts every
-    private writable mapping, i.e. what malloc gets) at ``mb`` MB, or at the
-    machine's memory / (jobs times PROCESSES_PER_JOB) when None; the processes
-    it starts inherit it. 0 = no cap. Returns the cap in MB, or None where
-    there is none (Windows has no rlimits; macOS doesn't enforce this one, but
-    swaps instead of killing)."""
-    if mb == 0 or not sys.platform.startswith("linux"):
-        return None
-    import resource  # noqa: PLC0415 (POSIX only: Windows has none)
+def machine_memory_mb() -> int | None:
+    """The machine's memory in MB, or None when it can't be read."""
+    with contextlib.suppress(ValueError, OSError, AttributeError):
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") >> 20
+    with contextlib.suppress(ValueError, OSError, subprocess.SubprocessError):
+        out = subprocess.run(
+            ["/usr/sbin/sysctl", "-n", "hw.memsize"], capture_output=True, check=True, timeout=10
+        ).stdout
+        return int(out) >> 20
+    return None
 
+
+class MemoryWatch:
+    """Kills any Wireshark tool this process started (at any depth) whose
+    resident memory passes ``cap_mb``, checking every WATCH_INTERVAL_S with
+    ``ps``. The backend reports a tool killed by SIGKILL as "killed (signal
+    9)", which the harness counts as tshark's own failure (a note). A polling
+    watch rather than an rlimit, since macOS enforces no memory rlimit; it
+    overshoots by what tshark allocates in one interval (~200 MB)."""
+
+    def __init__(self, cap_mb: int) -> None:
+        self.cap_mb = cap_mb
+        self.killed: list[str] = []
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="memory-watch", daemon=True)
+
+    def start(self) -> MemoryWatch:
+        self._thread.start()
+        return self
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join()
+
+    def _run(self) -> None:
+        while not self._stop.wait(WATCH_INTERVAL_S):
+            with contextlib.suppress(OSError, subprocess.SubprocessError, ValueError):
+                self.check(self._processes())
+
+    @staticmethod
+    def _processes() -> list[tuple[int, int, int, str]]:
+        """(pid, ppid, rss KB, program) of every process, from ``ps``."""
+        out = subprocess.run(
+            ["/bin/ps", "-A", "-o", "pid=,ppid=,rss=,comm="],
+            capture_output=True,
+            check=True,
+            timeout=10,
+            text=True,
+            errors="replace",
+        ).stdout
+        rows = []
+        for line in out.split("\n"):
+            parts = line.split(None, 3)
+            if len(parts) == 4 and parts[0].isdigit() and parts[1].isdigit() and parts[2].isdigit():
+                rows.append((int(parts[0]), int(parts[1]), int(parts[2]), parts[3]))
+        return rows
+
+    def check(self, processes: list[tuple[int, int, int, str]], root: int | None = None) -> None:
+        """Kill the tools under ``root`` (this process) over the cap."""
+        children: dict[int, list[int]] = {}
+        for pid, ppid, _rss, _name in processes:
+            children.setdefault(ppid, []).append(pid)
+        mine: set[int] = set()
+        todo = [os.getpid() if root is None else root]
+        while todo:
+            for child in children.get(todo.pop(), []):
+                if child not in mine:
+                    mine.add(child)
+                    todo.append(child)
+        for pid, _ppid, rss, name in processes:
+            program = Path(name.strip()).name
+            if pid in mine and program in WIRESHARK_TOOLS and rss >> 10 > self.cap_mb:
+                with contextlib.suppress(OSError):
+                    os.kill(pid, signal.SIGKILL)
+                    note = f"{program} (pid {pid}) at {rss >> 10} MB"
+                    self.killed.append(note)
+                    print(
+                        f"memory: killed {note}, over {self.cap_mb} MB", file=sys.stderr, flush=True
+                    )
+
+
+def watch_memory(jobs: int, mb: int | None) -> MemoryWatch | None:
+    """A started MemoryWatch with ``mb`` MB, or the machine's memory /
+    (jobs times PROCESSES_PER_JOB) when None; None for 0, on Windows (no
+    ``ps``), or when the machine's memory can't be read."""
+    if mb == 0 or sys.platform == "win32":
+        return None
     if mb is None:
-        total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") >> 20
+        total = machine_memory_mb()
+        if total is None:
+            return None
         mb = max(MIN_MEMORY_MB, total // (jobs * PROCESSES_PER_JOB))
-    _soft, hard = resource.getrlimit(resource.RLIMIT_DATA)
-    cap = mb << 20
-    if hard != resource.RLIM_INFINITY:
-        cap = min(cap, hard)
-    resource.setrlimit(resource.RLIMIT_DATA, (cap, hard))
-    return cap >> 20
+    return MemoryWatch(mb).start()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1564,7 +1643,7 @@ def main(argv: list[str] | None = None) -> int:
         "--memory",
         type=int,
         metavar="MB",
-        help="memory each process may use (Linux; default: a share of the machine's, 0 = no cap)",
+        help="memory each Wireshark tool may use (default: a share of the machine's, 0 = no cap)",
     )
     ap.add_argument("--out", type=Path, help="write the full report as JSON")
     args = ap.parse_args(argv)
@@ -1581,9 +1660,12 @@ def main(argv: list[str] | None = None) -> int:
     if not captures:
         ap.error("no captures: give paths or --fetch")
 
-    cap = limit_memory(args.jobs, args.memory)
-    if cap:
-        print(f"{len(captures)} captures, {args.jobs} at a time, {cap} MB per process", flush=True)
+    watch = watch_memory(args.jobs, args.memory)
+    if watch:
+        print(
+            f"{len(captures)} captures, {args.jobs} at a time, {watch.cap_mb} MB per tool",
+            flush=True,
+        )
     reports: list[Report] = []
     with ThreadPoolExecutor(args.jobs) as pool:
         for report in pool.map(lambda c: exercise(c, args.timeout, args.quick), captures):
@@ -1602,6 +1684,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\n{len(reports)} captures, {sum(1 for r in reports if r.problems())} with problems")
     for (name, what), n in kinds.most_common(40):
         print(f"{n:5}  {name}  {what}")
+    if watch:
+        watch.stop()
+        if watch.killed:
+            print(f"{len(watch.killed)} tools killed over {watch.cap_mb} MB of memory")
     if args.out:
         args.out.write_text(
             json.dumps(
