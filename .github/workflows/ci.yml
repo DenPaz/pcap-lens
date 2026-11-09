@@ -79,6 +79,8 @@ jobs:
       - name: VS Code smoke test (with host coverage)
         run: |
           PCAP_HOST_COVERAGE=coverage/host xvfb-run -a pnpm run test:extension
+          # Per file in the log (lines not run included), the totals in the summary.
+          pnpm exec c8 report --temp-directory coverage/host --reports-dir coverage/host-report --reporter=text
           {
             echo "### Extension host coverage (the VS Code smoke test)"
             echo '```'
