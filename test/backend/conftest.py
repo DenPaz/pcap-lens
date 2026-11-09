@@ -28,11 +28,15 @@ HAVE_TSHARK = shutil.which("tshark") is not None
 # loads personal plugins from the home folder, so a developer's own Wireshark
 # setup (a Lua dissector on UDP/9999, say) would change what the tests see. The
 # whole session runs with an empty home instead; tests that need a personal
-# file create it there (or in their own tmp_path).
+# file create it there (or in their own tmp_path). Caches too: under
+# pytest-xdist each worker has its own home, and on Windows `~` is
+# USERPROFILE, not HOME, so the workers shared scapy's cache folder and one
+# failed to replace a pickle another had open (XDG_CACHE_HOME moves it).
 _ISOLATED_ENV = (
     "HOME",
     "APPDATA",
     "XDG_CONFIG_HOME",
+    "XDG_CACHE_HOME",
     "WIRESHARK_CONFIG_DIR",
     "WIRESHARK_PLUGIN_DIR",
 )
@@ -49,6 +53,7 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001 - pytest's 
     os.environ["HOME"] = home
     os.environ["APPDATA"] = home  # Windows: %APPDATA%\Wireshark
     os.environ["XDG_CONFIG_HOME"] = str(Path(home) / ".config")
+    os.environ["XDG_CACHE_HOME"] = str(Path(home) / ".cache")
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:  # noqa: ARG001 - pytest's hook signature

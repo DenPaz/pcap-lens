@@ -93,9 +93,12 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
 - **Parallel backend tests**: CI and `make` run pytest-xdist with
   `-n auto --dist loadfile` (a file's tests stay in one worker, in order;
   6 min → under 2 locally, coverage unchanged). Each worker runs
-  `pytest_configure`, so each has its own empty home; tests must not share
-  fixed ports, files outside `tmp_path` or the home's state across files
-  (the loopback capture test picks a port from the clock and filters on it).
+  `pytest_configure`, so each has its own empty home and cache folder
+  (`XDG_CACHE_HOME`: on Windows `~` is USERPROFILE, not HOME, so the first
+  CI run had four workers racing on scapy's cache pickle); tests must not
+  share fixed ports, files outside `tmp_path` or the home's state across
+  files (the loopback capture test picks a port from the clock and filters
+  on it).
 - **Tests use an empty home**: tshark reads the personal configuration
   (preferences, Decode As, colors) and loads personal plugins from the home
   folder, so a developer's own Wireshark setup changed results (a personal
