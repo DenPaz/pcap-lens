@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.29.1 — 2026-11-09
+
 ### Changed
 
 - Statistics tables of more than 2,000 rows draw only the rows on screen, so
