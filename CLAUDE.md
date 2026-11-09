@@ -81,8 +81,11 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
   `@types/vscode` is never bumped (it must not exceed `engines.vscode`, or vsce
   refuses to package; raise both together), `@types/node` stays on Node 20
   (VS Code 1.90's extension host), and peer ranges are respected
-  (typescript-eslint caps TypeScript, so TS 7 waits). mocha 12 is ESM-only:
-  the VS Code smoke suite loads it with `await import("mocha")`. Node ≥ 22.13
+  (typescript-eslint caps TypeScript, so TS 7 waits). mocha 12's CommonJS
+  entry requires ES modules (require(esm): Node 20.19+), which VS Code 1.90's
+  extension host (Node 20.9) can't, so the smoke suite runs on mocha 11, the
+  `mocha-smoke` alias (`npm:mocha@^11`; ncu and Dependabot keep it on 11),
+  and the unit tests on mocha 12. Node ≥ 22.13
   is needed for the dev tools. Python dev tools: `uv lock --upgrade`;
   pytest 9.2 needs pytest-bdd ≥ 9.0.1 (9.0.0 read
   `FixtureManager._arg2fixturedefs`, which 9.2 renamed: every acceptance
