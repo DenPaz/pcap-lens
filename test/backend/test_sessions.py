@@ -126,6 +126,12 @@ def test_a_long_session_table_lists_its_first_rows(
     assert table["summary"] == {"queries": 5, "unanswered": 1, "failed": 1}
     assert len(table["rows"]) == 2 and table["more"] == 3
     assert [_cell(table, r, "ID") for r in table["rows"]] == ["0x3000", "0x3001"]
+    # HTTP: the requests past the limit still pair with their responses (the
+    # unanswered one and the pipelined pair are among them).
+    http = _table(service, "http_requests")
+    assert http["summary"] == {"requests": 7, "unanswered": 1}
+    assert len(http["rows"]) == 2 and http["more"] == 5
+    assert [_cell(http, r, "Response Time (ms)") for r in http["rows"]] == [30.0, 12.0]
     assert "more" not in _table(service, "tls_servers")
 
 

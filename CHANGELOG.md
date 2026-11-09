@@ -7,6 +7,29 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.29.1 — 2026-11-09
+
+### Changed
+
+- Statistics tables of more than 2,000 rows draw only the rows on screen, so
+  HTTP Requests, DNS Queries and TLS Servers now list up to 50,000 rows
+  (was 10,000), and long conversation or endpoint tables scroll smoothly
+  [912b683]
+- HTTP Requests keeps details only for the requests it lists, like DNS
+  Queries: a capture with very many requests no longer fills the backend's
+  memory (the summary still counts them all) [8554a23]
+- The Replay panel is titled "Replay", like its _Replay to…_ command
+  [f8e45c9]
+
+### Fixed
+
+- A long label in the VoIP call flow (an RTP stream's) no longer runs left
+  of its arrow into the time column [f8e45c9]
+
+[912b683]: https://github.com/DenPaz/pcap-lens/commit/912b683
+[8554a23]: https://github.com/DenPaz/pcap-lens/commit/8554a23
+[f8e45c9]: https://github.com/DenPaz/pcap-lens/commit/f8e45c9
+
 ## 0.29.0 — 2026-11-08
 
 ### Added

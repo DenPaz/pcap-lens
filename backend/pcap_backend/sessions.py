@@ -203,8 +203,10 @@ def _cells(line: str, count: int) -> list[str] | None:
 # ---------------------------------------------------------------------- HTTP
 
 
-def http_requests(lines: Iterable[str]) -> Table:
-    """HTTP requests (rows in capture order) with their responses."""
+def http_requests(lines: Iterable[str], limit: int | None = None) -> Table:
+    """HTTP requests (rows in capture order) with their responses: the first
+    ``limit`` as rows (``more`` counts the rest), all in the summary. Requests
+    past the limit keep only what pairing them with a response needs."""
     requests: list[dict[str, Any]] = []
     pending: dict[int, deque[dict[str, Any]]] = {}  # per TCP stream, in order
     by_frame: dict[int, list[dict[str, Any]]] = {}  # (no TCP stream: http.request_in)
@@ -218,6 +220,14 @@ def http_requests(lines: Iterable[str]) -> Table:
         stream = _int(_first(c["tcp.stream"]))
         methods = c["http.request.method"].split(AGGREGATOR) if c["http.request.method"] else []
         for i, method in enumerate(methods):
+            if limit is not None and len(requests) >= limit:
+                request: dict[str, Any] = {"time": time}  # (counted, not listed)
+                requests.append(request)
+                if stream is not None:
+                    pending.setdefault(stream, deque()).append(request)
+                else:
+                    by_frame.setdefault(frame, []).append(request)
+                continue
             request = {
                 "frame": frame,
                 "index": i,
@@ -253,6 +263,9 @@ def http_requests(lines: Iterable[str]) -> Table:
                 target = waiting[0] if waiting else None
             if target is None:
                 continue  # (its request isn't in the capture)
+            if "method" not in target:  # (past the limit: only whether it was answered)
+                target.update(response=frame, final=final)
+                continue
             target.update(
                 response=frame,
                 final=final,
@@ -262,6 +275,12 @@ def http_requests(lines: Iterable[str]) -> Table:
                 size=_int(_nth(c["http.content_length"], i, len(codes))),
                 ms=None if time is None or target["time"] is None else _ms(time - target["time"]),
             )
+    return _http_table(requests)
+
+
+def _http_table(requests: list[dict[str, Any]]) -> Table:
+    """The HTTP Requests table: a row per listed request (they have a
+    ``method``), every request in the summary."""
     table = Table(
         "http_requests",
         "HTTP Requests",
@@ -280,10 +299,12 @@ def http_requests(lines: Iterable[str]) -> Table:
             _col("ms", "Response Time (ms)", True),
         ],
     )
-    answered = 0
-    for r in sorted(requests, key=lambda r: (r["frame"], r["index"])):
+    answered = sum(1 for r in requests if r.get("response") is not None)
+    listed = [r for r in requests if "method" in r]
+    if len(listed) < len(requests):
+        table.extra["more"] = len(requests) - len(listed)
+    for r in sorted(listed, key=lambda r: (r["frame"], r["index"])):
         response = r.get("response")
-        answered += response is not None
         frames = [r["frame"], response] if response is not None else [r["frame"]]
         table.rows.append(
             {

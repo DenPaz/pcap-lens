@@ -73,7 +73,7 @@
 
   // ------------------------------------------------------------------ skeleton
 
-  const title = h("h1", { class: "panel-title" }, ["Replay to Service"]);
+  const title = h("h1", { class: "panel-title" }, ["Replay"]);
   const intro = h("p", { class: "status replay-intro" }, [
     "Each recorded connection is opened again to its destination and carries what the client sent, with the recorded pauses; the service's answers are counted.",
   ]);
@@ -471,7 +471,7 @@
 
   /** The open capture's name, as the title gives it. */
   function openName() {
-    return title.textContent?.replace(/^Replay to Service · /, "") || "Open capture";
+    return title.textContent?.replace(/^Replay · /, "") || "Open capture";
   }
 
   /**

@@ -144,7 +144,7 @@ export class ReplayPanel {
     private readonly context: vscode.ExtensionContext,
     readonly session: PcapEditorSession,
   ) {
-    const title = `Replay to Service · ${path.basename(session.uri.fsPath)}`;
+    const title = `Replay · ${path.basename(session.uri.fsPath)}`;
     const root = webviewRoot(context);
     this.panel = vscode.window.createWebviewPanel(
       "pcapViewer.replay",
@@ -198,7 +198,7 @@ export class ReplayPanel {
       case "ready":
         this.post({
           type: "init",
-          title: `Replay to Service · ${path.basename(this.session.uri.fsPath)}`,
+          title: `Replay · ${path.basename(this.session.uri.fsPath)}`,
           filter: this.session.currentFilter,
           destinations: normalizeDestinations(this.context.globalState.get(DESTINATIONS_KEY)),
           options: normalizeOptions(this.context.globalState.get(OPTIONS_KEY)),

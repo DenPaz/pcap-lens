@@ -112,7 +112,12 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
   Playwright and writes it into c8's `NODE_V8_COVERAGE` folder, the served
   URLs mapped back to the files (one numbering per process: both e2e suites
   run in one mocha). The VS Code-dependent host code only runs in the smoke
-  test, which isn't measured. No thresholds: the numbers are for finding
+  test: with `PCAP_HOST_COVERAGE=<dir>` (CI's Linux job: `coverage/host`)
+  `test/extension/suite/coverage.ts` takes V8's precise coverage through
+  `node:inspector` and writes the bundle's share in c8's format, which
+  `c8 report --temp-directory <dir>` maps through `dist/extension.js`'s
+  source map to `src/*.ts`; a report of its own, since the bundle's
+  functions don't line up with tsc's. No thresholds: the numbers are for finding
   untested code (backend 93%; TypeScript and webview 95%, the viewer's
   modules 89%).
 - **Accessibility checks**: `axeViolations(page)` in `test/webview/harness.js`
@@ -769,7 +774,12 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   only `!(…)` when there is no filter or it is that stream's.
 - **Statistics** parse tshark's human-readable `-z` reports into one generic
   table model (`stats.py`: columns, rows with optional `filter`/`frame`/`depth`),
-  rendered by one panel (`src/webview/stats.js`). Sizes like "12 kB" are
+  rendered by one panel (`src/webview/stats.js`); a table of more than
+  `lib.VIRTUAL_TABLE_ROWS` (2,000) rows draws only the rows on screen
+  (`drawWindow` on the page's scroll, `lib.tableWindow`; spacer rows stand
+  for the rest; `aria-rowcount`/`aria-rowindex`; fixed column widths from
+  `lib.columnChars`, the cells being monospaced, the widest text column
+  taking what is left). Sizes like "12 kB" are
   converted with SI units. tshark 4.6 adds a top-level `frame` row to the
   protocol hierarchy (eth at depth 1, dns at 4; 4.2: 0 and 3), so tests check
   parent rows ("dns one level below udp") and totals, never absolute depths.
@@ -1656,11 +1666,11 @@ dns_queries | tls_servers}`, `http_body {frame}`): one row per HTTP
   request, DNS query or TLS server, each from one `-Y` fields pass
   (aggregator `\x1e`), in the statistics panel (`SESSION_KINDS`,
   `lib.sessionSummary` for the status line from the result's `summary`).
-  The pass is streamed and at most `MAX_SESSION_ROWS` (10,000) rows are
+  The pass is streamed and at most `MAX_SESSION_ROWS` (50,000) rows are
   listed, in capture order (`more` counts the rest; the summary counts all):
-  the panel draws every row, and the 1M-packet benchmark capture holds 334k
-  DNS queries (457 MB before; `dns_queries(lines, limit)` keeps details only
-  for the listed ones: 64 MB).
+  the 1M-packet benchmark capture holds 334k DNS queries (457 MB and a
+  60 MB reply before; `dns_queries`/`http_requests(lines, limit)` keep
+  details only for the listed ones: ~100 MB, an 8 MB reply).
   HTTP: a row per request message (pipelined ones share a packet), the
   responses paired per TCP stream in order (HTTP/1.1; tshark's
   `http.request_in` names only the first of pipelined responses; 1xx don't
@@ -3041,106 +3051,9 @@ view_overview 0.1 s.
 
 ## Status
 
-Implemented: steps 1–7 of the brief (foundation, packet list with paging /
-virtualization / sorting / custom columns, detail tree + hex with two-way
-highlighting, display filters with validation, autocomplete, history, saved
-filters, apply-as-filter, follow TCP/UDP/TLS/HTTP stream, and statistics
-panels: conversations, endpoints, protocol hierarchy, IO graph, expert info,
-capture properties).
-
-Also step 6: Lua dissector commands (new from template, reload with error
-check, open folder, reload offer on save) and a Decode As UI plus rule manager.
-
-Step 7: coloring rules (defaults, Colorize with Filter, toggle), export
-(pcapng/pcap, CSV/JSON packet list, packet bytes), CHANGELOG, packaging.
-
-Beyond the brief: navigation and customisation, multi-select, AI help for
-filters and explaining packets, a quick view for late packets in huge files,
-streaming open and filters with saved indexes, TLS decryption with a key log,
-export of packet dissections, merging captures, a coloring rules editor,
-Export Objects, name resolution, packet comments, the flow graph and TCP
-stream graphs, live capture and capture editing, AI capture summaries,
-anomaly explanations and `@pcap` tools, and publishing: a release workflow,
-Marketplace details, and the Get Started walkthrough. Then resumable indexing
-with a progress bar, VoIP analysis (SIP calls, RTP streams, audio), the ☰
-commands menu, HTTP/DNS/packet length/service response time statistics,
-filter buttons, and Import from Hex Dump. Then foldable ☰ menu groups,
-per-capture Lua dissectors, and Open File in PCAP Lens for files of any name.
-Then Show TShark Plugins and README instructions for Wireshark plugins.
-Then theme-aware packet colors, Codicons and high-contrast support.
-Then a shared stylesheet with design tokens, toolbar-style icon buttons and
-tree indent guides. Released 0.4.0 (GitHub only), then renamed to PCAP Lens for
-0.4.1, the first Marketplace version. 0.5.0: Python 3.12+ and Install
-Python. Since: the backend, viewer and editor split into modules, coverage
-and axe-core checks with the ARIA fixes they found, and protocol preferences.
-0.6.0 released. Then BER record files as packets, and the packet diagram:
-0.7.0 released. Then Wireshark's expert indicator in the status bar,
-related-packet marks, Conversation Filter and Colorize Conversation, and
-ignored packets: 0.8.0. Then two-pass details for small captures and
-Compare Packets: 0.9.0.
-Then Follow Stream search, Filter Out This Stream, HTTP/2, QUIC and WebSocket
-streams, and more "show as" views: 0.10.0.
-Then Find Packet in the packet list and details, and by regular expression:
-0.10.1.
-Then field info in the status bar, the packet list's overview strip and the
-keyboard shortcuts list: 0.11.0.
-Then friendlier empty lists with hints, the display filter builder and the
-Recent Captures view: 0.12.0.
-Then VoIP call details: timings and how a call ended, an E-model MOS, DTMF
-digits, media problems and Save Call: 0.13.0.
-Then whole-call stereo playback with a waveform, G.722/G.726-32/L16 audio,
-RTCP reports per stream, SIP statistics and registrations, and Ask Copilot
-about a call: 0.14.0. Then panels reveal the capture in its own column
-(no second, empty tab): 0.14.1.
-Then I/O graphs with several graphs, Wireshark profiles (use and import),
-Show Packet Bytes, Credentials, Export TLS Session Keys and Firewall ACL
-Rules: 0.15.0.
-Then Enabled Protocols, decryption keys beyond TLS (Wi-Fi, RSA, SSH,
-WireGuard, ESP, Kerberos), GeoIP with an Endpoints map, and IPv4/IPv6,
-multicast, resolved-address and SCTP statistics: 0.16.0.
-Then Export PDUs to File, Show Packet in New Window and the capture's
-file format view: 0.17.0.
-Then extcap capture helpers (SSH, Cisco, Android, UDP, randpkt), Capture to
-Files with ring buffers, saved capture filters and the capture report: 0.18.0.
-Then H.323, MGCP and IAX2 calls in the VoIP panel: 0.19.0.
-Then context menus with submenus, a reorganised ☰ menu, editor title bar
-actions, a filter field and toolbar, list density and status bar items: 0.20.0.
-Then the panels in the same style, with row menus, and column dividers: 0.21.0.
-Then the extension bundled with esbuild and working Marketplace badges: 0.21.1.
-Then a Keep Packets freeze fixed, and capture's advice when dumpcap can't
-start: 0.21.2.
-Then AI help with a language model of your choice and address stand-ins,
-capture filters and Lua dissectors from a description, and one-click triage
-with findings in the capture report: 0.22.0.
-Then an MCP server for AI assistants (counts, statistics, triage, field
-values and, if allowed, packets) and triage of unanswered requests: 0.23.0.
-Then comparing two captures with AI (with the port scans and host sweeps
-tshark's numbers show), and AI answer evals: 0.24.0.
-Then the scans in triage and capture summaries too, with the resets each
-drew: 0.24.1.
-Then the real-capture harness and what it found (byte sources, exports
-and editing of captures Wireshark can't write, IO graphs of long captures,
-Follow, unsupported link types): 0.24.2.
-Then statistics in locales with a decimal comma (Brazilian Portuguese,
-German…), on macOS, Linux and Windows: 0.24.3.
-Then Replay to Service: a capture's client side sent again to local
-services (interception collectors, SIP servers), with presets, live counts,
-a log and a status bar item: 0.25.0.
-Then what the real captures found (cut-short captures, tshark crashes named,
-pcap's 2038 limit, a retransmitted SYN's data replayed once): 0.25.1.
-Then Replay to… with several captures (one after another or merged by time),
-jitter, UDP loss, until stopped and setup files: 0.25.2.
-Then Save Results… for a replay, and Go to Packet only for the open capture's
-targets: 0.25.4 (0.25.3's tag went out before its merge and names 0.25.2's
-code; tags can't move, so it was skipped).
-Then Follow Growing File and the HTTP Requests, DNS Queries and TLS Servers
-session tables: 0.26.0.
-Then the Capture Overview, and the real-capture harness weekly in CI:
-0.27.0. Then large UDP datagrams in Replay to… on macOS, and what the first
-weekly real-capture run found: 0.27.1.
-Then the MCP server dissecting as the viewer does (Lua, Decode As, prefs,
-profile, plugins), a choice of pane layouts, filter errors underlined with
-the filter in colour, and panels below the capture: 0.28.0.
-Then the Sequence Check, and an evaluation of what was there (review,
-coverage of the webview, error paths, every real capture, a re-benchmark)
-with its fixes: 0.29.0.
+Steps 1–7 of the brief are implemented (packet list, details and bytes,
+display filters, follow stream, statistics, Lua dissectors and Decode As,
+coloring, export), and much beyond them: what each release added is in
+CHANGELOG.md, newest first, and the design of each feature is above. The
+latest release is the top `## x.y.z` section of the CHANGELOG (package.json's
+`version` once `release:prepare` ran).

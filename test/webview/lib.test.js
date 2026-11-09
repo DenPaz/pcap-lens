@@ -967,6 +967,25 @@ suite("webview lib: follow stream and statistics helpers", () => {
     assert.equal(lib.formatCell(undefined), "");
   });
 
+  test("tableWindow: the rows on screen plus an overscan, within the table", () => {
+    // The body's top 100 px above the screen, rows of 20 px, 400 px of screen.
+    assert.deepEqual(lib.tableWindow(100, 400, 20, 10000, 0), { start: 5, end: 25 });
+    assert.deepEqual(lib.tableWindow(100, 400, 20, 10000, 3), { start: 2, end: 28 });
+    // Not scrolled to it yet (body below the top), or past its end.
+    assert.deepEqual(lib.tableWindow(-300, 400, 20, 10000, 0), { start: 0, end: 5 });
+    assert.deepEqual(lib.tableWindow(1e9, 400, 20, 10000, 5), { start: 10000, end: 10000 });
+    assert.deepEqual(lib.tableWindow(0, 400, 0, 3), { start: 0, end: 3 }, "unmeasured rows");
+  });
+
+  test("columnChars: the widest cell or header per shown column, trees indented", () => {
+    const rows = [{ cells: ["eth", 1234567, "x"] }, { cells: ["udp", 2, "y"], depth: 3 }];
+    assert.deepEqual(lib.columnChars(["Protocol", "Packets"], rows, [0, 1]), [10, 9]);
+    assert.deepEqual(
+      lib.columnChars(["P", "Bytes"], [{ cells: ["a".repeat(500)] }], [0], 80),
+      [80],
+    );
+  });
+
   test("sortRows is stable, numeric for numbers, natural for text", () => {
     const rows = [
       { cells: ["b", 2] },
@@ -1285,6 +1304,27 @@ suite("webview lib: coloring", () => {
 
 suite("webview lib: navigation and customisation", () => {
   const col = (id, extra = {}) => ({ id, field: id, ...extra });
+
+  test("flowLabel centres a label that fits and never starts left of its arrow", () => {
+    assert.deepEqual(lib.flowLabel("INVITE", 100, 300, 500, 7), {
+      x: 200,
+      middle: true,
+      text: "INVITE",
+    });
+    // Too long for the span: from the arrow's left end, cut at the edge.
+    const long = "RTP g711U · 1,234 packets · 5 lost (0.4%)";
+    const right = lib.flowLabel(long, 300, 100, 320, 7);
+    assert.equal(right.x, 106);
+    assert.equal(right.middle, false);
+    assert.equal(right.text.length, Math.floor((320 - 106 - 6) / 7));
+    assert.ok(right.text.endsWith("…"));
+    // A loop has no span: next to it.
+    assert.deepEqual(lib.flowLabel("x", 100, 100, 500, 7, true), {
+      x: 128,
+      middle: false,
+      text: "x",
+    });
+  });
 
   test("flowArrow places arrows between endpoint columns", () => {
     const layout = { gutter: 100, column: 50 };

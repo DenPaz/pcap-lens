@@ -125,6 +125,27 @@ table.stats td.wrap {
   white-space: normal;
 }
 
+/* A long table drawn a window at a time (stats.js drawWindow): fixed column
+   widths from its widest cells, one line per row, spacer rows standing for
+   the rest. */
+table.stats.virtual {
+  table-layout: fixed;
+}
+
+table.stats.virtual td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+table.stats.virtual td.wrap {
+  white-space: nowrap;
+}
+
+table.stats tr.spacer td {
+  padding: 0;
+  border: none;
+}
+
 .sev {
   display: inline-block;
   min-width: 5.5em;

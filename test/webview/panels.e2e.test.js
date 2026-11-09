@@ -1825,6 +1825,94 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     }
   });
 
+  test("a long table draws only the rows on screen: scrolling, selecting, sorting, copying", async () => {
+    // 50,000 DNS queries (a capture can hold 300k): drawing every row never
+    // finished. A stand-in for StatsPanel with a made-up table.
+    const n = 50000;
+    const table = {
+      kind: "dns_queries",
+      title: "DNS Queries",
+      columns: [
+        { id: "frame", label: "No.", numeric: true },
+        { id: "name", label: "Name", numeric: false },
+        { id: "ms", label: "Response Time (ms)", numeric: true },
+      ],
+      rows: Array.from({ length: n }, (_, i) => ({
+        cells: [i + 1, `host${i}.example.com`, i % 97],
+        frame: i + 1,
+        filter: `frame.number == ${i + 1}`,
+      })),
+      summary: { queries: n + 10000, unanswered: 0, failed: 0 },
+      more: 10000,
+    };
+    const { page, log } = await openGraphPanel("stats.js", async (msg, reply) => {
+      if (msg.type === "ready") {
+        await reply({ type: "init", kind: "dns_queries", title: "DNS Queries", filter: "" });
+      } else if (msg.type === "query") {
+        await reply({ type: "result", id: msg.id, table });
+      }
+    });
+    await page.waitForSelector("table.stats.virtual tbody tr[aria-rowindex]");
+    const drawn = () =>
+      page.$$eval("table.stats tbody tr:not(.spacer)", (trs) =>
+        trs.map((tr) => [Number(tr.getAttribute("aria-rowindex")), tr.children[0].textContent]),
+      );
+    let rowsNow = await drawn();
+    assert.ok(rowsNow.length > 10 && rowsNow.length < 300, `${rowsNow.length} rows drawn`);
+    assert.deepEqual(rowsNow[0], [2, "1"]);
+    assert.equal(await page.getAttribute("table.stats", "aria-rowcount"), String(n + 1));
+    // Narrower than the sized columns: the text column keeps its room (the
+    // table scrolls sideways) instead of being squeezed to nothing.
+    const size = page.viewportSize();
+    await page.setViewportSize({ width: 200, height: size?.height ?? 600 });
+    const nameWidth = await page.$eval("table.stats th:nth-child(2)", (th) => th.clientWidth);
+    const charWidth = await page.$eval("table.stats td", (td) => {
+      const probe = document.createElement("span");
+      probe.textContent = "0".repeat(10);
+      td.append(probe);
+      const w = probe.getBoundingClientRect().width / 10;
+      probe.remove();
+      return w;
+    });
+    assert.ok(nameWidth >= 20 * charWidth, `Name column ${nameWidth}px wide`);
+    if (size) {
+      await page.setViewportSize(size);
+    }
+    assert.match(
+      await page.textContent(".status"),
+      /^60,000 queries · the first 50,000 listed \(10,000 more: limit to a display filter/,
+    );
+    // Halfway down: those rows are drawn, spacers stand for the rest.
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight / 2));
+    await page.waitForFunction(() => {
+      const tr = document.querySelector("table.stats tbody tr:not(.spacer)");
+      return tr && Number(tr.getAttribute("aria-rowindex")) > 20000;
+    });
+    rowsNow = await drawn();
+    const [index, frame] = rowsNow[Math.floor(rowsNow.length / 2)];
+    assert.equal(Number(frame.replace(/,/g, "")), index - 1, "row N is the query of frame N");
+    const box = await page.locator(`tr[aria-rowindex="${index}"]`).boundingBox();
+    assert.ok(box && box.y > 0 && box.y < 800, "drawn where the page is scrolled to");
+    await page.dblclick(`tr[aria-rowindex="${index}"]`);
+    assert.deepEqual(log.at(-1), { type: "goto", frame: index - 1 });
+    assert.equal(await page.getAttribute(`tr[aria-rowindex="${index}"]`, "class"), "selected");
+    // Sorting sorts every row; the top shows the new first.
+    await page.click("th:has-text('Response Time')");
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForFunction(
+      () =>
+        document.querySelector("table.stats tbody tr:not(.spacer)")?.children[2].textContent ===
+        "96",
+    );
+    // Copy as CSV: every row, not the ones drawn.
+    await page.click("button:has-text('Copy as CSV')");
+    const csv = log
+      .findLast((m) => m.type === "copy")
+      .text.trim()
+      .split("\n");
+    assert.equal(csv.length, n + 1);
+  });
+
   test("sequence check: name the fields, Check, streams with their problems, a refused field", async () => {
     const gtp = await startBackend(deps);
     try {
@@ -2256,7 +2344,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         if (msg.type === "ready") {
           await post({
             type: "init",
-            title: "Replay to Service · replay.pcap",
+            title: "Replay · replay.pcap",
             filter: "tcp",
             destinations: { [HI2]: { ip: "127.0.0.1", port: hi2.port } },
             options: { speed: 0, loops: 1, scope: "all", order: "sequence", jitter: 0, loss: 0 },

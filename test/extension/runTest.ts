@@ -26,6 +26,10 @@ async function main(): Promise<void> {
           path.join(root, "test", "fixtures", "fake_dumpcap.py"),
         ]),
         FAKE_DUMPCAP_DELAY: "0.05",
+        // Coverage of the extension host code (suite/coverage.ts), into c8's folder.
+        ...(process.env.PCAP_HOST_COVERAGE
+          ? { PCAP_HOST_COVERAGE: path.resolve(process.env.PCAP_HOST_COVERAGE) }
+          : {}),
       },
       launchArgs: [
         path.join(root, "test", "fixtures"),
