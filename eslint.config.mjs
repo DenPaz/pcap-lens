@@ -100,6 +100,8 @@ export default tseslint.config(
         process: "readonly",
         console: "readonly",
         URL: "readonly",
+        fetch: "readonly",
+        AbortSignal: "readonly",
         __dirname: "readonly",
         suite: "readonly",
         test: "readonly",

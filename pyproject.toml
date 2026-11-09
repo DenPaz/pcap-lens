@@ -22,6 +22,7 @@ dev = [
     # 9.0.0 read (every acceptance scenario failed).
     "pytest-bdd>=9.0.1",
     "pytest-cov>=7.1.0",
+    "pytest-xdist>=3.8",
 ]
 
 [build-system]

@@ -11,9 +11,18 @@ on:
 permissions:
   contents: read
 
+# A newer push to a branch or PR cancels the run it supersedes; main and tags
+# (releases) always finish.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+# Every job skips a pull request from dev: dev's push run already tests that
+# commit, and its checks show on the PR (each job repeats the `if`).
 jobs:
   linux:
     name: Linux (lint, backend, unit, webview e2e, VS Code smoke)
+    if: github.event_name != 'pull_request' || github.head_ref != 'dev' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -58,11 +67,13 @@ jobs:
           uv run mypy
           uv run mypy --python-version 3.14
       # Coverage here only (make coverage locally); the run's summary shows both reports.
+      # (-n auto: pytest-xdist, one worker per CPU; loadfile keeps each file's
+      # tests in one worker, in order, as a serial run has them.)
       - name: Backend tests (with coverage)
         run: |
           mkdir -p coverage
           echo "### Backend coverage" >> "$GITHUB_STEP_SUMMARY"
-          uv run pytest --cov --cov-report=term --cov-report=markdown-append:"$GITHUB_STEP_SUMMARY"
+          uv run pytest -n auto --dist loadfile --cov --cov-report=term --cov-report=markdown-append:"$GITHUB_STEP_SUMMARY"
       - name: Install Chromium for webview e2e
         run: pnpm exec playwright-core install --with-deps chromium
       - name: Unit + webview tests (with coverage)
@@ -74,6 +85,14 @@ jobs:
             pnpm exec c8 report --reporter=text-summary
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+      # The VS Code the smoke test downloads (the latest stable), kept per version.
+      - name: Latest VS Code version
+        id: vscode
+        run: node scripts/vscode-version.mjs >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: .vscode-test/vscode-*
+          key: vscode-${{ runner.os }}-${{ steps.vscode.outputs.version }}
       # The host code only runs here: its coverage is a report of its own
       # (test/extension/suite/coverage.ts).
       - name: VS Code smoke test (with host coverage)
@@ -99,6 +118,7 @@ jobs:
   # MIN_PYTHON in src/backendClient.ts): run it on the oldest one too.
   python-3-12:
     name: Linux, Python 3.12 (backend, unit, webview e2e)
+    if: github.event_name != 'pull_request' || github.head_ref != 'dev' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -128,7 +148,7 @@ jobs:
       - name: Python version
         run: uv run python --version
       - name: Backend tests
-        run: uv run pytest
+        run: uv run pytest -n auto --dist loadfile
       - name: Install Chromium for webview e2e
         run: pnpm exec playwright-core install --with-deps chromium
       - name: Unit + webview tests (backend on Python 3.12)
@@ -136,6 +156,7 @@ jobs:
 
   cross-platform:
     name: ${{ matrix.os }} (backend, unit, webview e2e, VS Code smoke)
+    if: github.event_name != 'pull_request' || github.head_ref != 'dev' || github.event.pull_request.head.repo.full_name != github.repository
     strategy:
       fail-fast: false
       matrix:
@@ -184,11 +205,19 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint
       - name: Backend tests
-        run: uv run pytest
+        run: uv run pytest -n auto --dist loadfile
       - name: Install Chromium for webview e2e
         run: pnpm exec playwright-core install chromium
       - name: Unit + webview tests
         run: pnpm run test:unit
+      - name: Latest VS Code version # (see the Linux job)
+        id: vscode
+        shell: bash
+        run: node scripts/vscode-version.mjs >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: .vscode-test/vscode-*
+          key: vscode-${{ runner.os }}-${{ steps.vscode.outputs.version }}
       - name: VS Code smoke test
         run: pnpm run test:extension
       # Windows' tools take the regional settings (LC_* doesn't reach them):
@@ -201,6 +230,6 @@ jobs:
       - name: Statistics in pt-BR (Windows)
         if: runner.os == 'Windows'
         run: >-
-          uv run pytest test/backend/test_locale.py test/backend/test_io_graph.py
+          uv run pytest -n auto --dist loadfile test/backend/test_locale.py test/backend/test_io_graph.py
           test/backend/test_ignore.py test/backend/test_compare.py test/backend/test_mcp.py
           test/backend/test_stats.py test/backend/test_network_stats.py test/backend/acceptance

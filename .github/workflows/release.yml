@@ -18,12 +18,51 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The tag names main's merge commit, which CI already tested when it was
+  # pushed: reuse that run (waiting for it while it is still going) instead of
+  # testing the same commit again. Without a green one, CI runs here.
+  tested:
+    name: CI already passed on this commit?
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      actions: read
+    outputs:
+      run: ${{ steps.find.outputs.run }}
+    steps:
+      - id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SHA&event=push&per_page=1" \
+            --jq '.workflow_runs[0] | select(.) | "\(.id) \(.status) \(.conclusion)"')
+          read -r id status conclusion <<< "$run"
+          if [ -n "$id" ] && [ "$status" != completed ]; then
+            echo "CI run $id is still going: waiting for it"
+            if gh run watch "$id" --repo "$GITHUB_REPOSITORY" --exit-status --interval 30 > /dev/null; then
+              conclusion=success
+            else
+              conclusion=failure
+            fi
+          fi
+          if [ "$conclusion" = success ]; then
+            echo "::notice::CI passed on $SHA: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$id"
+            echo "run=$id" >> "$GITHUB_OUTPUT"
+          else
+            echo "No green CI run of $SHA (${conclusion:-none}): running CI here"
+          fi
+
   ci:
+    needs: tested
+    if: needs.tested.outputs.run == ''
     uses: ./.github/workflows/ci.yml
 
   release:
     name: GitHub release and Marketplace
-    needs: ci
+    needs: [tested, ci]
+    # (ci is skipped when the tested job found a green run)
+    if: ${{ !cancelled() && needs.tested.result == 'success' && (needs.ci.result == 'success' || needs.ci.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

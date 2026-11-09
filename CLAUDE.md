@@ -13,7 +13,7 @@ CONTRIBUTING.md for building, testing and releasing (not packaged).
 | Build extension           | `pnpm run compile` (tsc → `out/`, then esbuild → `dist/extension.js`, what VS Code runs; `pnpm run watch:bundle` rebuilds it on save)                    |
 | Lint everything           | `pnpm run lint && pnpm run format:check && uv run ruff check && uv run ruff format --check && uv run mypy`                                               |
 | Format                    | `make format` (ruff --fix, ruff format, eslint --fix, Prettier)                                                                                          |
-| Backend tests             | `uv run pytest` (tshark tests skip if tshark is missing)                                                                                                 |
+| Backend tests             | `uv run pytest -n auto --dist loadfile` (pytest-xdist, as `make test-backend` and CI; plain `uv run pytest` is serial; tshark tests skip without tshark) |
 | Acceptance scenarios only | `uv run pytest test/backend/acceptance` (pytest-bdd, Gherkin in `features/`)                                                                             |
 | TS unit + webview tests   | `pnpm run test:unit` (mocha; includes the Chromium e2e test of the webview)                                                                              |
 | VS Code smoke test        | `pnpm run test:extension` (downloads VS Code; use `xvfb-run -a` on headless Linux)                                                                       |
@@ -90,6 +90,12 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
 - Node tests that start the backend use `PCAP_VIEWER_PYTHON` if set, else the
   uv `.venv` interpreter, so they run on 3.14 even when the system `python3` is older.
 - pytest turns `ResourceWarning` into errors: leaked tshark pipes are bugs.
+- **Parallel backend tests**: CI and `make` run pytest-xdist with
+  `-n auto --dist loadfile` (a file's tests stay in one worker, in order;
+  6 min → under 2 locally, coverage unchanged). Each worker runs
+  `pytest_configure`, so each has its own empty home; tests must not share
+  fixed ports, files outside `tmp_path` or the home's state across files
+  (the loopback capture test picks a port from the clock and filters on it).
 - **Tests use an empty home**: tshark reads the personal configuration
   (preferences, Decode As, colors) and loads personal plugins from the home
   folder, so a developer's own Wireshark setup changed results (a personal
@@ -153,6 +159,12 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   hint when `/etc/apparmor.d/tshark` exists (else every fixture read fails;
   checked on `ubuntu-26.04` runners). It runs on
   pull requests, pushes to `main` and `dev`, and by hand (`workflow_dispatch`).
+  **No run twice**: a newer push cancels a branch's or PR's run in progress
+  (`concurrency`; never on `main` or tags), and every job skips a PR from
+  `dev` (the release PR), since dev's push run tested that commit and its
+  checks show on the PR. The smoke test's VS Code download is cached per
+  latest stable version (`scripts/vscode-version.mjs` asks the update API,
+  as `@vscode/test-electron` does; `unknown` when it doesn't answer).
   The unit/webview mocha run has a 10 s timeout (`--timeout 10000` in
   `test:unit`): the Windows runner once took over 2 s on a 30 ms test.
 - **Repository upkeep**: `codeql.yml` (javascript-typescript, python and
@@ -2662,8 +2674,10 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   section (the release notes are cut per section); `prepare <version>` moves it
   under `## <version> — <date>` and bumps `package.json` (a regex, keeping
   its formatting); versions are plain x.y.z (the Marketplace has no semver
-  pre-releases). A `v*` tag (or a manual run on one) calls `ci.yml`
-  (`workflow_call`) first, then `check <tag>` (tag = package.json version,
+  pre-releases). A `v*` tag (or a manual run on one) first looks for CI's
+  push run of the tagged commit (main's merge commit; job `tested`, waiting
+  while it runs) and calls `ci.yml` (`workflow_call`) only without a green
+  one, then `check <tag>` (tag = package.json version,
   and CHANGELOG notes exist), `vsce package`, `gh release create` with the
   notes (or `upload --clobber` when the release exists), then
   `vsce publish --skip-duplicate` and `ovsx publish` (pinned, via npx: pnpm
