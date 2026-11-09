@@ -7,19 +7,6 @@ commit) that made it. The format follows
 
 ## Unreleased
 
-### Fixed
-
-- A packet's bytes no longer move to another buffer because a masked bit
-  field's value happens to be there [1279c4d]
-- AI address stand-ins restore a reverse lookup name as it was written, so
-  filters and tool calls naming one find its packets [931f5d3]
-- The Sequence Check and the session tables report a tshark that fails
-  partway instead of showing what it read as the whole capture [9e8a3a5]
-
-[1279c4d]: https://github.com/DenPaz/pcap-lens/commit/1279c4d
-[931f5d3]: https://github.com/DenPaz/pcap-lens/commit/931f5d3
-[9e8a3a5]: https://github.com/DenPaz/pcap-lens/commit/9e8a3a5
-
 ## 0.29.0 — 2026-11-08
 
 ### Added
@@ -57,6 +44,8 @@ commit) that made it. The format follows
   never finished drawing and a backend of 450 MB [4d63b99]
 - The field catalogue each capture's backend loads takes a third less memory
   (121 → 83 MB) [1f45d07]
+- The Sequence Check and the session tables report a tshark that fails
+  partway instead of showing what it read as the whole capture [9e8a3a5]
 
 [3dbfca8]: https://github.com/DenPaz/pcap-lens/commit/3dbfca8
 [076f493]: https://github.com/DenPaz/pcap-lens/commit/076f493
@@ -72,6 +61,7 @@ commit) that made it. The format follows
 [da79f4e]: https://github.com/DenPaz/pcap-lens/commit/da79f4e
 [4d63b99]: https://github.com/DenPaz/pcap-lens/commit/4d63b99
 [1f45d07]: https://github.com/DenPaz/pcap-lens/commit/1f45d07
+[9e8a3a5]: https://github.com/DenPaz/pcap-lens/commit/9e8a3a5
 
 ## 0.28.0 — 2026-11-08
 
