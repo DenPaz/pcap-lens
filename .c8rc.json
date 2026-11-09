@@ -1,6 +1,7 @@
 {
   "include": [
     "out/src/**/*.js",
+    "dist/extension.js",
     "src/webview/**/*.js",
     "scripts/release.mjs",
     "scripts/evals/grade.mjs"

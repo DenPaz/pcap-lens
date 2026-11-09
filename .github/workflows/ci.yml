@@ -74,8 +74,17 @@ jobs:
             pnpm exec c8 report --reporter=text-summary
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: VS Code smoke test
-        run: xvfb-run -a pnpm run test:extension
+      # The host code only runs here: its coverage is a report of its own
+      # (test/extension/suite/coverage.ts).
+      - name: VS Code smoke test (with host coverage)
+        run: |
+          PCAP_HOST_COVERAGE=coverage/host xvfb-run -a pnpm run test:extension
+          {
+            echo "### Extension host coverage (the VS Code smoke test)"
+            echo '```'
+            pnpm exec c8 report --temp-directory coverage/host --reports-dir coverage/host-report --reporter=text-summary
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Package
         run: pnpm run package
       - uses: actions/upload-artifact@v7

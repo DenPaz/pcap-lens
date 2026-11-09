@@ -112,7 +112,12 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
   Playwright and writes it into c8's `NODE_V8_COVERAGE` folder, the served
   URLs mapped back to the files (one numbering per process: both e2e suites
   run in one mocha). The VS Code-dependent host code only runs in the smoke
-  test, which isn't measured. No thresholds: the numbers are for finding
+  test: with `PCAP_HOST_COVERAGE=<dir>` (CI's Linux job: `coverage/host`)
+  `test/extension/suite/coverage.ts` takes V8's precise coverage through
+  `node:inspector` and writes the bundle's share in c8's format, which
+  `c8 report --temp-directory <dir>` maps through `dist/extension.js`'s
+  source map to `src/*.ts`; a report of its own, since the bundle's
+  functions don't line up with tsc's. No thresholds: the numbers are for finding
   untested code (backend 93%; TypeScript and webview 95%, the viewer's
   modules 89%).
 - **Accessibility checks**: `axeViolations(page)` in `test/webview/harness.js`
