@@ -165,9 +165,8 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   **No run twice**: a newer push cancels a branch's or PR's run in progress
   (`concurrency`; never on `main` or tags), and every job skips a PR from
   `dev` (the release PR), since dev's push run tested that commit and its
-  checks show on the PR. The smoke test's VS Code download is cached per
-  latest stable version (`scripts/vscode-version.mjs` asks the update API,
-  as `@vscode/test-electron` does; `unknown` when it doesn't answer).
+  checks show on the PR. The smoke test's VS Code download isn't cached:
+  restoring a cache of it took as long as the download (tried in 2026-11).
   The unit/webview mocha run has a 10 s timeout (`--timeout 10000` in
   `test:unit`): the Windows runner once took over 2 s on a 30 ms test.
 - **Repository upkeep**: `codeql.yml` (javascript-typescript, python and

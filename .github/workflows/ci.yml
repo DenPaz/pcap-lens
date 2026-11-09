@@ -85,14 +85,6 @@ jobs:
             pnpm exec c8 report --reporter=text-summary
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-      # The VS Code the smoke test downloads (the latest stable), kept per version.
-      - name: Latest VS Code version
-        id: vscode
-        run: node scripts/vscode-version.mjs >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v6
-        with:
-          path: .vscode-test/vscode-*
-          key: vscode-${{ runner.os }}-${{ steps.vscode.outputs.version }}
       # The host code only runs here: its coverage is a report of its own
       # (test/extension/suite/coverage.ts).
       - name: VS Code smoke test (with host coverage)
@@ -210,14 +202,6 @@ jobs:
         run: pnpm exec playwright-core install chromium
       - name: Unit + webview tests
         run: pnpm run test:unit
-      - name: Latest VS Code version # (see the Linux job)
-        id: vscode
-        shell: bash
-        run: node scripts/vscode-version.mjs >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v6
-        with:
-          path: .vscode-test/vscode-*
-          key: vscode-${{ runner.os }}-${{ steps.vscode.outputs.version }}
       - name: VS Code smoke test
         run: pnpm run test:extension
       # Windows' tools take the regional settings (LC_* doesn't reach them):
