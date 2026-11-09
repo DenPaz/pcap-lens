@@ -2541,7 +2541,20 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   (the machine's memory / (jobs × `PROCESSES_PER_JOB` 6), at least 1 GB,
   `--memory MB`, 0 = none): "killed (signal 9)" is tshark's own failure, a
   note. The 20 largest captures run unchanged under CI's 1.3 GB;
-  `test_realworld_watch.py` checks what it kills.
+  `test_realworld_watch.py` checks what it kills. The run on `dev` with it
+  finished (Linux: Wireshark's set grown to 1,243 captures, 26 tools
+  killed; tcpdump's 612 clean) with five problems, all tshark 4.2.2's:
+  `kafka_coverage`/`mysql_coverage` time out because tshark loops at 100%
+  CPU in the conversation, expert, VoIP, triage and profile passes (it
+  ignores SIGTERM; the backend's SIGKILL stops it), `logcat_coverage` and
+  `nfs_coverage_malformed` are slow the same way, and `dvb_s2_table_coverage`'s
+  own tshark count was killed (an empty count read as 0 packets). So
+  `Run.call` samples `busy_tools` (Wireshark tools under the backend that
+  `ps` shows running or runnable, or at ≥ `BUSY_CPU` 50% CPU; the state
+  matters: two captures at once gave each looping tshark half a CPU) at
+  `SLOW_S` and at a timeout: a slow or timed-out request waiting on a busy
+  tshark is a note naming it, and
+  `record_count` gives None (a note) for a tshark that crashed or was killed.
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage

@@ -39,8 +39,8 @@ def test_kills_a_tool_over_the_cap_at_any_depth(harness: ModuleType) -> None:
         # The harness (1) started a backend (2), which started the "tshark" (child).
         watch.check(
             [
-                (2, 1, 50_000, "python3"),
-                (child.pid, 2, 200 << 10, "/usr/bin/tshark"),
+                harness.Proc(2, 1, 50_000, 1.0, "S", "python3"),
+                harness.Proc(child.pid, 2, 200 << 10, 99.0, "R", "tshark"),
             ],
             root=1,
         )
@@ -58,9 +58,11 @@ def test_leaves_backends_small_tools_and_other_processes_alone(harness: ModuleTy
         watch = harness.MemoryWatch(100)
         watch.check(
             [
-                (backend, 1, 900 << 10, "python3"),  # ours, but not a Wireshark tool
-                (small, backend, 50 << 10, "tshark"),  # under the cap
-                (foreign, 999, 900 << 10, "tshark"),  # not started by the harness
+                harness.Proc(
+                    backend, 1, 900 << 10, 1.0, "S", "python3"
+                ),  # ours, not a Wireshark tool
+                harness.Proc(small, backend, 50 << 10, 1.0, "S", "tshark"),  # under the cap
+                harness.Proc(foreign, 999, 900 << 10, 1.0, "S", "tshark"),  # not the harness's
             ],
             root=1,
         )
@@ -73,5 +75,33 @@ def test_leaves_backends_small_tools_and_other_processes_alone(harness: ModuleTy
 
 
 def test_ps_lists_this_process(harness: ModuleType) -> None:
-    rows = harness.MemoryWatch._processes()
-    assert any(pid == os.getpid() and rss > 0 for pid, _ppid, rss, _name in rows)
+    rows = harness.processes()
+    assert any(p.pid == os.getpid() and p.rss_kb > 0 and p.program for p in rows)
+
+
+def test_a_busy_tshark_under_the_backend_is_named(
+    harness: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # (A request waiting on it is tshark's slowness: a note, not a problem.)
+    procs = [
+        harness.Proc(10, 1, 100_000, 2.0, "S", "python3"),  # the backend
+        harness.Proc(11, 10, 150_000, 99.0, "R", "tshark"),  # looping
+        harness.Proc(12, 10, 150_000, 3.0, "S+", "tshark"),  # waiting on its reader
+        harness.Proc(14, 10, 150_000, 40.0, "R+", "tshark"),  # sharing a CPU
+        harness.Proc(13, 99, 150_000, 99.0, "R", "tshark"),  # someone else's
+    ]
+    monkeypatch.setattr(harness, "processes", lambda: procs)
+    assert harness.busy_tools(10) == ["tshark at 99% CPU", "tshark at 40% CPU"]
+    assert harness.busy_tools(12) == []
+
+
+def test_a_count_tshark_could_not_finish_is_unknown(
+    harness: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A tshark killed mid-count (MemoryWatch) printed nothing: not "0 packets".
+    killed = subprocess.CompletedProcess(["tshark"], -9, b"", b"")
+    monkeypatch.setattr(harness.subprocess, "run", lambda *_a, **_k: killed)
+    assert harness.record_count(tmp_path / "x.pcap") is None
+    done = subprocess.CompletedProcess(["tshark"], 0, b"1\n2\n3\n", b"")
+    monkeypatch.setattr(harness.subprocess, "run", lambda *_a, **_k: done)
+    assert harness.record_count(tmp_path / "x.pcap") == 3

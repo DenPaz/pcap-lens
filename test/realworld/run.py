@@ -53,7 +53,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 ROOT = Path(__file__).resolve().parents[2]
 CACHE = Path.home() / ".cache" / "pcap-lens-realworld"
@@ -82,6 +82,9 @@ SLOW_S = 30.0
 PROCESSES_PER_JOB = 6
 MIN_MEMORY_MB = 1024
 WATCH_INTERVAL_S = 0.5
+# A request still waiting after SLOW_S (or timing out) while a tshark under
+# its backend uses this much CPU waits on tshark's own dissection: a note.
+BUSY_CPU = 50.0
 # The programs MemoryWatch may stop (ps's comm: a path on macOS, 15
 # characters on Linux); never the backends or the harness, whose memory is ours.
 WIRESHARK_TOOLS = {"tshark", "editcap", "mergecap", "capinfos", "dumpcap", "text2pcap"}
@@ -322,26 +325,39 @@ class Run:
         self.work = work
 
     def call(self, name: str, method: str, params: dict[str, Any] | None = None) -> Any:
-        """One request, recorded; None when it failed."""
+        """One request, recorded; None when it failed. A slow or timed-out
+        request is a note when a tshark under the backend was busy at SLOW_S
+        (or at the timeout): tshark's own slowness, not the backend's."""
         start = time.monotonic()
+        busy: list[str] = []
+        timer = threading.Timer(SLOW_S, lambda: busy.extend(busy_tools(self.server.proc.pid)))
+        timer.daemon = True
+        timer.start()
         try:
             result = self.server.call(method, params or {}, self.timeout)
         except RpcError as exc:
             took = time.monotonic() - start
+            if exc.code == TIMEOUT_CODE:
+                busy += busy_tools(self.server.proc.pid)
             status = (
                 "expected"
                 if exc.code in EXPECTED_CODES
                 else "note"
-                if _tsharks_own(exc.message)
+                if _tsharks_own(exc.message) or (exc.code == TIMEOUT_CODE and busy)
                 else "problem"
             )
             data = f" {json.dumps(exc.data)[:300]}" if exc.data else ""
-            self.report.steps.append(Step(name, status, took, f"[{exc.code}] {exc.message}{data}"))
+            detail = f"[{exc.code}] {exc.message}{data}{_busy_detail(busy)}"
+            self.report.steps.append(Step(name, status, took, detail))
             return None
+        finally:
+            timer.cancel()
         took = time.monotonic() - start
-        self.report.steps.append(
-            Step(name, "problem" if took > SLOW_S else "ok", took, "slow" if took > SLOW_S else "")
-        )
+        if took <= SLOW_S:
+            self.report.steps.append(Step(name, "ok", took))
+        else:
+            status = "note" if busy else "problem"
+            self.report.steps.append(Step(name, status, took, f"slow{_busy_detail(busy)}"))
         return result
 
     def check(self, name: str, ok: bool, detail: str) -> None:
@@ -375,19 +391,25 @@ class Run:
         return frames[0] if frames else None
 
 
+def _busy_detail(busy: list[str]) -> str:
+    return f" (tshark's own dissection: {', '.join(dict.fromkeys(busy))})" if busy else ""
+
+
 def record_count(path: Path) -> int | None:
     """Records in a capture as tshark reads them (capinfos counts a Sysdig
-    file's system-call events as 0 packets)."""
+    file's system-call events as 0 packets); None when tshark can't say: it
+    failed to start, timed out, or crashed or was killed (MemoryWatch:
+    dvb_s2_table_coverage.pcap.gz's dissector loop), its count cut short."""
     try:
-        out = subprocess.run(
+        done = subprocess.run(
             ["tshark", "-n", "-r", str(path), "-T", "fields", "-e", "frame.number"],  # noqa: S607
             capture_output=True,
             timeout=300,
             check=False,
-        ).stdout
+        )
     except (OSError, subprocess.TimeoutExpired):
         return None
-    return len(out.split())
+    return None if done.returncode < 0 else len(done.stdout.split())
 
 
 def exercise(path: Path, timeout: float, quick: bool = False) -> Report:
@@ -453,6 +475,8 @@ def _exercise(run: Run, path: Path, cache: Path) -> None:
     expected = record_count(path)
     if expected is not None:
         run.check("frames = tshark", frames == expected, f"viewer {frames}, tshark {expected}")
+    else:
+        run.report.steps.append(Step("frames = tshark", "note", 0.0, "tshark's own count failed"))
 
     if run.quick:
         _quick(run, frames)
@@ -1540,6 +1564,72 @@ def machine_memory_mb() -> int | None:
     return None
 
 
+class Proc(NamedTuple):
+    """One process as ``ps`` lists it (``cpu``: its %CPU; ``state``: its
+    run state, "R…" while running or runnable; ``program``: the command's
+    base name)."""
+
+    pid: int
+    ppid: int
+    rss_kb: int
+    cpu: float
+    state: str
+    program: str
+
+
+def processes() -> list[Proc]:
+    """Every process, from ``ps`` (POSIX; the CPU share is the process's
+    lifetime average on Linux, a decaying one on macOS)."""
+    out = subprocess.run(
+        ["/bin/ps", "-A", "-o", "pid=,ppid=,rss=,pcpu=,stat=,comm="],
+        capture_output=True,
+        check=True,
+        timeout=10,
+        text=True,
+        errors="replace",
+    ).stdout
+    rows = []
+    for line in out.split("\n"):
+        parts = line.split(None, 5)
+        with contextlib.suppress(ValueError, IndexError):
+            pid, ppid, rss, cpu = int(parts[0]), int(parts[1]), int(parts[2]), float(parts[3])
+            rows.append(Proc(pid, ppid, rss, cpu, parts[4], Path(parts[5].strip()).name))
+    return rows
+
+
+def tools_under(procs: list[Proc], root: int) -> list[Proc]:
+    """The Wireshark tools among ``root``'s descendants, at any depth."""
+    children: dict[int, list[int]] = {}
+    for p in procs:
+        children.setdefault(p.ppid, []).append(p.pid)
+    mine: set[int] = set()
+    todo = [root]
+    while todo:
+        for child in children.get(todo.pop(), []):
+            if child not in mine:
+                mine.add(child)
+                todo.append(child)
+    return [p for p in procs if p.pid in mine and p.program in WIRESHARK_TOOLS]
+
+
+def busy_tools(root: int) -> list[str]:
+    """Wireshark tools under ``root`` that are running (or runnable: two
+    captures at once with looping tsharks gave each half a CPU, under
+    BUSY_CPU) or have used BUSY_CPU % of a CPU, rather than sleeping on a
+    pipe the backend reads: a request that waits on one waits on tshark's own
+    dissection (4.2.2 loops on kafka_coverage.pcap.gz's conversations,
+    ignoring SIGTERM). [] when ``ps`` can't tell (Windows)."""
+    try:
+        procs = processes()
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [
+        f"{p.program} at {p.cpu:.0f}% CPU"
+        for p in tools_under(procs, root)
+        if p.state.startswith("R") or p.cpu >= BUSY_CPU
+    ]
+
+
 class MemoryWatch:
     """Kills any Wireshark tool this process started (at any depth) whose
     resident memory passes ``cap_mb``, checking every WATCH_INTERVAL_S with
@@ -1565,48 +1655,18 @@ class MemoryWatch:
     def _run(self) -> None:
         while not self._stop.wait(WATCH_INTERVAL_S):
             with contextlib.suppress(OSError, subprocess.SubprocessError, ValueError):
-                self.check(self._processes())
+                self.check(processes())
 
-    @staticmethod
-    def _processes() -> list[tuple[int, int, int, str]]:
-        """(pid, ppid, rss KB, program) of every process, from ``ps``."""
-        out = subprocess.run(
-            ["/bin/ps", "-A", "-o", "pid=,ppid=,rss=,comm="],
-            capture_output=True,
-            check=True,
-            timeout=10,
-            text=True,
-            errors="replace",
-        ).stdout
-        rows = []
-        for line in out.split("\n"):
-            parts = line.split(None, 3)
-            if len(parts) == 4 and parts[0].isdigit() and parts[1].isdigit() and parts[2].isdigit():
-                rows.append((int(parts[0]), int(parts[1]), int(parts[2]), parts[3]))
-        return rows
-
-    def check(self, processes: list[tuple[int, int, int, str]], root: int | None = None) -> None:
+    def check(self, procs: list[Proc], root: int | None = None) -> None:
         """Kill the tools under ``root`` (this process) over the cap."""
-        children: dict[int, list[int]] = {}
-        for pid, ppid, _rss, _name in processes:
-            children.setdefault(ppid, []).append(pid)
-        mine: set[int] = set()
-        todo = [os.getpid() if root is None else root]
-        while todo:
-            for child in children.get(todo.pop(), []):
-                if child not in mine:
-                    mine.add(child)
-                    todo.append(child)
-        for pid, _ppid, rss, name in processes:
-            program = Path(name.strip()).name
-            if pid in mine and program in WIRESHARK_TOOLS and rss >> 10 > self.cap_mb:
+        for p in tools_under(procs, os.getpid() if root is None else root):
+            if p.rss_kb >> 10 > self.cap_mb:
                 with contextlib.suppress(OSError):
-                    os.kill(pid, signal.SIGKILL)
-                    note = f"{program} (pid {pid}) at {rss >> 10} MB"
+                    os.kill(p.pid, signal.SIGKILL)
+                    note = f"{p.program} (pid {p.pid}) at {p.rss_kb >> 10} MB"
                     self.killed.append(note)
-                    print(
-                        f"memory: killed {note}, over {self.cap_mb} MB", file=sys.stderr, flush=True
-                    )
+                    message = f"memory: killed {note}, over {self.cap_mb} MB"
+                    print(message, file=sys.stderr, flush=True)
 
 
 def watch_memory(jobs: int, mb: int | None) -> MemoryWatch | None:
