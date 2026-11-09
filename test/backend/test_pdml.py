@@ -282,7 +282,9 @@ def test_parse_pdml_ignores_masked_bit_field_values() -> None:
         b' pos="1" size="1" value="04"/>'
         b"</field></proto></packet></pdml>"
     )
-    assert _find(parse_pdml(pdml, 2, sources), "ip.dsfield.dscp")["src"] == 0
+    tree = parse_pdml(pdml, 2, sources)
+    assert tree[0]["src"] == 0, "the bytes (ip.dsfield's 10) decide, not the masked 04"
+    assert _find(tree, "ip.dsfield.dscp")["src"] == 0
 
 
 def test_parse_pdml_a_reassembly_list_does_not_outvote_its_header() -> None:

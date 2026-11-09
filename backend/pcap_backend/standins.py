@@ -42,6 +42,10 @@ _REVERSE_V4 = re.compile(
     r"(?<![\w.-])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?=\.in-addr\.arpa\b)", re.IGNORECASE
 )
 _REVERSE_V6 = re.compile(r"(?<![\w.-])((?:[0-9A-Fa-f]\.){32})(?=ip6\.arpa\b)", re.IGNORECASE)
+# A token standing for a reverse name's address: restored written backwards.
+_REVERSE_TOKEN = re.compile(
+    r"\b((?:" + "|".join(KINDS) + r")_\d+)(\.(?i:in-addr|ip6)\.(?i:arpa)\b)"
+)
 # tshark's resolved form: the vendor and the last three bytes ("Apple_12:34:56").
 _VENDOR_MAC = re.compile(
     r"(?<![\w:-])[A-Za-z][\w-]*_[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){2}(?![\w:-])"
@@ -170,6 +174,13 @@ class AddressMasker:
             return text
         with self._lock:
             reals = dict(self._reals)
+
+        def reverse(m: re.Match[str]) -> str:
+            real = reals.get(m.group(1))
+            name = _reverse_name(real, m.group(2)) if real else None
+            return name + m.group(2) if name else m.group(0)
+
+        text = _REVERSE_TOKEN.sub(reverse, text)
         return _TOKEN.sub(lambda m: reals.get(m.group(0), m.group(0)), text)
 
     def restore_deep(self, value: Any) -> Any:
@@ -186,3 +197,17 @@ class AddressMasker:
     def size(self) -> int:
         with self._lock:
             return len(self._reals)
+
+
+def _reverse_name(real: str, suffix: str) -> str | None:
+    """``real``'s address written backwards for ``suffix`` (".in-addr.arpa":
+    octets, ".ip6.arpa": nibbles), None when it isn't that kind of address:
+    a reverse name restored as the forward address names another host."""
+    if suffix.lower().startswith(".in-addr"):
+        octets = real.split(".")
+        return ".".join(reversed(octets)) if len(octets) == 4 else None
+    try:
+        nibbles = ipaddress.IPv6Address(real).exploded.replace(":", "")
+    except ValueError:
+        return None
+    return ".".join(reversed(nibbles))

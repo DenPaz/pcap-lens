@@ -413,7 +413,7 @@ class StatisticsMixin(DissectionMixin):
             if kind == "dns_queries"
             else build(decoded)
         )
-        if failed(result.returncode, result.stderr) and not result.lines:
+        if failed(result.returncode, result.stderr):  # (a part would pass for the whole)
             raise f.tshark.error(result.stderr, result.returncode, "tshark failed")
         if len(table.rows) > MAX_SESSION_ROWS:
             table.extra["more"] = len(table.rows) - MAX_SESSION_ROWS
@@ -467,7 +467,9 @@ class StatisticsMixin(DissectionMixin):
                 time = None
             checker.add_packet(frame, time, [_split(c) for c in cells[2:-1]], _split(cells[-1]))
         ctx.token.raise_if_cancelled()
-        if failed(result.returncode, result.stderr) and not checker.streams():
+        # (Whatever was read before tshark failed would pass for a whole check;
+        # failed() already lets a capture that is merely cut short through.)
+        if failed(result.returncode, result.stderr):
             raise f.tshark.error(result.stderr, result.returncode, "tshark failed")
         types = {n: (catalog.lookup(n) or {}).get("type") for n in key}
         return sequence.table(checker, key, seq, types.get)

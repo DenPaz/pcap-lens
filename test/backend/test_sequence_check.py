@@ -3,6 +3,7 @@ tunnels: what it finds per TEID, and that its filters match its rows."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,7 @@ import pytest
 
 from pcap_backend.pcap_service import PcapService
 from pcap_backend.protocol import InvalidParamsError, RequestContext
+from pcap_backend.tshark import ToolError
 
 pytestmark = pytest.mark.tshark
 
@@ -111,3 +113,13 @@ def test_refused_parameters(gtp: PcapService, ctx: RequestContext) -> None:
     table = gtp.stats({**GTP, "key": []}, ctx)
     assert [r["cells"][:2] for r in table["rows"] if r["depth"] == 0] == [["All messages", 28]]
     assert table["columns"][0]["label"] == "Stream"
+
+
+def test_a_pass_cut_short_by_a_failure_is_an_error(
+    gtp: PcapService, ctx: RequestContext, killed_after: Callable[[int], None]
+) -> None:
+    # The messages read before tshark died would pass for a whole check:
+    # "OK", every stream complete (Codex review).
+    killed_after(5)
+    with pytest.raises(ToolError, match="signal 9"):
+        gtp.stats(GTP, ctx)
