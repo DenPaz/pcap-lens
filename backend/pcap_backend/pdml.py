@@ -131,12 +131,26 @@ def _matching_source(el: ET.Element, sources: Sequence[bytes], default: int) -> 
         elif (bits := _bit_field_value(node, size)) is not None:
             weak.append((pos, bits))
     current = min(default, len(sources) - 1)
-    for votes in (checks, weak):
-        if not votes:
-            continue
-        scores = [sum(1 if d[p : p + len(b)] == b else -1 for p, b in votes) for d in sources]
-        best = max(range(len(sources)), key=lambda i: (scores[i], i == default))
-        if scores[best] > scores[current]:
+
+    def scores(votes: list[tuple[int, bytes]], among: list[int]) -> dict[int, int]:
+        return {
+            i: sum(1 if sources[i][p : p + len(b)] == b else -1 for p, b in votes) for i in among
+        }
+
+    # The bytes decide; bit fields only among the sources the bytes leave tied
+    # for first (else a masked value that happens to be in another buffer
+    # pulls an item the bytes placed: Codex review).
+    tied = list(range(len(sources)))
+    if checks:
+        strong = scores(checks, tied)
+        top = max(strong.values())
+        tied = [i for i in tied if strong[i] == top]
+        if current not in tied:
+            return tied[0]  # (the first source the bytes favour)
+    if weak and len(tied) > 1:
+        light = scores(weak, tied)
+        best = max(tied, key=lambda i: (light[i], i == current))
+        if light[best] > light[current]:
             return best
     return default
 
