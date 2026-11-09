@@ -23,6 +23,12 @@ they aren't ours to redistribute). Every result is listed as ok, expected
 problem: an internal error, a tshark failure, a timeout, a broken
 invariant, a traceback on the server's stderr. Exit status 1 when there
 are problems.
+
+On Linux every process it starts (the backends, their tshark passes, its own
+tshark runs) gets a share of the machine's memory (``--memory``): a
+dissector that takes tshark past it makes that tshark abort, which counts as
+tshark's own crash (a note), instead of the kernel's OOM killer stopping
+whatever it picks: the whole CI runner, once.
 """
 
 from __future__ import annotations
@@ -65,6 +71,14 @@ TIMEOUT_CODE = 0
 # Answers the viewer shows as a message (no such stream, still indexing…).
 EXPECTED_CODES = {-32602, -32010, -32011, -32012}
 SLOW_S = 30.0
+# The memory each process may use is the machine's divided by the jobs times
+# this (a backend runs up to four tshark passes at once, the capture profile's
+# pool, next to its own and the harness's); never below MIN_MEMORY_MB.
+# tshark 4.2.2 takes dcerpc_spoolss_coverage.pcap.gz to 5 GB per pass and its
+# expert pass past 10 GB (a SPOOLSS response's dissection), which shut the
+# weekly run's Linux runner down (16 GB, two jobs).
+PROCESSES_PER_JOB = 6
+MIN_MEMORY_MB = 1024
 
 with (ROOT / "package.json").open(encoding="utf-8") as fh:
     _PROPS: dict[str, Any] = {}
@@ -1508,6 +1522,28 @@ def _replay_several(run: Run, path: Path, base: Baseline) -> None:
 # --- main --------------------------------------------------------------------
 
 
+def limit_memory(jobs: int, mb: int | None) -> int | None:
+    """Cap this process's data segment (Linux's RLIMIT_DATA counts every
+    private writable mapping, i.e. what malloc gets) at ``mb`` MB, or at the
+    machine's memory / (jobs times PROCESSES_PER_JOB) when None; the processes
+    it starts inherit it. 0 = no cap. Returns the cap in MB, or None where
+    there is none (Windows has no rlimits; macOS doesn't enforce this one, but
+    swaps instead of killing)."""
+    if mb == 0 or not sys.platform.startswith("linux"):
+        return None
+    import resource  # noqa: PLC0415 (POSIX only: Windows has none)
+
+    if mb is None:
+        total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") >> 20
+        mb = max(MIN_MEMORY_MB, total // (jobs * PROCESSES_PER_JOB))
+    _soft, hard = resource.getrlimit(resource.RLIMIT_DATA)
+    cap = mb << 20
+    if hard != resource.RLIM_INFINITY:
+        cap = min(cap, hard)
+    resource.setrlimit(resource.RLIMIT_DATA, (cap, hard))
+    return cap >> 20
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -1524,6 +1560,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--quick", action="store_true", help="fewer steps per capture")
     ap.add_argument("-j", "--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     ap.add_argument("--timeout", type=float, default=120.0, help="seconds per request")
+    ap.add_argument(
+        "--memory",
+        type=int,
+        metavar="MB",
+        help="memory each process may use (Linux; default: a share of the machine's, 0 = no cap)",
+    )
     ap.add_argument("--out", type=Path, help="write the full report as JSON")
     args = ap.parse_args(argv)
 
@@ -1539,6 +1581,9 @@ def main(argv: list[str] | None = None) -> int:
     if not captures:
         ap.error("no captures: give paths or --fetch")
 
+    cap = limit_memory(args.jobs, args.memory)
+    if cap:
+        print(f"{len(captures)} captures, {args.jobs} at a time, {cap} MB per process", flush=True)
     reports: list[Report] = []
     with ThreadPoolExecutor(args.jobs) as pool:
         for report in pool.map(lambda c: exercise(c, args.timeout, args.quick), captures):
