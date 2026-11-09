@@ -354,7 +354,11 @@ suite("PCAP Lens smoke test", () => {
       assert.match(lines[1], /^"?4"?,/);
       assert.match(lines[2], /^"?7"?,/);
 
-      // Selected packets (the viewer reports its selection to the session).
+      // Selected packets (the viewer reports its selection to the session; a
+      // selection is always within the view, so the filter goes first: the
+      // packet list keeps the view's rows).
+      await vscode.commands.executeCommand("pcapViewer.clearFilter");
+      await waitFor(() => (session.currentFilter === "" ? true : undefined));
       session.selectedFrames = [1, 2, 3];
       session.selectedFrame = 3;
       assert.equal(
