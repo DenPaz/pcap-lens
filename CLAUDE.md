@@ -2555,6 +2555,10 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   `SLOW_S` and at a timeout: a slow or timed-out request waiting on a busy
   tshark is a note naming it, and
   `record_count` gives None (a note) for a tshark that crashed or was killed.
+  The macOS job (one capture at a time) was still on Wireshark's set after
+  4 h of the 5 h limit, so `realworld.yml` runs one job per system and
+  source (matrix `os` × `source`; cache keys and artifacts per source, the
+  old per-system cache key as a fallback).
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage

@@ -95,7 +95,8 @@ The `Makefile` wraps everything (`make` lists the targets):
   workflow (`.github/workflows/realworld.yml`) runs it every Monday and by
   hand (_Run workflow_, with _full_ for every step of Wireshark's captures) on
   Linux and macOS (Homebrew's tshark, the newest release); a problem fails
-  the job, the run's summary lists them and its artifact has both reports.
+  the job, the run's summary lists them and its artifact has the report
+  (one job per system and source: Wireshark's set alone takes hours).
   Each tshark it starts may use a share of the machine's memory (change it
   with `--memory <MB>`, 0 for none): one that grows past it is killed (a
   note) rather than running the machine out of memory.

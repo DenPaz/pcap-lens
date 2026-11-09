@@ -3,10 +3,12 @@ name: Real captures
 # Every backend feature over Wireshark's and tcpdump's own test captures
 # (test/realworld/run.py, what `make realworld` runs by hand): weekly, and by
 # hand. Linux has the distribution's tshark, macOS Homebrew's (the newest
-# release, which most users run). A capture with a problem fails the job; the
-# run's summary lists them and report.json has every step. The captures stay
-# in the Actions cache, never in the repository or an artifact (they aren't
-# ours to redistribute).
+# release, which most users run). One job per system and source: Wireshark's
+# set grew to 1,243 captures (2 h 10 on Linux, two at a time; macOS, one at a
+# time, passed 5 h before reaching tcpdump's). A capture with a problem fails
+# the job; the run's summary lists them and the artifact has every step. The
+# captures stay in the Actions cache, never in the repository or an artifact
+# (they aren't ours to redistribute).
 
 on:
   schedule:
@@ -27,7 +29,7 @@ concurrency:
 
 jobs:
   realworld:
-    name: ${{ matrix.name }}
+    name: ${{ matrix.name }}, ${{ matrix.source }}
     # (A fork's schedule would download every capture for nothing.)
     if: github.event_name == 'workflow_dispatch' || github.repository == 'DenPaz/pcap-lens'
     runs-on: ${{ matrix.os }}
@@ -35,6 +37,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        source: [wireshark, tcpdump]
+        os: [ubuntu-latest, macos-latest]
         include:
           - os: ubuntu-latest
             name: Linux (distribution tshark)
@@ -65,66 +69,62 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - run: uv sync --locked
       # Downloaded once, then kept: each run saves under a new key and restores the
-      # latest. Restore and save are separate steps, since actions/cache only saves
-      # when the job succeeds, and a run that finds problems fails.
+      # latest (a key from before the split per source holds both). Restore and
+      # save are separate steps, since actions/cache only saves when the job
+      # succeeds, and a run that finds problems fails.
       - uses: actions/cache/restore@v6
         with:
           path: ~/.cache/pcap-lens-realworld
-          key: realworld-captures-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: realworld-captures-${{ runner.os }}-
-      - name: Wireshark's captures
-        id: wireshark
+          key: realworld-captures-${{ runner.os }}-${{ matrix.source }}-${{ github.run_id }}
+          restore-keys: |
+            realworld-captures-${{ runner.os }}-${{ matrix.source }}-
+            realworld-captures-${{ runner.os }}-
+      - name: The captures
+        id: captures
         continue-on-error: true
         shell: bash
         env:
           FULL: ${{ inputs.full }}
+          SOURCE: ${{ matrix.source }}
         run: |
+          # (Every step for Wireshark's only by hand with "full"; tcpdump's are
+          # many small fuzzed ones, always the quick steps.)
           quick=--quick
-          if [ "$FULL" = "true" ]; then quick=; fi
-          uv run python -u test/realworld/run.py --fetch wireshark $quick --out wireshark.json 2>&1 | tee wireshark.log
-      - name: tcpdump's captures
-        id: tcpdump
-        continue-on-error: true
-        shell: bash
-        run: |
-          uv run python -u test/realworld/run.py --fetch tcpdump --quick --out tcpdump.json 2>&1 | tee tcpdump.log
+          if [ "$FULL" = "true" ] && [ "$SOURCE" = wireshark ]; then quick=; fi
+          uv run python -u test/realworld/run.py --fetch "$SOURCE" $quick --out "$SOURCE.json" 2>&1 | tee "$SOURCE.log"
       - name: Summary
         if: always()
         shell: bash
         env:
           NAME: ${{ matrix.name }}
+          SOURCE: ${{ matrix.source }}
         run: |
           {
-            echo "## Real captures on ${NAME}"
+            echo "## Real captures on ${NAME}: ${SOURCE}"
             echo
             echo '```'
             tshark --version | head -n 1
             echo '```'
-            for source in wireshark tcpdump; do
-              echo "### ${source}"
-              echo
-              echo '```'
-              # The problems, then the totals (the harness prints them last).
-              grep -A 3 '^PROBLEM' "${source}.log" | head -n 200 || true
-              sed -n '/^[0-9]* captures, /,$p' "${source}.log" || true
-              echo '```'
-            done
+            echo
+            echo '```'
+            # The problems, then the totals (the harness prints them last).
+            grep -A 3 '^PROBLEM' "${SOURCE}.log" | head -n 200 || true
+            sed -n '/^[0-9]* captures, [0-9]* with problems/,$p' "${SOURCE}.log" || true
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/cache/save@v6
         if: always()
         with:
           path: ~/.cache/pcap-lens-realworld
-          key: realworld-captures-${{ runner.os }}-${{ github.run_id }}
+          key: realworld-captures-${{ runner.os }}-${{ matrix.source }}-${{ github.run_id }}
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: realworld-${{ runner.os }}
-          path: |
-            wireshark.json
-            tcpdump.json
+          name: realworld-${{ runner.os }}-${{ matrix.source }}
+          path: ${{ matrix.source }}.json
           if-no-files-found: ignore
       - name: Fail on problems
-        if: steps.wireshark.outcome == 'failure' || steps.tcpdump.outcome == 'failure'
+        if: steps.captures.outcome == 'failure'
         run: |
           echo "::error::The harness found problems (see the run's summary and report.json)"
           exit 1
