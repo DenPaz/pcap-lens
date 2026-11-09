@@ -113,7 +113,8 @@ The `Makefile` wraps everything (`make` lists the targets):
   then _PCAP: Set TLS Key Log File…_ with the `.log`.
 
 CI (`.github/workflows/ci.yml`) runs everything on Linux, macOS and Windows
-(plus the backend and unit tests on Python 3.12) for pull requests and pushes
+(plus the backend and unit tests on Python 3.12, and the VS Code smoke test
+on the oldest VS Code the extension supports) for pull requests and pushes
 to `main` and `dev`. A newer push cancels the run it replaces (not on `main`),
 and a pull request from `dev` reuses `dev`'s own run. CodeQL (`codeql.yml`) scans the TypeScript, JavaScript,
 Python and workflows; Dependabot opens weekly update PRs against `dev`.

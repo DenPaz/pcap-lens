@@ -146,6 +146,38 @@ jobs:
       - name: Unit + webview tests (backend on Python 3.12)
         run: pnpm run test:unit
 
+  # The other jobs' smoke tests run on the latest VS Code; the extension says
+  # it works from engines.vscode on (runTest.ts reads it: "minimum").
+  vscode-minimum:
+    name: Linux, oldest supported VS Code (smoke)
+    if: github.event_name != 'pull_request' || github.head_ref != 'dev' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install tshark
+        run: |
+          echo "wireshark-common wireshark-common/install-setuid boolean false" | sudo debconf-set-selections
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y tshark xvfb
+          if [ -f /etc/apparmor.d/tshark ]; then # see the Linux job
+            printf '%s\n' 'owner @{HOME}/** rw,' 'signal (receive) peer=unconfined,' | sudo tee -a /etc/apparmor.d/local/tshark
+            sudo apparmor_parser -r /etc/apparmor.d/tshark
+          fi
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: uv sync --locked
+      - run: pnpm install --frozen-lockfile
+      - name: VS Code smoke test on the oldest supported VS Code
+        run: PCAP_VSCODE_VERSION=minimum xvfb-run -a pnpm run test:extension
+
   cross-platform:
     name: ${{ matrix.os }} (backend, unit, webview e2e, VS Code smoke)
     if: github.event_name != 'pull_request' || github.head_ref != 'dev' || github.event.pull_request.head.repo.full_name != github.repository

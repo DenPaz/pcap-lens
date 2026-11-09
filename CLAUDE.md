@@ -16,7 +16,7 @@ CONTRIBUTING.md for building, testing and releasing (not packaged).
 | Backend tests             | `uv run pytest -n auto --dist loadfile` (pytest-xdist, as `make test-backend` and CI; plain `uv run pytest` is serial; tshark tests skip without tshark) |
 | Acceptance scenarios only | `uv run pytest test/backend/acceptance` (pytest-bdd, Gherkin in `features/`)                                                                             |
 | TS unit + webview tests   | `pnpm run test:unit` (mocha; includes the Chromium e2e test of the webview)                                                                              |
-| VS Code smoke test        | `pnpm run test:extension` (downloads VS Code; use `xvfb-run -a` on headless Linux)                                                                       |
+| VS Code smoke test        | `pnpm run test:extension` (downloads VS Code; use `xvfb-run -a` on headless Linux; `PCAP_VSCODE_VERSION=minimum` or a version for another VS Code)       |
 | Regenerate fixtures       | `uv run python test/fixtures/generate.py`                                                                                                                |
 | Coverage                  | `make coverage` (pytest-cov and c8; summaries in the terminal, HTML in `coverage/`; CI's Linux job adds both to the run summary)                         |
 | Perf check                | `uv run python test/fixtures/generate.py --large 1000000 test/fixtures/large-1m.pcap && uv run python -u test/perf/bench.py test/fixtures/large-1m.pcap` |
@@ -156,7 +156,10 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   30 s and 60 s apart, until `tshark.exe` exists, since the Chocolatey feed
   fails now and then, once even with exit code 0 and nothing installed): lint, backend and
   acceptance tests with tshark, unit + Chromium e2e tests, and the VS Code
-  smoke test (Linux under xvfb), plus a Linux job on Python 3.12. Ubuntu
+  smoke test (Linux under xvfb), plus a Linux job on Python 3.12 and one
+  running the smoke test on the oldest VS Code `engines.vscode` allows
+  (`PCAP_VSCODE_VERSION=minimum`; `runTest.ts` reads the version from
+  package.json, so raising the engine moves the job). Ubuntu
   26.04 (`ubuntu-latest` from 2026-10-19) enforces the apparmor package's
   tshark profile, so the Linux jobs add the local rules of `sandbox.py`'s
   hint when `/etc/apparmor.d/tshark` exists (else every fixture read fails;
