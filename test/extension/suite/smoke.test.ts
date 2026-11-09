@@ -547,9 +547,11 @@ suite("PCAP Lens smoke test", () => {
         [uri.fsPath, path.join(FIXTURES, "dns.pcap")],
         { dest: merged, append: false },
       );
-      assert.equal(dest, merged);
+      // (Through a Uri, as the command's own path is: Windows lower-cases the drive.)
+      const mergedPath = vscode.Uri.file(merged).fsPath;
+      assert.equal(dest, mergedPath);
       const mergedSession = await waitFor(() =>
-        api.provider.allSessions.find((s) => s.uri.fsPath === merged && indexed(s)),
+        api.provider.allSessions.find((s) => s.uri.fsPath === mergedPath && indexed(s)),
       );
       assert.equal(mergedSession.openInfo?.frames, 11 + 6);
     } finally {

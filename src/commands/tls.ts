@@ -51,8 +51,10 @@ export async function setTlsKeyLogFile(
     }
   }
   const start = current ? path.dirname(current) : scope ? path.dirname(scope.fsPath) : undefined;
+  // A given path is stored as given (a Uri's fsPath would lower-case a
+  // Windows drive letter).
   const picked = givenFile
-    ? [vscode.Uri.file(givenFile)]
+    ? undefined
     : await vscode.window.showOpenDialog({
         title: "TLS Key Log File (SSLKEYLOGFILE format)",
         openLabel: "Use Key Log File",
@@ -60,7 +62,7 @@ export async function setTlsKeyLogFile(
         defaultUri: start ? vscode.Uri.file(start) : undefined,
         filters: { "Key log files": ["log", "txt", "keys", "keylog"], "All files": ["*"] },
       });
-  const file = picked?.[0]?.fsPath;
+  const file = givenFile ?? picked?.[0]?.fsPath;
   if (!file) {
     return;
   }
