@@ -7,6 +7,14 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- With GeoIP database folders set, a tshark built without GeoIP (MaxMind)
+  support no longer fails to open every capture: the viewer warns and goes
+  on without tshark's `ip.geoip` fields [b3d1ed6]
+
+[b3d1ed6]: https://github.com/DenPaz/pcap-lens/commit/b3d1ed6
+
 ## 0.29.1 — 2026-11-09
 
 ### Changed
