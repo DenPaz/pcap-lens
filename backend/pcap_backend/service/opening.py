@@ -591,14 +591,17 @@ class OpeningMixin(CommentsMixin):
         self, options: DissectionOptions, ctx: RequestContext
     ) -> tuple[DissectionOptions, list[str]]:
         """``options`` without the protocols, heuristic dissectors,
-        preferences and Decode As rules this tshark doesn't know (it won't
-        start for one), and warnings for them. (A Lua protocol's preference
-        or rule when this capture doesn't load its script is one.)"""
+        preferences, Decode As rules and decryption or GeoIP tables this
+        tshark doesn't know (it won't start for one), and warnings for them.
+        (A Lua protocol's preference or rule when this capture doesn't load
+        its script is one; ``uat:maxmind_db_paths`` without MaxMind support
+        another.)"""
         warnings: list[str] = []
         if options.protocols or options.heuristics:
             known = self._protocol_list(self._require_tshark().with_options(options), ctx.token)
             options, warnings = options.without_unknown(known.protocols, known.heuristics)
-        for _ in range(len(options.prefs) + len(options.decode_as)):
+        tables = {key for key, _ in options.secrets}
+        for _ in range(len(options.prefs) + len(options.decode_as) + len(tables)):
             refused = self._require_tshark().with_options(options).refused_option(ctx.token)
             if refused is None:
                 break

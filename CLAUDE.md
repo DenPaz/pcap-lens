@@ -1274,7 +1274,12 @@ tls|ssh|wg}`) offers the TLS setting and the SSH/WireGuard keys. README:
   loads it for Endpoints only. libmaxminddb checks the metadata's types
   (uint16/uint32/uint64): `test/fixtures/mmdb.py` writes them typed
   (`Uint`), and tshark reads the fixtures (`geoip/PCAP-Lens-Test-City.mmdb`,
-  `-ASN`) too.
+  `-ASN`) too. A tshark built without MaxMind support (a user's Mac) refuses
+  `-o uat:maxmind_db_paths` ("Invalid -o flag …: Unknown preference", the
+  form of an unknown UAT table) and wouldn't start, so the open failed;
+  `refused_option` now names such a table (`("secret", key)`, any decryption
+  table too) and `_known_switches` drops it with a warning, keeping
+  `options.geoip` for the Endpoints' own reader.
 - **Network statistics** (`stats {kind: ipv4 | ipv6 | multicast | hosts |
 sctp}`): IPv4/IPv6 (`type` addresses, srcdst, ptype, dests) are the
   stats_tree reports `ip_hosts`/`ip_srcdst`/`ptype`/`dests` (and `ipv6_*`)

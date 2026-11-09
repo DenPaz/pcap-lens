@@ -109,7 +109,11 @@ _DECODE_AS_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.\-]*(==|:)[^,\s]+,[A-Za-z0
 _PREF_KEY_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.\-]*$")
 # tshark refuses to start for an -o preference or a -d rule it can't use (the
 # first one it meets), saying so in one of these ways.
-_UNKNOWN_PREF_RE = re.compile(r'-o flag "([^":]+):.*" specifies unknown preference')
+# A UAT table this tshark lacks (``uat:maxmind_db_paths`` without MaxMind
+# support, found on a Mac) is the second form.
+_UNKNOWN_PREF_RE = re.compile(
+    r'-o flag "((?:uat:)?[^":]+):.*"(?: specifies unknown preference|: Unknown preference)'
+)
 _UNKNOWN_DECODE_AS_RE = re.compile(
     r'Unknown protocol -- "(?P<proto>[^"]+)"|Unknown layer type -- (?P<layer>\S+)'
     r'|Invalid selector number "(?P<selector>[^"]*)"'
@@ -226,6 +230,18 @@ class DissectionOptions:
         if kind == "pref":
             return replace(self, prefs=tuple(p for p in self.prefs if p[0] != item)), (
                 f"Unknown preference {item!r} in pcapViewer.prefs: ignored"
+            )
+        if kind == "secret":
+            # (A build without the library behind it: MaxMind, GnuTLS…)
+            kept = replace(self, secrets=tuple(s for s in self.secrets if s[0] != item))
+            if item == "uat:maxmind_db_paths":
+                return kept, (
+                    "This tshark has no GeoIP (MaxMind) support: packets get no ip.geoip"
+                    " fields (the Endpoints statistics still show locations)"
+                )
+            return (
+                kept,
+                f"This tshark doesn't support {item}: the decryption keys for it are ignored",
             )
         return replace(self, decode_as=tuple(r for r in self.decode_as if r != item)), (
             f"Decode As rule {item!r} names something tshark doesn't know: ignored"
@@ -771,16 +787,19 @@ class Tshark:
         return first[0].strip() if first else "unknown"
 
     def refused_option(self, token: CancelToken | None = None) -> tuple[str, str] | None:
-        """The first preference (``("pref", key)``) or Decode As rule
-        (``("decodeAs", rule)``) of the options that this tshark, with their
-        Lua scripts and profile, refuses to start with; None if there is none
-        (or tshark fails for another reason, which the caller then meets)."""
+        """The first preference (``("pref", key)``), decryption key or GeoIP
+        table (``("secret", key)``) or Decode As rule (``("decodeAs", rule)``)
+        of the options that this tshark, with their Lua scripts and profile,
+        refuses to start with; None if there is none (or tshark fails for
+        another reason, which the caller then meets)."""
         res = run(self.argv(capture=str(EMPTY_CAPTURE.get())), token)
         if res.returncode == 0:
             return None
         if found := _UNKNOWN_PREF_RE.search(res.stderr):
             key = found.group(1)
-            return ("pref", key) if key in {k for k, _ in self.options.prefs} else None
+            if key in {k for k, _ in self.options.prefs}:
+                return ("pref", key)
+            return ("secret", key) if key in {k for k, _ in self.options.secrets} else None
         if found := _UNKNOWN_DECODE_AS_RE.search(res.stderr):
             for rule in self.options.decode_as:
                 layer, _, rest = re.split(r"(==|:)", rule, maxsplit=1)
