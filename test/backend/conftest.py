@@ -146,6 +146,30 @@ def slow_index(patch_service: Callable[[str, object], None]) -> Iterator[threadi
 
 
 @pytest.fixture
+def killed_after(patch_service: Callable[[str, object], None]) -> Callable[[int], None]:
+    """``killed_after(n)``: every streamed pass ends after ``n`` lines as if
+    tshark had been killed (signal 9), without a word on stderr."""
+
+    def install(n: int) -> None:
+        real = tshark.stream_lines
+
+        def killed(argv: list[str], result: Any, *args: Any, **kwargs: Any) -> Iterator[bytes]:
+            lines = real(argv, result, *args, **kwargs)
+            try:
+                for i, line in enumerate(lines):
+                    if i >= n:
+                        break
+                    yield line
+            finally:
+                lines.close()
+            result.returncode, result.stderr = -9, ""
+
+        patch_service("stream_lines", killed)
+
+    return install
+
+
+@pytest.fixture
 def slow_filter(patch_service: Callable[[str, object], None]) -> Iterator[threading.Event]:
     """Filter passes (``-Y``) stream their first 2 matches at once, then take
     0.1 s per match until ``release`` is set; a streaming filter's first batch

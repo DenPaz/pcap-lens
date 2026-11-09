@@ -12,6 +12,7 @@ import pytest
 from pcap_backend import sessions
 from pcap_backend.pcap_service import PcapService
 from pcap_backend.protocol import InvalidParamsError, RequestContext
+from pcap_backend.tshark import ToolError
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 sys.path.insert(0, str(FIXTURES))
@@ -126,6 +127,16 @@ def test_a_long_session_table_lists_its_first_rows(
     assert len(table["rows"]) == 2 and table["more"] == 3
     assert [_cell(table, r, "ID") for r in table["rows"]] == ["0x3000", "0x3001"]
     assert "more" not in _table(service, "tls_servers")
+
+
+@pytest.mark.tshark
+def test_a_session_table_cut_short_by_a_failure_is_an_error(
+    service: PcapService, killed_after: Callable[[int], None]
+) -> None:
+    _open(service, "sessions.pcap")
+    killed_after(2)
+    with pytest.raises(ToolError, match="signal 9"):
+        _table(service, "dns_queries")
 
 
 @pytest.mark.tshark
