@@ -33,7 +33,8 @@ jobs:
     # (A fork's schedule would download every capture for nothing.)
     if: github.event_name == 'workflow_dispatch' || github.repository == 'DenPaz/pcap-lens'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 300
+    # (GitHub's limit for hosted runners: macOS took 4 h 26 for Wireshark's set alone.)
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:

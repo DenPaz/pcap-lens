@@ -124,3 +124,18 @@ def test_steps_waiting_on_a_busy_tshark_are_counted(harness: ModuleType) -> None
         "2 steps slow and 1 timed out while tshark was busy (notes, in 2 captures)"
     )
     assert harness.busy_summary(reports[2:]) is None
+
+
+def test_problems_are_listed_again_after_the_totals(
+    harness: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    r = harness.Report("/cache/x.pcap")
+    r.steps = [
+        harness.Step("open", "ok", 1.0, ""),
+        harness.Step("export pcap", "problem", 1.0, "[-32002] tshark failed:\n  line two"),
+        harness.Step("triage", "note", 1.0, "slow"),
+    ]
+    assert harness.problem_lines([r]) == ["  x.pcap: export pcap: [-32002] tshark failed: line two"]
+    monkeypatch.setattr(harness, "MAX_LISTED_PROBLEMS", 1)
+    r.steps.append(harness.Step("stats", "problem", 1.0, "slow"))
+    assert harness.problem_lines([r])[-1] == "  … and 1 more"

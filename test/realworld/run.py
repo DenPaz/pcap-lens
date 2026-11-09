@@ -395,6 +395,19 @@ class Run:
 
 
 BUSY_NOTE = "tshark's own dissection"
+MAX_LISTED_PROBLEMS = 200
+
+
+def problem_lines(reports: list[Report]) -> list[str]:
+    """One line per problem (capture, step, the start of its detail), at
+    most MAX_LISTED_PROBLEMS, then how many more there are."""
+    lines = [
+        f"  {Path(r.capture).name}: {s.name}: {' '.join(s.detail.split())[:240]}"
+        for r in reports
+        for s in r.problems()
+    ]
+    more = len(lines) - MAX_LISTED_PROBLEMS
+    return lines[:MAX_LISTED_PROBLEMS] + ([f"  … and {more} more"] if more > 0 else [])
 
 
 def _busy_detail(busy: list[str]) -> str:
@@ -1776,6 +1789,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{n:5}  {name}  {what}")
     if busy := busy_summary(reports):
         print(busy)
+    # Every problem again, after the totals: a CI log is read from its end (the
+    # GitHub tools give its last lines), and the artifact may not be reachable.
+    listed = problem_lines(reports)
+    if listed:
+        print("\nProblems:")
+        for line in listed:
+            print(line)
     if watch:
         watch.stop()
         if watch.killed:
