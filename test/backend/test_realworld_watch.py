@@ -105,3 +105,22 @@ def test_a_count_tshark_could_not_finish_is_unknown(
     done = subprocess.CompletedProcess(["tshark"], 0, b"1\n2\n3\n", b"")
     monkeypatch.setattr(harness.subprocess, "run", lambda *_a, **_k: done)
     assert harness.record_count(tmp_path / "x.pcap") == 3
+
+
+def test_steps_waiting_on_a_busy_tshark_are_counted(harness: ModuleType) -> None:
+    # (Notes, not problems; the count shows a slowdown of ours as a jump.)
+    def report(capture: str, *steps: tuple[str, str]) -> object:
+        r = harness.Report(capture)
+        r.steps = [harness.Step("x", status, 1.0, detail) for status, detail in steps]
+        return r
+
+    busy = "(tshark's own dissection: tshark at 99% CPU)"
+    reports = [
+        report("a.pcap", ("note", f"slow {busy}"), ("note", f"[0] no answer in 120 s {busy}")),
+        report("b.pcap", ("note", f"slow {busy}"), ("problem", "slow"), ("ok", "")),
+        report("c.pcap", ("note", "tshark crashed (a segmentation fault)")),
+    ]
+    assert harness.busy_summary(reports) == (
+        "2 steps slow and 1 timed out while tshark was busy (notes, in 2 captures)"
+    )
+    assert harness.busy_summary(reports[2:]) is None

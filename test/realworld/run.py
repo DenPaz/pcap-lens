@@ -352,6 +352,9 @@ class Run:
             return None
         finally:
             timer.cancel()
+            # (A check already started must land before the result is read:
+            # a request answered just after SLOW_S read an empty list.)
+            timer.join()
         took = time.monotonic() - start
         if took <= SLOW_S:
             self.report.steps.append(Step(name, "ok", took))
@@ -391,8 +394,35 @@ class Run:
         return frames[0] if frames else None
 
 
+BUSY_NOTE = "tshark's own dissection"
+
+
 def _busy_detail(busy: list[str]) -> str:
-    return f" (tshark's own dissection: {', '.join(dict.fromkeys(busy))})" if busy else ""
+    return f" ({BUSY_NOTE}: {', '.join(dict.fromkeys(busy))})" if busy else ""
+
+
+def busy_summary(reports: list[Report]) -> str | None:
+    """How many steps were slow or timed out while tshark was busy (notes,
+    not problems: tshark's own slowness), or None: printed with the totals,
+    so a slowdown of ours, which tshark would be busy for too, shows as a
+    jump here even though it fails nothing."""
+    slow = timed_out = 0
+    captures = set()
+    for r in reports:
+        for s in r.steps:
+            if s.status == "note" and BUSY_NOTE in s.detail:
+                captures.add(r.capture)
+                if s.detail.startswith("slow"):
+                    slow += 1
+                else:
+                    timed_out += 1
+    if not captures:
+        return None
+    n = len(captures)
+    return (
+        f"{slow} steps slow and {timed_out} timed out while tshark was busy"
+        f" (notes, in {n} capture{'' if n == 1 else 's'})"
+    )
 
 
 def record_count(path: Path) -> int | None:
@@ -1744,6 +1774,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\n{len(reports)} captures, {sum(1 for r in reports if r.problems())} with problems")
     for (name, what), n in kinds.most_common(40):
         print(f"{n:5}  {name}  {what}")
+    if busy := busy_summary(reports):
+        print(busy)
     if watch:
         watch.stop()
         if watch.killed:

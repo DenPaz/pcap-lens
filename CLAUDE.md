@@ -2553,8 +2553,12 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   `ps` shows running or runnable, or at ≥ `BUSY_CPU` 50% CPU; the state
   matters: two captures at once gave each looping tshark half a CPU) at
   `SLOW_S` and at a timeout: a slow or timed-out request waiting on a busy
-  tshark is a note naming it, and
-  `record_count` gives None (a note) for a tshark that crashed or was killed.
+  tshark is a note naming it (the check is joined before the result is read:
+  an answer just after `SLOW_S` read an empty list), and `record_count`
+  gives None (a note) for a tshark that crashed or was killed. Since nearly
+  every request waits on tshark, a slowdown of ours would be a note too, so
+  the totals end with `busy_summary` ("N steps slow and M timed out while
+  tshark was busy"): a jump there is the sign to look.
   The macOS job (one capture at a time) was still on Wireshark's set after
   4 h of the 5 h limit, so `realworld.yml` runs one job per system and
   source (matrix `os` × `source`; cache keys and artifacts per source, the
