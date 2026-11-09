@@ -407,12 +407,13 @@ class StatisticsMixin(DissectionMixin):
         result = StreamResult()
         lines = stream_lines(f.tshark.argv(*args, capture=str(f.path)), result, ctx.token)
         decoded = (raw.decode("utf-8", "replace") for raw in lines)
-        # (The DNS table keeps only its listed queries' details.)
-        table = (
-            sessions.dns_queries(decoded, MAX_SESSION_ROWS)
-            if kind == "dns_queries"
-            else build(decoded)
-        )
+        # (The HTTP and DNS tables keep only their listed rows' details.)
+        if kind == "dns_queries":
+            table = sessions.dns_queries(decoded, MAX_SESSION_ROWS)
+        elif kind == "http_requests":
+            table = sessions.http_requests(decoded, MAX_SESSION_ROWS)
+        else:
+            table = build(decoded)
         if failed(result.returncode, result.stderr):  # (a part would pass for the whole)
             raise f.tshark.error(result.stderr, result.returncode, "tshark failed")
         if len(table.rows) > MAX_SESSION_ROWS:
