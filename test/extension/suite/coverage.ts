@@ -10,7 +10,7 @@
 import * as fs from "node:fs";
 import * as inspector from "node:inspector";
 import * as path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 interface ScriptCoverage {
   url: string;
@@ -36,13 +36,30 @@ export async function startCoverage(): Promise<(() => Promise<void>) | undefined
     const { result } = await post<{ result: ScriptCoverage[] }>("Profiler.takePreciseCoverage");
     await post("Profiler.stopPreciseCoverage");
     session.disconnect();
+    // Only this extension's bundle: VS Code's built-in extensions have a
+    // dist/extension.js of their own (CI's first run counted six).
     const bundle = path.resolve(__dirname, "../../../../dist/extension.js");
     const ours = result
-      .filter((s) => s.url.endsWith("dist/extension.js") || s.url.endsWith("dist\\extension.js"))
+      .filter((s) => samePath(s.url, bundle))
       .map((s) => ({ ...s, url: pathToFileURL(bundle).href }));
     fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `coverage-host-${process.pid}.json`);
     fs.writeFileSync(file, JSON.stringify({ result: ours }));
     console.log(`Host coverage: ${ours.length} script(s) written to ${file}`);
   };
+}
+
+/** Whether a script's URL (a file: URL or a plain path) names `file`. */
+function samePath(url: string, file: string): boolean {
+  let p: string;
+  try {
+    p = url.startsWith("file:") ? fileURLToPath(url) : url;
+  } catch {
+    return false;
+  }
+  const norm = (x: string) => {
+    const r = path.resolve(x);
+    return process.platform === "win32" ? r.toLowerCase() : r;
+  };
+  return norm(p) === norm(file);
 }
