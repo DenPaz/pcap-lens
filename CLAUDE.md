@@ -1360,7 +1360,13 @@ fields -e frame.number` gives progress when filtering; without a filter
   frame set means several `-Y frame.number in {…}` passes, which
   `export.DissectionWriter` joins: text concatenated, PDML with one header and
   one `</pdml>`, JSON as one array (a held-back last line becomes `  },` when
-  another pass's first object `  {` follows).
+  another pass's first object `  {` follows). Every export command takes
+  `ExportArgs` (`{dest, scope, format, bytes, source}`; scopes and formats by
+  id: displayed/all/selected/marked, pcapng/pcap, csv/json, text/pdml/json)
+  that answer its questions, and then shows no notification (smoke test); so
+  do Colorize with Filter (`{filter, color, name}`), Save Filter (`{filter,
+name}`), Merge Captures (`files, {dest, append}`) and Set TLS Key Log File
+  (`{file}` / `{clear: true}`).
 - **Merging** (`merge {inputs, dest, format, append}`, no open capture needed):
   `mergecap` (found next to tshark) into an atomic output, `-a` for a rotated
   capture's pieces (given in order), by timestamp otherwise; `dest` may not be

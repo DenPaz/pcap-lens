@@ -21,10 +21,20 @@ async function readStart(file: string, bytes = 64 * 1024): Promise<string> {
  * capture's folder (pcapViewer.tlsKeyLogFile), or stop using the current one.
  * The setting change reloads the captures it applies to (see extension.ts).
  */
-export async function setTlsKeyLogFile(provider: PcapEditorProvider): Promise<void> {
+export async function setTlsKeyLogFile(
+  provider: PcapEditorProvider,
+  args?: unknown,
+): Promise<void> {
   const scope = provider.activeSession?.uri;
   const current = readSettings(scope).tlsKeyLogFile;
-  if (current) {
+  // {file} or {clear: true} skip the questions; a file that isn't a key log is refused.
+  const given = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
+  if (given.clear === true) {
+    await updateSetting("tlsKeyLogFile", "", scope);
+    return;
+  }
+  const givenFile = typeof given.file === "string" && given.file ? given.file : undefined;
+  if (current && !givenFile) {
     const pick = await vscode.window.showQuickPick(
       [
         { label: "$(file) Choose a Different Key Log File…", id: "choose" },
@@ -41,13 +51,15 @@ export async function setTlsKeyLogFile(provider: PcapEditorProvider): Promise<vo
     }
   }
   const start = current ? path.dirname(current) : scope ? path.dirname(scope.fsPath) : undefined;
-  const picked = await vscode.window.showOpenDialog({
-    title: "TLS Key Log File (SSLKEYLOGFILE format)",
-    openLabel: "Use Key Log File",
-    canSelectMany: false,
-    defaultUri: start ? vscode.Uri.file(start) : undefined,
-    filters: { "Key log files": ["log", "txt", "keys", "keylog"], "All files": ["*"] },
-  });
+  const picked = givenFile
+    ? [vscode.Uri.file(givenFile)]
+    : await vscode.window.showOpenDialog({
+        title: "TLS Key Log File (SSLKEYLOGFILE format)",
+        openLabel: "Use Key Log File",
+        canSelectMany: false,
+        defaultUri: start ? vscode.Uri.file(start) : undefined,
+        filters: { "Key log files": ["log", "txt", "keys", "keylog"], "All files": ["*"] },
+      });
   const file = picked?.[0]?.fsPath;
   if (!file) {
     return;
@@ -58,6 +70,12 @@ export async function setTlsKeyLogFile(provider: PcapEditorProvider): Promise<vo
   } catch (err) {
     void vscode.window.showErrorMessage(
       `PCAP Lens: cannot read ${file}: ${(err as Error).message}`,
+    );
+    return;
+  }
+  if (!looksLikeKeyLog(text) && givenFile) {
+    void vscode.window.showErrorMessage(
+      `PCAP Lens: ${path.basename(file)} doesn't look like a TLS key log.`,
     );
     return;
   }
@@ -84,8 +102,8 @@ export function registerTlsCommands(
   provider: PcapEditorProvider,
 ): void {
   context.subscriptions.push(
-    vscode.commands.registerCommand("pcapViewer.setTlsKeyLogFile", () =>
-      setTlsKeyLogFile(provider),
+    vscode.commands.registerCommand("pcapViewer.setTlsKeyLogFile", (args?: unknown) =>
+      setTlsKeyLogFile(provider, args),
     ),
   );
 }

@@ -8,16 +8,20 @@ import { mergedFileName, rotatedSiblings } from "../rotation";
 /**
  * "PCAP: Merge Captures…": merge capture files into one (mergecap) and open it.
  * `files` (full paths) skips the choice: the pieces of a rotated capture, in order.
+ * `options.dest` skips the save dialog (`.pcap` writes pcap, else pcapng), and
+ * `options.append` says whether `files` go one after another (default: yes).
  */
 export async function mergeCaptures(
   provider: PcapEditorProvider,
   context: vscode.ExtensionContext,
   log: vscode.LogOutputChannel,
   files?: unknown,
+  options?: unknown,
 ): Promise<string | undefined> {
+  const opts = options && typeof options === "object" ? (options as Record<string, unknown>) : {};
   let inputs = Array.isArray(files) ? files.filter((f): f is string => typeof f === "string") : [];
   // A rotated capture's pieces go one after another; other files are merged by timestamp.
-  let append = inputs.length > 1;
+  let append = inputs.length > 1 && opts.append !== false;
   if (inputs.length < 2) {
     const active = provider.activeSession?.uri.fsPath;
     const pieces = active ? await rotatedSiblings(active) : [];
@@ -60,13 +64,16 @@ export async function mergeCaptures(
     }
     return undefined;
   }
-  const target = await vscode.window.showSaveDialog({
-    defaultUri: vscode.Uri.file(
-      path.join(path.dirname(inputs[0]), mergedFileName(path.basename(inputs[0]))),
-    ),
-    filters: { pcapng: ["pcapng"], pcap: ["pcap"] },
-    saveLabel: "Merge",
-  });
+  const target =
+    typeof opts.dest === "string" && opts.dest
+      ? vscode.Uri.file(opts.dest)
+      : await vscode.window.showSaveDialog({
+          defaultUri: vscode.Uri.file(
+            path.join(path.dirname(inputs[0]), mergedFileName(path.basename(inputs[0]))),
+          ),
+          filters: { pcapng: ["pcapng"], pcap: ["pcap"] },
+          saveLabel: "Merge",
+        });
   if (!target || target.scheme !== "file") {
     return undefined;
   }
@@ -106,8 +113,9 @@ export function registerMergeCommands(
   log: vscode.LogOutputChannel,
 ): void {
   context.subscriptions.push(
-    vscode.commands.registerCommand("pcapViewer.mergeCaptures", (files?: unknown) =>
-      mergeCaptures(provider, context, log, files),
+    vscode.commands.registerCommand(
+      "pcapViewer.mergeCaptures",
+      (files?: unknown, options?: unknown) => mergeCaptures(provider, context, log, files, options),
     ),
   );
 }
