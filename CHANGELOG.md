@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.29.2 — 2026-11-10
+
 ### Fixed
 
 - With GeoIP database folders set, a tshark built without GeoIP (MaxMind)
