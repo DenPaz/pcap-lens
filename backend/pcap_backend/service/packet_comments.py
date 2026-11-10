@@ -201,7 +201,7 @@ class CommentsMixin(ServiceBase):
                 source.unlink(missing_ok=True)
             if res.returncode != 0 or not out.exists():
                 out.unlink(missing_ok=True)
-                raise unwritable_error(res.stderr) or ToolError(
+                raise unwritable_error(res.stderr, "pcapng") or ToolError(
                     res.stderr.strip() or "editcap failed", res.stderr, res.returncode
                 )
             source = out

@@ -2562,7 +2562,22 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   The macOS job (one capture at a time) was still on Wireshark's set after
   4 h of the 5 h limit, so `realworld.yml` runs one job per system and
   source (matrix `os` × `source`; cache keys and artifacts per source, the
-  old per-system cache key as a fallback).
+  old per-system cache key as a fallback). The harness lists every problem
+  again after the totals (`problem_lines`), since only a log's last lines
+  can be read from a session here. The first full macOS run (tshark 4.6.9,
+  4 h 28; Linux and tcpdump's sets clean): 11 problems. Six were exports
+  of EyeSDN and NetMon captures as pcapng, which 4.6 refuses with
+  "An error occurred while writing to the file …: Undefined error: 0"
+  (strerror(0); "Success" with glibc, "No error." on Windows) where 4.2 says
+  the network type can't be saved: `unwritable_error(stderr, written)`
+  takes such a zero-errno write error as the format's refusal (a real write
+  failure keeps its errno). Not yet looked into, since they need tshark
+  4.6 (4.2.2 passes them): overview protocol rows whose filter matches
+  fewer packets than the card counts (`_ws.malformed` in
+  `dpnss`/`epl`/`nfapi_coverage`, `data` in `meta_coverage`), a replayed
+  TCP connection of `m3ua_coverage` that matches neither Follow nor the
+  segments, and `moldudp_coverage`'s expert pass timing out with no busy
+  tshark (4.2.2's open already passes the memory cap there).
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage

@@ -3,17 +3,25 @@
 from __future__ import annotations
 
 import csv
+import dataclasses
 import io
 import json
 import struct
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from pcap_backend import coloring
-from pcap_backend.export import PacketListWriter, atomic_output, check_destination, csv_cell
+from pcap_backend import coloring, tshark
+from pcap_backend.export import (
+    PacketListWriter,
+    atomic_output,
+    check_destination,
+    csv_cell,
+    unwritable_error,
+)
 from pcap_backend.pcap_service import PcapService
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext
 from pcap_backend.tshark import find_tool
@@ -229,7 +237,7 @@ def test_export_as_pcap_refuses_a_link_type_declared_late(
     # tshark 4.6 says "Undefined error: 0" (Windows "No error."), so the
     # packets' link types are checked (played here by not reading 4.2's message).
     if not says_why:
-        patch_service("unwritable_error", lambda _stderr: None)
+        patch_service("unwritable_error", lambda *_a: None)
     eth = bytes(12) + b"\x08\x00" + bytes(46)
     raw_ip = bytes.fromhex("4500001c000000004011000001020304050607080035003500080000")
 
@@ -263,7 +271,7 @@ def test_export_as_pcap_refuses_packets_after_2038(
     # tshark 4.2 says why; 4.6 says "Undefined error: 0", so the packets'
     # times are checked (played here by not reading 4.2's message).
     if not says_why:
-        patch_service("unwritable_error", lambda _stderr: None)
+        patch_service("unwritable_error", lambda *_a: None)
     frame = bytes(12) + b"\x08\x00" + bytes(46)
     records = b"".join(
         struct.pack("<IIII", seconds, 0, len(frame), len(frame)) + frame
@@ -288,12 +296,37 @@ def _pcapng_block(kind: int, body: bytes) -> bytes:
 
 
 @pytest.mark.tshark
+@pytest.mark.parametrize("lost", [None, "Undefined error: 0", "Success", "No error."])
 def test_packets_wireshark_cannot_write_are_explained(
-    service: PcapService, ctx: RequestContext, tmp_path: Path
+    service: PcapService,
+    ctx: RequestContext,
+    tmp_path: Path,
+    patch_service: Callable[[str, object], None],
+    lost: str | None,
 ) -> None:
     # A link type Wireshark only reads as "Unknown" (Wireshark's
     # gsmtap_um_lte.pcap has one, found by test/realworld): no format can
     # hold these packets, so exports and editing say why.
+    if lost is not None:
+        # tshark 4.6 says only that writing failed, with strerror(0) for a
+        # reason (macOS, glibc, Windows): EyeSDN and NetMon captures exported
+        # as pcapng on macOS (test/realworld). Played by rewriting 4.2's words.
+        def as_46(stderr: str) -> str:
+            if "can't be written as" not in stderr:
+                return stderr
+            return f'tshark: An error occurred while writing to the file "/tmp/x.part": {lost}\n'
+
+        def stream(*args: Any, **kwargs: Any) -> Iterator[bytes]:
+            result = args[1]
+            yield from tshark.stream_lines(*args, **kwargs)
+            result.stderr = as_46(result.stderr)
+
+        def run(*args: Any, **kwargs: Any) -> tshark.RunResult:
+            res = tshark.run(*args, **kwargs)
+            return dataclasses.replace(res, stderr=as_46(res.stderr))
+
+        patch_service("stream_lines", stream)
+        patch_service("run", run)
     capture = tmp_path / "unknown-link.pcapng"
     capture.write_bytes(
         _pcapng_block(0x0A0D0D0A, struct.pack("<IHHq", 0x1A2B3C4D, 1, 0, -1))
@@ -412,3 +445,16 @@ def test_default_coloring_rules_compile(
     assert names["ARP"] == "ARP"
     assert names["DNS"] == "DNS"
     assert names["UDP"] == "UDP"
+
+
+def test_a_refusal_without_its_reason_needs_the_format_written() -> None:
+    # tshark 4.6's refusal with strerror(0) for a reason: wiretap's, not the
+    # system's. A real write failure keeps its errno and stays a failure.
+    lost = 'tshark: An error occurred while writing to the file "/x/.out.part": {}\n'
+    for reason in ("Undefined error: 0.", "Success.", "No error."):
+        refused = unwritable_error(lost.format(reason), "pcapng")
+        assert refused is not None and refused.data == {"format": "pcapng"}
+        assert unwritable_error(lost.format(reason)) is None
+    assert unwritable_error(lost.format("No space left on device."), "pcapng") is None
+    refused = unwritable_error(lost.format("Undefined error: 0."), "pcap")
+    assert refused is not None and refused.data == {"format": "pcap", "pcapng": True}

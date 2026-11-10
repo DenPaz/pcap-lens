@@ -287,6 +287,8 @@ class ExportMixin(DetailMixin, PacketsMixin):
                     raise pcap_time_error()
                 if self._mixed_link_types(f, ctx):
                     raise pcap_link_type_error()
+            if refused := unwritable_error(result.stderr, fmt):
+                raise refused
             if result.returncode not in (0, None) and not (truncated and tmp.exists()):
                 raise f.tshark.error(
                     result.stderr, result.returncode, f"tshark exited with code {result.returncode}"
