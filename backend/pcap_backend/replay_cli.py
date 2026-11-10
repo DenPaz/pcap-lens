@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
+import os
 import signal
 import sys
 import threading
@@ -257,6 +258,12 @@ def _setup_targets(raw: object, problems: list[str]) -> dict[str, dict[str, Any]
     return targets
 
 
+def _joined(base: Path, raw: str) -> Path:
+    """A setup's path, relative to its folder unless absolute, normalized
+    without following symlinks (Node's path.resolve)."""
+    return Path(os.path.normpath(base / Path(raw).expanduser()))
+
+
 def read_setup(path: Path) -> Setup:
     """A setup file, checked like the panel's Load Setup… (replayModel.parseSetup):
     relative paths from the file's folder, unusable entries named in ``problems``."""
@@ -271,11 +278,13 @@ def read_setup(path: Path) -> Setup:
     version = doc.get("version")
     if isinstance(version, bool) or not isinstance(version, int | float) or version > SETUP_VERSION:
         raise UsageError(f"{path} was saved by a newer PCAP Lens")
-    base = path.resolve().parent
+    # Lexical, as the panel's path.resolve: a symlinked folder (macOS's /var is
+    # /private/var) mustn't move the relative paths the panel wrote by a level.
+    base = path.expanduser().absolute().parent
     setup = Setup(path)
     raw_open = doc.get("openCapture")
     if isinstance(raw_open, str) and raw_open.strip():
-        setup.open_capture = base / Path(raw_open.strip()).expanduser()
+        setup.open_capture = _joined(base, raw_open.strip())
     setup.include_open = doc.get("includeOpenCapture") is not False
     wanted = doc.get("openCapturePosition", 0)
     if isinstance(wanted, bool) or not isinstance(wanted, int) or wanted < 0:
@@ -294,7 +303,7 @@ def read_setup(path: Path) -> Setup:
         if not isinstance(raw, str) or not raw.strip():
             setup.problems.append("a capture without a path was left out")
             continue
-        full = (base / Path(raw.strip()).expanduser()).resolve()
+        full = _joined(base, raw.strip())
         if full in seen:
             continue
         if len(setup.captures) == MAX_FILES:
@@ -829,6 +838,12 @@ def main(
 ) -> int:
     out = out or sys.stdout
     err = err or sys.stderr
+    for stream in (out, err):
+        # Text from elsewhere (an OS error, a capture's name) that the stream's
+        # encoding lacks becomes ? rather than a crash after the replay ran.
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(errors="replace")
     args = _parser().parse_args(argv)
     try:
         plan = make_plan(args)
@@ -910,7 +925,7 @@ def _run(
         )
     reporter.event("targets", {**found, "destinations": targets, "leftOut": left_out})
     for key, dest in targets.items():
-        reporter.message(f"{key} → {dest['ip']}:{dest['port']}")
+        reporter.message(f"{key} {_arrow(err)} {dest['ip']}:{dest['port']}")
     if left_out:
         reporter.message(f"Left out: {', '.join(left_out)}")
     o = plan.options
@@ -944,7 +959,7 @@ def _run(
             return EXIT_FAILED
     reporter.event("result", result)
     if not args.json:
-        out.write(_summary(result))
+        out.write(_summary(result, _arrow(out)))
         out.flush()
     return EXIT_PROBLEMS if any(has_problems(t) for t in result["targets"]) else EXIT_OK
 
@@ -981,7 +996,17 @@ def _run_record(
     }
 
 
-def _summary(result: dict[str, Any]) -> str:
+def _arrow(stream: TextIO) -> str:
+    """→ where the stream can write it, else ->: Windows writes a pipe or a
+    file in the ANSI code page (cp1252 has no arrow)."""
+    try:
+        "\u2192".encode(getattr(stream, "encoding", None) or "utf-8")
+    except (UnicodeEncodeError, LookupError):
+        return "->"
+    return "\u2192"
+
+
+def _summary(result: dict[str, Any], arrow: str = "\u2192") -> str:
     sent = sum(t["bytes"] for t in result["targets"])
     received = sum(t["received"] for t in result["targets"])
     head = (
@@ -991,7 +1016,7 @@ def _summary(result: dict[str, Any]) -> str:
     lines = [head]
     for t in result["targets"]:
         mark = "!" if has_problems(t) else " "
-        lines.append(f"{mark} {t['key']} → {t['to']}: {target_outcome(t)}")
+        lines.append(f"{mark} {t['key']} {arrow} {t['to']}: {target_outcome(t)}")
         lines += [f"    error: {e}" for e in t["errors"]]
     return "\n".join(lines) + "\n"
 

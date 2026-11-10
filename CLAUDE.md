@@ -2502,7 +2502,13 @@ filter}` (validated; part of the targets cache key). Captures on the
   `writeDissection`, a save dialog for the setup, `replayCommandLine`:
   POSIX quoting or PowerShell's, `& "…"` before a quoted program) copies
   it; the smoke test runs `replayArgv` with execFile into a Node server.
-  Tests: `test_replay_cli.py` (imports test_replay's servers).
+  Tests: `test_replay_cli.py` (imports test_replay's servers). Found by
+  the first CI run: a setup's paths are joined lexically (`_joined`, as
+  Node's `path.resolve`: through macOS's `/var` → `/private/var` symlink a
+  resolved folder put every relative path a level off), and Windows writes
+  a pipe in the ANSI code page (cp1252 has no "→": `_arrow` gives "->"
+  where the stream can't write it, and stdout/stderr replace what they
+  can't encode; `--results` files are UTF-8 and keep the arrow).
 - **Real-capture testing** (`test/realworld/run.py`, `make realworld`, and
   weekly in `realworld.yml`): `--fetch wireshark` (Wireshark's `test/captures` through GitLab's API,
   one file at a time: parallel raw requests get an HTML page; its synthetic

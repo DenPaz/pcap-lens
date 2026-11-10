@@ -56,10 +56,18 @@ def _target(key: str) -> dict[str, Any]:
 TARGETS = [_target(k) for k in (DNS, HI2, UDP, HI3)]
 
 
-def run(*argv: str) -> tuple[int, str, str]:
-    out, err = io.StringIO(), io.StringIO()
-    code = replay_cli.main(list(argv), out, err)
-    return code, out.getvalue(), err.getvalue()
+def run(*argv: str, encoding: str | None = None) -> tuple[int, str, str]:
+    if encoding is None:
+        out, err = io.StringIO(), io.StringIO()
+        code = replay_cli.main(list(argv), out, err)
+        return code, out.getvalue(), err.getvalue()
+    # As a pipe or a file on Windows: the ANSI code page (cp1252 has no arrow).
+    raw_out, raw_err = io.BytesIO(), io.BytesIO()
+    wrapped = [io.TextIOWrapper(b, encoding=encoding) for b in (raw_out, raw_err)]
+    code = replay_cli.main(list(argv), *wrapped)
+    for w in wrapped:
+        w.flush()
+    return code, raw_out.getvalue().decode(encoding), raw_err.getvalue().decode(encoding)
 
 
 def args(*argv: str) -> Any:
@@ -216,6 +224,25 @@ def test_setup_files(tmp_path: Path) -> None:
     ):
         with pytest.raises(UsageError, match=why):
             read_setup(bad)
+
+
+def test_setup_paths_are_read_as_the_panel_wrote_them(tmp_path: Path) -> None:
+    # The panel writes paths relative to the setup's folder as it names it
+    # (Node's path.relative, no symlinks followed): through a symlinked folder
+    # (macOS's /var is /private/var) they climb past it, so reading must not
+    # follow the link either, or every path lands a folder off.
+    (tmp_path / "a" / "b").mkdir(parents=True)
+    (tmp_path / "caps").mkdir()
+    link = tmp_path / "l"
+    try:
+        link.symlink_to(tmp_path / "a" / "b", target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"can't make a symlink here: {exc}")
+    setup = read_setup(
+        _setup(link / "lab.json", openCapture="../caps/open.pcap", captures=[{"path": "../x.pcap"}])
+    )
+    assert setup.open_capture == tmp_path / "caps" / "open.pcap"
+    assert setup.captures == [(tmp_path / "x.pcap", True)]
 
 
 def test_plans_without_a_setup() -> None:
@@ -407,11 +434,13 @@ def test_replay_problems_and_setup(tmp_path: Path) -> None:
     closed = _free_port()
     code, out, _ = run(
         str(CAPTURE), "--speed", "0", "--quiet", "--map", f"{HI3}=127.0.0.1:{closed}",
-        "--results", str(tmp_path / "run.txt"),
+        "--results", str(tmp_path / "run.txt"), encoding="cp1252",
     )  # fmt: skip
     assert code == EXIT_PROBLEMS
-    assert f"! {HI3} → 127.0.0.1:{closed}: 0 of 2 connections opened, 2 refused" in out
-    assert (tmp_path / "run.txt").read_text().startswith("PCAP Lens replay results\n")
+    assert f"! {HI3} -> 127.0.0.1:{closed}: 0 of 2 connections opened, 2 refused" in out
+    results = (tmp_path / "run.txt").read_text("utf-8")  # (the file keeps the panel's arrow)
+    assert results.startswith("PCAP Lens replay results\n")
+    assert f"{HI3} \u2192 127.0.0.1:{closed}" in results
     # A setup: the open capture's filter keeps HI3 only.
     hi3 = Collector()
     try:
