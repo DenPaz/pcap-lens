@@ -195,9 +195,12 @@ suite("replay model", () => {
     assert.ok("setup" in back);
     assert.equal(back.setup.openCapture, setup.openCapture);
     assert.equal(back.setup.filter, "tcp.port == 11001");
-    // Neither is written when there is nothing to say.
+    // Neither is written without the open capture; with it, the filter
+    // always is ("" = every packet), so the command line tells an empty scope
+    // from a setup saved before it was kept.
     const plain = JSON.parse(setupToJson({ ...setup, openCapture: undefined, filter: " " }, dir));
     assert.ok(!("openCapture" in plain) && !("filter" in plain));
+    assert.equal(JSON.parse(setupToJson({ ...setup, filter: undefined }, dir)).filter, "");
   });
 
   test("the command line: argv and shell quoting", () => {
@@ -231,10 +234,24 @@ suite("replay model", () => {
     };
     assert.equal(
       replayCommandLine(win, true),
-      '& "C:\\Program Files\\Python314\\python.exe" C:\\Users\\me\\AppData\\pcap-lens-replay.py ' +
-        '--setup "D:\\lab\\replay setup.json"',
+      "& 'C:\\Program Files\\Python314\\python.exe' C:\\Users\\me\\AppData\\pcap-lens-replay.py " +
+        "--setup 'D:\\lab\\replay setup.json'",
     );
     assert.match(replayCommandLine({ ...win, python: ["py", "-3.14"] }, true), /^py -3\.14 C:/);
+    // PowerShell literal strings: `$` and backticks stay, quotes are doubled
+    // (a double-quoted string would expand $draft: Codex review).
+    assert.match(
+      replayCommandLine({ ...win, setup: "C:\\lab\\capture$draft `x' \u2019.json" }, true),
+      / --setup 'C:\\lab\\capture\$draft `x'' \u2019\u2019\.json'$/,
+    );
+    // POSIX: a quote inside single quotes.
+    assert.match(
+      replayCommandLine({ ...launch, setup: "/lab/it's.json" }, false),
+      / --setup '\/lab\/it'\\''s\.json'/,
+    );
+    // Public destinations, when the setting allows them (Codex review).
+    assert.deepEqual(replayArgv({ ...win, allowPublic: true }).slice(-1), ["--allow-public"]);
+    assert.ok(!replayArgv(win).includes("--allow-public"));
   });
 
   test("setup files: what can't be used is named", () => {

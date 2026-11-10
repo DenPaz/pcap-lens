@@ -208,6 +208,21 @@ def test_setup_files(tmp_path: Path) -> None:
     assert make_plan(args("--setup", str(tmp_path / "old.json"), "y.pcap")).files == [
         (Path("y.pcap"), "")
     ]
+    # The scope the panel wrote applies whatever the options' scope says: with
+    # "all" it is the viewer's ignored packets' exclusion; "" with "filter" is
+    # an empty filter, not a setup saved before 0.30.0 (Codex review).
+    every = _setup(
+        tmp_path / "every.json", openCapture="open.pcap", captures=[{"path": "a.pcap"}],
+        filter="!(frame.number == 2)", options={"scope": "all"},
+    )  # fmt: skip
+    assert make_plan(args("--setup", str(every))).files == [
+        (tmp_path / "open.pcap", "!(frame.number == 2)"), (tmp_path / "a.pcap", ""),
+    ]  # fmt: skip
+    empty = _setup(
+        tmp_path / "empty.json", openCapture="open.pcap", filter="", options={"scope": "filter"}
+    )
+    assert read_setup(empty).problems == []
+    assert make_plan(args("--setup", str(empty))).files == [(tmp_path / "open.pcap", "")]
     out = _setup(tmp_path / "out.json", includeOpenCapture=False, captures=[{"path": "z.pcap"}])
     assert make_plan(args("--setup", str(out))).files == [(tmp_path / "z.pcap", "")]
     with pytest.raises(UsageError, match="leaves the open capture out"):
@@ -288,6 +303,27 @@ def test_dissection_options(tmp_path: Path) -> None:
     (tmp_path / "broken.json").write_text("[")
     with pytest.raises(UsageError, match="valid JSON"):
         dissection_options(args("--options", str(tmp_path / "broken.json")), tmp_path / "x.pcap")
+
+
+def test_the_open_capture_s_folder_picks_the_dissection_options(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # As the panel reads every capture with the open capture's options, not
+    # the first played one's (Codex review).
+    seen: list[Path] = []
+
+    def options(_args: Any, path: Path) -> Any:
+        seen.append(path)
+        raise UsageError("stop here")
+
+    monkeypatch.setattr(replay_cli, "dissection_options", options)
+    lab = _setup(
+        tmp_path / "lab.json", openCapture="lab/open.pcap", openCapturePosition=1,
+        captures=[{"path": "other/a.pcap"}],
+    )  # fmt: skip
+    assert run("--setup", str(lab))[0] == EXIT_USAGE
+    assert run("x.pcap", "y.pcap")[0] == EXIT_USAGE
+    assert seen == [tmp_path / "lab" / "open.pcap", Path("x.pcap")]
 
 
 def test_results_text_is_the_panel_s() -> None:

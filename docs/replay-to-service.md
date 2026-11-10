@@ -119,7 +119,11 @@ Phase 5 (the command line, 0.30.0):
 
 - `files` entries may be `{path, filter}`: that capture's packets matching a
   display filter (checked like the open capture's).
-- With `capture` false no capture needs to be open: the captures are read
+- `replay_scope {filter}` → `{filter}`: the open capture's packets a replay
+  reads as one display filter, without the ignored packets (a setup for the
+  command line keeps it).
+- With `capture` false no capture needs to be open (and the open capture's
+  slot is free: up to 101 `files`): the captures are read
   with the tshark `configure` set up (`PcapService.configure`, the
   dissection options without a capture). The viewer still reads other
   captures with the open capture's options.

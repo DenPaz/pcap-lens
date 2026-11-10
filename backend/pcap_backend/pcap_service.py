@@ -76,6 +76,7 @@ def rpc_methods(service: PcapService) -> dict[str, Callable[[dict[str, Any], Req
         "replay_targets": service.replay_targets,
         "replay": service.replay,
         "replay_stop": service.replay_stop,
+        "replay_scope": service.replay_scope,
         "capture_info": service.capture_info,
         "validate_filter": service.validate_filter,
         "filter_hints": service.filter_hints,

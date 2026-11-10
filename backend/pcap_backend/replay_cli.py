@@ -314,9 +314,10 @@ def read_setup(path: Path) -> Setup:
     setup.open_at = len(setup.captures) if open_at is None else open_at
     raw_filter = doc.get("filter")
     setup.filter = raw_filter.strip() if isinstance(raw_filter, str) else ""
+    has_scope = isinstance(raw_filter, str)
     setup.targets = _setup_targets(doc.get("targets"), setup.problems)
     setup.options = _setup_options(doc.get("options"))
-    if setup.options["scope"] == "filter" and not setup.filter:
+    if setup.options["scope"] == "filter" and not has_scope:
         setup.problems.append(
             "it plays the viewer's filter, which it doesn't hold (saved before 0.30.0): "
             "every packet plays unless --filter names it"
@@ -386,9 +387,10 @@ def make_plan(args: argparse.Namespace) -> Plan:
             )
         if setup.open_at >= len(setup.captures):
             files.append((open_capture, ""))
-        # The viewer's filter applies to the open capture only (as in the panel).
+        # The viewer's scope (its filter, without the packets ignored there)
+        # applies to the open capture only, as in the panel.
         flt = args.filter if args.filter is not None else setup.filter
-        if setup.options["scope"] == "filter" or args.filter is not None:
+        if flt.strip():
             files = [(p, flt.strip()) if p == open_capture else (p, f) for p, f in files]
     elif named:
         raise UsageError(f"{setup.path.name} leaves the open capture out: name no capture")
@@ -848,7 +850,9 @@ def main(
     try:
         plan = make_plan(args)
         rules = [parse_rule(m) for m in args.map]
-        options, warnings = dissection_options(args, plan.files[0][0])
+        # (The viewer's capture's folder decides, as the panel reads every
+        # capture with the open one's options.)
+        options, warnings = dissection_options(args, plan.open_capture or plan.files[0][0])
     except UsageError as exc:
         _say(err, f"{PROG}: {exc}")
         return EXIT_USAGE

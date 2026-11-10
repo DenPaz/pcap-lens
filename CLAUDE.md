@@ -2496,12 +2496,20 @@ filter}` (validated; part of the targets cache key). Captures on the
   folder is first on `sys.path`, so no PYTHONPATH; it refuses Pythons
   before 3.12 by name), copied by `stableBackend` with the MCP server's
   backend (`REPLAY_LAUNCHER`). Setup files gain `openCapture` (relative)
-  and `filter` (`writeSetup` adds the session's path, and its filter when
-  the scope is "filter"; older versions ignore both). The panel's _Copy
-  Command Line…_ (`copyCommandLine`: findPython, the backend copy,
-  `writeDissection`, a save dialog for the setup, `replayCommandLine`:
-  POSIX quoting or PowerShell's, `& "…"` before a quoted program) copies
-  it; the smoke test runs `replayArgv` with execFile into a Node server.
+  and `filter` (`writeSetup` adds the session's path and `replay_scope
+{filter}`: the scope's filter without the viewer's ignored packets, which
+  only its backend knows; always written with `openCapture`, so "" is an
+  empty scope and a missing key a pre-0.30.0 setup; the command line
+  applies it to the open capture whatever `scope` says; older versions
+  ignore both). The command line reads every capture with the open
+  capture's folder's dissection options (as the panel); with `capture:
+false` the open capture's slot is free, so `files` holds up to 101. The
+  panel's _Copy Command Line…_ (`copyCommandLine`: findPython, the backend
+  copy, `writeDissection`, a save dialog for the setup, `replayCommandLine`:
+  single quotes, POSIX's or PowerShell's literal strings (doubled quotes,
+  no `$` expansion), `& '…'` before a quoted program, `--allow-public`
+  when the setting allows it) copies it; the smoke test runs `replayArgv`
+  with execFile into a Node server (Codex review of the 0.30.0 PR).
   Tests: `test_replay_cli.py` (imports test_replay's servers). Found by
   the first CI run: a setup's paths are joined lexically (`_joined`, as
   Node's `path.resolve`: through macOS's `/var` → `/private/var` symlink a

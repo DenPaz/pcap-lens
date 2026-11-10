@@ -519,11 +519,18 @@ export class ReplayPanel {
    */
   private async writeSetup(setup: ReplaySetup, uri: vscode.Uri): Promise<void> {
     const options = normalizeOptions(setup.options);
-    const full: ReplaySetup = {
-      ...setup,
-      openCapture: this.session.uri.fsPath,
-      filter: options.scope === "filter" ? this.session.currentFilter : undefined,
-    };
+    // The packets Start would play: the viewer's filter (when chosen) without
+    // the packets ignored in the viewer, which only this backend knows.
+    let filter = options.scope === "filter" ? this.session.currentFilter : "";
+    const client = this.session.backend;
+    if (client?.running && setup.includeOpen) {
+      try {
+        ({ filter } = await client.request<{ filter: string }>("replay_scope", { filter }));
+      } catch {
+        // (an older or busy backend: the viewer's filter alone)
+      }
+    }
+    const full: ReplaySetup = { ...setup, openCapture: this.session.uri.fsPath, filter };
     const text = setupToJson(full, path.dirname(uri.fsPath));
     await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(text));
   }
@@ -573,6 +580,7 @@ export class ReplayPanel {
       setup: uri.fsPath,
       tsharkPath: settings.tsharkPath || undefined,
       optionsFile,
+      allowPublic: this.config().allowPublic,
     };
     const text = replayCommandLine(launch, process.platform === "win32");
     if (!dest) {

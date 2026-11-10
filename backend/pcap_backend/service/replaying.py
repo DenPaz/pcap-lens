@@ -277,6 +277,19 @@ class ReplayMixin(ServiceBase):
             "log": runner.take_log(),
         }
 
+    def replay_scope(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """``{filter}``: the open capture's packets a replay of ``filter``
+        (``""``: all) reads, as one display filter without the ignored
+        packets (``""``: every packet). A setup for the command line keeps
+        it, since the viewer's ignored packets live in this backend only."""
+        f = self._require_file()
+        flt = param(params, "filter", str, "").strip()
+        if flt:
+            error = f.tshark.validate_filter(flt, ctx.token)
+            if error:
+                raise FilterError(error, {"expr": flt})
+        return {"filter": self._without_ignored(flt)}
+
     def replay_stop(self, _params: dict[str, Any], _ctx: RequestContext) -> dict[str, Any]:
         """End the running replay (``stopped: false`` if none is running)."""
         with self._lock:
@@ -293,7 +306,9 @@ class ReplayMixin(ServiceBase):
             raise InvalidParamsError(
                 "files must be a list of capture paths (or {path, filter} objects)"
             )
-        if len(files) > MAX_FILES:
+        # Without the open capture its slot is free: the command line plays a
+        # setup's open capture and its 100 others all as files.
+        if len(files) > MAX_FILES + (0 if param(params, "capture", bool, True) else 1):
             raise InvalidParamsError(f"at most {MAX_FILES} other captures can be replayed at once")
         open_at = param(params, "openAt", int, 0)
         if not 0 <= open_at <= len(files):

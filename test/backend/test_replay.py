@@ -827,6 +827,14 @@ def test_files_replay_without_an_open_capture(
     for files in ([{"filter": "tcp"}], [3], "x.pcap"):
         with pytest.raises(InvalidParamsError):
             service.replay_targets({"capture": False, "files": files}, ctx)
+    # Without the open capture its slot is free: a setup's open capture and
+    # its 100 others (Codex review).
+    assert (
+        len(service.replay_targets({"capture": False, "files": [path] * 101}, ctx)["sources"])
+        == 101
+    )
+    with pytest.raises(InvalidParamsError, match="at most"):
+        service.replay_targets({"capture": False, "files": [path] * 102}, ctx)
     hi2, _, _ = services
     result = service.replay(
         {
@@ -853,6 +861,31 @@ def test_files_replay_without_an_open_capture(
             },
             ctx,
         )
+
+
+@pytest.mark.tshark
+def test_replay_scope_leaves_out_the_ignored_packets(
+    opened: PcapService, ctx: RequestContext
+) -> None:
+    # A setup for the command line keeps what the viewer plays: its filter
+    # without the packets ignored there, which only this backend knows
+    # (Codex review).
+    assert opened.replay_scope({}, ctx) == {"filter": ""}
+    assert opened.replay_scope({"filter": " tcp "}, ctx) == {"filter": "tcp"}
+    opened.ignore_packets({"frames": [2, 4, 5, 6]}, ctx)
+    ignored = "!(frame.number == 2 || (frame.number >= 4 && frame.number <= 6))"
+    assert opened.replay_scope({}, ctx) == {"filter": ignored}
+    scope = opened.replay_scope({"filter": "tcp"}, ctx)["filter"]
+    assert scope == f"(tcp) && {ignored}"
+    # What the command line reads with it: the panel's own targets.
+    path = str(FIXTURES / "replay.pcap")
+    viewer = opened.replay_targets({"filter": "tcp"}, ctx)["targets"]
+    cli = opened.replay_targets(
+        {"capture": False, "files": [{"path": path, "filter": scope}]}, ctx
+    )["targets"]
+    assert [(t["key"], t["packets"]) for t in cli] == [(t["key"], t["packets"]) for t in viewer]
+    with pytest.raises(FilterError):
+        opened.replay_scope({"filter": "tcp.port =="}, ctx)
 
 
 @pytest.mark.tshark

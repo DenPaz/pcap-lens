@@ -6,7 +6,6 @@
  */
 
 import * as path from "node:path";
-import { shellQuote } from "./mcpConfig";
 
 /** Where a recorded target's traffic goes. */
 export interface ReplayDestination {
@@ -206,7 +205,12 @@ export interface ReplaySetup {
    * line, `pcap-lens-replay --setup`; the panel plays its own capture).
    */
   openCapture?: string;
-  /** The viewer's filter then, when the packets played were the filter's. */
+  /**
+   * The open capture's packets played then, as one display filter: the
+   * viewer's filter when the packets played were the filter's, without the
+   * packets ignored in the viewer ("" = every packet). Written with
+   * `openCapture`; the panel plays its own capture's scope.
+   */
   filter?: string;
   includeOpen: boolean;
   /** How many of `captures` come before the open capture (0: it plays first). */
@@ -240,7 +244,7 @@ export function setupToJson(setup: ReplaySetup, baseDir: string): string {
     format: SETUP_FORMAT,
     version: SETUP_VERSION,
     ...(setup.openCapture ? { openCapture: storedPath(setup.openCapture, baseDir) } : {}),
-    ...(setup.filter?.trim() ? { filter: setup.filter.trim() } : {}),
+    ...(setup.openCapture ? { filter: setup.filter?.trim() ?? "" } : {}),
     includeOpenCapture: setup.includeOpen,
     openCapturePosition: openPosition(setup.openAt, setup.captures.length),
     captures: setup.captures.map((c) => ({
@@ -524,6 +528,8 @@ export interface ReplayLaunch {
   tsharkPath?: string;
   /** The dissection options file VS Code keeps up to date (the MCP server's). */
   optionsFile?: string;
+  /** pcapViewer.replay.allowPublicTargets: destinations outside private networks. */
+  allowPublic?: boolean;
 }
 
 /** The command line's arguments (the interpreter first). */
@@ -535,14 +541,32 @@ export function replayArgv(l: ReplayLaunch): string[] {
   if (l.optionsFile) {
     argv.push("--options", l.optionsFile);
   }
+  if (l.allowPublic) {
+    argv.push("--allow-public");
+  }
   return argv;
 }
 
-/** The command line for a shell (POSIX quoting, or Windows double quotes). */
+/** One argument for a POSIX shell: single quotes, `'` as `'\''`. */
+function posixQuote(arg: string): string {
+  return /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * One argument for PowerShell (VS Code's terminal on Windows): a literal
+ * single-quoted string, `'` doubled, so `$` and backticks in a path stay as
+ * they are (a double-quoted string would expand them).
+ */
+function powershellQuote(arg: string): string {
+  return /^[\w@%+=:,./\\-]+$/.test(arg) ? arg : `'${arg.replace(/['\u2018\u2019]/g, "$&$&")}'`;
+}
+
+/** The command line for a shell: POSIX quoting, or PowerShell's on Windows. */
 export function replayCommandLine(l: ReplayLaunch, windows: boolean): string {
   const [command, ...args] = replayArgv(l);
-  // PowerShell runs a quoted program only after `&`; cmd and POSIX shells don't need it.
-  const program = shellQuote(command, windows);
-  const head = windows && program.startsWith('"') ? `& ${program}` : program;
-  return [head, ...args.map((a) => shellQuote(a, windows))].join(" ");
+  const quote = windows ? powershellQuote : posixQuote;
+  // PowerShell runs a quoted program only after `&`.
+  const program = quote(command);
+  const head = windows && program.startsWith("'") ? `& ${program}` : program;
+  return [head, ...args.map(quote)].join(" ");
 }
