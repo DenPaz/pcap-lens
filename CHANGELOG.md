@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.29.3 — 2026-11-10
+
 ### Fixed
 
 - With tshark 4.6, exporting or editing a capture whose packets the format
