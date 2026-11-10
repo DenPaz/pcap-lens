@@ -1622,7 +1622,9 @@ class Proc(NamedTuple):
 
 def processes() -> list[Proc]:
     """Every process, from ``ps`` (POSIX; the CPU share is the process's
-    lifetime average on Linux, a decaying one on macOS)."""
+    lifetime average on Linux, a decaying one on macOS). macOS's ps writes
+    the CPU share by the locale ("0,0" in pt_BR, where every row was
+    dropped), so it runs in the C locale, and a comma is read too."""
     out = subprocess.run(
         ["/bin/ps", "-A", "-o", "pid=,ppid=,rss=,pcpu=,stat=,comm="],
         capture_output=True,
@@ -1630,12 +1632,18 @@ def processes() -> list[Proc]:
         timeout=10,
         text=True,
         errors="replace",
+        env={**os.environ, "LC_ALL": "C"},
     ).stdout
     rows = []
     for line in out.split("\n"):
         parts = line.split(None, 5)
         with contextlib.suppress(ValueError, IndexError):
-            pid, ppid, rss, cpu = int(parts[0]), int(parts[1]), int(parts[2]), float(parts[3])
+            pid, ppid, rss, cpu = (
+                int(parts[0]),
+                int(parts[1]),
+                int(parts[2]),
+                float(parts[3].replace(",", ".")),
+            )
             rows.append(Proc(pid, ppid, rss, cpu, parts[4], Path(parts[5].strip()).name))
     return rows
 

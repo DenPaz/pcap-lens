@@ -79,6 +79,27 @@ def test_ps_lists_this_process(harness: ModuleType) -> None:
     assert any(p.pid == os.getpid() and p.rss_kb > 0 and p.program for p in rows)
 
 
+def test_ps_is_read_in_the_c_locale_and_with_a_decimal_comma(
+    harness: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # macOS's ps writes "0,0" in pt_BR: every row was dropped there.
+    seen: dict[str, str] = {}
+
+    def fake_ps(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        env = kwargs["env"]
+        assert isinstance(env, dict)
+        seen.update(env)
+        out = "  10     1  2048   0,5 Ss   /usr/bin/python3\n  11    10  4096  97,3 R+   tshark\n"
+        return subprocess.CompletedProcess(argv, 0, out, "")
+
+    monkeypatch.setattr(harness.subprocess, "run", fake_ps)
+    assert harness.processes() == [
+        harness.Proc(10, 1, 2048, 0.5, "Ss", "python3"),
+        harness.Proc(11, 10, 4096, 97.3, "R+", "tshark"),
+    ]
+    assert seen["LC_ALL"] == "C"
+
+
 def test_a_busy_tshark_under_the_backend_is_named(
     harness: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:

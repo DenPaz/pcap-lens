@@ -2537,7 +2537,8 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   expert pass over 10 GB; `gui.max_tree_items` doesn't help), and a backend
   runs several passes at once. So the harness watches the Wireshark tools it
   starts (`MemoryWatch`: `ps` every 0.5 s over its descendants, never the
-  backends; macOS enforces no memory rlimit) and SIGKILLs one past the cap
+  backends; macOS enforces no memory rlimit; `ps` runs with `LC_ALL=C`,
+  since macOS's writes the CPU share as "0,0" in pt_BR) and SIGKILLs one past the cap
   (the machine's memory / (jobs × `PROCESSES_PER_JOB` 6), at least 1 GB,
   `--memory MB`, 0 = none): "killed (signal 9)" is tshark's own failure, a
   note. The 20 largest captures run unchanged under CI's 1.3 GB;
