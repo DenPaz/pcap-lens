@@ -1,5 +1,6 @@
-"""The real-capture harness's memory watch (test/realworld/run.py): it kills
-only Wireshark tools it started that grew past the cap."""
+"""The real-capture harness (test/realworld/run.py): its memory watch, which
+kills only Wireshark tools it started that grew past the cap, and the checks
+that need no capture."""
 
 from __future__ import annotations
 
@@ -160,3 +161,27 @@ def test_problems_are_listed_again_after_the_totals(
     monkeypatch.setattr(harness, "MAX_LISTED_PROBLEMS", 1)
     r.steps.append(harness.Step("stats", "problem", 1.0, "slow"))
     assert harness.problem_lines([r])[-1] == "  … and 1 more"
+
+
+def test_segments_start_after_the_syn(
+    harness: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # m3ua_coverage: the first data segment reuses the SYN's sequence number.
+    # A receiver (and the replay planner) drops that byte; tshark 4.6's Follow
+    # keeps it, so the segments must say what the replay should have sent.
+    rows = [
+        # stream, ip.src, ipv6.src, srcport, seq_raw, payload, udp.payload, syn
+        ("0", "192.0.2.1", "", "40001", "1", "", "", "1"),
+        ("0", "192.0.2.1", "", "40001", "1", "01000301", "", "0"),
+        ("0", "192.0.2.1", "", "40001", "5", "aabb", "", "0"),
+        ("0", "192.0.2.2", "", "2905", "7", "", "", "True"),  # the SYN-ACK
+        ("0", "192.0.2.2", "", "2905", "8", "cc", "", "False"),
+        ("1", "192.0.2.3", "", "40002", "100", "dd", "", "0"),  # no SYN captured
+        ("", "", "", "", "", "", "ee", ""),
+    ]
+    out = "".join("\t".join(r) + "\n" for r in rows)
+    done = subprocess.CompletedProcess(["tshark"], 0, out, "")
+    monkeypatch.setattr(harness.subprocess, "run", lambda *_a, **_k: done)
+    tcp, udp = harness.segment_payloads(tmp_path / "x.pcap")
+    assert tcp == [bytes.fromhex("000301aabb"), b"\xcc", b"\xdd"]
+    assert udp == [b"\xee"]

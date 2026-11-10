@@ -2575,10 +2575,13 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   failure keeps its errno). Not yet looked into, since they need tshark
   4.6 (4.2.2 passes them): overview protocol rows whose filter matches
   fewer packets than the card counts (`_ws.malformed` in
-  `dpnss`/`epl`/`nfapi_coverage`, `data` in `meta_coverage`), a replayed
-  TCP connection of `m3ua_coverage` that matches neither Follow nor the
-  segments, and `moldudp_coverage`'s expert pass timing out with no busy
-  tshark (4.2.2's open already passes the memory cap there).
+  `dpnss`/`epl`/`nfapi_coverage`; `data` in `meta_coverage` passed on a
+  Mac rerun). Run on a Mac (tshark 4.6) later: `moldudp_coverage` only
+  notes (killed tools, a busy tshark); `m3ua_coverage`'s first data segment
+  reuses the SYN's sequence number, whose byte a receiver and the replay
+  planner drop and 4.2's Follow dropped too, while 4.6's Follow keeps it,
+  so `segment_payloads` now starts each direction at its first SYN + 1
+  (a SYN's own data there too), like the planner.
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage

@@ -1274,10 +1274,13 @@ def follow_payloads(path: Path) -> list[bytes]:
 def segment_payloads(path: Path) -> tuple[list[bytes], list[bytes]]:
     """Each direction of the first REPLAY_STREAMS TCP streams as its
     segments' payloads in sequence order, every byte once (the first copy;
-    a packet cut by the snapshot length gives the bytes captured),
-    and the payload of each datagram of the first UDP streams. (Follow
-    UDP Stream would do for the datagrams, but tshark 4.2.2 crashes on some
-    exported PDUs.)"""
+    a packet cut by the snapshot length gives the bytes captured), from its
+    first SYN's sequence number + 1 as the replay planner and a TCP receiver
+    take them (a SYN's own data starts there too), and the payload of each
+    datagram of the first UDP streams. (Follow UDP Stream would do for the
+    datagrams, but tshark 4.2.2 crashes on some exported PDUs. tshark 4.6's
+    Follow keeps data a segment sent at the SYN's own sequence number, which
+    4.2's dropped: m3ua_coverage's first byte.)"""
     n = REPLAY_STREAMS
     args = [
         "tshark",
@@ -1285,7 +1288,7 @@ def segment_payloads(path: Path) -> tuple[list[bytes], list[bytes]]:
         "-r",
         str(path),
         "-Y",
-        f"(tcp.stream < {n} && tcp.payload) || udp.stream < {n}",
+        f"(tcp.stream < {n} && (tcp.payload || tcp.flags.syn == 1)) || udp.stream < {n}",
     ]
     args += ["-T", "fields", "-E", "occurrence=l"]
     for name in (
@@ -1296,6 +1299,7 @@ def segment_payloads(path: Path) -> tuple[list[bytes], list[bytes]]:
         "tcp.seq_raw",
         "tcp.payload",
         "udp.payload",
+        "tcp.flags.syn",
     ):
         args += ["-e", name]
     try:
@@ -1305,23 +1309,30 @@ def segment_payloads(path: Path) -> tuple[list[bytes], list[bytes]]:
     except (OSError, subprocess.TimeoutExpired):
         return [], []
     sides: dict[tuple[str, ...], dict[int, bytes]] = {}
+    starts: dict[tuple[str, ...], int] = {}  # the first SYN's sequence number + 1
     udp: list[bytes] = []
     for line in out.split("\n"):
         cells = line.split("\t")
-        if len(cells) != 7:
+        if len(cells) != 8:
             continue
         # TCP first, as replay.parse_record: a UDP header inside a TCP
         # payload (IKE over TCP in ipsec_tcp_coverage) is TCP data.
         with contextlib.suppress(ValueError):
-            if cells[4] and cells[5]:
-                side = sides.setdefault((cells[0], cells[1] or cells[2], cells[3]), {})
-                side.setdefault(int(cells[4]), bytes.fromhex(cells[5].replace(":", "")))
+            if cells[4]:
+                key = (cells[0], cells[1] or cells[2], cells[3])
+                seq = int(cells[4])
+                if cells[7] in ("1", "True", "true"):
+                    seq += 1
+                    starts.setdefault(key, seq)
+                if cells[5]:
+                    side = sides.setdefault(key, {})
+                    side.setdefault(seq, bytes.fromhex(cells[5].replace(":", "")))
             elif cells[6]:
                 udp.append(bytes.fromhex(cells[6].replace(":", "")))
     tcp = []
-    for segments in sides.values():
+    for key, segments in sides.items():
         data = bytearray()
-        end: int | None = None
+        end = starts.get(key)
         for seq in sorted(segments):  # (no wrap-around: these are short test captures)
             payload = segments[seq]
             if end is None:
