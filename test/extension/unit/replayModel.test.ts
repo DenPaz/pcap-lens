@@ -14,6 +14,8 @@ import {
   openPosition,
   parseSetup,
   rememberDestinations,
+  replayArgv,
+  replayCommandLine,
   ReplayRun,
   resultsToJson,
   resultsToText,
@@ -172,6 +174,67 @@ suite("replay model", () => {
     const moved = parseSetup(text, path.resolve("/copy/samples"));
     assert.ok("setup" in moved);
     assert.equal(moved.setup.captures[0].path, path.resolve("/copy/samples/ETSI/llamada_MT.pcap"));
+  });
+
+  test("setup files: the open capture and the viewer's filter, for the command line", () => {
+    const dir = path.resolve("/work/lab");
+    const setup: ReplaySetup = {
+      openCapture: path.join(dir, "caps", "delivery.pcapng"),
+      filter: " tcp.port == 11001 ",
+      includeOpen: true,
+      openAt: 0,
+      captures: [],
+      targets: {},
+      options: { ...DEFAULT_OPTIONS, scope: "filter" },
+    };
+    const text = setupToJson(setup, dir);
+    const doc = JSON.parse(text);
+    assert.equal(doc.openCapture, "caps/delivery.pcapng");
+    assert.equal(doc.filter, "tcp.port == 11001");
+    const back = parseSetup(text, dir);
+    assert.ok("setup" in back);
+    assert.equal(back.setup.openCapture, setup.openCapture);
+    assert.equal(back.setup.filter, "tcp.port == 11001");
+    // Neither is written when there is nothing to say.
+    const plain = JSON.parse(setupToJson({ ...setup, openCapture: undefined, filter: " " }, dir));
+    assert.ok(!("openCapture" in plain) && !("filter" in plain));
+  });
+
+  test("the command line: argv and shell quoting", () => {
+    const launch = {
+      python: ["python3.14"],
+      script:
+        "/home/me/.config/Code/User/globalStorage/denpaz.pcap-viewer/mcp/backend/pcap-lens-replay.py",
+      setup: "/work/my lab/replay.json",
+      tsharkPath: "/opt/wireshark/bin/tshark",
+      optionsFile: "/home/me/dissection-1.json",
+    };
+    assert.deepEqual(replayArgv(launch), [
+      "python3.14",
+      launch.script,
+      "--setup",
+      "/work/my lab/replay.json",
+      "--tshark",
+      "/opt/wireshark/bin/tshark",
+      "--options",
+      "/home/me/dissection-1.json",
+    ]);
+    assert.equal(
+      replayCommandLine({ ...launch, tsharkPath: undefined, optionsFile: undefined }, false),
+      `python3.14 ${launch.script} --setup '/work/my lab/replay.json'`,
+    );
+    // Windows (PowerShell): a quoted program needs `&`; `py -3.14` doesn't.
+    const win = {
+      python: ["C:\\Program Files\\Python314\\python.exe"],
+      script: "C:\\Users\\me\\AppData\\pcap-lens-replay.py",
+      setup: "D:\\lab\\replay setup.json",
+    };
+    assert.equal(
+      replayCommandLine(win, true),
+      '& "C:\\Program Files\\Python314\\python.exe" C:\\Users\\me\\AppData\\pcap-lens-replay.py ' +
+        '--setup "D:\\lab\\replay setup.json"',
+    );
+    assert.match(replayCommandLine({ ...win, python: ["py", "-3.14"] }, true), /^py -3\.14 C:/);
   });
 
   test("setup files: what can't be used is named", () => {

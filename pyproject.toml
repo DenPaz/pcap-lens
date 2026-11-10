@@ -11,6 +11,7 @@ dependencies = []
 
 [project.scripts]
 pcap-viewer-backend = "pcap_backend.server:main"
+pcap-lens-replay = "pcap_backend.replay_cli:main"
 
 [dependency-groups]
 dev = [

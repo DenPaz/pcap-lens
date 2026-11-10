@@ -251,6 +251,29 @@ skipped), every UDP datagram is sent again. No administrator rights needed.
   `replay.allowPublicTargets` is set. TLS can't be replayed to a live TLS
   service.
 
+### From the command line
+
+_Copy Command Line…_ in the panel saves the setup and copies a command that
+replays it without VS Code, for scripts, CI jobs and long runs. It runs
+`pcap-lens-replay.py`, which comes with the extension and needs only Python
+3.12 or newer and TShark:
+
+```sh
+python3 pcap-lens-replay.py --list delivery.pcapng          # the recorded targets
+python3 pcap-lens-replay.py delivery.pcapng --to 127.0.0.1  # each to its recorded port
+python3 pcap-lens-replay.py a.pcap b.pcap --map 'tcp/*:11001=127.0.0.1:12001' --order merged
+python3 pcap-lens-replay.py --setup lab.json --loops 0 --duration 3600 --results run.json
+```
+
+`--map PATTERN=DEST` sends recorded targets (`tcp/10.20.0.5:11001`, `*` for
+any host or port) to a host and port; `--to` sends the rest. The panel's
+options are there too (`--speed`, `--loops`, `--order`, `--jitter`,
+`--loss`, `--filter`), plus `--duration`, `--json` (progress as JSON lines)
+and `--results` (what _Save Results…_ writes). Ctrl+C stops cleanly. The exit
+status is 0 when everything was delivered, 1 when a connection was refused or
+reset or the service didn't read everything, 2 for a usage error and 3 when
+the captures can't be read. `--help` lists everything.
+
 ## Remote windows
 
 In WSL, SSH, Dev Containers and Codespaces everything runs on the remote

@@ -1,6 +1,8 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { ErrorCodes, Progress, RpcError } from "../backendClient";
+import { ErrorCodes, Progress, RpcError, findPython } from "../backendClient";
+import { REPLAY_LAUNCHER, stableBackend, writeDissection } from "../commands/mcp";
+import { readSettings } from "../config";
 import { type PcapEditorSession, describeError } from "../pcapEditor";
 import {
   MAX_FILES,
@@ -19,6 +21,8 @@ import {
   openPosition,
   parseSetup,
   rememberDestinations,
+  replayArgv,
+  replayCommandLine,
   resultsToJson,
   resultsToText,
   setupToJson,
@@ -86,6 +90,7 @@ type FromPanel =
   | { type: "addCaptures" }
   | { type: "addFolder" }
   | { type: "saveSetup"; setup: ReplaySetup }
+  | { type: "copyCommand"; setup: ReplaySetup }
   | { type: "saveResults" }
   | { type: "loadSetup" }
   | { type: "stop" }
@@ -216,6 +221,8 @@ export class ReplayPanel {
         return this.addFolder();
       case "saveSetup":
         return this.saveSetup(msg.setup);
+      case "copyCommand":
+        return void this.copyCommandLine(msg.setup);
       case "saveResults":
         return this.saveResults();
       case "loadSetup":
@@ -501,9 +508,78 @@ export class ReplayPanel {
     if (!uri) {
       return;
     }
-    const text = setupToJson(setup, path.dirname(uri.fsPath));
-    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(text));
+    await this.writeSetup(setup, uri);
     this.post({ type: "setupSaved", name: path.basename(uri.fsPath) });
+  }
+
+  /**
+   * A setup file: the panel's, plus this capture's path and, when the
+   * packets played are the viewer's filter's, that filter (the command line
+   * needs both; the panel plays its own capture with the filter it has).
+   */
+  private async writeSetup(setup: ReplaySetup, uri: vscode.Uri): Promise<void> {
+    const options = normalizeOptions(setup.options);
+    const full: ReplaySetup = {
+      ...setup,
+      openCapture: this.session.uri.fsPath,
+      filter: options.scope === "filter" ? this.session.currentFilter : undefined,
+    };
+    const text = setupToJson(full, path.dirname(uri.fsPath));
+    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(text));
+  }
+
+  /**
+   * Copy Command Line…: save the setup, then copy the command that replays
+   * it without VS Code (`pcap-lens-replay.py --setup …`, from the backend
+   * copy the MCP server uses, so it keeps working after updates). `dest`
+   * skips the dialog and nothing is copied (the smoke test runs `argv`).
+   */
+  async copyCommandLine(
+    setup: ReplaySetup,
+    dest?: vscode.Uri,
+  ): Promise<{ text: string; argv: string[] } | undefined> {
+    const settings = readSettings(this.session.uri);
+    const py = findPython(settings.pythonPath || undefined);
+    if ("error" in py) {
+      void vscode.window.showWarningMessage(py.error);
+      return undefined;
+    }
+    let script: string;
+    let optionsFile: string | undefined;
+    try {
+      script = path.join(stableBackend(this.context), REPLAY_LAUNCHER);
+      optionsFile = writeDissection(this.context);
+    } catch (err) {
+      void vscode.window.showWarningMessage(
+        `Couldn't prepare the replay command line: ${describeError(err)}`,
+      );
+      return undefined;
+    }
+    const stem = path.basename(this.session.uri.fsPath).replace(/\.[^.]+$/, "");
+    const uri =
+      dest ??
+      (await vscode.window.showSaveDialog({
+        title: "Save the Setup the Command Line Replays",
+        defaultUri: vscode.Uri.joinPath(this.folder, `replay-${stem}.json`),
+        filters: { "Replay setup": ["json"] },
+      }));
+    if (!uri) {
+      return undefined;
+    }
+    await this.writeSetup(setup, uri);
+    const launch = {
+      python: py.python,
+      script,
+      setup: uri.fsPath,
+      tsharkPath: settings.tsharkPath || undefined,
+      optionsFile,
+    };
+    const text = replayCommandLine(launch, process.platform === "win32");
+    if (!dest) {
+      await vscode.env.clipboard.writeText(text);
+      this.post({ type: "commandCopied", name: path.basename(uri.fsPath) });
+    }
+    return { text, argv: replayArgv(launch) };
   }
 
   /**

@@ -6,6 +6,7 @@
  */
 
 import * as path from "node:path";
+import { shellQuote } from "./mcpConfig";
 
 /** Where a recorded target's traffic goes. */
 export interface ReplayDestination {
@@ -200,6 +201,13 @@ export interface SetupTarget extends ReplayDestination {
  * next to the captures and share.
  */
 export interface ReplaySetup {
+  /**
+   * The capture open in the viewer when the setup was saved (for the command
+   * line, `pcap-lens-replay --setup`; the panel plays its own capture).
+   */
+  openCapture?: string;
+  /** The viewer's filter then, when the packets played were the filter's. */
+  filter?: string;
   includeOpen: boolean;
   /** How many of `captures` come before the open capture (0: it plays first). */
   openAt: number;
@@ -231,6 +239,8 @@ export function setupToJson(setup: ReplaySetup, baseDir: string): string {
   const doc = {
     format: SETUP_FORMAT,
     version: SETUP_VERSION,
+    ...(setup.openCapture ? { openCapture: storedPath(setup.openCapture, baseDir) } : {}),
+    ...(setup.filter?.trim() ? { filter: setup.filter.trim() } : {}),
     includeOpenCapture: setup.includeOpen,
     openCapturePosition: openPosition(setup.openAt, setup.captures.length),
     captures: setup.captures.map((c) => ({
@@ -308,8 +318,15 @@ export function parseSetup(
     const enabled = (value as Record<string, unknown>).enabled !== false;
     targets[key] = { ...dest, enabled };
   }
+  const openCapture =
+    typeof d.openCapture === "string" && d.openCapture.trim()
+      ? path.resolve(baseDir, d.openCapture.trim())
+      : undefined;
+  const filter = typeof d.filter === "string" && d.filter.trim() ? d.filter.trim() : undefined;
   return {
     setup: {
+      ...(openCapture ? { openCapture } : {}),
+      ...(filter ? { filter } : {}),
       includeOpen: d.includeOpenCapture !== false,
       openAt,
       captures,
@@ -491,4 +508,41 @@ export function resultsToText(run: ReplayRun): string {
     lines.push(`  (${plural(run.logOmitted, "more line")} not kept)`);
   }
   return lines.join("\n") + "\n";
+}
+
+// --- the command line ------------------------------------------------------
+
+/** What `pcap-lens-replay` needs to start (paths on the machine where it runs). */
+export interface ReplayLaunch {
+  /** The Python interpreter and its leading arguments (`py -3.14` on Windows). */
+  python: readonly string[];
+  /** The launcher script, `pcap-lens-replay.py`, next to a copy of `pcap_backend`. */
+  script: string;
+  /** The setup file it replays. */
+  setup: string;
+  /** pcapViewer.tsharkPath, when set. */
+  tsharkPath?: string;
+  /** The dissection options file VS Code keeps up to date (the MCP server's). */
+  optionsFile?: string;
+}
+
+/** The command line's arguments (the interpreter first). */
+export function replayArgv(l: ReplayLaunch): string[] {
+  const argv = [...l.python, l.script, "--setup", l.setup];
+  if (l.tsharkPath) {
+    argv.push("--tshark", l.tsharkPath);
+  }
+  if (l.optionsFile) {
+    argv.push("--options", l.optionsFile);
+  }
+  return argv;
+}
+
+/** The command line for a shell (POSIX quoting, or Windows double quotes). */
+export function replayCommandLine(l: ReplayLaunch, windows: boolean): string {
+  const [command, ...args] = replayArgv(l);
+  // PowerShell runs a quoted program only after `&`; cmd and POSIX shells don't need it.
+  const program = shellQuote(command, windows);
+  const head = windows && program.startsWith('"') ? `& ${program}` : program;
+  return [head, ...args.map((a) => shellQuote(a, windows))].join(" ");
 }

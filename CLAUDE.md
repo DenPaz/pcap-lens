@@ -295,6 +295,8 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   `compare.py` (capture profiles and diffs),
   `mcp.py` (the MCP server) and `standins.py` (its address stand-ins),
   `replay.py` (Replay to Service: records, planner, socket engine),
+  `replay_cli.py` (its command line, `pcap-lens-replay`; the launcher
+  `backend/pcap-lens-replay.py`),
   `sequence.py` (the sequence check: gaps, duplicates, late, restarts),
   `filterhelp.py` (a filter's
   field names, case hints, value counts), `plugins.py` (`tshark -G
@@ -2461,6 +2463,46 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   the panels e2e test (presets, a bad port, a refused port, a public
   destination, Stop at real time, scope) into Node servers, and the smoke
   test replays http.pcap's GET into one through `ReplayPanel.start`.
+  **Command line** (`replay_cli.py`, 0.30.0; `pcap-lens-replay` in
+  pyproject's scripts): the service in-process (as the MCP server) with no
+  capture open: `replay_targets`/`replay` with `capture: false` read
+  `files` with the tshark `configure` set up (`_replay_tshark`: the open
+  capture's when there is one), and a `files` entry may be `{path,
+filter}` (validated; part of the targets cache key). Captures on the
+  command line (`--filter` for each) or `--setup` (`read_setup`, as
+  `parseSetup`: the setup's captures with its `openCapture` at
+  `openCapturePosition`; a capture named on the command line replaces
+  `openCapture`; the setup's `filter` applies to the open capture only, as
+  in the panel). `--map PATTERN=DEST` (`parse_rule`: `[tcp|udp/]host:port`
+  or a key as `--list` writes it, `*` for any host or port, IPv6 in
+  brackets; DEST `host[:port]`, no port = the recorded one) and `--to HOST`
+  (`choose_destinations`: the setup's targets first, its unchecked ones
+  stay out unless a rule names them; exact rules, then wildcards in order;
+  `--to` for the rest; rules matching nothing are a warning). Dissection:
+  `--options` (the MCP server's options file, `read_dissection().for_path`
+  of the first capture), `--lua`, `--decode-as`, `--pref`, `--profile`,
+  `--tshark`. `run_replay` runs `service.replay` in a thread: SIGINT/
+  SIGTERM/SIGBREAK set a flag the main thread turns into `replay_stop`
+  (`stopped: false`, still starting: the token is cancelled), a second one
+  cancels; `--duration` counts from the first "replay" progress. stderr has
+  the log and a status line (`\r` on a terminal, every `STATUS_EVERY_S`
+  otherwise), `--json` JSON lines on stdout (`targets`, `progress`,
+  `result`, `warning`), `--results` the panel's text (`results_text`,
+  checked line for line against replayModel.test.ts's run) or JSON. Exit:
+  0, 1 (`has_problems`: errors, refused, reset, dropped, too large), 2
+  (usage, a missing file, FilterError, InvalidParamsError, ConfigError), 3
+  (tshark missing, a capture tshark can't read), 130 (stopped before
+  sending). `backend/pcap-lens-replay.py` is the launcher (a script's
+  folder is first on `sys.path`, so no PYTHONPATH; it refuses Pythons
+  before 3.12 by name), copied by `stableBackend` with the MCP server's
+  backend (`REPLAY_LAUNCHER`). Setup files gain `openCapture` (relative)
+  and `filter` (`writeSetup` adds the session's path, and its filter when
+  the scope is "filter"; older versions ignore both). The panel's _Copy
+  Command Line…_ (`copyCommandLine`: findPython, the backend copy,
+  `writeDissection`, a save dialog for the setup, `replayCommandLine`:
+  POSIX quoting or PowerShell's, `& "…"` before a quoted program) copies
+  it; the smoke test runs `replayArgv` with execFile into a Node server.
+  Tests: `test_replay_cli.py` (imports test_replay's servers).
 - **Real-capture testing** (`test/realworld/run.py`, `make realworld`, and
   weekly in `realworld.yml`): `--fetch wireshark` (Wireshark's `test/captures` through GitLab's API,
   one file at a time: parallel raw requests get an HTML page; its synthetic

@@ -2399,6 +2399,8 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
           await post({ type: "filesAdded", files: [later], enabled: true });
         } else if (msg.type === "saveResults") {
           await post({ type: "resultsSaved", name: "run.txt" });
+        } else if (msg.type === "copyCommand") {
+          await post({ type: "commandCopied", name: "replay-lab.json" });
         } else if (msg.type === "loadSetup" && setupToLoad) {
           await post({ type: "setup", name: "replay-setup.json", ...setupToLoad });
         }
@@ -2647,6 +2649,14 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       assert.deepEqual(setup.options, {
         speed: 0, loops: 0, scope: "all", order: "merged", jitter: 0, loss: 100,
       }); // prettier-ignore
+      // Copy Command Line… sends the same setup (the host saves it and copies the command).
+      await page.click("#replay-copy-command");
+      assert.deepEqual((await lastOfType(log, "copyCommand")).setup, setup);
+      await page.waitForFunction(() =>
+        document
+          .querySelector("#replay-status")
+          ?.textContent?.startsWith("Setup saved as replay-lab.json; its command line"),
+      );
       setupToLoad = {
         setup: {
           ...setup,

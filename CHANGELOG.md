@@ -7,6 +7,13 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- Replay to… from the command line: `pcap-lens-replay.py` replays captures or
+  a setup without VS Code (`--map`/`--to`, `--duration`, `--results`,
+  `--json`, exit statuses), and the panel's _Copy Command Line…_ saves the
+  setup and copies the command
+
 ## 0.29.3 — 2026-11-10
 
 ### Fixed

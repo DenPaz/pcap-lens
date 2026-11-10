@@ -3,6 +3,7 @@
  * custom editor and check that the backend indexed it and answers requests.
  */
 import * as assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
@@ -288,6 +289,32 @@ suite("PCAP Lens smoke test", () => {
         assert.equal(json.format, "pcap-lens-replay-results");
         assert.equal(json.targets[0].opened, 1);
         assert.ok(json.log.length > 0);
+        // Copy Command Line…: the setup it saves, replayed without VS Code by the
+        // launcher in the backend copy (pcap-lens-replay.py).
+        received.length = 0;
+        const copied = await replay.copyCommandLine(
+          {
+            includeOpen: true,
+            openAt: 0,
+            captures: [],
+            targets: { "tcp 93.184.216.34:80": { ip: "127.0.0.1", port, enabled: true } },
+            options: { speed: 0, loops: 1, scope: "all", order: "sequence", jitter: 0, loss: 0 },
+          },
+          vscode.Uri.file(path.join(out, "setup.json")),
+        );
+        assert.ok(copied);
+        assert.match(copied.text, /pcap-lens-replay\.py["']? --setup /);
+        const [python, ...args] = copied.argv;
+        const summary = await new Promise<string>((resolve, reject) =>
+          execFile(python, args, { timeout: 60_000 }, (err, stdout, stderr) =>
+            err ? reject(new Error(`${err.message}\n${stderr}`)) : resolve(stdout),
+          ),
+        );
+        assert.match(summary, /^Done after /);
+        assert.match(
+          Buffer.concat(received).toString("latin1"),
+          /^GET \/index\.html HTTP\/1\.1\r\n/,
+        );
       } finally {
         removeDir(out);
       }

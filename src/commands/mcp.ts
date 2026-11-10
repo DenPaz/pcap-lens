@@ -62,10 +62,13 @@ function mcpApi(): { api: McpApi; Stdio: StdioDefinition } | undefined {
 }
 
 const VERSION_FILE = ".pcap-lens-version";
+/** backend/pcap-lens-replay.py: Replay to… from the command line (replay_cli.py). */
+export const REPLAY_LAUNCHER = "pcap-lens-replay.py";
 
 /**
- * The backend copy the MCP server runs from: copied from the extension when
- * its version (or, while developing, anything) may have changed.
+ * The backend copy the MCP server and the replay command line run from:
+ * copied from the extension when its version (or, while developing,
+ * anything) may have changed, so a command line copied once survives updates.
  */
 export function stableBackend(context: vscode.ExtensionContext): string {
   const dir = path.join(context.globalStorageUri.fsPath, "mcp", "backend");
@@ -85,6 +88,11 @@ export function stableBackend(context: vscode.ExtensionContext): string {
     path.join(context.extensionUri.fsPath, "backend", "pcap_backend"),
     path.join(tmp, "pcap_backend"),
     { recursive: true, filter: (src) => path.basename(src) !== "__pycache__" },
+  );
+  // The command line of Replay to… (Copy Command Line in its panel) runs from here too.
+  fs.copyFileSync(
+    path.join(context.extensionUri.fsPath, "backend", REPLAY_LAUNCHER),
+    path.join(tmp, REPLAY_LAUNCHER),
   );
   fs.writeFileSync(path.join(tmp, VERSION_FILE), version);
   fs.rmSync(dir, { recursive: true, force: true });

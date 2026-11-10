@@ -113,6 +113,19 @@
     h("button", { type: "button", class: "secondary", id: "replay-save-setup" }, ["Save Setup…"]),
     "save-as",
   );
+  const copyCommandBtn = kit.withIcon(
+    h(
+      "button",
+      {
+        type: "button",
+        class: "secondary",
+        id: "replay-copy-command",
+        title: "Save the setup and copy a command that replays it without VS Code",
+      },
+      ["Copy Command Line…"],
+    ),
+    "terminal",
+  );
   const toolbar = h("div", { class: "toolbar", role: "toolbar", "aria-label": "Targets" }, [
     h("label", {}, ["Packets ", scopeSelect]),
     h("label", {}, ["Preset ", presetSelect]),
@@ -121,6 +134,7 @@
     h("span", { class: "spacer" }),
     loadSetupBtn,
     saveSetupBtn,
+    copyCommandBtn,
     refreshBtn,
   ]);
   const capturesBox = h("div", { class: "replay-captures" });
@@ -299,6 +313,9 @@
   saveSetupBtn.addEventListener("click", () =>
     vscode.postMessage({ type: "saveSetup", setup: currentSetup() }),
   );
+  copyCommandBtn.addEventListener("click", () =>
+    vscode.postMessage({ type: "copyCommand", setup: currentSetup() }),
+  );
   startBtn.addEventListener("click", () => start());
   stopBtn.addEventListener("click", () => {
     vscode.postMessage({ type: "stop" });
@@ -339,6 +356,8 @@
       statusText.textContent = `Results saved as ${msg.name}.`;
     } else if (msg.type === "setupSaved") {
       statusText.textContent = `Setup saved as ${msg.name}.`;
+    } else if (msg.type === "commandCopied") {
+      statusText.textContent = `Setup saved as ${msg.name}; its command line is on the clipboard.`;
     } else if (msg.type === "filter") {
       state.filter = msg.filter ?? "";
       const was = scopeSelect.value;
@@ -953,6 +972,7 @@
       lossInput,
       loadSetupBtn,
       saveSetupBtn,
+      copyCommandBtn,
       addCapturesBtn,
       addFolderBtn,
     ]) {
