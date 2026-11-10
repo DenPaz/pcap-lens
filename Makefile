@@ -61,8 +61,8 @@ format: ## Fix what the linters can fix (ruff format, ruff --fix, eslint --fix, 
 
 test: test-backend test-unit ## Backend tests plus TS unit and webview tests
 
-test-backend: ## Python backend tests, incl. acceptance scenarios (uv run pytest)
-	$(UV) run pytest
+test-backend: ## Python backend tests, incl. acceptance scenarios (in parallel: pytest-xdist)
+	$(UV) run pytest -n auto --dist loadfile
 
 test-acceptance: ## Only the pytest-bdd acceptance scenarios
 	$(UV) run pytest test/backend/acceptance
@@ -77,7 +77,7 @@ test-extension: ## VS Code smoke test (downloads VS Code; uses xvfb-run when hea
 coverage: ## Backend and TS unit tests with coverage: summaries here, HTML in coverage/
 	rm -rf out coverage
 	mkdir -p coverage
-	$(UV) run pytest --cov --cov-report=term --cov-report=html
+	$(UV) run pytest -n auto --dist loadfile --cov --cov-report=term --cov-report=html
 	$(PNPM) run test:coverage
 
 check: lint test ## Everything CI runs except the VS Code smoke test

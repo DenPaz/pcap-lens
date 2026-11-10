@@ -13,10 +13,10 @@ CONTRIBUTING.md for building, testing and releasing (not packaged).
 | Build extension           | `pnpm run compile` (tsc → `out/`, then esbuild → `dist/extension.js`, what VS Code runs; `pnpm run watch:bundle` rebuilds it on save)                    |
 | Lint everything           | `pnpm run lint && pnpm run format:check && uv run ruff check && uv run ruff format --check && uv run mypy`                                               |
 | Format                    | `make format` (ruff --fix, ruff format, eslint --fix, Prettier)                                                                                          |
-| Backend tests             | `uv run pytest` (tshark tests skip if tshark is missing)                                                                                                 |
+| Backend tests             | `uv run pytest -n auto --dist loadfile` (pytest-xdist, as `make test-backend` and CI; plain `uv run pytest` is serial; tshark tests skip without tshark) |
 | Acceptance scenarios only | `uv run pytest test/backend/acceptance` (pytest-bdd, Gherkin in `features/`)                                                                             |
 | TS unit + webview tests   | `pnpm run test:unit` (mocha; includes the Chromium e2e test of the webview)                                                                              |
-| VS Code smoke test        | `pnpm run test:extension` (downloads VS Code; use `xvfb-run -a` on headless Linux)                                                                       |
+| VS Code smoke test        | `pnpm run test:extension` (downloads VS Code; use `xvfb-run -a` on headless Linux; `PCAP_VSCODE_VERSION=minimum` or a version for another VS Code)       |
 | Regenerate fixtures       | `uv run python test/fixtures/generate.py`                                                                                                                |
 | Coverage                  | `make coverage` (pytest-cov and c8; summaries in the terminal, HTML in `coverage/`; CI's Linux job adds both to the run summary)                         |
 | Perf check                | `uv run python test/fixtures/generate.py --large 1000000 test/fixtures/large-1m.pcap && uv run python -u test/perf/bench.py test/fixtures/large-1m.pcap` |
@@ -81,8 +81,11 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
   `@types/vscode` is never bumped (it must not exceed `engines.vscode`, or vsce
   refuses to package; raise both together), `@types/node` stays on Node 20
   (VS Code 1.90's extension host), and peer ranges are respected
-  (typescript-eslint caps TypeScript, so TS 7 waits). mocha 12 is ESM-only:
-  the VS Code smoke suite loads it with `await import("mocha")`. Node ≥ 22.13
+  (typescript-eslint caps TypeScript, so TS 7 waits). mocha 12's CommonJS
+  entry requires ES modules (require(esm): Node 20.19+), which VS Code 1.90's
+  extension host (Node 20.9) can't, so the smoke suite runs on mocha 11, the
+  `mocha-smoke` alias (`npm:mocha@^11`; ncu and Dependabot keep it on 11),
+  and the unit tests on mocha 12. Node ≥ 22.13
   is needed for the dev tools. Python dev tools: `uv lock --upgrade`;
   pytest 9.2 needs pytest-bdd ≥ 9.0.1 (9.0.0 read
   `FixtureManager._arg2fixturedefs`, which 9.2 renamed: every acceptance
@@ -90,6 +93,15 @@ annotations` (ruff's isort `required-imports` adds it; 3.12/3.13 evaluate
 - Node tests that start the backend use `PCAP_VIEWER_PYTHON` if set, else the
   uv `.venv` interpreter, so they run on 3.14 even when the system `python3` is older.
 - pytest turns `ResourceWarning` into errors: leaked tshark pipes are bugs.
+- **Parallel backend tests**: CI and `make` run pytest-xdist with
+  `-n auto --dist loadfile` (a file's tests stay in one worker, in order;
+  6 min → under 2 locally, coverage unchanged). Each worker runs
+  `pytest_configure`, so each has its own empty home and cache folder
+  (`XDG_CACHE_HOME`: on Windows `~` is USERPROFILE, not HOME, so the first
+  CI run had four workers racing on scapy's cache pickle); tests must not
+  share fixed ports, files outside `tmp_path` or the home's state across
+  files (the loopback capture test picks a port from the clock and filters
+  on it).
 - **Tests use an empty home**: tshark reads the personal configuration
   (preferences, Decode As, colors) and loads personal plugins from the home
   folder, so a developer's own Wireshark setup changed results (a personal
@@ -147,12 +159,20 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   30 s and 60 s apart, until `tshark.exe` exists, since the Chocolatey feed
   fails now and then, once even with exit code 0 and nothing installed): lint, backend and
   acceptance tests with tshark, unit + Chromium e2e tests, and the VS Code
-  smoke test (Linux under xvfb), plus a Linux job on Python 3.12. Ubuntu
+  smoke test (Linux under xvfb), plus a Linux job on Python 3.12 and one
+  running the smoke test on the oldest VS Code `engines.vscode` allows
+  (`PCAP_VSCODE_VERSION=minimum`; `runTest.ts` reads the version from
+  package.json, so raising the engine moves the job). Ubuntu
   26.04 (`ubuntu-latest` from 2026-10-19) enforces the apparmor package's
   tshark profile, so the Linux jobs add the local rules of `sandbox.py`'s
   hint when `/etc/apparmor.d/tshark` exists (else every fixture read fails;
   checked on `ubuntu-26.04` runners). It runs on
   pull requests, pushes to `main` and `dev`, and by hand (`workflow_dispatch`).
+  **No run twice**: a newer push cancels a branch's or PR's run in progress
+  (`concurrency`; never on `main` or tags), and every job skips a PR from
+  `dev` (the release PR), since dev's push run tested that commit and its
+  checks show on the PR. The smoke test's VS Code download isn't cached:
+  restoring a cache of it took as long as the download (tried in 2026-11).
   The unit/webview mocha run has a 10 s timeout (`--timeout 10000` in
   `test:unit`): the Windows runner once took over 2 s on a 30 ms test.
 - **Repository upkeep**: `codeql.yml` (javascript-typescript, python and
@@ -1254,7 +1274,12 @@ tls|ssh|wg}`) offers the TLS setting and the SSH/WireGuard keys. README:
   loads it for Endpoints only. libmaxminddb checks the metadata's types
   (uint16/uint32/uint64): `test/fixtures/mmdb.py` writes them typed
   (`Uint`), and tshark reads the fixtures (`geoip/PCAP-Lens-Test-City.mmdb`,
-  `-ASN`) too.
+  `-ASN`) too. A tshark built without MaxMind support (a user's Mac) refuses
+  `-o uat:maxmind_db_paths` ("Invalid -o flag …: Unknown preference", the
+  form of an unknown UAT table) and wouldn't start, so the open failed;
+  `refused_option` now names such a table (`("secret", key)`, any decryption
+  table too) and `_known_switches` drops it with a warning, keeping
+  `options.geoip` for the Endpoints' own reader.
 - **Network statistics** (`stats {kind: ipv4 | ipv6 | multicast | hosts |
 sctp}`): IPv4/IPv6 (`type` addresses, srcdst, ptype, dests) are the
   stats_tree reports `ip_hosts`/`ip_srcdst`/`ptype`/`dests` (and `ipv6_*`)
@@ -1360,7 +1385,14 @@ fields -e frame.number` gives progress when filtering; without a filter
   frame set means several `-Y frame.number in {…}` passes, which
   `export.DissectionWriter` joins: text concatenated, PDML with one header and
   one `</pdml>`, JSON as one array (a held-back last line becomes `  },` when
-  another pass's first object `  {` follows).
+  another pass's first object `  {` follows). Every export command takes
+  `ExportArgs` (`{dest, scope, format, bytes, source}`; scopes and formats by
+  id: displayed/all/selected/marked, pcapng/pcap, csv/json, text/pdml/json)
+  that answer its questions, and then shows no notification (smoke test); so
+  do Colorize with Filter (`{filter, color, name}`), Add Filter Button
+  (`{filter, label, comment}`), Save Filter (`{filter,
+name}`), Merge Captures (`files, {dest, append}`) and Set TLS Key Log File
+  (`{file}` / `{clear: true}`).
 - **Merging** (`merge {inputs, dest, format, append}`, no open capture needed):
   `mergecap` (found next to tshark) into an atomic output, `-a` for a rotated
   capture's pieces (given in order), by timestamp otherwise; `dest` may not be
@@ -2499,6 +2531,38 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   when the job succeeds, and a run with problems fails. tshark 4.6.9 on
   macOS timed out (120 s) on `cosem_coverage.pcap.gz`'s conversations,
   expert, VoIP, triage and profile passes; not yet looked into.
+  The second weekly run lost both runners mid-run (no report, no cache
+  saved; macOS left no log at all): tshark 4.2.2 dissecting one SPOOLSS
+  response of `dcerpc_spoolss_coverage.pcap.gz` takes 4–5 GB per pass (its
+  expert pass over 10 GB; `gui.max_tree_items` doesn't help), and a backend
+  runs several passes at once. So the harness watches the Wireshark tools it
+  starts (`MemoryWatch`: `ps` every 0.5 s over its descendants, never the
+  backends; macOS enforces no memory rlimit) and SIGKILLs one past the cap
+  (the machine's memory / (jobs × `PROCESSES_PER_JOB` 6), at least 1 GB,
+  `--memory MB`, 0 = none): "killed (signal 9)" is tshark's own failure, a
+  note. The 20 largest captures run unchanged under CI's 1.3 GB;
+  `test_realworld_watch.py` checks what it kills. The run on `dev` with it
+  finished (Linux: Wireshark's set grown to 1,243 captures, 26 tools
+  killed; tcpdump's 612 clean) with five problems, all tshark 4.2.2's:
+  `kafka_coverage`/`mysql_coverage` time out because tshark loops at 100%
+  CPU in the conversation, expert, VoIP, triage and profile passes (it
+  ignores SIGTERM; the backend's SIGKILL stops it), `logcat_coverage` and
+  `nfs_coverage_malformed` are slow the same way, and `dvb_s2_table_coverage`'s
+  own tshark count was killed (an empty count read as 0 packets). So
+  `Run.call` samples `busy_tools` (Wireshark tools under the backend that
+  `ps` shows running or runnable, or at ≥ `BUSY_CPU` 50% CPU; the state
+  matters: two captures at once gave each looping tshark half a CPU) at
+  `SLOW_S` and at a timeout: a slow or timed-out request waiting on a busy
+  tshark is a note naming it (the check is joined before the result is read:
+  an answer just after `SLOW_S` read an empty list), and `record_count`
+  gives None (a note) for a tshark that crashed or was killed. Since nearly
+  every request waits on tshark, a slowdown of ours would be a note too, so
+  the totals end with `busy_summary` ("N steps slow and M timed out while
+  tshark was busy"): a jump there is the sign to look.
+  The macOS job (one capture at a time) was still on Wireshark's set after
+  4 h of the 5 h limit, so `realworld.yml` runs one job per system and
+  source (matrix `os` × `source`; cache keys and artifacts per source, the
+  old per-system cache key as a fallback).
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage
@@ -2655,8 +2719,10 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   section (the release notes are cut per section); `prepare <version>` moves it
   under `## <version> — <date>` and bumps `package.json` (a regex, keeping
   its formatting); versions are plain x.y.z (the Marketplace has no semver
-  pre-releases). A `v*` tag (or a manual run on one) calls `ci.yml`
-  (`workflow_call`) first, then `check <tag>` (tag = package.json version,
+  pre-releases). A `v*` tag (or a manual run on one) first looks for CI's
+  push run of the tagged commit (main's merge commit; job `tested`, waiting
+  while it runs) and calls `ci.yml` (`workflow_call`) only without a green
+  one, then `check <tag>` (tag = package.json version,
   and CHANGELOG notes exist), `vsce package`, `gh release create` with the
   notes (or `upload --clobber` when the release exists), then
   `vsce publish --skip-duplicate` and `ovsx publish` (pinned, via npx: pnpm

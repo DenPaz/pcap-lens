@@ -310,6 +310,259 @@ suite("PCAP Lens smoke test", () => {
     await waitFor(() => (backend.running ? undefined : true), 10_000);
   });
 
+  test("exports: packets by scope and format, the packet list, dissections and bytes", async function () {
+    this.timeout(120_000);
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    const api = (await ext!.activate()) as PcapViewerApi;
+    const uri = vscode.Uri.file(path.join(FIXTURES, "http.pcap"));
+    await vscode.commands.executeCommand("vscode.openWith", uri, "pcapViewer.editor");
+    const session = await waitFor(() =>
+      api.provider.allSessions.find((s) => s.uri.fsPath === uri.fsPath),
+    );
+    await waitFor(() => (indexed(session) ? true : undefined), 90_000);
+    const backend = session.backend!;
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), "pcap-smoke-export-"));
+    type Result = { packets?: number; bytes?: number; path: string } | undefined;
+    const run = async (command: string, args: object): Promise<Result> => {
+      session.reveal();
+      return vscode.commands.executeCommand<Result>(`pcapViewer.${command}`, args);
+    };
+    const PCAPNG = "0a0d0d0a";
+    const PCAP = "d4c3b2a1";
+    const magic = (file: string) => fs.readFileSync(file).subarray(0, 4).toString("hex");
+    try {
+      // All packets, then the displayed ones once a filter is applied.
+      const all = path.join(out, "all.pcapng");
+      assert.equal(
+        (await run("exportFiltered", { scope: "all", format: "pcapng", dest: all }))?.packets,
+        11,
+      );
+      assert.equal(magic(all), PCAPNG);
+      await vscode.commands.executeCommand("pcapViewer.applyFilter", "http");
+      await waitFor(() => (session.currentFilter === "http" ? true : undefined));
+      const shown = path.join(out, "http.pcap");
+      assert.equal(
+        (await run("exportFiltered", { scope: "displayed", format: "pcap", dest: shown }))?.packets,
+        2,
+      );
+      assert.equal(magic(shown), PCAP);
+      // The packet list (CSV) has the displayed rows: frames 4 and 7.
+      const csv = path.join(out, "list.csv");
+      assert.equal((await run("exportPacketList", { format: "csv", dest: csv }))?.packets, 2);
+      const lines = fs.readFileSync(csv, "utf8").trim().split(/\r?\n/);
+      assert.equal(lines.length, 3, "a header and two rows");
+      assert.match(lines[1], /^"?4"?,/);
+      assert.match(lines[2], /^"?7"?,/);
+
+      // Selected packets (the viewer reports its selection to the session; a
+      // selection is always within the view, so the filter goes first: the
+      // packet list keeps the view's rows).
+      await vscode.commands.executeCommand("pcapViewer.clearFilter");
+      await waitFor(() => (session.currentFilter === "" ? true : undefined));
+      session.selectedFrames = [1, 2, 3];
+      session.selectedFrame = 3;
+      assert.equal(
+        (await run("exportSelected", { format: "pcapng", dest: path.join(out, "sel.pcapng") }))
+          ?.packets,
+        3,
+      );
+      assert.equal(
+        (
+          await run("exportFiltered", {
+            scope: "selected",
+            format: "pcapng",
+            dest: path.join(out, "sel2.pcapng"),
+          })
+        )?.packets,
+        3,
+      );
+      const json = path.join(out, "sel.json");
+      await run("exportPacketList", { scope: "selected", format: "json", dest: json });
+      assert.deepEqual(
+        (JSON.parse(fs.readFileSync(json, "utf8")) as { number: number }[]).map((r) => r.number),
+        [1, 2, 3],
+      );
+
+      // Marked packets (marked in the backend; the viewer reports the count).
+      await backend.request("mark_packets", { frames: [5, 9], mark: true });
+      session.markedCount = 2;
+      assert.equal(
+        (await run("exportMarked", { format: "pcap", dest: path.join(out, "marked.pcap") }))
+          ?.packets,
+        2,
+      );
+
+      // Dissections in each format: text with hex dumps, PDML, JSON.
+      const text = path.join(out, "all.txt");
+      await run("exportDissections", { scope: "all", format: "text", bytes: true, dest: text });
+      const dissected = fs.readFileSync(text, "utf8");
+      assert.match(dissected, /^Frame 1: /m);
+      assert.match(dissected, /^Frame 11: /m);
+      assert.match(dissected, /^0000 {2}[0-9a-f]{2} /m, "hex dumps");
+      const pdml = path.join(out, "marked.pdml");
+      await run("exportDissections", { scope: "marked", format: "pdml", dest: pdml });
+      assert.equal((fs.readFileSync(pdml, "utf8").match(/<packet>/g) ?? []).length, 2);
+      const dissJson = path.join(out, "sel-dissections.json");
+      await run("exportDissections", {
+        scope: "selected",
+        format: "json",
+        bytes: false,
+        dest: dissJson,
+      });
+      assert.equal((JSON.parse(fs.readFileSync(dissJson, "utf8")) as unknown[]).length, 3);
+
+      // One packet's bytes; a source it hasn't is refused.
+      const bin = path.join(out, "frame4.bin");
+      const bytes = await run("exportPacketBytes", { frame: 4, source: 0, dest: bin });
+      assert.ok(bytes?.bytes && bytes.bytes > 0);
+      assert.equal(fs.statSync(bin).size, bytes.bytes);
+      assert.equal(await run("exportPacketBytes", { frame: 4, source: 9, dest: bin }), undefined);
+      // An unknown scope is refused, not guessed.
+      assert.equal(
+        await run("exportFiltered", {
+          scope: "everything",
+          format: "pcap",
+          dest: path.join(out, "x.pcap"),
+        }),
+        undefined,
+      );
+      assert.equal(fs.existsSync(path.join(out, "x.pcap")), false);
+    } finally {
+      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+      removeDir(out);
+    }
+  });
+
+  test("saved filters, columns, coloring, the TLS key log and merging, from their commands", async function () {
+    this.timeout(120_000);
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    const api = (await ext!.activate()) as PcapViewerApi;
+    const cfg = () => vscode.workspace.getConfiguration("pcapViewer");
+    const keys = [
+      "savedFilters",
+      "filterButtons",
+      "columns",
+      "coloringRules",
+      "colorize",
+      "tlsKeyLogFile",
+    ];
+    const before = new Map(keys.map((k) => [k, cfg().inspect(k)?.globalValue]));
+    const uri = vscode.Uri.file(path.join(FIXTURES, "http.pcap"));
+    await vscode.commands.executeCommand("vscode.openWith", uri, "pcapViewer.editor");
+    const session = await waitFor(() =>
+      api.provider.allSessions.find((s) => s.uri.fsPath === uri.fsPath && indexed(s)),
+    );
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), "pcap-smoke-settings-"));
+    const run = <T>(command: string, ...args: unknown[]) => {
+      session.reveal();
+      return vscode.commands.executeCommand<T>(`pcapViewer.${command}`, ...args);
+    };
+    try {
+      // Save Filter with a name; an invalid filter isn't saved.
+      const saved = await run<{ name: string } | undefined>("saveFilter", {
+        filter: "tcp.port == 80",
+        name: "Smoke web",
+      });
+      assert.equal(saved?.name, "Smoke web");
+      assert.ok(
+        cfg()
+          .get<{ name: string; filter: string }[]>("savedFilters")
+          ?.some((f) => f.name === "Smoke web" && f.filter === "tcp.port == 80"),
+      );
+      assert.equal(await run("saveFilter", { filter: "tcp.port ==", name: "Broken" }), undefined);
+      assert.ok(
+        !cfg()
+          .get<{ name: string }[]>("savedFilters")
+          ?.some((f) => f.name === "Broken"),
+      );
+
+      // Add Filter Button with its label and comment; an invalid filter isn't added.
+      const button = await run<{ label: string; comment?: string } | undefined>("addFilterButton", {
+        filter: "dns",
+        label: "DNS",
+        comment: "Name lookups",
+      });
+      assert.deepEqual(button, { label: "DNS", filter: "dns", comment: "Name lookups" });
+      assert.ok(
+        cfg()
+          .get<{ label: string; filter: string }[]>("filterButtons")
+          ?.some((b) => b.label === "DNS" && b.filter === "dns"),
+      );
+      assert.equal(await run("addFilterButton", { filter: "dns ==", label: "Broken" }), undefined);
+
+      // Apply as Column: the field joins the columns once.
+      await run("manageColumns", "http.host");
+      await run("manageColumns", "http.host");
+      assert.equal(
+        cfg()
+          .get<{ field: string }[]>("columns")
+          ?.filter((c) => c.field === "http.host").length,
+        1,
+      );
+
+      // Colorize with Filter: a rule on top, so the HTTP packets (4 and 7) take it.
+      const rule = await run<{ name: string } | undefined>("colorizeWithFilter", {
+        filter: "http",
+        color: "Teal",
+        name: "Smoke HTTP",
+      });
+      assert.equal(rule?.name, "Smoke HTTP");
+      assert.equal(cfg().get<{ name: string }[]>("coloringRules")?.[0]?.name, "Smoke HTTP");
+      await waitForAsync(async () => {
+        const res = await session.backend?.request<{ rows: { number: number; color?: number }[] }>(
+          "list_packets",
+          { offset: 0, limit: 11 },
+        );
+        const first = res?.rows.filter((r) => r.color === 0).map((r) => r.number);
+        return first?.join() === "4,7" ? true : undefined;
+      });
+      assert.equal(
+        await run("colorizeWithFilter", { filter: "dns", color: "Plaid", name: "x" }),
+        undefined,
+        "an unknown color is refused",
+      );
+      // Toggle Packet Coloring writes the setting both ways.
+      await run("toggleColoring");
+      assert.equal(cfg().get("colorize"), false);
+      await run("toggleColoring");
+      assert.equal(cfg().get("colorize"), true);
+
+      // Set TLS Key Log File: the capture reloads with it; a file that isn't one
+      // is refused; clearing reloads without it.
+      const keylog = path.join(out, "keys.log");
+      fs.writeFileSync(keylog, `CLIENT_RANDOM ${"a".repeat(64)} ${"b".repeat(96)}\n`);
+      await run("setTlsKeyLogFile", { file: keylog });
+      await waitFor(() => (session.keyLogFile === keylog && indexed(session) ? true : undefined));
+      const notKeys = path.join(out, "notes.txt");
+      fs.writeFileSync(notKeys, "hello\n");
+      await run("setTlsKeyLogFile", { file: notKeys });
+      assert.equal(cfg().get("tlsKeyLogFile"), keylog);
+      await run("setTlsKeyLogFile", { clear: true });
+      await waitFor(() => (session.keyLogFile === "" && indexed(session) ? true : undefined));
+
+      // Merge Captures by timestamp into a new file, which opens.
+      const merged = path.join(out, "merged.pcapng");
+      const dest = await run<string | undefined>(
+        "mergeCaptures",
+        [uri.fsPath, path.join(FIXTURES, "dns.pcap")],
+        { dest: merged, append: false },
+      );
+      // (Through a Uri, as the command's own path is: Windows lower-cases the drive.)
+      const mergedPath = vscode.Uri.file(merged).fsPath;
+      assert.equal(dest, mergedPath);
+      const mergedSession = await waitFor(() =>
+        api.provider.allSessions.find((s) => s.uri.fsPath === mergedPath && indexed(s)),
+      );
+      assert.equal(mergedSession.openInfo?.frames, 11 + 6);
+    } finally {
+      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+      for (const [key, value] of before) {
+        await cfg().update(key, value, vscode.ConfigurationTarget.Global);
+      }
+      removeDir(out);
+    }
+  });
+
   test("packet comments: an edit makes the capture dirty, undo and save work", async () => {
     const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
     const api = (await ext!.activate()) as PcapViewerApi;

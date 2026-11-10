@@ -10,6 +10,7 @@ import { SavedFilter, upsertSavedFilter } from "../settingsModel";
 export async function saveFilterInteractive(
   expr: string,
   session?: PcapEditorSession,
+  givenName?: string,
 ): Promise<SavedFilter | undefined> {
   let filter = expr.trim();
   if (!filter) {
@@ -31,14 +32,16 @@ export async function saveFilterInteractive(
     }
   }
   const existing = readSettings().savedFilters;
-  const name = await vscode.window.showInputBox({
-    title: "Save Display Filter",
-    prompt: `Name for: ${filter}`,
-    value:
-      existing.find((f) => f.filter === filter)?.name ??
-      (filter.length <= 40 ? filter : `${filter.slice(0, 37)}…`),
-    validateInput: (text) => (text.trim() ? undefined : "Enter a name"),
-  });
+  const name = givenName?.trim()
+    ? givenName
+    : await vscode.window.showInputBox({
+        title: "Save Display Filter",
+        prompt: `Name for: ${filter}`,
+        value:
+          existing.find((f) => f.filter === filter)?.name ??
+          (filter.length <= 40 ? filter : `${filter.slice(0, 37)}…`),
+        validateInput: (text) => (text.trim() ? undefined : "Enter a name"),
+      });
   if (name === undefined) {
     return undefined;
   }
@@ -120,11 +123,15 @@ export function registerSavedFilterCommands(
   provider: PcapEditorProvider,
 ): void {
   context.subscriptions.push(
-    vscode.commands.registerCommand("pcapViewer.saveFilter", async (expr?: unknown) => {
+    // A filter, or {filter, name} (no questions but a clash with another filter).
+    vscode.commands.registerCommand("pcapViewer.saveFilter", async (arg?: unknown) => {
       const session = provider.activeSession;
-      await saveFilterInteractive(
+      const given = arg && typeof arg === "object" ? (arg as Record<string, unknown>) : {};
+      const expr = typeof arg === "string" ? arg : given.filter;
+      return saveFilterInteractive(
         typeof expr === "string" ? expr : (session?.currentFilter ?? ""),
         session,
+        typeof given.name === "string" ? given.name : undefined,
       );
     }),
     vscode.commands.registerCommand("pcapViewer.savedFilters", () =>

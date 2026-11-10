@@ -46,7 +46,7 @@ The `Makefile` wraps everything (`make` lists the targets):
 | ------------------------------- | ------------------------------------------------------------------- |
 | `make check`                    | Lint and all tests except the VS Code smoke test (what CI runs)     |
 | `make lint` / `make format`     | ESLint, Prettier, ruff, mypy / auto-fix what they can               |
-| `make test-backend`             | `uv run pytest` (tshark tests skip without tshark)                  |
+| `make test-backend`             | `uv run pytest -n auto` (in parallel; tshark tests skip without it) |
 | `make test-acceptance`          | Gherkin scenarios in `test/backend/acceptance/features/`            |
 | `make test-unit`                | Extension unit tests and webview tests, including headless Chromium |
 | `make test-extension`           | VS Code smoke test (uses `xvfb-run` when there's no display)        |
@@ -95,7 +95,11 @@ The `Makefile` wraps everything (`make` lists the targets):
   workflow (`.github/workflows/realworld.yml`) runs it every Monday and by
   hand (_Run workflow_, with _full_ for every step of Wireshark's captures) on
   Linux and macOS (Homebrew's tshark, the newest release); a problem fails
-  the job, the run's summary lists them and its artifact has both reports.
+  the job, the run's summary lists them and its artifact has the report
+  (one job per system and source: Wireshark's set alone takes hours).
+  Each tshark it starts may use a share of the machine's memory (change it
+  with `--memory <MB>`, 0 for none): one that grows past it is killed (a
+  note) rather than running the machine out of memory.
   Run it yourself after a tshark upgrade or a change to parsing:
 
   ```sh
@@ -113,8 +117,10 @@ The `Makefile` wraps everything (`make` lists the targets):
   then _PCAP: Set TLS Key Log File…_ with the `.log`.
 
 CI (`.github/workflows/ci.yml`) runs everything on Linux, macOS and Windows
-(plus the backend and unit tests on Python 3.12) for pull requests and pushes
-to `main` and `dev`. CodeQL (`codeql.yml`) scans the TypeScript, JavaScript,
+(plus the backend and unit tests on Python 3.12, and the VS Code smoke test
+on the oldest VS Code the extension supports) for pull requests and pushes
+to `main` and `dev`. A newer push cancels the run it replaces (not on `main`),
+and a pull request from `dev` reuses `dev`'s own run. CodeQL (`codeql.yml`) scans the TypeScript, JavaScript,
 Python and workflows; Dependabot opens weekly update PRs against `dev`.
 
 ### Development troubleshooting
@@ -171,7 +177,8 @@ git push origin v0.5.0
 
 The tag runs `.github/workflows/release.yml`:
 
-1. The whole CI.
+1. The whole CI, unless it already passed on the tagged commit when that was
+   pushed to `main` (the release then waits for that run if it is still going).
 2. A check that the tag, `package.json` and the CHANGELOG agree.
 3. `vsce package`.
 4. A GitHub release with the `.vsix` and the version's notes.

@@ -23,6 +23,12 @@ they aren't ours to redistribute). Every result is listed as ok, expected
 problem: an internal error, a tshark failure, a timeout, a broken
 invariant, a traceback on the server's stderr. Exit status 1 when there
 are problems.
+
+Each Wireshark tool it starts (the backends' tshark passes, its own tshark
+runs) may use a share of the machine's memory (``--memory``): one that
+grows past it is killed, which counts as tshark's own failure (a note),
+instead of the machine running out of memory: that took down both CI
+runners of a weekly run.
 """
 
 from __future__ import annotations
@@ -34,6 +40,7 @@ import os
 import queue
 import re
 import selectors
+import signal
 import socket
 import subprocess
 import sys
@@ -46,7 +53,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 ROOT = Path(__file__).resolve().parents[2]
 CACHE = Path.home() / ".cache" / "pcap-lens-realworld"
@@ -65,6 +72,22 @@ TIMEOUT_CODE = 0
 # Answers the viewer shows as a message (no such stream, still indexing…).
 EXPECTED_CODES = {-32602, -32010, -32011, -32012}
 SLOW_S = 30.0
+# The memory each Wireshark tool may use is the machine's divided by the jobs
+# times this (a backend runs up to four tshark passes at once, the capture
+# profile's pool, next to its own and the harness's); never below
+# MIN_MEMORY_MB. tshark 4.2.2 takes dcerpc_spoolss_coverage.pcap.gz to 5 GB
+# per pass and its expert pass past 10 GB (a SPOOLSS response's dissection):
+# the weekly run's Linux runner (16 GB, two jobs) was shut down on it, and its
+# macOS runner (7 GB, tshark 4.6.9) was lost without a log.
+PROCESSES_PER_JOB = 6
+MIN_MEMORY_MB = 1024
+WATCH_INTERVAL_S = 0.5
+# A request still waiting after SLOW_S (or timing out) while a tshark under
+# its backend uses this much CPU waits on tshark's own dissection: a note.
+BUSY_CPU = 50.0
+# The programs MemoryWatch may stop (ps's comm: a path on macOS, 15
+# characters on Linux); never the backends or the harness, whose memory is ours.
+WIRESHARK_TOOLS = {"tshark", "editcap", "mergecap", "capinfos", "dumpcap", "text2pcap"}
 
 with (ROOT / "package.json").open(encoding="utf-8") as fh:
     _PROPS: dict[str, Any] = {}
@@ -302,26 +325,42 @@ class Run:
         self.work = work
 
     def call(self, name: str, method: str, params: dict[str, Any] | None = None) -> Any:
-        """One request, recorded; None when it failed."""
+        """One request, recorded; None when it failed. A slow or timed-out
+        request is a note when a tshark under the backend was busy at SLOW_S
+        (or at the timeout): tshark's own slowness, not the backend's."""
         start = time.monotonic()
+        busy: list[str] = []
+        timer = threading.Timer(SLOW_S, lambda: busy.extend(busy_tools(self.server.proc.pid)))
+        timer.daemon = True
+        timer.start()
         try:
             result = self.server.call(method, params or {}, self.timeout)
         except RpcError as exc:
             took = time.monotonic() - start
+            if exc.code == TIMEOUT_CODE:
+                busy += busy_tools(self.server.proc.pid)
             status = (
                 "expected"
                 if exc.code in EXPECTED_CODES
                 else "note"
-                if _tsharks_own(exc.message)
+                if _tsharks_own(exc.message) or (exc.code == TIMEOUT_CODE and busy)
                 else "problem"
             )
             data = f" {json.dumps(exc.data)[:300]}" if exc.data else ""
-            self.report.steps.append(Step(name, status, took, f"[{exc.code}] {exc.message}{data}"))
+            detail = f"[{exc.code}] {exc.message}{data}{_busy_detail(busy)}"
+            self.report.steps.append(Step(name, status, took, detail))
             return None
+        finally:
+            timer.cancel()
+            # (A check already started must land before the result is read:
+            # a request answered just after SLOW_S read an empty list.)
+            timer.join()
         took = time.monotonic() - start
-        self.report.steps.append(
-            Step(name, "problem" if took > SLOW_S else "ok", took, "slow" if took > SLOW_S else "")
-        )
+        if took <= SLOW_S:
+            self.report.steps.append(Step(name, "ok", took))
+        else:
+            status = "note" if busy else "problem"
+            self.report.steps.append(Step(name, status, took, f"slow{_busy_detail(busy)}"))
         return result
 
     def check(self, name: str, ok: bool, detail: str) -> None:
@@ -355,19 +394,65 @@ class Run:
         return frames[0] if frames else None
 
 
+BUSY_NOTE = "tshark's own dissection"
+MAX_LISTED_PROBLEMS = 200
+
+
+def problem_lines(reports: list[Report]) -> list[str]:
+    """One line per problem (capture, step, the start of its detail), at
+    most MAX_LISTED_PROBLEMS, then how many more there are."""
+    lines = [
+        f"  {Path(r.capture).name}: {s.name}: {' '.join(s.detail.split())[:240]}"
+        for r in reports
+        for s in r.problems()
+    ]
+    more = len(lines) - MAX_LISTED_PROBLEMS
+    return lines[:MAX_LISTED_PROBLEMS] + ([f"  … and {more} more"] if more > 0 else [])
+
+
+def _busy_detail(busy: list[str]) -> str:
+    return f" ({BUSY_NOTE}: {', '.join(dict.fromkeys(busy))})" if busy else ""
+
+
+def busy_summary(reports: list[Report]) -> str | None:
+    """How many steps were slow or timed out while tshark was busy (notes,
+    not problems: tshark's own slowness), or None: printed with the totals,
+    so a slowdown of ours, which tshark would be busy for too, shows as a
+    jump here even though it fails nothing."""
+    slow = timed_out = 0
+    captures = set()
+    for r in reports:
+        for s in r.steps:
+            if s.status == "note" and BUSY_NOTE in s.detail:
+                captures.add(r.capture)
+                if s.detail.startswith("slow"):
+                    slow += 1
+                else:
+                    timed_out += 1
+    if not captures:
+        return None
+    n = len(captures)
+    return (
+        f"{slow} steps slow and {timed_out} timed out while tshark was busy"
+        f" (notes, in {n} capture{'' if n == 1 else 's'})"
+    )
+
+
 def record_count(path: Path) -> int | None:
     """Records in a capture as tshark reads them (capinfos counts a Sysdig
-    file's system-call events as 0 packets)."""
+    file's system-call events as 0 packets); None when tshark can't say: it
+    failed to start, timed out, or crashed or was killed (MemoryWatch:
+    dvb_s2_table_coverage.pcap.gz's dissector loop), its count cut short."""
     try:
-        out = subprocess.run(
+        done = subprocess.run(
             ["tshark", "-n", "-r", str(path), "-T", "fields", "-e", "frame.number"],  # noqa: S607
             capture_output=True,
             timeout=300,
             check=False,
-        ).stdout
+        )
     except (OSError, subprocess.TimeoutExpired):
         return None
-    return len(out.split())
+    return None if done.returncode < 0 else len(done.stdout.split())
 
 
 def exercise(path: Path, timeout: float, quick: bool = False) -> Report:
@@ -433,6 +518,8 @@ def _exercise(run: Run, path: Path, cache: Path) -> None:
     expected = record_count(path)
     if expected is not None:
         run.check("frames = tshark", frames == expected, f"viewer {frames}, tshark {expected}")
+    else:
+        run.report.steps.append(Step("frames = tshark", "note", 0.0, "tshark's own count failed"))
 
     if run.quick:
         _quick(run, frames)
@@ -1508,6 +1595,137 @@ def _replay_several(run: Run, path: Path, base: Baseline) -> None:
 # --- main --------------------------------------------------------------------
 
 
+def machine_memory_mb() -> int | None:
+    """The machine's memory in MB, or None when it can't be read."""
+    with contextlib.suppress(ValueError, OSError, AttributeError):
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") >> 20
+    with contextlib.suppress(ValueError, OSError, subprocess.SubprocessError):
+        out = subprocess.run(
+            ["/usr/sbin/sysctl", "-n", "hw.memsize"], capture_output=True, check=True, timeout=10
+        ).stdout
+        return int(out) >> 20
+    return None
+
+
+class Proc(NamedTuple):
+    """One process as ``ps`` lists it (``cpu``: its %CPU; ``state``: its
+    run state, "R…" while running or runnable; ``program``: the command's
+    base name)."""
+
+    pid: int
+    ppid: int
+    rss_kb: int
+    cpu: float
+    state: str
+    program: str
+
+
+def processes() -> list[Proc]:
+    """Every process, from ``ps`` (POSIX; the CPU share is the process's
+    lifetime average on Linux, a decaying one on macOS)."""
+    out = subprocess.run(
+        ["/bin/ps", "-A", "-o", "pid=,ppid=,rss=,pcpu=,stat=,comm="],
+        capture_output=True,
+        check=True,
+        timeout=10,
+        text=True,
+        errors="replace",
+    ).stdout
+    rows = []
+    for line in out.split("\n"):
+        parts = line.split(None, 5)
+        with contextlib.suppress(ValueError, IndexError):
+            pid, ppid, rss, cpu = int(parts[0]), int(parts[1]), int(parts[2]), float(parts[3])
+            rows.append(Proc(pid, ppid, rss, cpu, parts[4], Path(parts[5].strip()).name))
+    return rows
+
+
+def tools_under(procs: list[Proc], root: int) -> list[Proc]:
+    """The Wireshark tools among ``root``'s descendants, at any depth."""
+    children: dict[int, list[int]] = {}
+    for p in procs:
+        children.setdefault(p.ppid, []).append(p.pid)
+    mine: set[int] = set()
+    todo = [root]
+    while todo:
+        for child in children.get(todo.pop(), []):
+            if child not in mine:
+                mine.add(child)
+                todo.append(child)
+    return [p for p in procs if p.pid in mine and p.program in WIRESHARK_TOOLS]
+
+
+def busy_tools(root: int) -> list[str]:
+    """Wireshark tools under ``root`` that are running (or runnable: two
+    captures at once with looping tsharks gave each half a CPU, under
+    BUSY_CPU) or have used BUSY_CPU % of a CPU, rather than sleeping on a
+    pipe the backend reads: a request that waits on one waits on tshark's own
+    dissection (4.2.2 loops on kafka_coverage.pcap.gz's conversations,
+    ignoring SIGTERM). [] when ``ps`` can't tell (Windows)."""
+    try:
+        procs = processes()
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [
+        f"{p.program} at {p.cpu:.0f}% CPU"
+        for p in tools_under(procs, root)
+        if p.state.startswith("R") or p.cpu >= BUSY_CPU
+    ]
+
+
+class MemoryWatch:
+    """Kills any Wireshark tool this process started (at any depth) whose
+    resident memory passes ``cap_mb``, checking every WATCH_INTERVAL_S with
+    ``ps``. The backend reports a tool killed by SIGKILL as "killed (signal
+    9)", which the harness counts as tshark's own failure (a note). A polling
+    watch rather than an rlimit, since macOS enforces no memory rlimit; it
+    overshoots by what tshark allocates in one interval (~200 MB)."""
+
+    def __init__(self, cap_mb: int) -> None:
+        self.cap_mb = cap_mb
+        self.killed: list[str] = []
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="memory-watch", daemon=True)
+
+    def start(self) -> MemoryWatch:
+        self._thread.start()
+        return self
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join()
+
+    def _run(self) -> None:
+        while not self._stop.wait(WATCH_INTERVAL_S):
+            with contextlib.suppress(OSError, subprocess.SubprocessError, ValueError):
+                self.check(processes())
+
+    def check(self, procs: list[Proc], root: int | None = None) -> None:
+        """Kill the tools under ``root`` (this process) over the cap."""
+        for p in tools_under(procs, os.getpid() if root is None else root):
+            if p.rss_kb >> 10 > self.cap_mb:
+                with contextlib.suppress(OSError):
+                    os.kill(p.pid, signal.SIGKILL)
+                    note = f"{p.program} (pid {p.pid}) at {p.rss_kb >> 10} MB"
+                    self.killed.append(note)
+                    message = f"memory: killed {note}, over {self.cap_mb} MB"
+                    print(message, file=sys.stderr, flush=True)
+
+
+def watch_memory(jobs: int, mb: int | None) -> MemoryWatch | None:
+    """A started MemoryWatch with ``mb`` MB, or the machine's memory /
+    (jobs times PROCESSES_PER_JOB) when None; None for 0, on Windows (no
+    ``ps``), or when the machine's memory can't be read."""
+    if mb == 0 or sys.platform == "win32":
+        return None
+    if mb is None:
+        total = machine_memory_mb()
+        if total is None:
+            return None
+        mb = max(MIN_MEMORY_MB, total // (jobs * PROCESSES_PER_JOB))
+    return MemoryWatch(mb).start()
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -1524,6 +1742,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--quick", action="store_true", help="fewer steps per capture")
     ap.add_argument("-j", "--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     ap.add_argument("--timeout", type=float, default=120.0, help="seconds per request")
+    ap.add_argument(
+        "--memory",
+        type=int,
+        metavar="MB",
+        help="memory each Wireshark tool may use (default: a share of the machine's, 0 = no cap)",
+    )
     ap.add_argument("--out", type=Path, help="write the full report as JSON")
     args = ap.parse_args(argv)
 
@@ -1539,6 +1763,12 @@ def main(argv: list[str] | None = None) -> int:
     if not captures:
         ap.error("no captures: give paths or --fetch")
 
+    watch = watch_memory(args.jobs, args.memory)
+    if watch:
+        print(
+            f"{len(captures)} captures, {args.jobs} at a time, {watch.cap_mb} MB per tool",
+            flush=True,
+        )
     reports: list[Report] = []
     with ThreadPoolExecutor(args.jobs) as pool:
         for report in pool.map(lambda c: exercise(c, args.timeout, args.quick), captures):
@@ -1557,6 +1787,19 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\n{len(reports)} captures, {sum(1 for r in reports if r.problems())} with problems")
     for (name, what), n in kinds.most_common(40):
         print(f"{n:5}  {name}  {what}")
+    if busy := busy_summary(reports):
+        print(busy)
+    # Every problem again, after the totals: a CI log is read from its end (the
+    # GitHub tools give its last lines), and the artifact may not be reachable.
+    listed = problem_lines(reports)
+    if listed:
+        print("\nProblems:")
+        for line in listed:
+            print(line)
+    if watch:
+        watch.stop()
+        if watch.killed:
+            print(f"{len(watch.killed)} tools killed over {watch.cap_mb} MB of memory")
     if args.out:
         args.out.write_text(
             json.dumps(

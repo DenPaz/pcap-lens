@@ -17,6 +17,10 @@ updates:
       # Node 20: the extension host of VS Code 1.90.
       - dependency-name: "@types/node"
         update-types: [version-update:semver-major]
+      # mocha 11 for the smoke suite: mocha 12 can't load in VS Code 1.90's
+      # Node 20.9 (test/extension/suite/index.ts).
+      - dependency-name: "mocha-smoke"
+        update-types: [version-update:semver-major]
       # Vendored into src/webview/codicons/ (pnpm run codicons, which make
       # update runs); a bump alone fails test/scripts/codicons.test.mjs.
       - dependency-name: "@vscode/codicons"
