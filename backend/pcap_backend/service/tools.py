@@ -240,7 +240,7 @@ class ToolsMixin(ServiceBase):
             argv = [str(editcap), "-F", "pcapng", *options, str(f.path), str(tmp), *selections]
             res = run(argv, ctx.token)
             if res.returncode != 0 or not tmp.exists():
-                raise unwritable_error(res.stderr) or ToolError(
+                raise unwritable_error(res.stderr, "pcapng") or ToolError(
                     res.stderr.strip() or "editcap failed", res.stderr, res.returncode
                 )
         result: dict[str, Any] = {"path": str(dest), "packets": comments.packet_count(dest)}
@@ -271,7 +271,7 @@ class ToolsMixin(ServiceBase):
                       ctx.token)  # fmt: skip
             pieces = sorted(scratch.iterdir())
             if res.returncode != 0 or not pieces:
-                raise unwritable_error(res.stderr) or ToolError(
+                raise unwritable_error(res.stderr, "pcapng") or ToolError(
                     res.stderr.strip() or "editcap failed", res.stderr, res.returncode
                 )
             taken: set[str] = set()

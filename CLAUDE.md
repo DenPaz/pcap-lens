@@ -2537,7 +2537,8 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   expert pass over 10 GB; `gui.max_tree_items` doesn't help), and a backend
   runs several passes at once. So the harness watches the Wireshark tools it
   starts (`MemoryWatch`: `ps` every 0.5 s over its descendants, never the
-  backends; macOS enforces no memory rlimit) and SIGKILLs one past the cap
+  backends; macOS enforces no memory rlimit; `ps` runs with `LC_ALL=C`,
+  since macOS's writes the CPU share as "0,0" in pt_BR) and SIGKILLs one past the cap
   (the machine's memory / (jobs × `PROCESSES_PER_JOB` 6), at least 1 GB,
   `--memory MB`, 0 = none): "killed (signal 9)" is tshark's own failure, a
   note. The 20 largest captures run unchanged under CI's 1.3 GB;
@@ -2562,7 +2563,26 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   The macOS job (one capture at a time) was still on Wireshark's set after
   4 h of the 5 h limit, so `realworld.yml` runs one job per system and
   source (matrix `os` × `source`; cache keys and artifacts per source, the
-  old per-system cache key as a fallback).
+  old per-system cache key as a fallback). The harness lists every problem
+  again after the totals (`problem_lines`), since only a log's last lines
+  can be read from a session here. The first full macOS run (tshark 4.6.9,
+  4 h 28; Linux and tcpdump's sets clean): 11 problems. Six were exports
+  of EyeSDN and NetMon captures as pcapng, which 4.6 refuses with
+  "An error occurred while writing to the file …: Undefined error: 0"
+  (strerror(0); "Success" with glibc, "No error." on Windows) where 4.2 says
+  the network type can't be saved: `unwritable_error(stderr, written)`
+  takes such a zero-errno write error as the format's refusal (a real write
+  failure keeps its errno). Left as they are (decided 2026-11; tshark
+  4.2.2 passes them): overview protocol rows whose filter matches fewer
+  packets than the card counts under 4.6 (`_ws.malformed` in
+  `dpnss`/`epl`/`nfapi_coverage`: card 3/3/10, filter 2/0/4; `data` in
+  `meta_coverage` passed on a Mac rerun), so the macOS run of Wireshark's
+  set keeps listing these three problems. Run on a Mac (tshark 4.6) later: `moldudp_coverage` only
+  notes (killed tools, a busy tshark); `m3ua_coverage`'s first data segment
+  reuses the SYN's sequence number, whose byte a receiver and the replay
+  planner drop and 4.2's Follow dropped too, while 4.6's Follow keeps it,
+  so `segment_payloads` now starts each direction at its first SYN + 1
+  (a SYN's own data there too), like the planner.
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage

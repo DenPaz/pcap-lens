@@ -53,6 +53,16 @@ _LATE_LINK_TYPE_RE = re.compile(
 # the exporter also checks the packets' times when a pcap write fails.
 _UNWRITABLE_TIME = "We don't support writing that record's time stamp to that file type"
 PCAP_TIME_LIMIT_NS = (1 << 31) * 1_000_000_000
+# tshark 4.6 reports wiretap's refusals (a link type or record the format can't
+# hold) as a write error with errno 0: strerror(0) is "Undefined error: 0" on
+# macOS, "Success" with glibc, "No error" on Windows. A real write failure
+# (disk full, no permission) always has an errno. EyeSDN, NetMon and other
+# per-packet captures exported as pcapng on macOS (test/realworld).
+_LOST_REASON_RE = re.compile(
+    r"An error occurred while writing to the file \"[^\n]*\": "
+    r"(?:Undefined error: 0|Success|No error)\.?\s*$",
+    re.MULTILINE,
+)
 
 
 def pcap_time_error() -> InvalidParamsError:
@@ -74,15 +84,20 @@ def pcap_link_type_error() -> InvalidParamsError:
     )
 
 
-def unwritable_error(stderr: str) -> InvalidParamsError | None:
+def unwritable_error(stderr: str, written: str | None = None) -> InvalidParamsError | None:
     """An explanation for a tool's refusal to write the capture's packets in a
-    format (None for any other failure)."""
+    format (None for any other failure). ``written`` is the format the tool
+    was writing: with it, a refusal whose reason the tool lost (tshark 4.6)
+    counts too."""
     if _UNWRITABLE_TIME in stderr:
         return pcap_time_error()
     match = _UNWRITABLE_RE.search(stderr) or _LATE_LINK_TYPE_RE.search(stderr)
-    if match is None:
+    if match is not None:
+        fmt = match["format"]
+    elif written is not None and _LOST_REASON_RE.search(stderr):
+        fmt = written
+    else:
         return None
-    fmt = match["format"]
     if fmt == "pcap":
         return pcap_link_type_error()
     return InvalidParamsError(

@@ -7,6 +7,16 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.29.3 — 2026-11-10
+
+### Fixed
+
+- With tshark 4.6, exporting or editing a capture whose packets the format
+  can't hold (EyeSDN, NetMon and other captures as pcapng) says so instead of
+  failing with "Undefined error: 0" [05471b8]
+
+[05471b8]: https://github.com/DenPaz/pcap-lens/commit/05471b8
+
 ## 0.29.2 — 2026-11-10
 
 ### Fixed

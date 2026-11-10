@@ -167,8 +167,8 @@ importers:
   .:
     devDependencies:
       '@anthropic-ai/sdk':
-        specifier: ^1.5.0
-        version: 1.5.0
+        specifier: ^1.6.0
+        version: 1.6.0
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.14.0(supports-color@8.1.1))
@@ -215,8 +215,8 @@ importers:
         specifier: npm:mocha@^11.8.0
         version: mocha@11.8.0
       playwright-core:
-        specifier: ^1.64.1
-        version: 1.64.1
+        specifier: ^1.65.0
+        version: 1.65.0
       pngjs:
         specifier: 7.0.0
         version: 7.0.0
@@ -235,8 +235,8 @@ importers:
 
 packages:
 
-  '@anthropic-ai/sdk@1.5.0':
-    resolution: {integrity: sha512-AqB4Irlv4TLzTqsBCSpVyk5BLaPPfsTt5wUEju6X5a273nBsL143EM+4hxj67F9e0HpBlzdwUhVIPYM9OxD2oQ==}
+  '@anthropic-ai/sdk@1.6.0':
+    resolution: {integrity: sha512-XqiO/46n8S6So8jQ/6/uNCkHntyW6QHHs1gZ+hlwTx1fWDr929g4VmwIXfdMVk7SuBWNdQvAlwyi1G3t6SEIuQ==}
     hasBin: true
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
@@ -1532,8 +1532,8 @@ packages:
     resolution: {integrity: sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==}
     engines: {node: '>=12'}
 
-  playwright-core@1.64.1:
-    resolution: {integrity: sha512-BC4s8y6SEVA6Q1rSxZTto8hI1KUI3xXlHGZgvGqP4IqPdI/a6FX9H29IDNz7vKo9l21b6LfYosScPL6M3xxyDQ==}
+  playwright-core@1.65.0:
+    resolution: {integrity: sha512-vNSKgH6YqtN7cdT/L334zo0a+YwkrpicyrHJlWWPIm/Q+Nn2SWInil01oT0mbu96U4GgoRtCYQD9CzJQgju+lA==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -1863,7 +1863,7 @@ packages:
 
 snapshots:
 
-  '@anthropic-ai/sdk@1.5.0':
+  '@anthropic-ai/sdk@1.6.0':
     dependencies:
       '@opentelemetry/api': 1.10.0
       json-schema-to-ts: 3.1.1
@@ -3146,7 +3146,7 @@ snapshots:
 
   picomatch@4.0.7: {}
 
-  playwright-core@1.64.1: {}
+  playwright-core@1.65.0: {}
 
   pngjs@7.0.0: {}
 
