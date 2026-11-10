@@ -2572,11 +2572,12 @@ port}}}`, user scope, `normalizePresets`; _Save Preset…_ asks a name, the
   (strerror(0); "Success" with glibc, "No error." on Windows) where 4.2 says
   the network type can't be saved: `unwritable_error(stderr, written)`
   takes such a zero-errno write error as the format's refusal (a real write
-  failure keeps its errno). Not yet looked into, since they need tshark
-  4.6 (4.2.2 passes them): overview protocol rows whose filter matches
-  fewer packets than the card counts (`_ws.malformed` in
-  `dpnss`/`epl`/`nfapi_coverage`; `data` in `meta_coverage` passed on a
-  Mac rerun). Run on a Mac (tshark 4.6) later: `moldudp_coverage` only
+  failure keeps its errno). Left as they are (decided 2026-11; tshark
+  4.2.2 passes them): overview protocol rows whose filter matches fewer
+  packets than the card counts under 4.6 (`_ws.malformed` in
+  `dpnss`/`epl`/`nfapi_coverage`: card 3/3/10, filter 2/0/4; `data` in
+  `meta_coverage` passed on a Mac rerun), so the macOS run of Wireshark's
+  set keeps listing these three problems. Run on a Mac (tshark 4.6) later: `moldudp_coverage` only
   notes (killed tools, a busy tshark); `m3ua_coverage`'s first data segment
   reuses the SYN's sequence number, whose byte a receiver and the replay
   planner drop and 4.2's Follow dropped too, while 4.6's Follow keeps it,
