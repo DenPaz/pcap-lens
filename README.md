@@ -278,7 +278,8 @@ the captures can't be read. `--help` lists everything.
 
 In WSL, SSH, Dev Containers and Codespaces everything runs on the remote
 machine: install tshark and Python there. Captures that aren't files on disk
-(Live Share, archives) open as a copy. In **Restricted Mode** the tool paths
+(Live Share, archives) open as an unsaved copy, without asking up to 256 MB
+(`pcapViewer.virtualFiles.autoCopyMB`). In **Restricted Mode** the tool paths
 and Lua dissectors come from user settings only.
 
 ## Troubleshooting

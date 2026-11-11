@@ -2842,9 +2842,15 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   folder: remotely the Explorer view for workspace files, else _Copy Path_
   (`revealHow`; `preferExplorer` keeps the dissectors folder in the Explorer
   locally too). A document whose scheme isn't `file:` (Live Share `vsls:`,
-  zip or virtual file systems) never starts a backend: `load()` shows
-  `notOnDisk` with _Open a Copy_ (`pcapViewer.openCopy`: read through
-  `workspace.fs` into a new unsaved capture). `capabilities.virtualWorkspaces`
+  zip or virtual file systems) never starts a backend: `load()` runs
+  `notOnDisk`, which opens a copy (`openCopy`: read through `workspace.fs`
+  into a new unsaved capture, in the original's column; while a copy made
+  earlier is still open, `captureTabs` finds it and it is shown instead)
+  and closes the original's tab, when `stat` says it is at most
+  `pcapViewer.virtualFiles.autoCopyMB` (256; `copiesAutomatically`: 0 or an
+  unknown size asks); else it shows a message with _Open a Copy_
+  (`pcapViewer.openCopy`). Added after comparing with a pure-JavaScript
+  viewer that reads such files itself. `capabilities.virtualWorkspaces`
   is `limited` for that reason. `capabilities.untrustedWorkspaces` is
   `limited` with `restrictedConfigurations` pythonPath, tsharkPath,
   luaScripts and dissectorsFolder: in Restricted Mode VS Code only returns

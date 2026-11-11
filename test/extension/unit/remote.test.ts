@@ -1,7 +1,14 @@
 import * as assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { copyName, isOnDisk, revealHow, whereLabel } from "../../../src/remote";
+import {
+  copiesAutomatically,
+  copyName,
+  formatMB,
+  isOnDisk,
+  revealHow,
+  whereLabel,
+} from "../../../src/remote";
 
 const ROOT = path.resolve(__dirname, "../../../..");
 
@@ -35,6 +42,17 @@ suite("remote windows", () => {
     assert.equal(copyName({ path: "/shared/traces/http.pcapng" }), "http.pcapng");
     assert.equal(copyName({ path: "/a/b:c?.pcap" }), "b_c_.pcap");
     assert.equal(copyName({ path: "/" }), "capture.pcapng");
+  });
+
+  test("small captures that aren't on disk are copied without asking", () => {
+    const MB = 1024 * 1024;
+    assert.ok(copiesAutomatically(0, 256));
+    assert.ok(copiesAutomatically(256 * MB, 256));
+    assert.ok(!copiesAutomatically(256 * MB + 1, 256), "over the limit: ask");
+    assert.ok(!copiesAutomatically(10, 0), "0 = always ask");
+    assert.ok(!copiesAutomatically(undefined, 256), "an unknown size: ask");
+    assert.ok(!copiesAutomatically(Number.NaN, 256));
+    assert.equal(formatMB(300.5 * MB), "300.5 MB");
   });
 
   test("package.json: runs where the files are; Restricted Mode can't pick programs", () => {

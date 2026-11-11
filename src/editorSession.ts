@@ -8,10 +8,11 @@ import {
   CAPTURE_OPENED,
   FILTER_APPLIED,
   offerSetupHelp,
+  captureTabs,
   openCopy,
   setEnvironmentContext,
 } from "./commands/setup";
-import { copyName, isOnDisk } from "./remote";
+import { copiesAutomatically, copyName, formatMB, isOnDisk } from "./remote";
 import { rememberRecentCapture } from "./commands/recent";
 import {
   Settings,
@@ -302,7 +303,7 @@ export class PcapEditorSession {
       return;
     }
     if (!isOnDisk(this.uri)) {
-      this.notOnDisk();
+      await this.notOnDisk();
       return;
     }
     const seq = ++this.loadSeq;
@@ -754,13 +755,43 @@ export class PcapEditorSession {
   /** tshark doesn't recognise the file (e.g. a text *.log opened with "Reopen Editor With…"). */
   /**
    * tshark reads files, and this capture is somewhere else (Live Share, an
-   * archive or another virtual file system): offer to open a copy, which is
-   * an unsaved capture (saving it asks where).
+   * archive or another virtual file system): open a copy, an unsaved capture
+   * (saving it asks where). Up to `pcapViewer.virtualFiles.autoCopyMB` the
+   * copy opens at once and replaces this tab; a larger capture asks first.
    */
-  private notOnDisk(): void {
+  private async notOnDisk(): Promise<void> {
     const name = copyName(this.uri);
+    const where = `${name} isn't a file on disk (${this.uri.scheme}:), and tshark can only read files.`;
+    const column = this.panel.viewColumn;
+    const limitMB = vscode.workspace
+      .getConfiguration("pcapViewer")
+      .get<number>("virtualFiles.autoCopyMB", 256);
+    const size = await Promise.resolve(vscode.workspace.fs.stat(this.uri)).then(
+      (stat) => stat.size,
+      () => undefined,
+    );
+    if (this.disposed) {
+      return;
+    }
+    if (copiesAutomatically(size, limitMB)) {
+      this.log.info(`${this.uri.toString()}: not a file on disk, opening a copy`);
+      this.post({ type: "loading", message: `${where}\n\nOpening a copy…` });
+      try {
+        await openCopy(this.context, this.uri, column);
+      } catch (err) {
+        this.copyFailed(name, err);
+        return;
+      }
+      // The copy stands in for this tab (its own tab says it is unsaved).
+      await vscode.window.tabGroups.close(captureTabs(this.uri)).then(undefined, () => false);
+      return;
+    }
+    const big =
+      size !== undefined && limitMB > 0
+        ? ` It is ${formatMB(size)}, more than the ${limitMB} MB copied without asking (setting pcapViewer.virtualFiles.autoCopyMB).`
+        : "";
     const message =
-      `${name} isn't a file on disk (${this.uri.scheme}:), and tshark can only read files.\n\n` +
+      `${where}${big}\n\n` +
       'Use "Open a Copy" to open a copy of it; saving the copy asks where to keep it.';
     this.log.warn(`${this.uri.toString()}: not a file on disk`);
     this.post({ type: "error", message, canReload: false });
@@ -771,13 +802,18 @@ export class PcapEditorSession {
           return;
         }
         try {
-          await openCopy(this.context, this.uri);
+          await openCopy(this.context, this.uri, column);
         } catch (err) {
-          void vscode.window.showErrorMessage(
-            `PCAP Lens: could not copy ${name}: ${describeError(err)}`,
-          );
+          this.copyFailed(name, err);
         }
       });
+  }
+
+  private copyFailed(name: string, err: unknown): void {
+    const message = `Could not copy ${name}: ${describeError(err)}`;
+    this.log.error(`${this.uri.toString()}: ${message}`);
+    this.post({ type: "error", message, canReload: true });
+    void vscode.window.showErrorMessage(`PCAP Lens: ${message}`);
   }
 
   private unsupportedFormat(err: RpcError): void {

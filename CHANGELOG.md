@@ -7,6 +7,12 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Changed
+
+- A capture that isn't a file on disk (Live Share, an archive, a virtual file
+  system) opens as an unsaved copy at once, without the "Open a Copy" step,
+  up to 256 MB (setting `pcapViewer.virtualFiles.autoCopyMB`; 0 always asks)
+
 ## 0.30.0 — 2026-11-10
 
 ### Added
