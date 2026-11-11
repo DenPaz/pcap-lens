@@ -48,6 +48,25 @@ export function isOnDisk(uri: { scheme: string }): boolean {
   return uri.scheme === "file";
 }
 
+/** Bytes in a megabyte, as the size settings count them. */
+const MB = 1024 * 1024;
+
+/**
+ * Whether a capture that isn't on disk opens as a copy without asking:
+ * `pcapViewer.virtualFiles.autoCopyMB` (0 = always ask), against its size
+ * (unknown = ask, so a huge file isn't read into memory unasked).
+ */
+export function copiesAutomatically(size: number | undefined, limitMB: number): boolean {
+  return (
+    limitMB > 0 && size !== undefined && Number.isFinite(size) && size >= 0 && size <= limitMB * MB
+  );
+}
+
+/** A size in the settings' megabytes: "300.5 MB". */
+export function formatMB(bytes: number): string {
+  return `${(bytes / MB).toFixed(1)} MB`;
+}
+
 /** The file name for a copy of a capture that isn't on disk (`vsls:`, zip, virtual file systems). */
 export function copyName(uri: { path: string }): string {
   const base = uri.path.split("/").filter(Boolean).pop() ?? "";

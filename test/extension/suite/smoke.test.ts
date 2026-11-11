@@ -900,6 +900,33 @@ suite("PCAP Lens smoke test", () => {
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
   });
 
+  test("without tshark a capture opens in the basic view; Reload opens the full one", async () => {
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    const api = (await ext!.activate()) as PcapViewerApi;
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    const config = vscode.workspace.getConfiguration("pcapViewer");
+    const missing = path.join(FIXTURES, "no-such-tshark");
+    await config.update("tsharkPath", missing, vscode.ConfigurationTarget.Global);
+    const file = vscode.Uri.file(path.join(FIXTURES, "http.pcap"));
+    try {
+      await vscode.commands.executeCommand("vscode.openWith", file, "pcapViewer.editor");
+      const session = await waitFor(() =>
+        api.provider.allSessions.find((s) => s.uri.fsPath === file.fsPath && s.basicView),
+      );
+      assert.equal(session.backend, undefined, "no backend: the host read the capture");
+      assert.equal(session.openInfo?.frames, 11);
+      assert.equal(session.openInfo?.fileType, "pcap");
+    } finally {
+      await config.update("tsharkPath", undefined, vscode.ConfigurationTarget.Global);
+    }
+    const session = api.provider.allSessions.find((s) => s.uri.fsPath === file.fsPath)!;
+    await session.load("Reload");
+    await waitFor(() => (indexed(session) ? true : undefined));
+    assert.equal(session.basicView, false);
+    assert.ok(session.backend?.running, "tshark found again: the full viewer");
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+  });
+
   test("a capture that isn't on disk opens as an unsaved copy", async () => {
     const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
     const api = (await ext!.activate()) as PcapViewerApi;
@@ -923,22 +950,45 @@ suite("PCAP Lens smoke test", () => {
       isReadonly: true,
     });
     const remote = vscode.Uri.parse("pcaptest:/shared/http.pcap");
-    await vscode.commands.executeCommand("vscode.openWith", remote, "pcapViewer.editor");
-    const original = await waitFor(() =>
-      api.provider.allSessions.find((s) => s.uri.toString() === remote.toString()),
-    );
-    assert.equal(original.backend, undefined, "no backend for a file tshark can't read");
+    const isRemote = (s: { uri: vscode.Uri }) => s.uri.toString() === remote.toString();
+    const config = vscode.workspace.getConfiguration("pcapViewer");
 
-    const copy = await vscode.commands.executeCommand<vscode.Uri>("pcapViewer.openCopy", remote);
-    assert.equal(path.basename(copy.fsPath), "http.pcap");
+    // Small enough (pcapViewer.virtualFiles.autoCopyMB): the copy opens by itself
+    // and replaces the original's tab.
+    await vscode.commands.executeCommand("vscode.openWith", remote, "pcapViewer.editor");
     const session = await waitFor(() =>
-      api.provider.allSessions.find((s) => s.uri.fsPath === copy.fsPath),
+      api.provider.allSessions.find(
+        (s) => s.document.temporary && path.basename(s.uri.fsPath) === "http.pcap",
+      ),
     );
     assert.ok(session.document.temporary, "the copy is an unsaved capture");
     const info = await waitFor(() => (indexed(session) ? session.openInfo : undefined));
     assert.equal(info.frames, 11);
-
+    await waitFor(() => (api.provider.allSessions.some(isRemote) ? undefined : true));
+    // Asking again shows the same copy while it is open.
+    const again = await vscode.commands.executeCommand<vscode.Uri>("pcapViewer.openCopy", remote);
+    assert.equal(again.fsPath, session.uri.fsPath);
     await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+
+    // 0 = always ask: the original stays, with no backend, until "Open a Copy".
+    await config.update("virtualFiles.autoCopyMB", 0, vscode.ConfigurationTarget.Global);
+    try {
+      await vscode.commands.executeCommand("vscode.openWith", remote, "pcapViewer.editor");
+      const original = await waitFor(() => api.provider.allSessions.find(isRemote));
+      assert.equal(original.backend, undefined, "no backend for a file tshark can't read");
+      const copy = await vscode.commands.executeCommand<vscode.Uri>("pcapViewer.openCopy", remote);
+      assert.equal(path.basename(copy.fsPath), "http.pcap");
+      assert.notEqual(copy.fsPath, session.uri.fsPath, "the first copy was closed: a new one");
+      const second = await waitFor(() =>
+        api.provider.allSessions.find((s) => s.uri.fsPath === copy.fsPath),
+      );
+      await waitFor(() => (indexed(second) ? true : undefined));
+      assert.ok(api.provider.allSessions.some(isRemote), "asking leaves the original open");
+      await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
+    } finally {
+      await config.update("virtualFiles.autoCopyMB", undefined, vscode.ConfigurationTarget.Global);
+    }
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
     registration.dispose();
     changed.dispose();

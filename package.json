@@ -1,13 +1,13 @@
 {
   "name": "pcap-viewer",
-  "displayName": "PCAP Lens",
-  "description": "Wireshark-like packet capture viewer for VS Code, powered by tshark.",
+  "displayName": "PCAP Lens: PCAP & PCAPNG Viewer (Packet Analyzer)",
+  "description": "View and analyze .pcap and .pcapng packet captures in VS Code, Wireshark-style: packet list, protocol tree and hex, display filters, follow stream, statistics, VoIP, live capture and AI help. Uses tshark (Wireshark's command-line tool).",
   "icon": "media/icon.png",
   "galleryBanner": {
     "color": "#0b3a73",
     "theme": "dark"
   },
-  "version": "0.30.0",
+  "version": "0.31.0",
   "publisher": "denpaz",
   "license": "MIT",
   "repository": {
@@ -32,21 +32,30 @@
   "keywords": [
     "pcap",
     "pcapng",
+    "pcap viewer",
+    "pcapng viewer",
+    "packet capture",
+    "packet analyzer",
+    "network analyzer",
+    "protocol analyzer",
     "wireshark",
     "tshark",
+    "tcpdump",
     "network",
     "packet",
     "capture",
-    "packet analyzer",
+    "sniffer",
+    "traffic",
     "protocol",
     "dissector",
     "lua",
-    "tcpdump",
-    "sniffer",
-    "traffic",
     "tls",
     "dns",
-    "http"
+    "http",
+    "voip",
+    "sip",
+    "quic",
+    "cap"
   ],
   "main": "./dist/extension.js",
   "extensionKind": [
@@ -65,7 +74,7 @@
     },
     "virtualWorkspaces": {
       "supported": "limited",
-      "description": "tshark reads files from disk: captures in a virtual workspace open as copies."
+      "description": "tshark reads files from disk: captures in a virtual workspace open as unsaved copies (without asking up to pcapViewer.virtualFiles.autoCopyMB)."
     }
   },
   "activationEvents": [],
@@ -2120,6 +2129,13 @@
           "minimum": 2,
           "maximum": 5000,
           "markdownDescription": "How many packets (up to and including the selected one) the quick view of `#pcapViewer.quickDetail.after#` dissects. More packets give more context (e.g. longer TCP reassembly) and take a little longer."
+        },
+        "pcapViewer.virtualFiles.autoCopyMB": {
+          "type": "integer",
+          "default": 256,
+          "minimum": 0,
+          "maximum": 4096,
+          "markdownDescription": "tshark reads files on disk only, so a capture elsewhere (Live Share, an archive, a virtual file system) opens as an unsaved copy. Captures of at most this many MB are copied and opened without asking (the copy replaces the tab); larger ones ask first. `0` always asks."
         },
         "pcapViewer.twoPassDetail": {
           "type": "integer",

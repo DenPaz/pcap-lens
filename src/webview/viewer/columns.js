@@ -339,6 +339,10 @@ export function setSort(sort) {
   if (!state.ready) {
     return;
   }
+  if (state.basic) {
+    showNotice("Sorting needs tshark: set it up, then Reload.");
+    return;
+  }
   if (state.indexing) {
     showNotice(
       state.capture

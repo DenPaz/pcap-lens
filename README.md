@@ -26,6 +26,13 @@ does all the dissection and filtering, so results match Wireshark exactly.
    `pythonPath` if they aren't found.
 3. Run **PCAP: Get Started**: it checks both tools and opens a sample capture.
 
+Until both are installed, a `.pcap` or `.pcapng` (also `.gz`) opens in a
+**basic view**: PCAP Lens reads the file itself and shows the packet list
+(addresses, protocol, info) and each packet's link, IP, TCP/UDP, ICMP, ARP,
+DNS, HTTP and TLS headers with their bytes. Filters, sorting, statistics,
+streams and everything else need tshark; a banner says what is missing, and
+_Reload_ opens the full viewer once it is set up.
+
 Every command is in the Command Palette (`PCAP: …`) and in the viewer's **☰**
 menu, grouped and searchable. The **PCAP Lens** view in the activity bar lists
 recent captures.
@@ -278,7 +285,8 @@ the captures can't be read. `--help` lists everything.
 
 In WSL, SSH, Dev Containers and Codespaces everything runs on the remote
 machine: install tshark and Python there. Captures that aren't files on disk
-(Live Share, archives) open as a copy. In **Restricted Mode** the tool paths
+(Live Share, archives) open as an unsaved copy, without asking up to 256 MB
+(`pcapViewer.virtualFiles.autoCopyMB`). In **Restricted Mode** the tool paths
 and Lua dissectors come from user settings only.
 
 ## Troubleshooting

@@ -7,6 +7,29 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.31.0 — 2026-11-11
+
+### Added
+
+- Without Python or tshark, a pcap or pcapng capture (also gzip-compressed)
+  opens in a basic view instead of an error: the packet list and each
+  packet's link, IP, TCP/UDP, ICMP, ARP, DNS, HTTP and TLS headers with their
+  bytes, read by PCAP Lens itself, with a banner to set the tools up [48e9b6e]
+
+### Changed
+
+- A capture that isn't a file on disk (Live Share, an archive, a virtual file
+  system) opens as an unsaved copy at once, without the "Open a Copy" step,
+  up to 256 MB (setting `pcapViewer.virtualFiles.autoCopyMB`; 0 always asks)
+  [4579f79]
+- The Marketplace lists the extension as "PCAP Lens: PCAP & PCAPNG Viewer
+  (Packet Analyzer)", with a fuller description and keywords, so searches
+  for a pcap viewer find it [6ee0b82]
+
+[48e9b6e]: https://github.com/DenPaz/pcap-lens/commit/48e9b6e
+[4579f79]: https://github.com/DenPaz/pcap-lens/commit/4579f79
+[6ee0b82]: https://github.com/DenPaz/pcap-lens/commit/6ee0b82
+
 ## 0.30.0 — 2026-11-10
 
 ### Added

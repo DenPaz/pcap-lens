@@ -79,6 +79,10 @@ export const el = {
   filterClear: $("filter-clear"),
   filterCancel: $("filter-cancel"),
   filterError: $("filter-error"),
+  basicBanner: $("basic-banner"),
+  basicText: $("basic-text"),
+  basicSetup: $("basic-setup"),
+  basicReload: $("basic-reload"),
   filterSaved: $("filter-saved"),
   filterMenu: $("filter-menu"),
   filterButtons: $("filter-buttons"),
@@ -252,6 +256,12 @@ export const state = {
   /** @type {number | null} */ quickRequest: null,
   /** Streaming open: the index pass still runs (rows keep arriving; sorting waits). */
   indexing: false,
+  /**
+   * The basic view: Python or tshark is missing (why), and the host read the
+   * capture itself: no filters, sorting or anything else tshark does.
+   * @type {string | null}
+   */
+  basic: null,
   /**
    * A live capture writing this file: its interfaces, whether it still runs,
    * and its latest statistics (``seconds`` since ``startedAt``, epoch seconds).

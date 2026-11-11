@@ -141,6 +141,8 @@ export type WebviewToHost =
   | { type: "cancel"; id: number }
   | { type: "cancelLoad" }
   | { type: "reload" }
+  /** The basic view's Set Up… (opens the Get Started walkthrough). */
+  | { type: "setUp" }
   /** The layout menu: change pcapViewer.paneLayout and/or showBytesPane. */
   | { type: "setPaneLayout"; layout?: unknown; bytes?: unknown }
   | { type: "filterApplied"; expr: string }
@@ -234,6 +236,11 @@ export type HostToWebview =
       names: string;
       /** Status-bar text for the Lua dissectors in effect ("" when none are configured). */
       lua: string;
+      /**
+       * The basic view: Python or tshark is missing (`reason` says why), so the
+       * capture was read without them (packet list, headers and bytes only).
+       */
+      basic?: { missing: "python" | "tshark"; reason: string };
     }
   /** The ☰ menu's commands (sent on "ready", before the capture loads). */
   | { type: "commands"; commands: MenuCommand[] }

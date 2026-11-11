@@ -122,19 +122,56 @@ export async function installPython(): Promise<void> {
   });
 }
 
+/** The copies made of captures that aren't on disk, by the original's URI. */
+const copies = new Map<string, Promise<vscode.Uri>>();
+
+/** The tabs showing `uri` in one of PCAP Lens's editors. */
+export function captureTabs(uri: vscode.Uri): vscode.Tab[] {
+  const key = uri.toString();
+  return vscode.window.tabGroups.all
+    .flatMap((group) => group.tabs)
+    .filter(
+      (tab) =>
+        tab.input instanceof vscode.TabInputCustom &&
+        tab.input.uri.toString() === key &&
+        /^pcapViewer\.editor(Optional)?$/.test(tab.input.viewType),
+    );
+}
+
 /**
  * Open a copy of a capture that isn't a file on disk (Live Share, archives,
- * virtual file systems) as an unsaved capture. Returns the copy.
+ * virtual file systems) as an unsaved capture, in `column` (else the active
+ * group). While a copy made earlier is still open, that one is shown again
+ * instead of a second copy. Returns the copy.
  */
 export async function openCopy(
   context: vscode.ExtensionContext,
   uri: vscode.Uri,
+  column?: vscode.ViewColumn,
 ): Promise<vscode.Uri> {
-  const data = await vscode.workspace.fs.readFile(uri);
-  const copy = vscode.Uri.file(await newTemporaryCapture(context, copyName(uri)));
-  await vscode.workspace.fs.writeFile(copy, data);
-  await vscode.commands.executeCommand("vscode.openWith", copy, "pcapViewer.editor");
-  return copy;
+  const key = uri.toString();
+  const show = (copy: vscode.Uri) =>
+    vscode.commands.executeCommand("vscode.openWith", copy, "pcapViewer.editor", column);
+  // (A copy being made is awaited too: two editors of one capture get one copy.)
+  const earlier = await copies.get(key)?.catch(() => undefined);
+  if (earlier && captureTabs(earlier).length) {
+    await show(earlier);
+    return earlier;
+  }
+  const made = (async () => {
+    const data = await vscode.workspace.fs.readFile(uri);
+    const copy = vscode.Uri.file(await newTemporaryCapture(context, copyName(uri)));
+    await vscode.workspace.fs.writeFile(copy, data);
+    await show(copy);
+    return copy;
+  })();
+  copies.set(key, made);
+  try {
+    return await made;
+  } catch (err) {
+    copies.delete(key);
+    throw err;
+  }
 }
 
 export function registerSetupCommands(

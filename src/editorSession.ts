@@ -8,11 +8,13 @@ import {
   CAPTURE_OPENED,
   FILTER_APPLIED,
   offerSetupHelp,
+  captureTabs,
   openCopy,
   setEnvironmentContext,
 } from "./commands/setup";
-import { copyName, isOnDisk } from "./remote";
+import { copiesAutomatically, copyName, formatMB, isOnDisk } from "./remote";
 import { rememberRecentCapture } from "./commands/recent";
+import { BASIC_COLUMNS, BasicCapture, basicRequest } from "./basicCapture";
 import {
   Settings,
   getSetting,
@@ -196,6 +198,8 @@ export class PcapEditorSession {
   /** Called when the index pass ends (see whenIndexed). */
   private indexedWaiters: (() => void)[] = [];
   private client?: BackendClient;
+  /** The basic view's capture, read without Python or tshark (see showBasic). */
+  private basic?: BasicCapture;
   private info?: OpenResult;
   private filter = "";
   private loading?: { id: number; client: BackendClient };
@@ -257,6 +261,11 @@ export class PcapEditorSession {
     return this.info;
   }
 
+  /** The capture shows in the basic view (Python or tshark is missing). */
+  get basicView(): boolean {
+    return this.basic !== undefined;
+  }
+
   /**
    * packet_detail's parameters for `frame`, as the viewer asks: two passes
    * (pcapViewer.twoPassDetail) for a small capture that is completely indexed.
@@ -302,7 +311,7 @@ export class PcapEditorSession {
       return;
     }
     if (!isOnDisk(this.uri)) {
-      this.notOnDisk();
+      await this.notOnDisk();
       return;
     }
     const seq = ++this.loadSeq;
@@ -754,13 +763,43 @@ export class PcapEditorSession {
   /** tshark doesn't recognise the file (e.g. a text *.log opened with "Reopen Editor With…"). */
   /**
    * tshark reads files, and this capture is somewhere else (Live Share, an
-   * archive or another virtual file system): offer to open a copy, which is
-   * an unsaved capture (saving it asks where).
+   * archive or another virtual file system): open a copy, an unsaved capture
+   * (saving it asks where). Up to `pcapViewer.virtualFiles.autoCopyMB` the
+   * copy opens at once and replaces this tab; a larger capture asks first.
    */
-  private notOnDisk(): void {
+  private async notOnDisk(): Promise<void> {
     const name = copyName(this.uri);
+    const where = `${name} isn't a file on disk (${this.uri.scheme}:), and tshark can only read files.`;
+    const column = this.panel.viewColumn;
+    const limitMB = vscode.workspace
+      .getConfiguration("pcapViewer")
+      .get<number>("virtualFiles.autoCopyMB", 256);
+    const size = await Promise.resolve(vscode.workspace.fs.stat(this.uri)).then(
+      (stat) => stat.size,
+      () => undefined,
+    );
+    if (this.disposed) {
+      return;
+    }
+    if (copiesAutomatically(size, limitMB)) {
+      this.log.info(`${this.uri.toString()}: not a file on disk, opening a copy`);
+      this.post({ type: "loading", message: `${where}\n\nOpening a copy…` });
+      try {
+        await openCopy(this.context, this.uri, column);
+      } catch (err) {
+        this.copyFailed(name, err);
+        return;
+      }
+      // The copy stands in for this tab (its own tab says it is unsaved).
+      await vscode.window.tabGroups.close(captureTabs(this.uri)).then(undefined, () => false);
+      return;
+    }
+    const big =
+      size !== undefined && limitMB > 0
+        ? ` It is ${formatMB(size)}, more than the ${limitMB} MB copied without asking (setting pcapViewer.virtualFiles.autoCopyMB).`
+        : "";
     const message =
-      `${name} isn't a file on disk (${this.uri.scheme}:), and tshark can only read files.\n\n` +
+      `${where}${big}\n\n` +
       'Use "Open a Copy" to open a copy of it; saving the copy asks where to keep it.';
     this.log.warn(`${this.uri.toString()}: not a file on disk`);
     this.post({ type: "error", message, canReload: false });
@@ -771,13 +810,95 @@ export class PcapEditorSession {
           return;
         }
         try {
-          await openCopy(this.context, this.uri);
+          await openCopy(this.context, this.uri, column);
         } catch (err) {
-          void vscode.window.showErrorMessage(
-            `PCAP Lens: could not copy ${name}: ${describeError(err)}`,
-          );
+          this.copyFailed(name, err);
         }
       });
+  }
+
+  /**
+   * Python or tshark is missing: show the capture anyway, read by
+   * BasicCapture (packet list, headers and bytes), with a banner that says
+   * what is missing; requests it can't answer say they need tshark. Reload
+   * (after installing them) opens the full viewer.
+   */
+  private async showBasic(reason: string, missing: "python" | "tshark"): Promise<void> {
+    const seq = this.loadSeq;
+    let capture: BasicCapture;
+    try {
+      capture = await BasicCapture.open(this.uri.fsPath);
+    } catch (err) {
+      this.log.warn(`${this.uri.fsPath}: no basic view either: ${describeError(err)}`);
+      if (seq === this.loadSeq && !this.disposed) {
+        this.post({ type: "error", message: reason, canReload: true });
+      }
+      return;
+    }
+    if (seq !== this.loadSeq || this.disposed) {
+      capture.close();
+      return;
+    }
+    this.basic = capture;
+    this.indexed(); // (whenIndexed waiters: there is no backend to wait for)
+    const span = capture.timeSpan();
+    const info: OpenResult = {
+      path: this.uri.fsPath,
+      frames: capture.count,
+      startTime: span.start,
+      endTime: span.end,
+      linkType: capture.linkTypeName(),
+      fileType: capture.compressed ? `${capture.fileType} (gzip)` : capture.fileType,
+      size: capture.size,
+      warnings: capture.warnings,
+      columns: BASIC_COLUMNS,
+      filterId: 1,
+    };
+    this.info = info;
+    this.log.info(
+      `${this.uri.fsPath}: basic view, ${capture.count.toLocaleString("en-US")} packets read without tshark`,
+    );
+    const settings = readSettings(this.uri);
+    this.post({
+      type: "init",
+      info,
+      columns: settings.columns,
+      layout: settings.columnLayout,
+      timeFormat: "relative",
+      quickDetail: settings.quickDetail,
+      filter: "",
+      history: this.history(),
+      savedFilters: settings.savedFilters,
+      elapsedMs: 0,
+      names: "",
+      lua: "",
+      basic: { missing, reason },
+    });
+  }
+
+  /** A webview request answered by the basic view (or refused: it needs tshark). */
+  private answerBasic(
+    capture: BasicCapture,
+    id: number,
+    method: string,
+    params: Record<string, unknown>,
+  ): void {
+    try {
+      this.post({ type: "rpcResult", id, result: basicRequest(capture, method, params ?? {}) });
+    } catch (err) {
+      this.post({
+        type: "rpcError",
+        id,
+        error: { code: ErrorCodes.TsharkNotFound, message: describeError(err) },
+      });
+    }
+  }
+
+  private copyFailed(name: string, err: unknown): void {
+    const message = `Could not copy ${name}: ${describeError(err)}`;
+    this.log.error(`${this.uri.toString()}: ${message}`);
+    this.post({ type: "error", message, canReload: true });
+    void vscode.window.showErrorMessage(`PCAP Lens: ${message}`);
   }
 
   private unsupportedFormat(err: RpcError): void {
@@ -827,12 +948,13 @@ export class PcapEditorSession {
 
   private fail(message: string, setting?: "tsharkPath" | "pythonPath"): void {
     this.log.error(`${this.uri.fsPath}: ${message}`);
-    this.post({ type: "error", message, canReload: true });
     if (setting) {
       setEnvironmentContext(setting !== "pythonPath", false);
       void offerSetupHelp(this.context, message, setting);
+      void this.showBasic(message, setting === "pythonPath" ? "python" : "tshark");
       return;
     }
+    this.post({ type: "error", message, canReload: true });
     void vscode.window.showErrorMessage(`PCAP Lens: ${message}`, "Show Log").then((choice) => {
       if (choice === "Show Log") {
         this.log.show();
@@ -863,6 +985,9 @@ export class PcapEditorSession {
         return;
       case "reload":
         return this.load("Reload");
+      case "setUp":
+        await vscode.commands.executeCommand("pcapViewer.openWalkthrough");
+        return;
       case "setPaneLayout":
         // (Every viewer gets the new layout from the configuration change.)
         if (msg.layout !== undefined) {
@@ -994,6 +1119,9 @@ export class PcapEditorSession {
         await vscode.commands.executeCommand("pcapViewer.chooseLuaDissectors");
         return;
       case "setComment":
+        if (this.basic) {
+          return; // (the webview refuses first; nothing could show or save them)
+        }
         this.editComments(
           new Map([[msg.frame, msg.text]]),
           msg.text ? "Edit Packet Comment" : "Delete Packet Comment",
@@ -1186,6 +1314,10 @@ export class PcapEditorSession {
         id,
         error: { code: ErrorCodes.MethodNotFound, message: `method not allowed: ${method}` },
       });
+      return;
+    }
+    if (this.basic) {
+      this.answerBasic(this.basic, id, method, params);
       return;
     }
     const client = this.client;
@@ -1694,6 +1826,8 @@ export class PcapEditorSession {
   private async stopBackend(): Promise<void> {
     const client = this.client;
     this.client = undefined;
+    this.basic?.close();
+    this.basic = undefined;
     this.info = undefined;
     this.coloring = undefined;
     this.inflight.clear();
