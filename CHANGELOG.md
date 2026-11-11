@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.31.0 — 2026-11-11
+
 ### Added
 
 - Without Python or tshark, a pcap or pcapng capture (also gzip-compressed)
