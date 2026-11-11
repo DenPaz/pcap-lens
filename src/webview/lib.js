@@ -3057,6 +3057,22 @@
   ];
 
   /**
+   * The basic view's banner: what is missing, and what that leaves out.
+   * @param {"python" | "tshark"} missing
+   * @returns {string}
+   */
+  function basicViewText(missing) {
+    const what =
+      missing === "python"
+        ? "Python 3.12 or newer wasn't found"
+        : "Wireshark's tshark wasn't found";
+    return (
+      `Basic view: ${what}, so PCAP Lens read this capture itself. Filters, sorting, ` +
+      "statistics, streams and full protocol details need tshark: set it up, then Reload."
+    );
+  }
+
+  /**
    * The shortcuts overlay's sections: the viewer's own keys, then every
    * command with a key binding (the ☰ menu's list, `{title, keys}`), by title.
    * @param {{title: string, keys?: {key: string, mac?: string}}[]} commands
@@ -3588,6 +3604,7 @@
     acceptedColumns,
     bytesToAscii,
     shortcutSections,
+    basicViewText,
     overviewBox,
     overviewIndexAt,
     fieldStatus,

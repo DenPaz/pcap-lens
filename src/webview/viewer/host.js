@@ -1,7 +1,7 @@
 // @ts-check
 /** Messages from the extension host, and the progress bar. */
 
-import { el, lib, rpc, rpcPending, state } from "./core.js";
+import { el, lib, rpc, rpcPending, state, vscode } from "./core.js";
 import { applyPaneLayout } from "./layout.js";
 import { hideOverlay, showOverlay } from "./overlay.js";
 import {
@@ -165,6 +165,25 @@ window.addEventListener("message", (event) => {
 });
 
 /** @param {any} msg */
+/**
+ * The basic view's banner, and the filter box off while it shows (filters
+ * need tshark). `basic`: what is missing, and why the full viewer couldn't start.
+ * @param {{missing: "python" | "tshark", reason: string} | null} basic
+ */
+function showBasic(basic) {
+  state.basic = basic ? basic.reason : null;
+  el.basicBanner.classList.toggle("hidden", !basic);
+  el.basicText.textContent = basic ? lib.basicViewText(basic.missing) : "";
+  el.basicBanner.title = basic ? basic.reason : "";
+  el.filterInput.disabled = !!basic;
+  el.filterInput.placeholder = basic
+    ? "Display filters need tshark (see above)"
+    : "Apply a display filter … (Enter to apply, Ctrl+Space for suggestions)";
+}
+
+el.basicSetup.addEventListener("click", () => vscode.postMessage({ type: "setUp" }));
+el.basicReload.addEventListener("click", () => vscode.postMessage({ type: "reload" }));
+
 function onInit(msg) {
   leaveAskMode(true);
   resetEmptyHints();
@@ -186,6 +205,7 @@ function onInit(msg) {
   state.matchCount = msg.info.frames;
   state.filterId = msg.info.filterId;
   state.indexing = !!msg.info.indexing;
+  showBasic(msg.basic || null);
   state.indexFraction = null;
   state.resumedAt = state.indexing && msg.info.resumedAt ? msg.info.resumedAt : null;
   state.indexPhase = state.resumedAt ? "catching-up" : "indexing";

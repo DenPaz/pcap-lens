@@ -7,6 +7,13 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- Without Python or tshark, a pcap or pcapng capture (also gzip-compressed)
+  opens in a basic view instead of an error: the packet list and each
+  packet's link, IP, TCP/UDP, ICMP, ARP, DNS, HTTP and TLS headers with their
+  bytes, read by PCAP Lens itself, with a banner to set the tools up
+
 ### Changed
 
 - A capture that isn't a file on disk (Live Share, an archive, a virtual file

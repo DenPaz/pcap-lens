@@ -900,6 +900,33 @@ suite("PCAP Lens smoke test", () => {
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
   });
 
+  test("without tshark a capture opens in the basic view; Reload opens the full one", async () => {
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    const api = (await ext!.activate()) as PcapViewerApi;
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    const config = vscode.workspace.getConfiguration("pcapViewer");
+    const missing = path.join(FIXTURES, "no-such-tshark");
+    await config.update("tsharkPath", missing, vscode.ConfigurationTarget.Global);
+    const file = vscode.Uri.file(path.join(FIXTURES, "http.pcap"));
+    try {
+      await vscode.commands.executeCommand("vscode.openWith", file, "pcapViewer.editor");
+      const session = await waitFor(() =>
+        api.provider.allSessions.find((s) => s.uri.fsPath === file.fsPath && s.basicView),
+      );
+      assert.equal(session.backend, undefined, "no backend: the host read the capture");
+      assert.equal(session.openInfo?.frames, 11);
+      assert.equal(session.openInfo?.fileType, "pcap");
+    } finally {
+      await config.update("tsharkPath", undefined, vscode.ConfigurationTarget.Global);
+    }
+    const session = api.provider.allSessions.find((s) => s.uri.fsPath === file.fsPath)!;
+    await session.load("Reload");
+    await waitFor(() => (indexed(session) ? true : undefined));
+    assert.equal(session.basicView, false);
+    assert.ok(session.backend?.running, "tshark found again: the full viewer");
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+  });
+
   test("a capture that isn't on disk opens as an unsaved copy", async () => {
     const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
     const api = (await ext!.activate()) as PcapViewerApi;

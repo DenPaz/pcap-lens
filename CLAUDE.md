@@ -699,6 +699,31 @@ function/value/string` (the debugger's and outline's theme colours) and
   Wireshark took over 30 s on macOS (the system checks the app bundle), then
   60 ms. After `SLOW_START_MS` (5 s) the overlay says so; a backend whose
   `initialize` failed is stopped at once.
+- **Basic view** (`src/basicCapture.ts`, pure Node; `PcapEditorSession.showBasic`):
+  when Python or tshark is missing (`fail` with a setting), the host reads
+  the capture itself instead of only showing the error: pcap (both byte
+  orders, µs/ns) and pcapng (sections, if_tsresol/if_tsoffset, EPB, SPB,
+  obsolete PB), gzip unpacked in memory up to `MAX_GUNZIP_BYTES` (512 MB;
+  zstd, lz4 and other formats are refused with a reason), indexed in 4 MB
+  reads that yield every 20,000 packets; damage stops the index with a
+  warning naming where (`truncated.pcap`: 10 of 11). `dissect` decodes
+  Ethernet/VLAN, SLL v1/v2, raw IP, loopback, 802.11 (+ radiotap; source and
+  destination by the DS bits, as tshark), ARP, IPv4, IPv6 (extension
+  headers), ICMP, ICMPv6, TCP, UDP and a first look at DNS, HTTP's first
+  line and TLS records, with Wireshark's field names and byte positions; a
+  header cut short is marked `_ws.malformed`. Source, destination, time and
+  length match tshark -n on every pcap/pcapng fixture but GTP tunnels (outer
+  addresses) and 802.15.4; TCP shows raw sequence numbers. `init` carries
+  `basic {missing, reason}`; the webview shows `#basic-banner`
+  (`lib.basicViewText`, Set Up… = `setUp` → the walkthrough, Reload),
+  disables the filter box, and sorting says it needs tshark. `forwardRpc`
+  answers from `basicRequest` (list_packets, packet_detail, find_frame,
+  view_frames; empty field_types, packet_comments, view_overview); anything
+  else is a `NeedsToolsError` ("Filtering needs tshark: …", code
+  TsharkNotFound). Added after comparing with a pure-JavaScript viewer: the
+  first run without the tools showed only an error. Tests:
+  `basicCapture.test.ts`, `test/webview/basic.e2e.test.js` (no tshark
+  needed), and the smoke test's missing `tsharkPath`, then Reload.
 - **Progress** during open is estimated from summed frame lengths vs file size
   (no capinfos needed up front); capinfos runs in parallel for metadata.
 - **Virtualized list**: fixed row height; above 10M px of content the scroll
