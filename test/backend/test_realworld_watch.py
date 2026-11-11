@@ -113,8 +113,21 @@ def test_a_busy_tshark_under_the_backend_is_named(
         harness.Proc(13, 99, 150_000, 99.0, "R", "tshark"),  # someone else's
     ]
     monkeypatch.setattr(harness, "processes", lambda: procs)
-    assert harness.busy_tools(10) == ["tshark at 99% CPU", "tshark at 40% CPU"]
+    monkeypatch.setattr(harness, "core_dumping", lambda pid: pid == 12)
+    assert harness.busy_tools(10) == [
+        "tshark at 99% CPU",
+        "tshark crashed, its core still being dumped",
+        "tshark at 40% CPU",
+    ]
     assert harness.busy_tools(12) == []
+
+
+def test_core_dumping_reads_the_process_status(harness: ModuleType) -> None:
+    # (This process isn't being dumped; a pid that's gone isn't either.)
+    if not Path("/proc/self/status").exists():
+        pytest.skip("no /proc")
+    assert harness.core_dumping(os.getpid()) is False
+    assert harness.core_dumping(2**22 + 12345) is False
 
 
 def test_a_count_tshark_could_not_finish_is_unknown(

@@ -1702,16 +1702,32 @@ def busy_tools(root: int) -> list[str]:
     BUSY_CPU) or have used BUSY_CPU % of a CPU, rather than sleeping on a
     pipe the backend reads: a request that waits on one waits on tshark's own
     dissection (4.2.2 loops on kafka_coverage.pcap.gz's conversations,
-    ignoring SIGTERM). [] when ``ps`` can't tell (Windows)."""
+    ignoring SIGTERM). A tool the kernel is still dumping core for counts
+    too: tshark crashed, and an Ubuntu runner's crash handler kept 4.2.2's
+    two-pass crash on drdynvc_coverage.pcapng.gz from ending for over 120 s
+    (it ends in 0.15 s with a plain core pattern). [] when ``ps`` can't tell
+    (Windows)."""
     try:
         procs = processes()
     except (OSError, subprocess.SubprocessError):
         return []
-    return [
-        f"{p.program} at {p.cpu:.0f}% CPU"
-        for p in tools_under(procs, root)
-        if p.state.startswith("R") or p.cpu >= BUSY_CPU
-    ]
+    busy = []
+    for p in tools_under(procs, root):
+        if core_dumping(p.pid):
+            busy.append(f"{p.program} crashed, its core still being dumped")
+        elif p.state.startswith("R") or p.cpu >= BUSY_CPU:
+            busy.append(f"{p.program} at {p.cpu:.0f}% CPU")
+    return busy
+
+
+def core_dumping(pid: int) -> bool:
+    """Whether the kernel is writing ``pid``'s core dump (Linux 4.15+:
+    ``CoreDumping: 1`` in its status; False elsewhere or once it is gone)."""
+    try:
+        status = Path(f"/proc/{pid}/status").read_text(errors="replace")
+    except OSError:
+        return False
+    return any(ln.split() == ["CoreDumping:", "1"] for ln in status.split("\n"))
 
 
 class MemoryWatch:

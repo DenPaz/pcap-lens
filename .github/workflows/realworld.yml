@@ -63,7 +63,11 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install --formula wireshark
       - name: tshark version
-        run: tshark --version
+        run: |
+          tshark --version
+          # (How a crash is handled: a crash handler such as apport keeps a
+          # crashed tshark around while it reads the core.)
+          if [ -r /proc/sys/kernel/core_pattern ]; then echo "core_pattern: $(cat /proc/sys/kernel/core_pattern)"; fi
       - uses: actions/setup-python@v7
         with:
           python-version-file: .python-version

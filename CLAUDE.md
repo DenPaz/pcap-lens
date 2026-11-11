@@ -2709,7 +2709,13 @@ false` the open capture's slot is free, so `files` holds up to 101. The
   words for `drdynvc_coverage`'s 139 packets). Not yet explained, 4.6 only:
   `drdynvc_coverage`'s HTTP and TLS session tables empty where tshark finds
   2 each, and `openflow_v6`/`rdt_coverage` passes not answering in 120 s
-  with no busy tshark.
+  with no busy tshark. The rerun's Linux job (4.2.2) timed out on
+  `drdynvc_coverage`'s triage with no busy tshark, where 4.2.2's two-pass
+  run segfaults in 0.15 s locally (60 of 60 runs, as root or not): most
+  likely the runner's crash handler holding the crashed tshark while it
+  reads the core. `busy_tools` now also counts a tool whose
+  `/proc/<pid>/status` says `CoreDumping: 1` (`core_dumping`), so such a
+  timeout is a note, and the workflow prints the runner's `core_pattern`.
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage
