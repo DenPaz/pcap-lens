@@ -138,6 +138,8 @@ interface Interface {
   units: bigint;
   /** if_tsoffset, seconds. */
   offset: bigint;
+  /** The interface's snap length (0: none). */
+  snapLen: number;
 }
 
 /** A capture indexed in memory: where each packet is, its lengths, link type and time. */
@@ -375,7 +377,10 @@ export class BasicCapture {
           this.stop(`A packet at byte ${pos} comes before any interface`);
           return;
         }
-        this.add(pos + 12, Math.min(orig, length - 16), orig, iface.linkType, null, 0);
+        // Captured = the original length cut at the snap length; the block's
+        // own length counts its padding too (Codex review).
+        const snap = iface.snapLen > 0 ? iface.snapLen : Infinity;
+        this.add(pos + 12, Math.min(orig, snap, length - 16), orig, iface.linkType, null, 0);
       }
       pos += length;
     }
@@ -407,27 +412,59 @@ export class BasicCapture {
     return only === undefined ? null : (LINK_TYPES[only] ?? `Link type ${only}`);
   }
 
-  /** Seconds since the first timed packet, as tshark prints them ("0.000123000"). */
-  relativeTime(number: number): string {
-    const i = number - 1;
-    const s = this.seconds[i];
-    const first = this.firstTime();
-    if (s === null || first === undefined) {
-      return "";
-    }
-    const ns = (BigInt(s) - first.s) * 1_000_000_000n + BigInt(this.nanos[i] - first.ns);
-    const sign = ns < 0n ? "-" : "";
-    const abs = ns < 0n ? -ns : ns;
-    return `${sign}${abs / 1_000_000_000n}.${(abs % 1_000_000_000n).toString().padStart(9, "0")}`;
+  /** Packet `number`'s time in nanoseconds since the epoch (null: not recorded). */
+  epochNs(number: number): bigint | null {
+    const s = this.seconds[number - 1];
+    return s === null || s === undefined ? null : BigInt(s) * NS + BigInt(this.nanos[number - 1]);
   }
 
-  private first?: { s: bigint; ns: number } | null;
-  private firstTime(): { s: bigint; ns: number } | undefined {
+  /** Seconds since the first timed packet, as the full viewer shows them ("0.000123"). */
+  relativeTime(number: number): string {
+    const ns = this.epochNs(number);
+    const first = this.firstTime();
+    return ns === null || first === null ? "" : formatSeconds(ns - first);
+  }
+
+  /**
+   * The Time column in `format` (the backend's TIME_FORMATS), measured from
+   * packet `ref` when given (its own row says *REF*). With every packet
+   * shown, "since previous displayed" is since the previous captured one.
+   */
+  timeText(number: number, format: string, ref: number | null): string {
+    if (!TIME_FORMATS.includes(format)) {
+      throw new RangeError(`timeFormat must be one of ${TIME_FORMATS.join(", ")}`);
+    }
+    if (number === ref) {
+      return "*REF*";
+    }
+    const ns = this.epochNs(number);
+    if (ns === null) {
+      return "";
+    }
+    switch (format) {
+      case "relative": {
+        const from = ref === null ? this.firstTime() : this.epochNs(ref);
+        return from === null ? "" : formatSeconds(ns - from);
+      }
+      case "delta_displayed":
+      case "delta_captured": {
+        const prev = number > 1 ? this.epochNs(number - 1) : null;
+        return formatSeconds(prev === null ? 0n : ns - prev);
+      }
+      case "epoch":
+        return formatSeconds(ns);
+      default:
+        return formatAbsolute(ns, format === "utc");
+    }
+  }
+
+  private first?: bigint | null;
+  private firstTime(): bigint | null {
     if (this.first === undefined) {
       const i = this.seconds.findIndex((s) => s !== null);
-      this.first = i < 0 ? null : { s: BigInt(this.seconds[i] as number), ns: this.nanos[i] };
+      this.first = i < 0 ? null : this.epochNs(i + 1);
     }
-    return this.first ?? undefined;
+    return this.first;
   }
 
   /** The packet list's row of packet `number`. */
@@ -449,7 +486,11 @@ export class BasicCapture {
   }
 
   /** `packet_detail`'s answer: the tree (Frame first) and the packet's bytes. */
-  detail(number: number): { tree: TreeNode[]; sources: { name: string; hex: string }[] } {
+  detail(number: number): {
+    number: number;
+    tree: TreeNode[];
+    sources: { name: string; hex: string }[];
+  } {
     const i = number - 1;
     const data = this.bytes(number);
     const d = dissect(data, this.linkTypes[i], true);
@@ -487,7 +528,11 @@ export class BasicCapture {
         label: `Encapsulation type: ${LINK_TYPES[this.linkTypes[i]] ?? `Link type ${this.linkTypes[i]}`}`,
       }),
     ];
-    return { tree: [frame, ...d.tree], sources: [{ name: "Frame", hex: data.toString("hex") }] };
+    return {
+      number,
+      tree: [frame, ...d.tree],
+      sources: [{ name: "Frame", hex: data.toString("hex") }],
+    };
   }
 
   private arrival(i: number): string {
@@ -500,13 +545,63 @@ export class BasicCapture {
   }
 }
 
+const NS = 1_000_000_000n;
+/** The Time column's formats, as the backend names them (navigation.TIME_FORMATS). */
+export const TIME_FORMATS = [
+  "relative",
+  "delta_displayed",
+  "delta_captured",
+  "absolute",
+  "utc",
+  "epoch",
+];
+
+/** Seconds with microsecond precision, as the backend's format_seconds: "-0.000123". */
+export function formatSeconds(ns: bigint): string {
+  const abs = ns < 0n ? -ns : ns;
+  const micro = (abs % NS) / 1000n;
+  return `${ns < 0n ? "-" : ""}${abs / NS}.${micro.toString().padStart(6, "0")}`;
+}
+
+/** "2023-11-14 22:13:20.000000" in the local time zone or UTC (format_absolute). */
+export function formatAbsolute(ns: bigint, utc: boolean): string {
+  const sec = ns >= 0n ? ns / NS : -((-ns + NS - 1n) / NS);
+  const micro = (ns - sec * NS) / 1000n;
+  const d = new Date(Number(sec) * 1000);
+  const two = (n: number) => String(n).padStart(2, "0");
+  const parts = utc
+    ? [
+        d.getUTCFullYear(),
+        d.getUTCMonth() + 1,
+        d.getUTCDate(),
+        d.getUTCHours(),
+        d.getUTCMinutes(),
+        d.getUTCSeconds(),
+      ]
+    : [
+        d.getFullYear(),
+        d.getMonth() + 1,
+        d.getDate(),
+        d.getHours(),
+        d.getMinutes(),
+        d.getSeconds(),
+      ];
+  const [y, mo, day, h, mi, se] = parts;
+  return `${String(y).padStart(4, "0")}-${two(mo)}-${two(day)} ${two(h)}:${two(mi)}:${two(se)}.${micro.toString().padStart(6, "0")}`;
+}
+
 function readInterface(
   b: Buffer,
   u16: (b: Buffer, o: number) => number,
   u32: (b: Buffer, o: number) => number,
   le: boolean,
 ): Interface {
-  const iface: Interface = { linkType: u16(b, 0), units: 1_000_000n, offset: 0n };
+  const iface: Interface = {
+    linkType: u16(b, 0),
+    units: 1_000_000n,
+    offset: 0n,
+    snapLen: u32(b, 4),
+  };
   let o = 8;
   while (o + 4 <= b.length) {
     const code = u16(b, o);
@@ -522,7 +617,6 @@ function readInterface(
     }
     o += 4 + Math.ceil(len / 4) * 4;
   }
-  void u32;
   return iface;
 }
 
@@ -1410,9 +1504,18 @@ export function basicRequest(
           frames.push(n);
         }
       }
+      const format = typeof params.timeFormat === "string" ? params.timeFormat : "relative";
+      const ref = params.timeRef ?? null;
+      if (
+        ref !== null &&
+        (!Number.isInteger(ref) || (ref as number) < 1 || (ref as number) > count)
+      ) {
+        throw new RangeError(`timeRef must be a frame number 1..${count}`);
+      }
       const rows = frames.map((n) => {
-        const row = capture.row(n);
-        return { number: n, cells: [...row.cells, ...extra.map(() => "")] };
+        const cells = [...capture.row(n).cells, ...extra.map(() => "")];
+        cells[1] = capture.timeText(n, format, ref as number | null);
+        return { number: n, cells };
       });
       return {
         offset: params.offset ?? 0,

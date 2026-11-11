@@ -717,8 +717,14 @@ function/value/string` (the debugger's and outline's theme colours) and
   `basic {missing, reason}`; the webview shows `#basic-banner`
   (`lib.basicViewText`, Set Up… = `setUp` → the walkthrough, Reload),
   disables the filter box, and sorting says it needs tshark. `forwardRpc`
-  answers from `basicRequest` (list_packets, packet_detail, find_frame,
-  view_frames; empty field_types, packet_comments, view_overview); anything
+  answers from `basicRequest` (list_packets with every `timeFormat` and
+  `timeRef` as the backend formats them (`timeText`, `formatSeconds`,
+  `formatAbsolute`; "since previous displayed" = since previous captured),
+  packet_detail with its `number`, find_frame, view_frames; empty
+  field_types, packet_comments, view_overview); a filter left in the box is
+  cleared and comments can't be edited (the webview says why; the host
+  ignores `setComment`); a simple packet block's captured length is cut at
+  its interface's snap length, not its padded block (Codex review); anything
   else is a `NeedsToolsError` ("Filtering needs tshark: …", code
   TsharkNotFound). Added after comparing with a pure-JavaScript viewer: the
   first run without the tools showed only an error. Tests:

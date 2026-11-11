@@ -176,6 +176,10 @@ function showBasic(basic) {
   el.basicText.textContent = basic ? lib.basicViewText(basic.missing) : "";
   el.basicBanner.title = basic ? basic.reason : "";
   el.filterInput.disabled = !!basic;
+  if (basic) {
+    // (An earlier full load's filter can't apply here: onInit must load every packet.)
+    el.filterInput.value = "";
+  }
   el.filterInput.placeholder = basic
     ? "Display filters need tshark (see above)"
     : "Apply a display filter … (Enter to apply, Ctrl+Space for suggestions)";

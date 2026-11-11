@@ -53,6 +53,11 @@ export function editComment() {
   if (frame === null) {
     return;
   }
+  if (state.basic) {
+    // (They are saved by tshark's editcap; the basic view can't show or save them.)
+    showNotice("Packet comments need tshark: set it up, then Reload.");
+    return;
+  }
   const open = () => {
     el.commentInput.value = comment.frame === frame ? comment.text : "";
     el.commentView.classList.add("hidden");

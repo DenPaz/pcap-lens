@@ -27,6 +27,36 @@ maybe("webview basic view (Chromium, no tshark)", function () {
   const hostLog = [];
   const pageErrors = [];
   const post = (msg) => page.evaluate((m) => window.postMessage(m, "*"), msg);
+  /** The session's `init` for the basic view (PcapEditorSession.showBasic). */
+  const initMessage = () => {
+    const span = capture.timeSpan();
+    return {
+      type: "init",
+      info: {
+        path: capture.path,
+        frames: capture.count,
+        startTime: span.start,
+        endTime: span.end,
+        linkType: capture.linkTypeName(),
+        fileType: capture.fileType,
+        size: capture.size,
+        warnings: [],
+        columns: BASIC_COLUMNS,
+        filterId: 1,
+      },
+      columns: [{ field: "tcp.stream", title: "Stream" }],
+      layout: { order: [], hidden: [] },
+      timeFormat: "relative",
+      quickDetail: { after: 20000, window: 300 },
+      filter: "",
+      history: [],
+      savedFilters: [],
+      elapsedMs: 0,
+      names: "",
+      lua: "",
+      basic: { missing: "tshark", reason: "tshark was not found (searched: PATH)" },
+    };
+  };
 
   suiteSetup(async function () {
     server = await serveWebview();
@@ -47,33 +77,7 @@ maybe("webview basic view (Chromium, no tshark)", function () {
       const msg = JSON.parse(raw);
       hostLog.push(msg);
       if (msg.type === "ready") {
-        const span = capture.timeSpan();
-        await post({
-          type: "init",
-          info: {
-            path: capture.path,
-            frames: capture.count,
-            startTime: span.start,
-            endTime: span.end,
-            linkType: capture.linkTypeName(),
-            fileType: capture.fileType,
-            size: capture.size,
-            warnings: [],
-            columns: BASIC_COLUMNS,
-            filterId: 1,
-          },
-          columns: [{ field: "tcp.stream", title: "Stream" }],
-          layout: { order: [], hidden: [] },
-          timeFormat: "relative",
-          quickDetail: { after: 20000, window: 300 },
-          filter: "",
-          history: [],
-          savedFilters: [],
-          elapsedMs: 0,
-          names: "",
-          lua: "",
-          basic: { missing: "tshark", reason: "tshark was not found (searched: PATH)" },
-        });
+        await post(initMessage());
       } else if (msg.type === "rpc") {
         try {
           const result = basicRequest(capture, msg.method, msg.params ?? {});
@@ -138,6 +142,34 @@ maybe("webview basic view (Chromium, no tshark)", function () {
         document.querySelector("#detail .node-row.selected")?.textContent ?? "",
       ),
     );
+  });
+
+  test("comments can't be edited, and an earlier filter doesn't carry over (Codex review)", async () => {
+    // A packet is selected (previous test): editing its comment says why not.
+    await post({ type: "command", command: "editPacketComment" });
+    await page.waitForFunction(() =>
+      /Packet comments need tshark/.test(document.getElementById("filter-error").textContent),
+    );
+    assert.equal(await page.isVisible("#comment-editor"), false);
+    assert.ok(!hostLog.some((m) => m.type === "setComment"));
+    // A filter left in the box by a full load: a basic init shows every packet.
+    await page.evaluate(() => {
+      const input = /** @type {HTMLInputElement} */ (document.getElementById("filter-input"));
+      input.disabled = false;
+      input.value = "tcp.port == 80";
+    });
+    hostLog.length = 0;
+    await post(initMessage());
+    await page.waitForFunction(
+      () => document.querySelectorAll("#list-rows .list-row:not(.loading)").length === 11,
+    );
+    assert.equal(await page.inputValue("#filter-input"), "");
+    assert.ok(
+      !hostLog.some((m) => m.type === "rpc" && m.method === "set_filter"),
+      "no filter is applied",
+    );
+    await page.click("#list-rows .list-row:nth-child(4)");
+    await page.waitForSelector("#detail .node-row");
   });
 
   test("sorting says it needs tshark; Set Up… and Reload reach the host", async () => {

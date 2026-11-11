@@ -10,6 +10,8 @@ import {
   TreeNode,
   basicRequest,
   dissect,
+  formatAbsolute,
+  formatSeconds,
 } from "../../../src/basicCapture";
 
 const ROOT = path.resolve(__dirname, "../../../..");
@@ -48,7 +50,7 @@ suite("basic view: captures read without tshark", () => {
       assert.equal(c.linkTypeName(), "Ethernet");
       assert.deepEqual(c.row(1).cells, [
         "1",
-        "0.000000000",
+        "0.000000",
         "192.168.1.10",
         "93.184.216.34",
         "TCP",
@@ -57,7 +59,7 @@ suite("basic view: captures read without tshark", () => {
         "50000 → 80 [SYN] Seq=999 Win=8192 Len=0",
       ]);
       assert.deepEqual(c.row(2).cells.slice(1, 5), [
-        "0.001000000",
+        "0.001000",
         "93.184.216.34",
         "192.168.1.10",
         "TCP",
@@ -212,7 +214,8 @@ suite("basic view: captures read without tshark", () => {
     fs.writeFileSync(file, Buffer.concat([header, ...records]));
     const c = await BasicCapture.open(file);
     assert.equal(c.linkTypeName(), "Raw IP");
-    assert.deepEqual(c.row(2).cells.slice(1, 5), ["0.123456789", "2001:db8::1", "ff02::2", "UDP"]);
+    // (microseconds, as the full viewer shows them)
+    assert.deepEqual(c.row(2).cells.slice(1, 5), ["0.123456", "2001:db8::1", "ff02::2", "UDP"]);
     assert.equal(c.row(2).cells[6], "546 → 547 Len=0");
     c.close();
 
@@ -246,13 +249,30 @@ suite("basic view: captures read without tshark", () => {
     const spb = Buffer.alloc(4 + ip6.length);
     spb.writeUInt32LE(ip6.length, 0);
     ip6.copy(spb, 4);
+    // A second interface section: snap length 21, so a simple packet block
+    // holds 21 bytes plus 3 of padding (Codex review: they aren't packet bytes).
+    const idbSnap = Buffer.from(idb);
+    idbSnap.writeUInt32LE(21, 4);
+    const spbCut = Buffer.alloc(4 + 24);
+    spbCut.writeUInt32LE(ip6.length, 0);
+    ip6.copy(spbCut, 4, 0, 21);
     const ng = path.join(tmp, "ns.pcapng");
     fs.writeFileSync(
       ng,
-      Buffer.concat([block(0x0a0d0d0a, shb), block(1, idb), block(6, epb), block(3, spb)]),
+      Buffer.concat([
+        block(0x0a0d0d0a, shb),
+        block(1, idb),
+        block(6, epb),
+        block(3, spb),
+        block(0x0a0d0d0a, shb),
+        block(1, idbSnap),
+        block(3, spbCut),
+      ]),
     );
     const n = await BasicCapture.open(ng);
-    assert.equal(n.count, 2);
+    assert.equal(n.count, 3);
+    assert.deepEqual([n.capLens[2], n.origLens[2]], [21, 48]);
+    assert.equal(n.bytes(3).length, 21);
     assert.equal(n.seconds[0], 1_700_000_000);
     assert.equal(n.nanos[0], 500_000_000);
     assert.equal(n.seconds[1], null, "a simple packet block has no time");
@@ -303,6 +323,7 @@ suite("basic view: captures read without tshark", () => {
         tree: TreeNode[];
       };
       assert.equal(detail.tree[0].name, "frame");
+      assert.equal((detail as unknown as { number: number }).number, 1, "as the backend's");
       assert.throws(() => basicRequest(c, "packet_detail", { number: 12 }), RangeError);
       assert.deepEqual(basicRequest(c, "field_types", { names: ["ip.src"] }), { types: {} });
       assert.throws(
@@ -314,5 +335,43 @@ suite("basic view: captures read without tshark", () => {
     } finally {
       c.close();
     }
+  });
+});
+
+suite("basic view: the Time column's formats", () => {
+  test("relative, deltas, epoch, absolute and a time reference, as the backend writes them", async () => {
+    const c = await BasicCapture.open(fixture("http.pcap"));
+    try {
+      const time = (n: number, timeFormat: string, timeRef?: number) =>
+        (
+          basicRequest(c, "list_packets", { frames: [n], timeFormat, timeRef }) as {
+            rows: { cells: string[] }[];
+          }
+        ).rows[0].cells[1];
+      assert.equal(time(4, "relative"), "0.003000");
+      assert.equal(time(4, "relative", 2), "0.002000");
+      assert.equal(time(1, "relative", 2), "-0.001000");
+      assert.equal(time(2, "relative", 2), "*REF*");
+      assert.equal(time(4, "delta_captured"), "0.001000");
+      assert.equal(time(4, "delta_displayed"), "0.001000");
+      assert.equal(time(1, "delta_captured"), "0.000000");
+      const epoch = time(4, "epoch");
+      assert.match(epoch, /^\d{10}\.\d{6}$/);
+      const ns = c.epochNs(4)!;
+      assert.equal(epoch, formatSeconds(ns));
+      const utc = new Date(Number(ns / 1_000_000n)).toISOString();
+      assert.equal(time(4, "utc"), `${utc.slice(0, 10)} ${utc.slice(11, 19)}.${epoch.slice(-6)}`);
+      assert.match(time(4, "absolute"), /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{6}$/);
+      assert.throws(() => time(4, "fortnights"), RangeError);
+      assert.throws(() => time(4, "relative", 99), RangeError);
+    } finally {
+      c.close();
+    }
+  });
+
+  test("seconds and dates as the backend formats them", () => {
+    assert.equal(formatSeconds(-123_000n), "-0.000123");
+    assert.equal(formatSeconds(1_700_000_000_123_456_789n), "1700000000.123456");
+    assert.equal(formatAbsolute(1_700_000_000_000_000_000n, true), "2023-11-14 22:13:20.000000");
   });
 });

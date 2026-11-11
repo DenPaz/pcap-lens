@@ -1119,6 +1119,9 @@ export class PcapEditorSession {
         await vscode.commands.executeCommand("pcapViewer.chooseLuaDissectors");
         return;
       case "setComment":
+        if (this.basic) {
+          return; // (the webview refuses first; nothing could show or save them)
+        }
         this.editComments(
           new Map([[msg.frame, msg.text]]),
           msg.text ? "Edit Packet Comment" : "Delete Packet Comment",
