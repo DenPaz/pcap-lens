@@ -12,6 +12,9 @@ commit) that made it. The format follows
 - The basic view (no Python or tshark) filters: display filters over the
   common fields of the headers it reads, with suggestions and underlined
   errors, plus Find Packet, marks, ignored packets and the filter builder
+  [acc2bbf]
+
+[acc2bbf]: https://github.com/DenPaz/pcap-lens/commit/acc2bbf
 
 ## 0.31.0 — 2026-11-11
 
