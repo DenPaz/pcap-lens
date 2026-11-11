@@ -360,8 +360,11 @@ UI behaviour stays in the Chromium test (`test/webview/e2e.test.js`).
 
 ## Design decisions (defaults chosen where the brief was open)
 
-- **Name**: the extension is shown as **PCAP Lens** (`displayName`, the
-  editor, settings category, walkthrough, chat participant, messages). The
+- **Name**: the extension is shown as **PCAP Lens** (the editor, settings
+  category, walkthrough, chat participant, messages); the Marketplace title
+  (`displayName`) adds the words people search for, "PCAP Lens: PCAP &
+  PCAPNG Viewer (Packet Analyzer)", with matching keywords (2026-11, after
+  a keyword-named competitor; no "Wireshark" in the title, a trademark). The
   Marketplace refused "PCAP Viewer" ("Similar extension display name:
   pcapviewer already exists"; it publishes nothing on that error), so 0.4.1
   renamed every user-visible string. The extension ID `denpaz.pcap-viewer`,
