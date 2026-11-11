@@ -452,7 +452,10 @@ def record_count(path: Path) -> int | None:
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
-    return None if done.returncode < 0 else len(done.stdout.split())
+    # (Lines of packet numbers only: tshark 4.6 printed 14 more words for
+    # drdynvc_coverage's 139 packets, which a count of words took as packets.)
+    numbers = [ln for ln in done.stdout.split(b"\n") if ln.strip().isdigit()]
+    return None if done.returncode < 0 else len(numbers)
 
 
 def exercise(path: Path, timeout: float, quick: bool = False) -> Report:

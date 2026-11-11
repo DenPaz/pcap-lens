@@ -234,6 +234,15 @@ def test_stream_lines_keeps_the_exit_code() -> None:
     assert lines == [b"x" * 70000, b"", b"last"]
 
 
+def test_stream_lines_drops_the_cut_line_of_a_crashed_child() -> None:
+    # tshark crashing mid-line (Wireshark's pfcp_coverage under 4.6) left "48" of
+    # "488\t...": the cut line isn't a row, and the failure is the exit code.
+    script = "import os, sys\nsys.stdout.write('487\\tok\\n48'); sys.stdout.flush(); os._exit(5)"
+    result = StreamResult()
+    assert list(ts.stream_lines([sys.executable, "-c", script], result)) == [b"487\tok"]
+    assert result.returncode == 5
+
+
 def test_run_captures_stderr() -> None:
     res = ts.run([sys.executable, "-c", "import sys; sys.stderr.write('tshark: bad'); sys.exit(3)"])
     assert res.returncode == 3

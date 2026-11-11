@@ -582,11 +582,17 @@ def _lines(proc: subprocess.Popen[bytes], token: CancelToken) -> Generator[bytes
     On POSIX the pipe is polled, so a cancel is noticed within POLL_INTERVAL
     even when the child writes nothing and can't be killed (AppArmor). Windows
     can't poll pipes, but there the kill always works and ends the read.
+
+    A last line without its line break is passed on only when the child exits
+    with 0: a tshark that crashed mid-line (Wireshark's pfcp_coverage under
+    4.6) left "48" of "488\t…", which the index pass read as packet 48.
     """
     assert proc.stdout is not None
     if IS_WINDOWS:
         for raw in proc.stdout:
             if token.cancelled:
+                return
+            if not raw.endswith(b"\n") and not _exited_cleanly(proc, token):
                 return
             yield raw.rstrip(b"\r\n")
         return
@@ -606,8 +612,19 @@ def _lines(proc: subprocess.Popen[bytes], token: CancelToken) -> Generator[bytes
                 yield line.removesuffix(b"\r")
         else:
             return
-    if pending:
+    if pending and _exited_cleanly(proc, token):
         yield pending.removesuffix(b"\r")
+
+
+def _exited_cleanly(proc: subprocess.Popen[bytes], token: CancelToken) -> bool:
+    """Whether a child whose output just ended exits with 0 (its output is
+    over, so it is exiting; a cancel stops the wait)."""
+    while not token.cancelled:
+        try:
+            return proc.wait(timeout=procs.POLL_INTERVAL) == 0
+        except subprocess.TimeoutExpired:
+            continue
+    return False
 
 
 # --------------------------------------------------------------------------- tshark

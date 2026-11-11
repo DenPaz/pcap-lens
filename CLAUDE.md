@@ -2699,6 +2699,17 @@ false` the open capture's slot is free, so `files` holds up to 101. The
   planner drop and 4.2's Follow dropped too, while 4.6's Follow keeps it,
   so `segment_payloads` now starts each direction at its first SYN + 1
   (a SYN's own data there too), like the planner.
+  The run on `dev` after that (2026-11-11; Wireshark's set grown to 1,602)
+  found tshark 4.6 crashing mid-output: `stream_lines` passed on the cut last
+  line ("48" of "488\t…", `pfcp_coverage`), which the index pass read as
+  packet 48; a last line without its line break now counts only when the
+  child exits with 0 (`_exited_cleanly`). Cut PDML from a crash
+  (`rtcp_coverage`) is the crash's ToolError, not a PdmlError (`_dissect`).
+  `record_count` counts lines of packet numbers only (4.6 printed 14 more
+  words for `drdynvc_coverage`'s 139 packets). Not yet explained, 4.6 only:
+  `drdynvc_coverage`'s HTTP and TLS session tables empty where tshark finds
+  2 each, and `openflow_v6`/`rdt_coverage` passes not answering in 120 s
+  with no busy tshark.
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage
