@@ -931,17 +931,36 @@ def _overview(run: Run, frames: int) -> None:
             got = _count(run, item["filter"])
             if got is None:
                 continue
-            if card in exact:
-                ok = got == item["count"]
-            elif card in at_least:
-                ok = got >= item["count"]
-            else:
-                ok = got >= 1
-            run.check(
-                "overview row filter",
-                ok,
-                f"{item['filter']} matches {got}, the card counts {item['count']}",
+            kind = "exact" if card in exact else "at least" if card in at_least else "some"
+            status = overview_row_status(kind, item["filter"], got, item["count"])
+            detail = f"{item['filter']} matches {got}, the card counts {item['count']}"
+            if status == "note":
+                detail += f" ({MALFORMED_NOTE})"
+            run.report.steps.append(
+                Step("overview row filter", status, 0.0, "" if status == "ok" else detail)
             )
+
+
+MALFORMED_NOTE = "tshark 4.6's protocol hierarchy counts malformed layers its filter doesn't match"
+
+
+def overview_row_status(kind: str, flt: str, got: int, count: int) -> str:
+    """How an overview row's filter compares with the card's count: ``exact``
+    rows match it, protocol rows (``at least``) match at least it, the rest
+    match something. tshark 4.6's protocol hierarchy (macOS CI) counts
+    ``_ws.malformed`` in packets its own ``_ws.malformed`` filter doesn't
+    match (dpnss/epl/nfapi_coverage: card 3/3/10, filter 2/0/4; 4.2.2 agrees
+    with itself), so that row matching fewer is a note: tshark's own
+    disagreement, kept visible without failing the run."""
+    if kind == "exact":
+        ok = got == count
+    elif kind == "at least":
+        ok = got >= count
+        if not ok and flt == "_ws.malformed":
+            return "note"
+    else:
+        ok = got >= 1
+    return "ok" if ok else "problem"
 
 
 def _sessions(run: Run) -> None:

@@ -185,3 +185,16 @@ def test_segments_start_after_the_syn(
     tcp, udp = harness.segment_payloads(tmp_path / "x.pcap")
     assert tcp == [bytes.fromhex("000301aabb"), b"\xcc", b"\xdd"]
     assert udp == [b"\xee"]
+
+
+def test_overview_rows_against_their_filters(harness: ModuleType) -> None:
+    status = harness.overview_row_status
+    assert status("exact", "ip.addr == 10.0.0.1", 5, 5) == "ok"
+    assert status("exact", "ip.addr == 10.0.0.1", 6, 5) == "problem"
+    assert status("at least", "udp", 452, 427) == "ok"
+    assert status("at least", "udp", 400, 427) == "problem"
+    assert status("some", 'http.request.method == "GET"', 0, 3) == "problem"
+    assert status("some", 'http.request.method == "GET"', 1, 3) == "ok"
+    # tshark 4.6's hierarchy counts malformed layers its own filter misses: a note.
+    assert status("at least", "_ws.malformed", 0, 3) == "note"
+    assert status("exact", "_ws.malformed", 0, 3) == "problem"

@@ -2690,8 +2690,10 @@ false` the open capture's slot is free, so `files` holds up to 101. The
   4.2.2 passes them): overview protocol rows whose filter matches fewer
   packets than the card counts under 4.6 (`_ws.malformed` in
   `dpnss`/`epl`/`nfapi_coverage`: card 3/3/10, filter 2/0/4; `data` in
-  `meta_coverage` passed on a Mac rerun), so the macOS run of Wireshark's
-  set keeps listing these three problems. Run on a Mac (tshark 4.6) later: `moldudp_coverage` only
+  `meta_coverage` passed on a Mac rerun); since the overview's own
+  `_ws.malformed` row is tshark disagreeing with itself, the harness counts
+  it as a note (`overview_row_status`, `MALFORMED_NOTE`), so a red weekly
+  run means something new. Run on a Mac (tshark 4.6) later: `moldudp_coverage` only
   notes (killed tools, a busy tshark); `m3ua_coverage`'s first data segment
   reuses the SYN's sequence number, whose byte a receiver and the replay
   planner drop and 4.2's Follow dropped too, while 4.6's Follow keeps it,
