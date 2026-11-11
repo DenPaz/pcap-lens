@@ -18,9 +18,10 @@ commit) that made it. The format follows
 
 - A capture that crashes tshark partway says so instead of failing with an
   internal error ("frame 48 out of order"), and so do the details of a
-  packet tshark crashes on
+  packet tshark crashes on [f501b46]
 
 [acc2bbf]: https://github.com/DenPaz/pcap-lens/commit/acc2bbf
+[f501b46]: https://github.com/DenPaz/pcap-lens/commit/f501b46
 
 ## 0.31.0 — 2026-11-11
 
