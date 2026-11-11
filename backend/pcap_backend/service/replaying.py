@@ -28,7 +28,7 @@ ORDERS = ("sequence", "merged")
 @dataclass(frozen=True, slots=True)
 class _Source:
     """One capture a replay reads: the open one (its filter, without the
-    ignored packets) or another file (all of it)."""
+    ignored packets) or another file (all of it, or its own filter's packets)."""
 
     name: str
     path: Path
@@ -97,15 +97,37 @@ def _destinations(
     return destinations
 
 
+def _file_entry(entry: object) -> tuple[str, str] | None:
+    """A ``files`` entry as (path, display filter), or None when malformed."""
+    if isinstance(entry, str):
+        return entry, ""
+    if isinstance(entry, dict):
+        path, flt = entry.get("path"), entry.get("filter", "")
+        if isinstance(path, str) and isinstance(flt, str | None):
+            return path, (flt or "").strip()
+    return None
+
+
 class ReplayMixin(ServiceBase):
     """Replay to Service: send captures' client sides again to live services."""
+
+    def _replay_tshark(self) -> tuple[_Open | None, Tshark]:
+        """The open capture, if any, and the tshark that reads the replay's
+        captures: the open one's (its dissection options), else the one
+        ``configure`` set up (the command line replays files only)."""
+        with self._lock:
+            f = self._file
+        return f, f.tshark if f is not None else self._require_tshark()
 
     def replay_targets(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """The recorded targets of the replay's captures: the open one's
         packets matching ``filter`` (``""``: all, never the ignored ones)
-        unless ``capture`` is false, and every packet of each of ``files``
-        (other captures, read with the open one's dissection options), the
-        open capture at position ``openAt`` among them (default 0: first).
+        unless ``capture`` is false, and the packets of each of ``files``
+        (other captures, read with the open one's dissection options; each a
+        path, or ``{path, filter}`` for the packets matching a display
+        filter), the open capture at position ``openAt`` among them (default
+        0: first). With ``capture`` false no capture needs to be open (the
+        command line, replay_cli.py: tshark as ``configure`` set it up).
         ``{filter, targets: [{key, proto, ip, port, connections, packets,
         bytes, retransmissions, gaps, first, last, firstFrame, protocol}],
         first, last, duration, span, sources: [{name, file, targets,
@@ -121,10 +143,10 @@ class ReplayMixin(ServiceBase):
         null`` and ``recordedIn``, the first capture in play order that has
         it. Cached per capture and scope. The open capture must be
         completely indexed."""
-        f = self._require_file()
-        sources = self._replay_sources(f, params, ctx)
+        f, tshark = self._replay_tshark()
+        sources = self._replay_sources(params, ctx)
         merged: dict[str, dict[str, Any]] = {}
-        plans = [self._source_targets(f, source, ctx) for source in sources]
+        plans = [self._source_targets(f, tshark, source, ctx) for source in sources]
         rows = [plan["source"] for plan in plans]  # (in play order)
         # The open capture's targets first, wherever it plays: a shared
         # target keeps its firstFrame (Go to Packet in the viewer) and its
@@ -190,8 +212,8 @@ class ReplayMixin(ServiceBase):
             {t["key"]: t["proto"] for t in known["targets"]},
             param(params, "allowPublic", bool, False),
         )
-        f = self._require_file()
-        sources = self._replay_sources(f, params, ctx)
+        _f, tshark = self._replay_tshark()
+        sources = self._replay_sources(params, ctx)
         merged = opts.order == "merged" and len(sources) > 1
         stats = [
             engine.SourceStats(s["name"], s["duration"])
@@ -219,7 +241,7 @@ class ReplayMixin(ServiceBase):
             planner = engine.Planner(i)
             try:
                 for rec in self._replay_records(
-                    f.tshark, source.path, source.scope, runner.pass_token
+                    tshark, source.path, source.scope, runner.pass_token
                 ):
                     yield from planner.feed(rec)
                 yield from planner.finish()
@@ -255,35 +277,62 @@ class ReplayMixin(ServiceBase):
             "log": runner.take_log(),
         }
 
+    def replay_scope(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """``{filter}``: the open capture's packets a replay of ``filter``
+        (``""``: all) reads, as one display filter without the ignored
+        packets (``""``: every packet). A setup for the command line keeps
+        it, since the viewer's ignored packets live in this backend only."""
+        f = self._require_file()
+        flt = param(params, "filter", str, "").strip()
+        if flt:
+            error = f.tshark.validate_filter(flt, ctx.token)
+            if error:
+                raise FilterError(error, {"expr": flt})
+        return {"filter": self._without_ignored(flt)}
+
     def replay_stop(self, _params: dict[str, Any], _ctx: RequestContext) -> dict[str, Any]:
         """End the running replay (``stopped: false`` if none is running)."""
         with self._lock:
             runner = self._replay
         return {"stopped": runner is not None and runner.stop()}
 
-    def _replay_sources(
-        self, f: _Open, params: dict[str, Any], ctx: RequestContext
-    ) -> list[_Source]:
-        """The captures a replay reads, in order: ``files``, with the open one
-        (``capture``, default true; its ``filter``) at ``openAt`` among them
-        (default 0: first)."""
+    def _replay_sources(self, params: dict[str, Any], ctx: RequestContext) -> list[_Source]:
+        """The captures a replay reads, in order: ``files`` (paths, or
+        ``{path, filter}``), with the open one (``capture``, default true; its
+        ``filter``) at ``openAt`` among them (default 0: first)."""
         sources: list[_Source] = []
         files = params.get("files", [])
-        if not isinstance(files, list) or not all(isinstance(p, str) for p in files):
-            raise InvalidParamsError("files must be a list of capture paths")
-        if len(files) > MAX_FILES:
+        if not isinstance(files, list) or not all(_file_entry(p) for p in files):
+            raise InvalidParamsError(
+                "files must be a list of capture paths (or {path, filter} objects)"
+            )
+        # Without the open capture its slot is free: the command line plays a
+        # setup's open capture and its 100 others all as files.
+        if len(files) > MAX_FILES + (0 if param(params, "capture", bool, True) else 1):
             raise InvalidParamsError(f"at most {MAX_FILES} other captures can be replayed at once")
         open_at = param(params, "openAt", int, 0)
         if not 0 <= open_at <= len(files):
             raise InvalidParamsError(
                 f"openAt must be between 0 (first) and {len(files)} (after the other captures)"
             )
-        for raw in files:
+        tshark = self._replay_tshark()[1] if files else None
+        checked: set[str] = set()
+        for entry in files:
+            raw, flt = _file_entry(entry) or ("", "")
             path = _readable_capture(raw)
+            scope = engine.FILTER
+            if flt:
+                if tshark is not None and flt not in checked:
+                    error = tshark.validate_filter(flt, ctx.token)
+                    if error:
+                        raise FilterError(error, {"expr": flt, "file": raw})
+                    checked.add(flt)
+                scope = f"({engine.FILTER}) && ({flt})"
             st = path.stat()
-            key = ("file", str(path.resolve()), str(st.st_size), str(st.st_mtime_ns))
-            sources.append(_Source(path.name, path, engine.FILTER, key, raw))
+            key = ("file", str(path.resolve()), str(st.st_size), str(st.st_mtime_ns), scope)
+            sources.append(_Source(path.name, path, scope, key, raw))
         if param(params, "capture", bool, True):
+            f = self._require_file()
             flt = param(params, "filter", str, "").strip()
             self._require_indexed()
             scope = self._replay_scope(f, flt, ctx)
@@ -292,7 +341,9 @@ class ReplayMixin(ServiceBase):
             raise InvalidParamsError("choose at least one capture to replay")
         return sources
 
-    def _source_targets(self, f: _Open, source: _Source, ctx: RequestContext) -> dict[str, Any]:
+    def _source_targets(
+        self, f: _Open | None, tshark: Tshark, source: _Source, ctx: RequestContext
+    ) -> dict[str, Any]:
         """One capture's targets and its ``source`` row (cached)."""
         cached = self._replay_targets.get(source.key)
         if cached is not None:
@@ -301,7 +352,7 @@ class ReplayMixin(ServiceBase):
         planner = engine.Planner()
         error = None
         try:
-            for rec in self._replay_records(f.tshark, source.path, source.scope, ctx.token):
+            for rec in self._replay_records(tshark, source.path, source.scope, ctx.token):
                 planner.feed(rec)
             planner.finish()
         except (ToolError, RpcError) as exc:
@@ -315,7 +366,7 @@ class ReplayMixin(ServiceBase):
                 continue
             row = t.to_json()
             label = ""
-            if source.file is None and t.first_frame:
+            if source.file is None and f is not None and t.first_frame:
                 label = f.base.rows.get(t.first_frame)[_PROTOCOL_IDX]
             row["protocol"] = label or t.proto.upper()
             rows.append(row)

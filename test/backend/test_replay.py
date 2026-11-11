@@ -19,7 +19,7 @@ import pytest
 from pcap_backend import replay
 from pcap_backend.cancellation import CancelledError, CancelToken
 from pcap_backend.pcap_service import PcapService
-from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext
+from pcap_backend.protocol import FilterError, InvalidParamsError, NotOpenError, RequestContext
 from pcap_backend.replay import Record, TargetError
 from pcap_backend.tshark import find_tool
 
@@ -800,6 +800,92 @@ def test_targets_of_several_captures(
         both = opened.replay_targets({"files": [str(no_arp)], "openAt": open_at}, ctx)
         dns = next(t for t in both["targets"] if t["key"] == DNS)
         assert (dns["firstFrame"], dns["protocol"]) == (5, "DNS"), open_at
+
+
+@pytest.mark.tshark
+def test_files_replay_without_an_open_capture(
+    service: PcapService, ctx: RequestContext, services: tuple[Collector, Collector, Datagrams]
+) -> None:
+    # What the command line does: no capture open, tshark as configure set it up.
+    service.configure({}, ctx)
+    path = str(FIXTURES / "replay.pcap")
+    with pytest.raises(NotOpenError):
+        service.replay_targets({"files": [path]}, ctx)  # (the open capture plays by default)
+    found = service.replay_targets({"capture": False, "files": [path]}, ctx)
+    assert [t["key"] for t in found["targets"]] == [DNS, HI2, UDP, HI3]
+    assert {t["protocol"] for t in found["targets"]} == {"TCP", "UDP"}  # (not dissected)
+    # A file's own filter.
+    hi3_only = {"path": path, "filter": "tcp.port == 11001"}
+    only = service.replay_targets({"capture": False, "files": [hi3_only]}, ctx)
+    assert [t["key"] for t in only["targets"]] == [HI3]
+    assert only["sources"][0]["file"] == path
+    with pytest.raises(FilterError) as bad:
+        service.replay_targets(
+            {"capture": False, "files": [{"path": path, "filter": "tcp.port =="}]}, ctx
+        )
+    assert (bad.value.data["expr"], bad.value.data["file"]) == ("tcp.port ==", path)
+    for files in ([{"filter": "tcp"}], [3], "x.pcap"):
+        with pytest.raises(InvalidParamsError):
+            service.replay_targets({"capture": False, "files": files}, ctx)
+    # Without the open capture its slot is free: a setup's open capture and
+    # its 100 others (Codex review).
+    assert (
+        len(service.replay_targets({"capture": False, "files": [path] * 101}, ctx)["sources"])
+        == 101
+    )
+    with pytest.raises(InvalidParamsError, match="at most"):
+        service.replay_targets({"capture": False, "files": [path] * 102}, ctx)
+    hi2, _, _ = services
+    result = service.replay(
+        {
+            "capture": False,
+            "files": [{"path": path, "filter": "tcp.port == 11000"}],
+            "speed": 0,
+            "targets": {HI2: {"ip": "127.0.0.1", "port": hi2.port}},
+        },
+        ctx,
+    )
+    _settle()
+    assert [t["key"] for t in result["targets"]] == [HI2]
+    assert result["targets"][0]["opened"] == 3
+    assert sum(map(len, hi2.received)) in (
+        sum(map(len, generate.REPLAY_EXPECTED[HI2])),
+        sum(map(len, generate.REPLAY_EXPECTED[HI2])) - len(generate.REPLAY_EXPECTED[HI2][1]),
+    )  # (E's reset may take its PDU with it, as in test_replay_sends_the_operator_side)
+    with pytest.raises(InvalidParamsError, match="not a recorded target"):
+        service.replay(  # (DNS isn't among a TCP filter's targets)
+            {
+                "capture": False,
+                "files": [{"path": path, "filter": "tcp"}],
+                "targets": {DNS: {"ip": "127.0.0.1", "port": 53}},
+            },
+            ctx,
+        )
+
+
+@pytest.mark.tshark
+def test_replay_scope_leaves_out_the_ignored_packets(
+    opened: PcapService, ctx: RequestContext
+) -> None:
+    # A setup for the command line keeps what the viewer plays: its filter
+    # without the packets ignored there, which only this backend knows
+    # (Codex review).
+    assert opened.replay_scope({}, ctx) == {"filter": ""}
+    assert opened.replay_scope({"filter": " tcp "}, ctx) == {"filter": "tcp"}
+    opened.ignore_packets({"frames": [2, 4, 5, 6]}, ctx)
+    ignored = "!(frame.number == 2 || (frame.number >= 4 && frame.number <= 6))"
+    assert opened.replay_scope({}, ctx) == {"filter": ignored}
+    scope = opened.replay_scope({"filter": "tcp"}, ctx)["filter"]
+    assert scope == f"(tcp) && {ignored}"
+    # What the command line reads with it: the panel's own targets.
+    path = str(FIXTURES / "replay.pcap")
+    viewer = opened.replay_targets({"filter": "tcp"}, ctx)["targets"]
+    cli = opened.replay_targets(
+        {"capture": False, "files": [{"path": path, "filter": scope}]}, ctx
+    )["targets"]
+    assert [(t["key"], t["packets"]) for t in cli] == [(t["key"], t["packets"]) for t in viewer]
+    with pytest.raises(FilterError):
+        opened.replay_scope({"filter": "tcp.port =="}, ctx)
 
 
 @pytest.mark.tshark

@@ -200,6 +200,18 @@ export interface SetupTarget extends ReplayDestination {
  * next to the captures and share.
  */
 export interface ReplaySetup {
+  /**
+   * The capture open in the viewer when the setup was saved (for the command
+   * line, `pcap-lens-replay --setup`; the panel plays its own capture).
+   */
+  openCapture?: string;
+  /**
+   * The open capture's packets played then, as one display filter: the
+   * viewer's filter when the packets played were the filter's, without the
+   * packets ignored in the viewer ("" = every packet). Written with
+   * `openCapture`; the panel plays its own capture's scope.
+   */
+  filter?: string;
   includeOpen: boolean;
   /** How many of `captures` come before the open capture (0: it plays first). */
   openAt: number;
@@ -231,6 +243,8 @@ export function setupToJson(setup: ReplaySetup, baseDir: string): string {
   const doc = {
     format: SETUP_FORMAT,
     version: SETUP_VERSION,
+    ...(setup.openCapture ? { openCapture: storedPath(setup.openCapture, baseDir) } : {}),
+    ...(setup.openCapture ? { filter: setup.filter?.trim() ?? "" } : {}),
     includeOpenCapture: setup.includeOpen,
     openCapturePosition: openPosition(setup.openAt, setup.captures.length),
     captures: setup.captures.map((c) => ({
@@ -308,8 +322,15 @@ export function parseSetup(
     const enabled = (value as Record<string, unknown>).enabled !== false;
     targets[key] = { ...dest, enabled };
   }
+  const openCapture =
+    typeof d.openCapture === "string" && d.openCapture.trim()
+      ? path.resolve(baseDir, d.openCapture.trim())
+      : undefined;
+  const filter = typeof d.filter === "string" && d.filter.trim() ? d.filter.trim() : undefined;
   return {
     setup: {
+      ...(openCapture ? { openCapture } : {}),
+      ...(filter ? { filter } : {}),
       includeOpen: d.includeOpenCapture !== false,
       openAt,
       captures,
@@ -491,4 +512,61 @@ export function resultsToText(run: ReplayRun): string {
     lines.push(`  (${plural(run.logOmitted, "more line")} not kept)`);
   }
   return lines.join("\n") + "\n";
+}
+
+// --- the command line ------------------------------------------------------
+
+/** What `pcap-lens-replay` needs to start (paths on the machine where it runs). */
+export interface ReplayLaunch {
+  /** The Python interpreter and its leading arguments (`py -3.14` on Windows). */
+  python: readonly string[];
+  /** The launcher script, `pcap-lens-replay.py`, next to a copy of `pcap_backend`. */
+  script: string;
+  /** The setup file it replays. */
+  setup: string;
+  /** pcapViewer.tsharkPath, when set. */
+  tsharkPath?: string;
+  /** The dissection options file VS Code keeps up to date (the MCP server's). */
+  optionsFile?: string;
+  /** pcapViewer.replay.allowPublicTargets: destinations outside private networks. */
+  allowPublic?: boolean;
+}
+
+/** The command line's arguments (the interpreter first). */
+export function replayArgv(l: ReplayLaunch): string[] {
+  const argv = [...l.python, l.script, "--setup", l.setup];
+  if (l.tsharkPath) {
+    argv.push("--tshark", l.tsharkPath);
+  }
+  if (l.optionsFile) {
+    argv.push("--options", l.optionsFile);
+  }
+  if (l.allowPublic) {
+    argv.push("--allow-public");
+  }
+  return argv;
+}
+
+/** One argument for a POSIX shell: single quotes, `'` as `'\''`. */
+function posixQuote(arg: string): string {
+  return /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * One argument for PowerShell (VS Code's terminal on Windows): a literal
+ * single-quoted string, `'` doubled, so `$` and backticks in a path stay as
+ * they are (a double-quoted string would expand them).
+ */
+function powershellQuote(arg: string): string {
+  return /^[\w@%+=:,./\\-]+$/.test(arg) ? arg : `'${arg.replace(/['\u2018\u2019]/g, "$&$&")}'`;
+}
+
+/** The command line for a shell: POSIX quoting, or PowerShell's on Windows. */
+export function replayCommandLine(l: ReplayLaunch, windows: boolean): string {
+  const [command, ...args] = replayArgv(l);
+  const quote = windows ? powershellQuote : posixQuote;
+  // PowerShell runs a quoted program only after `&`.
+  const program = quote(command);
+  const head = windows && program.startsWith("'") ? `& ${program}` : program;
+  return [head, ...args.map(quote)].join(" ");
 }

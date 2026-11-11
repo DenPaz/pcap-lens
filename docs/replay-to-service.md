@@ -115,6 +115,19 @@ Phase 4 (several captures, 0.25.2) adds to both requests:
   result has `sources` (per capture: `name`, `packets`, `bytes`, `lost`,
   `retransmissions`, `gaps`).
 
+Phase 5 (the command line, 0.30.0):
+
+- `files` entries may be `{path, filter}`: that capture's packets matching a
+  display filter (checked like the open capture's).
+- `replay_scope {filter}` → `{filter}`: the open capture's packets a replay
+  reads as one display filter, without the ignored packets (a setup for the
+  command line keeps it).
+- With `capture` false no capture needs to be open (and the open capture's
+  slot is free: up to 101 `files`): the captures are read
+  with the tshark `configure` set up (`PcapService.configure`, the
+  dissection options without a capture). The viewer still reads other
+  captures with the open capture's options.
+
 ## The panel (phase 2)
 
 _PCAP: Replay to…_ (☰ Capture, or the editor title's overflow menu; titled
@@ -225,8 +238,35 @@ _PCAP: Replay to…_ (☰ Capture, or the editor title's overflow menu; titled
 - [x] Save Results… (text or JSON)
 - [x] Real-capture harness: two captures one after another and merged
 
+### Phase 5: the command line (0.30.0)
+
+- [x] `pcap_backend.replay_cli` (`pcap-lens-replay`): captures or a setup
+      file, `--list`, `--map PATTERN=DEST` (exact keys or `*` for any host
+      or port; the destination's port defaults to the recorded one) and
+      `--to HOST`, the panel's options, `--duration`, `--results` (the
+      panel's text or JSON), `--json` (JSON lines), dissection options
+      (`--options` = the MCP server's options file, `--lua`, `--decode-as`,
+      `--pref`, `--profile`, `--tshark`), Ctrl+C/SIGTERM = Stop, exit
+      status 0/1/2/3/130
+- [x] `backend/pcap-lens-replay.py`: a launcher that needs no PYTHONPATH
+      (a script's folder is first on `sys.path`) and says when Python is
+      older than 3.12; copied with the MCP server's backend copy
+- [x] Setup files keep `openCapture` (relative) and `filter` (the viewer's,
+      when the packets played are the filter's); older PCAP Lens versions
+      ignore both
+- [x] The panel's _Copy Command Line…_: saves the setup, copies the
+      command (POSIX or PowerShell quoting)
+- [x] Tests: the service without an open capture and per-file filters;
+      rules, setups, plans, results text (the panel's, line for line),
+      replays into local servers, exit statuses, `--duration`, the
+      launcher with SIGINT; the panel e2e test; the smoke test runs the
+      copied command line
+
 ## Later
 
 - TLS delivery: decrypted content (key log) over a new TLS connection.
 - Packet replay (tcpreplay in a helper container) for passive probes.
 - Pick a running Docker container's published ports as targets.
+- Check the service's answers against the recorded server's (a regression
+  test of a collector, with the command line's exit status).
+- Parallel copies and a target bit rate (load tests).
