@@ -291,7 +291,7 @@ suite("basic view: captures read without tshark", () => {
     assert.ok(find(out.tree, "_ws.malformed"));
   });
 
-  test("requests: the list, details and positions; the rest needs tshark", async () => {
+  test("requests: the list, details, positions and field types; the rest needs tshark", async () => {
     const c = await BasicCapture.open(fixture("http.pcap"));
     try {
       const page = basicRequest(c, "list_packets", {
@@ -325,13 +325,17 @@ suite("basic view: captures read without tshark", () => {
       assert.equal(detail.tree[0].name, "frame");
       assert.equal((detail as unknown as { number: number }).number, 1, "as the backend's");
       assert.throws(() => basicRequest(c, "packet_detail", { number: 12 }), RangeError);
-      assert.deepEqual(basicRequest(c, "field_types", { names: ["ip.src"] }), { types: {} });
+      assert.deepEqual(basicRequest(c, "field_types", { names: ["ip.src", "tcp", "x.y"] }), {
+        types: {
+          "ip.src": { type: "FT_IPv4", desc: "Source Address" },
+          tcp: { type: "FT_PROTOCOL", desc: "Transmission Control Protocol" },
+        },
+      });
       assert.throws(
-        () => basicRequest(c, "set_filter", { expr: "tcp" }),
+        () => basicRequest(c, "expert_summary", {}),
         (err: unknown) =>
-          err instanceof NeedsToolsError && /^Filtering needs tshark/.test(err.message),
+          err instanceof NeedsToolsError && /^Expert information needs tshark/.test(err.message),
       );
-      assert.throws(() => basicRequest(c, "expert_summary", {}), NeedsToolsError);
     } finally {
       c.close();
     }

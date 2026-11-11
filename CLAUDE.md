@@ -716,17 +716,41 @@ function/value/string` (the debugger's and outline's theme colours) and
   addresses) and 802.15.4; TCP shows raw sequence numbers. `init` carries
   `basic {missing, reason}`; the webview shows `#basic-banner`
   (`lib.basicViewText`, Set Up… = `setUp` → the walkthrough, Reload),
-  disables the filter box, and sorting says it needs tshark. `forwardRpc`
-  answers from `basicRequest` (list_packets with every `timeFormat` and
-  `timeRef` as the backend formats them (`timeText`, `formatSeconds`,
-  `formatAbsolute`; "since previous displayed" = since previous captured),
-  packet_detail with its `number`, find_frame, view_frames; empty
-  field_types, packet_comments, view_overview); a filter left in the box is
-  cleared and comments can't be edited (the webview says why; the host
-  ignores `setComment`); a simple packet block's captured length is cut at
-  its interface's snap length, not its padded block (Codex review); anything
-  else is a `NeedsToolsError` ("Filtering needs tshark: …", code
-  TsharkNotFound). Added after comparing with a pure-JavaScript viewer: the
+  and sorting says it needs tshark. `forwardRpc` answers from
+  `basicRequest` (`answerBasic`, async: a cancel sets the request's
+  `BasicRequestContext.cancelled`, `progress` posts "progress"): list_packets
+  with every `timeFormat` and `timeRef` as the backend formats them
+  (`timeText`, `formatSeconds`, `formatAbsolute`; "since previous displayed"
+  = since the view's previous packet), packet_detail with its `number`,
+  find_frame, view_frames, empty packet_comments and view_overview; a filter
+  left in the box by a full load is cleared and comments can't be edited (the
+  webview says why; the host ignores `setComment`); a simple packet block's
+  captured length is cut at its interface's snap length, not its padded block
+  (Codex review); the rest (statistics, export…) is a `NeedsToolsError`
+  ("Expert information needs tshark: …", code TsharkNotFound).
+  **Basic filters** (`src/basicFilter.ts`, pure): Wireshark's filter
+  language minus slices, functions, arithmetic and field references (each
+  refused saying it needs tshark), over `BASIC_PROTOCOLS`/`BASIC_FIELDS`
+  (tshark's names, types and descriptions of what the dissector reads, plus
+  `ip.addr`, `tcp.port`, `tcp.flags.*`, `tcp.len`, `http.request.method`,
+  `dns.qry.type`, `_ws.col.*`…). Tested against `tshark -Y` (4.2):
+  `and` binds tighter than `or`; `!=` is all_ne (`!==` any_ne; 4.2 refuses
+  `~=`, so it's not offered); a comparison with an absent field is false;
+  any non-zero number is a true boolean; a protocol's bytes for `contains`
+  run to the end of its data (`ip`, `tcp` include the payload: Layer's
+  `extent`); errors are tshark's words where it has them, with a [start,
+  end) span. `dissect(…, fields)` fills a field → values map (`put`; tree
+  fields typed by `fieldValue`, the rest put directly); `BasicCapture.values`
+  dissects only for non-frame fields. `set_filter` walks every packet
+  (yielding and checking for a cancel every `FILTER_YIELD`; a newer filter
+  supersedes by `filterSeq`), keeps `MAX_CACHED_FILTERS` results and sets
+  `view` (`filterId` + 1); validate_filter, field_index (prefix or words),
+  field_types, field_values, filter_hints, find_packet (filter, string,
+  regex, hex; in bytes, list or details; marked), mark/ignore_packets work
+  too. Differences from tshark on the fixtures are reassembly only: an HTTP
+  message over several segments is HTTP at its first (tshark: its last), a
+  pipelined second response isn't read, and tshark's `data` and
+  `_ws.malformed` cover protocols the basic view doesn't decode. Added after comparing with a pure-JavaScript viewer: the
   first run without the tools showed only an error. Tests:
   `basicCapture.test.ts`, `test/webview/basic.e2e.test.js` (no tshark
   needed), and the smoke test's missing `tsharkPath`, then Reload.

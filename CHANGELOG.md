@@ -7,6 +7,12 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- The basic view (no Python or tshark) filters: display filters over the
+  common fields of the headers it reads, with suggestions and underlined
+  errors, plus Find Packet, marks, ignored packets and the filter builder
+
 ## 0.31.0 — 2026-11-11
 
 ### Added

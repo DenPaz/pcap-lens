@@ -14,7 +14,14 @@ import {
 } from "./commands/setup";
 import { copiesAutomatically, copyName, formatMB, isOnDisk } from "./remote";
 import { rememberRecentCapture } from "./commands/recent";
-import { BASIC_COLUMNS, BasicCapture, basicRequest } from "./basicCapture";
+import {
+  BASIC_COLUMNS,
+  BasicCancelledError,
+  BasicCapture,
+  basicRequest,
+  type BasicRequestContext,
+} from "./basicCapture";
+import { BasicFilterError } from "./basicFilter";
 import {
   Settings,
   getSetting,
@@ -205,6 +212,8 @@ export class PcapEditorSession {
   private loading?: { id: number; client: BackendClient };
   /** webview request id -> backend request id (for cancellation). */
   private readonly inflight = new Map<number, number>();
+  /** The basic view's requests still running, by webview rpc id (cancel sets `cancelled`). */
+  private readonly basicInflight = new Map<number, BasicRequestContext>();
   private readonly disposables: vscode.Disposable[] = [];
   private disposed = false;
   private loadSeq = 0;
@@ -877,20 +886,36 @@ export class PcapEditorSession {
   }
 
   /** A webview request answered by the basic view (or refused: it needs tshark). */
-  private answerBasic(
+  private async answerBasic(
     capture: BasicCapture,
     id: number,
     method: string,
     params: Record<string, unknown>,
-  ): void {
+  ): Promise<void> {
+    const ctx: BasicRequestContext = {
+      progress: (fraction, phase) => this.post({ type: "progress", id, phase, fraction }),
+    };
+    this.basicInflight.set(id, ctx);
     try {
-      this.post({ type: "rpcResult", id, result: basicRequest(capture, method, params ?? {}) });
+      const result = await basicRequest(capture, method, params ?? {}, ctx);
+      this.post({ type: "rpcResult", id, result });
     } catch (err) {
-      this.post({
-        type: "rpcError",
-        id,
-        error: { code: ErrorCodes.TsharkNotFound, message: describeError(err) },
-      });
+      let error: { code: number; message: string; data?: unknown };
+      if (err instanceof BasicCancelledError) {
+        error = { code: ErrorCodes.RequestCancelled, message: err.message };
+      } else if (err instanceof BasicFilterError) {
+        const expr = typeof params?.expr === "string" ? params.expr.trim() : undefined;
+        error = {
+          code: ErrorCodes.InvalidFilter,
+          message: err.message,
+          data: { expr, ...(err.span ? { span: err.span } : {}) },
+        };
+      } else {
+        error = { code: ErrorCodes.TsharkNotFound, message: describeError(err) };
+      }
+      this.post({ type: "rpcError", id, error });
+    } finally {
+      this.basicInflight.delete(id);
     }
   }
 
@@ -972,6 +997,10 @@ export class PcapEditorSession {
       case "rpc":
         return this.forwardRpc(msg.id, msg.method, msg.params);
       case "cancel": {
+        const basic = this.basicInflight.get(msg.id);
+        if (basic) {
+          basic.cancelled = true;
+        }
         const backendId = this.inflight.get(msg.id);
         if (backendId !== undefined) {
           this.client?.cancel(backendId);
@@ -1317,8 +1346,7 @@ export class PcapEditorSession {
       return;
     }
     if (this.basic) {
-      this.answerBasic(this.basic, id, method, params);
-      return;
+      return this.answerBasic(this.basic, id, method, params);
     }
     const client = this.client;
     if (!client?.running) {
