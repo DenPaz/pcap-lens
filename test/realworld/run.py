@@ -88,6 +88,18 @@ BUSY_CPU = 50.0
 # The programs MemoryWatch may stop (ps's comm: a path on macOS, 15
 # characters on Linux); never the backends or the harness, whose memory is ours.
 WIRESHARK_TOOLS = {"tshark", "editcap", "mergecap", "capinfos", "dumpcap", "text2pcap"}
+# ``python -m pcap_backend``, with every thread's stack printed to stderr on
+# SIGUSR1 (POSIX), which a timeout with no busy tool asks for: macOS (tshark
+# 4.6) timed out on openflow_v6_coverage's expert statistics with no tool
+# running at all, so the wait was the backend's own.
+BACKEND_MAIN = (
+    "import faulthandler, runpy, signal\n"
+    "if hasattr(signal, 'SIGUSR1'):\n"
+    "    faulthandler.register(signal.SIGUSR1, all_threads=True)\n"
+    "runpy.run_module('pcap_backend', run_name='__main__', alter_sys=True)\n"
+)
+STACK_WAIT_S = 3.0
+MAX_STACK_FRAMES = 4  # of our own code, per thread
 
 with (ROOT / "package.json").open(encoding="utf-8") as fh:
     _PROPS: dict[str, Any] = {}
@@ -190,7 +202,7 @@ class Server:
             "PYTHONPATH": str(ROOT / "backend"),
         }
         self.proc = subprocess.Popen(
-            [sys.executable, "-m", "pcap_backend"],
+            [sys.executable, "-c", BACKEND_MAIN],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -225,6 +237,28 @@ class Server:
         assert self.proc.stderr is not None
         for raw in self.proc.stderr:
             self.stderr.append(raw.decode("utf-8", "replace").rstrip())
+
+    def stacks(self) -> str:
+        """Where the backend's threads are now (``summarize_stacks`` of the
+        dump SIGUSR1 makes it print), "" when it can't say (Windows, gone)."""
+        sigusr1 = getattr(signal, "SIGUSR1", None)
+        if sigusr1 is None or self.proc.poll() is not None:
+            return ""
+        mark = len(self.stderr)
+        try:
+            os.kill(self.proc.pid, sigusr1)
+        except OSError:
+            return ""
+        deadline = time.monotonic() + STACK_WAIT_S
+        seen = mark
+        quiet_since = time.monotonic()
+        while time.monotonic() < deadline:
+            time.sleep(0.1)
+            if len(self.stderr) != seen:
+                seen, quiet_since = len(self.stderr), time.monotonic()
+            elif seen > mark and time.monotonic() - quiet_since > 0.5:
+                break
+        return summarize_stacks(self.stderr[mark:])
 
     def call(self, method: str, params: dict[str, Any], timeout: float) -> Any:
         with self._lock:
@@ -342,6 +376,9 @@ class Run:
                 busy += busy_tools(self.server.proc.pid)
                 if not busy:
                     waiting = _waiting_detail(self.server.proc.pid)
+                    stacks = self.server.stacks()
+                    if stacks:
+                        waiting += f" (backend: {stacks})"
             status = (
                 "expected"
                 if exc.code in EXPECTED_CODES
@@ -1684,8 +1721,8 @@ def processes() -> list[Proc]:
     return rows
 
 
-def tools_under(procs: list[Proc], root: int) -> list[Proc]:
-    """The Wireshark tools among ``root``'s descendants, at any depth."""
+def descendants(procs: list[Proc], root: int) -> list[Proc]:
+    """``root``'s descendants, at any depth."""
     children: dict[int, list[int]] = {}
     for p in procs:
         children.setdefault(p.ppid, []).append(p.pid)
@@ -1696,7 +1733,12 @@ def tools_under(procs: list[Proc], root: int) -> list[Proc]:
             if child not in mine:
                 mine.add(child)
                 todo.append(child)
-    return [p for p in procs if p.pid in mine and p.program in WIRESHARK_TOOLS]
+    return [p for p in procs if p.pid in mine]
+
+
+def tools_under(procs: list[Proc], root: int) -> list[Proc]:
+    """The Wireshark tools among ``root``'s descendants, at any depth."""
+    return [p for p in descendants(procs, root) if p.program in WIRESHARK_TOOLS]
 
 
 def busy_tools(root: int) -> list[str]:
@@ -1729,17 +1771,19 @@ CRASH_REPORTERS = frozenset({"ReportCrash", "apport", "systemd-coredump"})
 
 
 def waiting_on(procs: list[Proc], root: int) -> list[str]:
-    """What a request that timed out with no busy tool was waiting on: each
-    Wireshark tool under ``root`` with its ``ps`` state, CPU share and
-    memory, and any crash reporter running on the machine. macOS (tshark
-    4.6) timed out with no busy tshark on several captures that crash or
-    use much memory; this says which next time."""
-    tools = [
-        f"{p.program} {p.state} {p.cpu:.0f}% CPU {p.rss_kb // 1024} MB"
-        for p in tools_under(procs, root)
-    ]
+    """What a request that timed out with no busy tool was waiting on: the
+    backend (``root``) and every process under it with its ``ps`` state,
+    CPU share and memory, and any crash reporter running on the machine.
+    macOS (tshark 4.6) timed out with no busy tshark on several captures
+    that crash or use much memory; this says which next time."""
+
+    def row(p: Proc, name: str) -> str:
+        return f"{name} {p.state} {p.cpu:.0f}% CPU {p.rss_kb // 1024} MB"
+
+    rows = [row(p, "backend") for p in procs if p.pid == root]
+    rows += [row(p, p.program) for p in descendants(procs, root)]
     reporters = sorted({p.program for p in procs if p.program in CRASH_REPORTERS})
-    return tools + [f"{r} running" for r in reporters]
+    return rows + [f"{r} running" for r in reporters]
 
 
 def _waiting_detail(root: int) -> str:
@@ -1747,7 +1791,29 @@ def _waiting_detail(root: int) -> str:
         what = waiting_on(processes(), root)
     except (OSError, subprocess.SubprocessError):
         return ""
-    return f" (waiting on: {'; '.join(what)})" if what else " (no Wireshark tool running)"
+    return f" (waiting on: {'; '.join(what)})" if what else ""
+
+
+_STACK_THREAD = re.compile(r"^(?:Current thread|Thread) (0x[0-9a-f]+)", re.IGNORECASE)
+_STACK_FRAME = re.compile(r'^\s+File "(?P<file>[^"]+)", line (?P<line>\d+) in (?P<func>\S+)')
+
+
+def summarize_stacks(lines: list[str]) -> str:
+    """faulthandler's dump of every thread, cut to our own frames (files in
+    pcap_backend, innermost first, MAX_STACK_FRAMES a thread): one
+    "file:line func < caller" chain per thread that is in our code, "; "
+    between threads. Threads only in the standard library (the pool's idle
+    workers, the stdin reader) are left out."""
+    threads: list[list[str]] = []
+    for line in lines:
+        if _STACK_THREAD.match(line):
+            threads.append([])
+            continue
+        m = _STACK_FRAME.match(line)
+        path = m["file"].replace("\\", "/") if m else ""
+        if m and threads and "pcap_backend" in path and len(threads[-1]) < MAX_STACK_FRAMES:
+            threads[-1].append(f"{path.rsplit('/', 1)[-1]}:{m['line']} {m['func']}")
+    return "; ".join(" < ".join(t) for t in threads if t)
 
 
 def core_dumping(pid: int) -> bool:

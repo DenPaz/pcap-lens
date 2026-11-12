@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -216,13 +217,51 @@ def test_overview_rows_against_their_filters(harness: ModuleType) -> None:
 def test_a_timeout_names_what_it_waited_on(harness: ModuleType) -> None:
     # (No busy tool: the states and any crash reporter say why next time.)
     procs = [
-        harness.Proc(10, 1, 100_000, 2.0, "S", "python3"),  # the backend
+        harness.Proc(10, 1, 100 * 1024, 99.0, "R", "python3"),  # the backend
         harness.Proc(11, 10, 900 * 1024, 0.0, "U", "tshark"),
+        harness.Proc(14, 11, 1024, 0.0, "S", "helper"),  # (any program under it)
         harness.Proc(12, 1, 50_000, 30.0, "S", "ReportCrash"),
         harness.Proc(13, 99, 150_000, 0.0, "S", "tshark"),  # someone else's
     ]
-    assert harness.waiting_on(procs, 10) == ["tshark U 0% CPU 900 MB", "ReportCrash running"]
-    assert harness.waiting_on(procs[:1], 10) == []
+    assert harness.waiting_on(procs, 10) == [
+        "backend R 99% CPU 100 MB",
+        "tshark U 0% CPU 900 MB",
+        "helper S 0% CPU 1 MB",
+        "ReportCrash running",
+    ]
+    assert harness.waiting_on(procs[:1], 10) == ["backend R 99% CPU 100 MB"]
+
+
+def test_stacks_are_cut_to_the_backends_own_frames(harness: ModuleType) -> None:
+    dump = [
+        "Thread 0x00007f0000000001 (most recent call first):",
+        '  File "/usr/lib/python3.14/threading.py", line 359 in wait',
+        '  File "/usr/lib/python3.14/concurrent/futures/thread.py", line 90 in _worker',
+        "",
+        "Thread 0x00007f0000000002 (most recent call first):",
+        '  File "/r/backend/pcap_backend/stats.py", line 451 in parse_expert',
+        '  File "/r/backend/pcap_backend/service/statistics.py", line 377 in _expert',
+        '  File "/usr/lib/python3.14/threading.py", line 1012 in run',
+        "",
+        "Current thread 0x00007f0000000003 (most recent call first):",
+        '  File "C:\\r\\backend\\pcap_backend\\server.py", line 80 in serve',
+    ]
+    assert harness.summarize_stacks(dump) == (
+        "stats.py:451 parse_expert < statistics.py:377 _expert; server.py:80 serve"
+    )
+    assert harness.summarize_stacks([]) == ""
+
+
+@pytest.mark.skipif(not hasattr(signal, "SIGUSR1"), reason="no SIGUSR1 on Windows")
+def test_a_backend_says_where_its_threads_are(harness: ModuleType, tmp_path: Path) -> None:
+    server = harness.Server(tmp_path)
+    try:
+        server.call("ping", {}, 30)  # (up and serving)
+        stacks = server.stacks()
+        assert "server.py" in stacks or "__main__" in stacks, stacks
+        assert not any("Traceback" in line for line in server.stderr)
+    finally:
+        server.close()
 
 
 def test_a_part_takes_every_nth_capture(harness: ModuleType) -> None:

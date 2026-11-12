@@ -91,7 +91,8 @@ def test_a_crash_breaks_a_pass_even_after_output() -> None:
     assert ts.broke(-11, "", wrote=True)  # (the rest of its output is missing)
     assert ts.broke(1, "tshark: Some fields aren't valid", wrote=False)
     assert not ts.broke(1, "tshark: Some fields aren't valid", wrote=True)
-    assert not ts.broke(-9, "", wrote=True)  # (stopped by the backend)
+    # (Killed by someone else: the backend's own kills are cancellations.)
+    assert ts.broke(-9, "", wrote=True) and ts.broke(-15, "", wrote=False)
     assert not ts.broke(2, "cut short in the middle of a packet", wrote=False)
     assert not ts.broke(0, "", wrote=False)
 

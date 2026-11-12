@@ -2729,7 +2729,18 @@ stderr, wrote)` is now that check everywhere, and a crash always breaks
   before): a timeout now names what it waited on (`waiting_on`: each
   tool's `ps` state, CPU and memory, and a running crash reporter such as
   macOS's ReportCrash, which holds a crashed process while it writes the
-  report).
+  report). The run after that (two macOS parts, 2 h 58 for part 1; Linux
+  clean with 1,652 captures, its `core_pattern` systemd-coredump) still
+  timed out on `openflow_v6_coverage`'s expert pass with no process under
+  the backend at all, so the wait is the backend's own: the harness now
+  starts it with `faulthandler` on SIGUSR1 (`BACKEND_MAIN`) and a timeout
+  without a busy tool adds the backend's stacks (`Server.stacks`,
+  `summarize_stacks`: our frames only) and every process under it. Its
+  `rtcp_coverage` replay listed 5,543 bytes and sent 70,955: a pass cut
+  short by a kill (likely the memory watch) passed as complete, since
+  `broke` took any signal for the backend's own stop; the backend's own
+  kills raise CancelledError before any check, so `broke` now counts every
+  signal death as broken.
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage
