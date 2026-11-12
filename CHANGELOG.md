@@ -32,12 +32,13 @@ commit) that made it. The format follows
 - A display filter that crashes tshark partway is an error instead of
   showing (and remembering) only the packets before the crash, and a
   statistics table whose report runs away (a dissector looping) stops at
-  256 MB instead of taking gigabytes of memory
+  256 MB instead of taking gigabytes of memory [38c7426]
 
 [acc2bbf]: https://github.com/DenPaz/pcap-lens/commit/acc2bbf
 [d2d14d5]: https://github.com/DenPaz/pcap-lens/commit/d2d14d5
 [f501b46]: https://github.com/DenPaz/pcap-lens/commit/f501b46
 [78bc2ff]: https://github.com/DenPaz/pcap-lens/commit/78bc2ff
+[38c7426]: https://github.com/DenPaz/pcap-lens/commit/38c7426
 
 ## 0.31.0 — 2026-11-11
 
