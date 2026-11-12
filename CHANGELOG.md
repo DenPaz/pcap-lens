@@ -7,6 +7,29 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.33.0 — 2026-11-12
+
+### Added
+
+- A PCAP Lens agent for Copilot Chat's agent mode (and an analyze-capture
+  skill), with tools any agent can call: triage, overview, failed HTTP/DNS/TLS
+  sessions, TCP connection health, packet details, comparison with a baseline
+  file, and applying a filter or going to a packet after you confirm [8eb5d54]
+- The agent's tools also read a capture attached to the chat (`#file:`) or
+  named, when it is in the workspace, open or in Recent Captures [b9f346b]
+- `pcapViewer.ai.askIn`: `agent` makes the viewer's AI commands ask the PCAP
+  Lens agent instead of `@pcap` (the default until VS Code drops `@pcap`)
+  [e1b8bd5]
+
+### Fixed
+
+- Byte rates under 1 kB/s in AI prompts were written with every decimal
+  ("368.2105964678441 B/s") [8eb5d54]
+
+[8eb5d54]: https://github.com/DenPaz/pcap-lens/commit/8eb5d54
+[b9f346b]: https://github.com/DenPaz/pcap-lens/commit/b9f346b
+[e1b8bd5]: https://github.com/DenPaz/pcap-lens/commit/e1b8bd5
+
 ## 0.32.0 — 2026-11-12
 
 ### Added

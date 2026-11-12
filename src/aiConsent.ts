@@ -29,9 +29,13 @@ export const STATISTICS_CONSENT =
   `${ANOMALY_LIMITS.maxPoints} packets of a TCP stream as sequence numbers, lengths, windows, round-trip times and ` +
   `retransmission flags, or a VoIP call's SIP message flow (up to ${ANOMALY_LIMITS.maxCallMessages} message names ` +
   "with times and addresses, the parties' SIP URIs, no message bodies or DTMF digits) with its RTP streams' " +
-  "statistics; and the results of @pcap's tools (packet counts for display filters, the same statistics " +
-  `with up to ${TOOL_LIMITS.maxStatsRows} rows). Listing packets (their summary lines) also needs ` +
-  "pcapViewer.ai.allowPacketData. Addresses and host names can be private: with " +
+  "statistics; and the results of PCAP Lens's tools, which @pcap, Copilot's agent mode and the PCAP Lens agent " +
+  `call (packet counts for display filters, the same statistics with up to ${TOOL_LIMITS.maxStatsRows} rows, ` +
+  "the triage checks, a TCP stream's totals, a comparison with another capture file you name, and the capture " +
+  `overview: its top ${TOOL_LIMITS.maxOverviewRows} addresses, protocols, TCP services, HTTP methods, status ` +
+  "codes and hosts, DNS results, query types and names, and TLS versions and server names). Listing packets " +
+  "(their summary lines), the session tables (HTTP requests with their paths, DNS queries with their answers, " +
+  "TLS servers) and packet details also need pcapViewer.ai.allowPacketData. Addresses and host names can be private: with " +
   "pcapViewer.ai.pseudonymizeAddresses on (the default) they are replaced by stand-ins such as IP_PRIVATE_1 " +
   "before anything is sent. Your choice is saved in the " +
   "pcapViewer.ai.allowCaptureStatistics setting (user settings only).";

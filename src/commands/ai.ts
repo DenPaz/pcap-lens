@@ -5,6 +5,8 @@ import {
   ExplainSink,
   TriageOutcome,
   aiEnabled,
+  describeToolCall,
+  pseudonymizing,
   listModels,
   modelSetting,
 } from "../ai";
@@ -16,19 +18,36 @@ import {
   defaultExpertQuestion,
   parseAnomalyArgs,
 } from "../aiAnomaly";
+import { AGENT_MODE, AgentAsk, agentQuery, askInSetting } from "../aiAgentQuery";
 import { STATISTICS_CONSENT } from "../aiConsent";
-import { compareQuery, parseCompareArgs } from "../aiCompare";
+import { CaptureDiff, compareQuery, parseCompareArgs } from "../aiCompare";
 import { modelItems, modelLabel, unusableReason, unusableWhy } from "../aiModel";
-import { withStandInNote } from "../aiPrivacy";
+import { AddressMasker, withStandInNote } from "../aiPrivacy";
 import { EXPLAIN_LIMITS, PACKET_DATA_CONSENT, explainQuery, parseExplainArgs } from "../aiExplain";
 import { formatNumber, summaryQuery } from "../aiSummary";
 import { SEVERITY_LABELS, TriageCheck, sortFindings, triageQuery } from "../aiTriage";
 import { findingsBlocks, markdown as reportMarkdown } from "../captureReport";
-import { PCAP_TOOLS, ToolConsent, runTool } from "../aiTools";
+import {
+  PCAP_TOOLS,
+  TOOL_LIMITS,
+  ToolBackend,
+  ToolConsent,
+  ToolHost,
+  VIEWER_TOOLS,
+  runTool,
+} from "../aiTools";
+import type { BackendClient } from "../backendClient";
 import { SECTION } from "../config";
 import { toolsRuntime } from "../lmTools";
 import type { PcapEditorProvider, PcapEditorSession } from "../pcapEditor";
 import { OtherCapture, captureProfile, pickOtherCapture, resolveCapturePath } from "./compare";
+import {
+  ToolCaptures,
+  captureLabel,
+  resolveToolCapture,
+  toolsCanRead,
+  viewerOf,
+} from "./toolCaptures";
 import { requireSession } from "./filter";
 
 /** "PCAP: Suggest Display Filter…": describe the packets, pick a validated filter, it lands in the filter bar. */
@@ -644,6 +663,37 @@ async function openChatWith(query: string, log: vscode.LogOutputChannel): Promis
   }
 }
 
+/** Whether the viewer's AI buttons ask the PCAP Lens agent (`pcapViewer.ai.askIn`) and its tools exist. */
+function askingAgent(): boolean {
+  return (
+    askInSetting(vscode.workspace.getConfiguration(SECTION).get("ai.askIn")) === "agent" &&
+    toolsRuntime() !== undefined
+  );
+}
+
+/**
+ * Open the chat view in the PCAP Lens agent with `ask`'s request sent (an
+ * agent VS Code doesn't know is ignored: the request goes to the current
+ * one). False when VS Code can't, and `@pcap` or the editor answer instead.
+ */
+async function openAgentWith(ask: AgentAsk, log: vscode.LogOutputChannel): Promise<boolean> {
+  if (!(await vscode.commands.getCommands(true)).includes("workbench.action.chat.open")) {
+    return false;
+  }
+  try {
+    await vscode.commands.executeCommand("workbench.action.chat.open", {
+      query: agentQuery(ask),
+      mode: AGENT_MODE,
+    });
+    return true;
+  } catch (err) {
+    log.info(
+      `workbench.action.chat.open in the ${AGENT_MODE} agent failed (${(err as Error)?.message ?? err}); asking @pcap`,
+    );
+    return false;
+  }
+}
+
 /**
  * Without the chat view: ask the language model directly and stream the answer
  * into an untitled Markdown document, then offer the same buttons.
@@ -737,6 +787,14 @@ export async function summarizeCapture(
     void vscode.window.showInformationMessage("AI help is turned off (pcapViewer.ai.enabled).");
     return;
   }
+  if (askingAgent()) {
+    if (!(await statisticsConsent())) {
+      return;
+    }
+    if (await openAgentWith({ kind: "summary", capture: captureLabel(session.uri) }, log)) {
+      return;
+    }
+  }
   if (await openChatWith(summaryQuery(), log)) {
     return;
   }
@@ -767,6 +825,21 @@ export async function compareCaptures(
   if (!other) {
     return;
   }
+  // (the agent's tools read the other capture only where they may: else @pcap, which reads any)
+  if (askingAgent() && toolsCanRead(other.uri, provider, context)) {
+    if (!(await statisticsConsent())) {
+      return;
+    }
+    const ask: AgentAsk = {
+      kind: "compare",
+      capture: captureLabel(session.uri),
+      other: captureLabel(other.uri),
+      baseline: other.is === "before" ? "other" : "open",
+    };
+    if (await openAgentWith(ask, log)) {
+      return;
+    }
+  }
   if (await openChatWith(compareQuery(keep(compareSelections, other)), log)) {
     return;
   }
@@ -792,6 +865,14 @@ export async function triageCapture(
   if (!aiEnabled()) {
     void vscode.window.showInformationMessage("AI help is turned off (pcapViewer.ai.enabled).");
     return;
+  }
+  if (askingAgent()) {
+    if (!(await statisticsConsent())) {
+      return;
+    }
+    if (await openAgentWith({ kind: "triage", capture: captureLabel(session.uri) }, log)) {
+      return;
+    }
   }
   if (await openChatWith(triageQuery(), log)) {
     return;
@@ -847,6 +928,21 @@ export async function askAboutAnomaly(
     target = { kind: "expert", ref: rows ? keepSelection(rows) : undefined };
     question ||= rows ? defaultExpertQuestion(rows) : "";
   }
+  // (a call stays with @pcap: no tool reads VoIP calls yet)
+  if (askingAgent() && ask.kind !== "call") {
+    if (!(await statisticsConsent())) {
+      return;
+    }
+    const capture = captureLabel(session.uri);
+    const agentAsk: AgentAsk =
+      ask.kind === "stream"
+        ? { kind: "stream", capture, stream: ask.stream, question: ask.question }
+        : // (not `question`: defaultExpertQuestion quotes the row's message, packet text)
+          { kind: "expert", capture, rows: ask.rows, question: ask.question };
+    if (await openAgentWith(agentAsk, log)) {
+      return;
+    }
+  }
   if (await openChatWith(anomalyQuery(target, question), log)) {
     return;
   }
@@ -885,6 +981,15 @@ export async function askAboutPackets(
     void vscode.window.showInformationMessage("Select the packets to ask about first.");
     return;
   }
+  if (askingAgent()) {
+    if (!(await packetDataConsent()).allowed) {
+      return;
+    }
+    const ask: AgentAsk = { kind: "packets", capture: captureLabel(session.uri), frames: picked };
+    if (await openAgentWith(ask, log)) {
+      return;
+    }
+  }
   if (!(await openChatWith(explainQuery(picked), log))) {
     await explainInEditor(session, picked);
   }
@@ -901,6 +1006,7 @@ function registerChatParticipant(
   context: vscode.ExtensionContext,
   provider: PcapEditorProvider,
   log: vscode.LogOutputChannel,
+  captures: ToolCaptures,
 ): void {
   if (typeof vscode.chat?.createChatParticipant !== "function") {
     log.info("chat API not available: @pcap chat participant not registered");
@@ -944,10 +1050,29 @@ function registerChatParticipant(
       }
       // With language model tools: answer from computed results (counts, statistics).
       if (session.toolsAvailable && (await statisticsConsent())) {
-        finishInChat(
-          stream,
-          await session.answerWithTools(request.prompt, toolConsent(), chatSink(stream), token),
-        );
+        const leases: Lease[] = [];
+        try {
+          finishInChat(
+            stream,
+            await session.answerWithTools(
+              request.prompt,
+              toolConsent(),
+              chatSink(stream),
+              token,
+              toolHost(
+                provider,
+                context,
+                log,
+                captures,
+                { uri: session.uri, backend: session.backend, session },
+                token,
+                leases,
+              ),
+            ),
+          );
+        } finally {
+          release(leases);
+        }
         return;
       }
       stream.progress("Asking for display filters and checking them with tshark…");
@@ -1007,48 +1132,358 @@ export function registerAiCommands(
         : askAboutAnomaly(provider, log, { kind: "expert", rows: [] }),
     ),
   );
-  registerChatParticipant(context, provider, log);
-  registerLanguageModelTools(context, provider, log);
+  // Captures the tools read that aren't open in the viewer (a `capture` argument).
+  const captures = new ToolCaptures(context, log);
+  context.subscriptions.push(captures);
+  registerChatParticipant(context, provider, log, captures);
+  registerLanguageModelTools(context, provider, log, captures);
+}
+
+/** The capture a tool reads: a viewer's (with its session), or one of the tools' own backends. */
+interface ToolTarget {
+  uri: vscode.Uri;
+  backend?: BackendClient;
+  session?: PcapEditorSession;
+}
+
+/** A backend that answers every request with why there is none (no capture open, none named). */
+const NO_BACKEND: ToolBackend = {
+  request: () => Promise.reject(new Error("No capture is open in PCAP Lens.")),
+};
+
+/** Gives back a backend of `ToolCaptures` a tool call was using. */
+type Lease = () => void;
+
+/** Gives back every backend a tool call took (`leases`), once it is done. */
+function release(leases: Lease[]): void {
+  for (const done of leases.splice(0)) {
+    done();
+  }
+}
+
+/** A tool input's `capture` argument ("" when there is none). */
+function captureArg(input: unknown): string {
+  const capture = (input as { capture?: unknown } | undefined)?.capture;
+  return typeof capture === "string" ? capture.trim() : "";
+}
+
+/**
+ * The capture a `capture` argument names: its viewer when open, else a
+ * backend of the tools' own, kept open until the call gives it back (its
+ * lease goes into `leases`).
+ */
+async function toolTarget(
+  provider: PcapEditorProvider,
+  context: vscode.ExtensionContext,
+  captures: ToolCaptures,
+  capture: string,
+  leases: Lease[],
+): Promise<ToolTarget | string> {
+  const uri = await resolveToolCapture(capture, provider, context);
+  if (typeof uri === "string") {
+    return uri;
+  }
+  const session = viewerOf(provider, uri);
+  if (session) {
+    return { uri, backend: session.backend, session };
+  }
+  try {
+    const { client, release: done } = await captures.acquire(uri);
+    leases.push(done);
+    return { uri, backend: client };
+  } catch (err) {
+    return `Couldn't read ${path.basename(uri.fsPath)}: ${(err as Error)?.message ?? err}`;
+  }
+}
+
+/**
+ * What the tools need from VS Code (aiTools.ts' ToolHost) for `target`: the
+ * viewer's packet_detail parameters, a comparison with another capture file
+ * (its profile from its editor or a short-lived backend, as the compare
+ * command), and the capture a `capture` argument names.
+ */
+function toolHost(
+  provider: PcapEditorProvider,
+  context: vscode.ExtensionContext,
+  log: vscode.LogOutputChannel,
+  captures: ToolCaptures,
+  target: ToolTarget | undefined,
+  token: vscode.CancellationToken,
+  leases: Lease[],
+): ToolHost {
+  const session = target?.session;
+  return {
+    detailParams: session ? (frame) => session.detailParams(frame) : undefined,
+    compare: target
+      ? async (other, open) => {
+          // (a relative path is next to the capture being compared first)
+          const uri = await resolveToolCapture(other, provider, context, target.uri);
+          if (typeof uri === "string") {
+            return uri;
+          }
+          const name = path.basename(target.uri.fsPath);
+          if (uri.fsPath === target.uri.fsPath) {
+            return `That is ${name} itself: name another capture.`;
+          }
+          const backend = session?.backend ?? target.backend;
+          const [theirs, mine] = await Promise.all([
+            captureProfile(provider, context, log, uri, token),
+            session
+              ? session.profile(token)
+              : backend?.request("capture_profile", {}, { timeoutMs: 0, cancellation: token }),
+          ]);
+          if (!backend?.running || !mine) {
+            return `${name} is still being read (or captured): try again when it's done.`;
+          }
+          const otherName = path.basename(uri.fsPath);
+          const [before, after, names] =
+            open === "before"
+              ? [mine, theirs, [name, otherName]]
+              : [theirs, mine, [otherName, name]];
+          log.info(`compare tool: ${names[0]} (before) with ${names[1]} (after)`);
+          return backend.request<CaptureDiff>("compare_profiles", { before, after, names });
+        }
+      : undefined,
+    open: async (capture) => {
+      const found = await toolTarget(provider, context, captures, capture, leases);
+      if (typeof found === "string") {
+        return found;
+      }
+      if (!found.backend?.running) {
+        return `${path.basename(found.uri.fsPath)} is still loading in PCAP Lens: try again in a moment.`;
+      }
+      return {
+        backend: found.backend,
+        host: toolHost(provider, context, log, captures, found, token, leases),
+      };
+    },
+  };
+}
+
+/** Until `get` gives a value, polling, at most `ms` (undefined when it never does or `token` is cancelled). */
+async function waitFor<T>(
+  get: () => T | undefined,
+  ms: number,
+  token?: vscode.CancellationToken,
+): Promise<T | undefined> {
+  const end = Date.now() + ms;
+  for (;;) {
+    const value = get();
+    if (value !== undefined || Date.now() > end || token?.isCancellationRequested) {
+      return value;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
 }
 
 /**
  * The read-only tools (aiTools.ts) as VS Code language model tools, so any
- * chat that uses tools (Copilot's agent mode, other participants) can ask the
- * open capture too. @pcap runs the same tools itself. Skipped without the API.
+ * chat that uses tools (Copilot's agent mode, the PCAP Lens agent, other
+ * participants) can ask the open capture, or the capture a `capture`
+ * argument names (one the user attached); @pcap runs the same tools itself.
+ * The viewer tools (pcap_apply_filter, pcap_go_to_packet) act on the viewer
+ * after the user confirms, opening the named capture first. One stand-in
+ * table for every capture these tools read in this window, so a token means
+ * the same address whichever capture a conversation looks at. Skipped
+ * without the API.
  */
 function registerLanguageModelTools(
   context: vscode.ExtensionContext,
   provider: PcapEditorProvider,
   log: vscode.LogOutputChannel,
+  captures: ToolCaptures,
 ): void {
   const runtime = toolsRuntime();
   if (!runtime) {
     log.info("language model tools API not available: PCAP tools not registered");
     return;
   }
-  for (const spec of PCAP_TOOLS) {
+  const register = (name: string, tool: Parameters<typeof runtime.registerTool>[1]) => {
     try {
-      context.subscriptions.push(
-        runtime.registerTool(spec.name, {
-          invoke: async (options) => {
-            const session = provider.activeSession;
-            const backend = session?.backend;
-            if (!session?.openInfo || !backend?.running) {
-              return runtime.result("No capture is open in PCAP Lens.");
-            }
-            // The same stand-ins as @pcap's: the calling model sees them, the tool the real values.
-            const masker = session.aiMasker();
-            const input = masker ? masker.restoreDeep(options.input) : options.input;
-            const result = await runTool(spec.name, input, backend, toolConsent());
-            masker?.learnNames(result.names ?? []);
-            return runtime.result(
-              masker ? withStandInNote(masker, masker.mask(result.text)) : result.text,
-            );
-          },
-        }),
-      );
+      context.subscriptions.push(runtime.registerTool(name, tool));
     } catch (err) {
-      log.warn(`could not register the ${spec.name} tool: ${(err as Error)?.message ?? err}`);
+      log.warn(`could not register the ${name} tool: ${(err as Error)?.message ?? err}`);
     }
+  };
+  /** The active capture, if it is loaded. */
+  const active = (): ToolTarget | undefined => {
+    const session = provider.activeSession;
+    const backend = session?.backend;
+    return session?.openInfo && backend?.running
+      ? { uri: session.uri, backend, session }
+      : undefined;
+  };
+  let masker: AddressMasker | undefined;
+  /** The window's stand-ins (renewed when pcapViewer.ai.pseudonymizeAddresses changes). */
+  const stand = (): AddressMasker => {
+    const on = pseudonymizing();
+    if (!masker || masker.enabled !== on) {
+      masker = new AddressMasker(on);
+    }
+    return masker;
+  };
+  const NO_CAPTURE = "No capture is open in PCAP Lens: open one, or name a capture file (capture).";
+  for (const spec of PCAP_TOOLS) {
+    register(spec.name, {
+      prepareInvocation: (options) => ({
+        invocationMessage: describeToolCall(spec.name, stand().restoreDeep(options.input)),
+      }),
+      invoke: async (options, token) => {
+        const m = stand();
+        const input = m.restoreDeep(options.input);
+        const target = active();
+        if (!target && !captureArg(input)) {
+          return runtime.result(NO_CAPTURE);
+        }
+        const leases: Lease[] = [];
+        let result;
+        try {
+          result = await runTool(
+            spec.name,
+            input,
+            target?.backend ?? NO_BACKEND,
+            toolConsent(),
+            TOOL_LIMITS,
+            toolHost(provider, context, log, captures, target, token, leases),
+          );
+        } finally {
+          release(leases);
+        }
+        m.learnNames(result.names ?? []);
+        return runtime.result(withStandInNote(m, m.mask(result.text)));
+      },
+    });
   }
+  /** The viewer a viewer tool acts on: the named capture's (opened first), else the active one. */
+  const viewer = async (
+    input: unknown,
+    token: vscode.CancellationToken,
+  ): Promise<PcapEditorSession | string> => {
+    const capture = captureArg(input);
+    if (!capture) {
+      return active()?.session ?? NO_CAPTURE;
+    }
+    const uri = await resolveToolCapture(capture, provider, context);
+    if (typeof uri === "string") {
+      return uri;
+    }
+    let session = viewerOf(provider, uri);
+    if (!session) {
+      await vscode.commands.executeCommand("vscode.openWith", uri, "pcapViewer.editor");
+      session = await waitFor(() => viewerOf(provider, uri), 120_000, token);
+    }
+    return session ?? `Couldn't open ${path.basename(uri.fsPath)} in PCAP Lens.`;
+  };
+  /** The capture a viewer tool's confirmation names. */
+  const viewerName = (input: unknown): string => {
+    const capture = captureArg(input);
+    const active = provider.activeSession;
+    return capture
+      ? path.basename(capture)
+      : active
+        ? path.basename(active.uri.fsPath)
+        : "the capture";
+  };
+  const opening = (input: unknown): string => {
+    const capture = captureArg(input);
+    return capture &&
+      !provider.allSessions.some((s) => path.basename(s.uri.fsPath) === path.basename(capture))
+      ? `Open ${path.basename(capture)} in PCAP Lens, then `
+      : "";
+  };
+  const [applyFilter, goToPacket] = VIEWER_TOOLS;
+  register(applyFilter.name, {
+    prepareInvocation: (options) => {
+      const input = stand().restoreDeep(options.input);
+      const filter = viewerFilter(input);
+      const first = opening(input);
+      return {
+        invocationMessage: filter ? `Applying ${filter}` : "Clearing the display filter",
+        confirmationMessages: {
+          title: filter ? "Apply this display filter?" : "Clear the display filter?",
+          message: filter
+            ? new vscode.MarkdownString(
+                `${first}${first ? "apply" : "Apply"} in ${viewerName(input)}:`,
+              ).appendCodeblock(filter, "")
+            : `${first}${first ? "show" : "Show"} every packet of ${viewerName(input)}.`,
+        },
+      };
+    },
+    invoke: async (options, token) => {
+      const m = stand();
+      const input = m.restoreDeep(options.input);
+      const session = await viewer(input, token);
+      if (typeof session === "string") {
+        return runtime.result(m.mask(session));
+      }
+      const filter = viewerFilter(input);
+      if (filter) {
+        const error = await session.validateFilter(filter);
+        if (error) {
+          return runtime.result(m.mask(`Not applied: tshark refuses \`${filter}\`: ${error}`));
+        }
+      }
+      session.applyFilter(filter);
+      log.info(`AI tool ${applyFilter.name}: ${filter || "(cleared)"}`);
+      const name = path.basename(session.uri.fsPath);
+      return runtime.result(
+        m.mask(filter ? `Applied \`${filter}\` in ${name}.` : `Cleared ${name}'s display filter.`),
+      );
+    },
+  });
+  register(goToPacket.name, {
+    prepareInvocation: (options) => {
+      const input = stand().restoreDeep(options.input);
+      const packet = viewerPacket(input);
+      const first = opening(input);
+      return {
+        invocationMessage: `Going to packet ${packet ?? "?"}`,
+        confirmationMessages: {
+          title: "Go to this packet?",
+          message: `${first}${first ? "select" : "Select"} packet ${packet ?? "?"} of ${viewerName(input)} and show its details.`,
+        },
+      };
+    },
+    invoke: async (options, token) => {
+      const input = stand().restoreDeep(options.input);
+      const session = await viewer(input, token);
+      if (typeof session === "string") {
+        return runtime.result(stand().mask(session));
+      }
+      const packet = viewerPacket(input);
+      if (!packet) {
+        return runtime.result("Give the packet number (packet).");
+      }
+      // (A capture just opened may still be reading its packets.)
+      const total = await waitFor(
+        () => {
+          const frames = session.openInfo?.frames ?? 0;
+          return frames >= packet || (session.openInfo && !session.openInfo.indexing)
+            ? frames
+            : undefined;
+        },
+        60_000,
+        token,
+      );
+      if (!total || packet > total) {
+        return runtime.result(
+          `No packet ${packet}: ${path.basename(session.uri.fsPath)} has packets 1–${total || "?"}.`,
+        );
+      }
+      session.goTo(packet);
+      return runtime.result(`Selected packet ${packet} in ${path.basename(session.uri.fsPath)}.`);
+    },
+  });
+}
+
+/** pcap_apply_filter's filter ("" clears). */
+function viewerFilter(input: unknown): string {
+  const filter = (input as { filter?: unknown } | undefined)?.filter;
+  return typeof filter === "string" ? filter.trim() : "";
+}
+
+/** pcap_go_to_packet's packet number, if it is one. */
+function viewerPacket(input: unknown): number | undefined {
+  const packet = (input as { packet?: unknown } | undefined)?.packet;
+  return typeof packet === "number" && Number.isInteger(packet) && packet > 0 ? packet : undefined;
 }

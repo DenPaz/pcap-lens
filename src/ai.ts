@@ -46,7 +46,14 @@ import {
 import { Requester, StatsTable, buildSummaryPrompt, gatherSummary } from "./aiSummary";
 import { CaptureDiff, buildComparePrompt, scanNote } from "./aiCompare";
 import { scanNote as scansNote } from "./aiScans";
-import { ToolConsent, TOOL_LIMITS, buildToolPrompt, runTool, runToolLoop } from "./aiTools";
+import {
+  ToolConsent,
+  ToolHost,
+  TOOL_LIMITS,
+  buildToolPrompt,
+  runTool,
+  runToolLoop,
+} from "./aiTools";
 import { toolsRuntime } from "./lmTools";
 import {
   ModelInfo,
@@ -275,6 +282,24 @@ export function describeToolCall(name: string, input: unknown): string {
       return `Looking up fields ${String(args.prefix ?? "")}…`;
     case "pcap_list_packets":
       return `Listing packets${filter}…`;
+    case "pcap_triage":
+      return "Triaging the capture with tshark's checks…";
+    case "pcap_overview":
+      return `Reading the capture overview${filter ? ` for${filter}` : ""}…`;
+    case "pcap_sessions":
+      return `Reading the ${String(args.kind ?? "")} session table${args.only_problems === true ? " (problems)" : ""}…`;
+    case "pcap_tcp_stream":
+      return typeof args.stream === "number"
+        ? `Reading TCP stream ${args.stream}…`
+        : `Reading the TCP stream of packet ${String(args.packet ?? "")}…`;
+    case "pcap_packet_details":
+      return `Reading packet${Array.isArray(args.packets) && args.packets.length === 1 ? "" : "s"} ${Array.isArray(args.packets) ? args.packets.join(", ") : ""}…`;
+    case "pcap_compare":
+      return `Comparing with ${String(args.other ?? "the other capture")}…`;
+    case "pcap_apply_filter":
+      return `Applying ${String(args.filter ?? "") || "no filter"}…`;
+    case "pcap_go_to_packet":
+      return `Going to packet ${String(args.packet ?? "")}…`;
     default:
       return `Running ${name}…`;
   }
@@ -1149,7 +1174,7 @@ export class FilterAssistant implements vscode.Disposable {
    */
   async answerWithTools(
     backend: BackendClient,
-    req: { question: string; currentFilter: string; consent: ToolConsent },
+    req: { question: string; currentFilter: string; consent: ToolConsent; host?: ToolHost },
     sink: ExplainSink,
     token: vscode.CancellationToken,
   ): Promise<ExplainOutcome> {
@@ -1183,7 +1208,7 @@ export class FilterAssistant implements vscode.Disposable {
           onText: (t) => sink.markdown(t),
           onToolCall: (name, input) => sink.progress(describeToolCall(name, input)),
           runTool: async (name, input) => {
-            const result = await runTool(name, input, backend, req.consent);
+            const result = await runTool(name, input, backend, req.consent, TOOL_LIMITS, req.host);
             this.maskerFor(backend).learnNames(result.names ?? []);
             return result;
           },

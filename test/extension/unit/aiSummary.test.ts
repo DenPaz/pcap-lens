@@ -181,6 +181,7 @@ suite("AI capture summary", () => {
 
   test("formatting helpers and the chat query", () => {
     assert.equal(formatBytes(999), "999 B");
+    assert.equal(formatBytes(368.2105964678441), "368 B", "a rate under 1 kB/s is rounded too");
     assert.equal(formatBytes(1_500_000), "1.5 MB");
     assert.equal(formatSeconds(0.25), "250 ms");
     assert.equal(formatSeconds(4.56), "4.6 s");
@@ -210,6 +211,11 @@ suite("AI capture summary", () => {
     );
     assert.match(STATISTICS_CONSENT, /no message bodies or DTMF digits/);
     assert.match(STATISTICS_CONSENT, new RegExp(`up to ${TOOL_LIMITS.maxStatsRows} rows`));
+    assert.match(
+      STATISTICS_CONSENT,
+      new RegExp(`overview: its top ${TOOL_LIMITS.maxOverviewRows} addresses`),
+    );
+    assert.match(STATISTICS_CONSENT, /session tables .* also need pcapViewer\.ai\.allowPacketData/);
     assert.match(STATISTICS_CONSENT, /IP addresses, ports, host names/);
     assert.match(
       STATISTICS_CONSENT,
@@ -217,7 +223,7 @@ suite("AI capture summary", () => {
     );
     assert.match(
       STATISTICS_CONSENT,
-      /Listing packets .* also needs pcapViewer\.ai\.allowPacketData/,
+      /Listing packets .* also need pcapViewer\.ai\.allowPacketData/,
     );
   });
 });

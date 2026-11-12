@@ -40,7 +40,7 @@ import type {
   SuggestOutcome,
   TriageOutcome,
 } from "./ai";
-import type { ToolConsent } from "./aiTools";
+import type { ToolConsent, ToolHost } from "./aiTools";
 import type { AddressMasker } from "./aiPrivacy";
 import {
   CaptureEvent,
@@ -1683,6 +1683,7 @@ export class PcapEditorSession {
     consent: ToolConsent,
     sink: ExplainSink,
     token: vscode.CancellationToken,
+    host?: ToolHost,
   ): Promise<ExplainOutcome> {
     const client = this.client;
     if (!client?.running || !this.info) {
@@ -1690,7 +1691,7 @@ export class PcapEditorSession {
     }
     return this.assistant.answerWithTools(
       client,
-      { question, currentFilter: this.filter, consent },
+      { question, currentFilter: this.filter, consent, host },
       sink,
       token,
     );

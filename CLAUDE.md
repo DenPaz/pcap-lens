@@ -173,6 +173,10 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   `dev` (the release PR), since dev's push run tested that commit and its
   checks show on the PR. The smoke test's VS Code download isn't cached:
   restoring a cache of it took as long as the download (tried in 2026-11).
+  `runTest.ts` downloads it first (`downloadVSCode`: 3 tries, 60 s idle
+  timeout): a pinned version is looked up in VS Code's release list with no
+  fallback, and that request once timed out at the 15 s default, failing the
+  oldest-VS-Code job on main before any test ran.
   The unit/webview mocha run has a 10 s timeout (`--timeout 10000` in
   `test:unit`): the Windows runner once took over 2 s on a 30 ms test.
 - **Repository upkeep**: `codeql.yml` (javascript-typescript, python and
@@ -204,11 +208,12 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   `src/rotation.ts` recognises rotated capture pieces (pure).
   AI: `src/aiFilter.ts`, `aiCaptureFilter.ts`, `aiDissector.ts`,
   `aiExplain.ts`, `aiSummary.ts`, `aiTriage.ts`, `aiCompare.ts`, `aiScans.ts`, `aiAnomaly.ts`, `aiTools.ts`
-  (tool specs, `runTool`, `runToolLoop`), `aiModel.ts` (model choice),
+  (tool specs, `runTool`, `runToolLoop`), `aiToolReports.ts` (the report tools' text), `aiCapturePath.ts` (the file a tool's `capture` names), `aiModel.ts` (model choice),
   `aiPrivacy.ts` (address stand-ins) and `aiConsent.ts` are pure prompt
   builders/parsers; `src/ai.ts` (`FilterAssistant`) and
   `src/lmTools.ts` (the tools API, declared locally) talk to `vscode.lm`;
-  `src/commands/ai.ts` holds commands, consent and the `@pcap` participant.
+  `src/commands/ai.ts` holds commands, consent and the `@pcap` participant;
+  `src/commands/toolCaptures.ts` the tools' backends for named captures.
   `src/mcpConfig.ts` the MCP server's command line and configuration
   snippets (pure); `src/commands/mcp.ts` its VS Code registration.
   `src/captureModel.ts` pure capture/editing helpers (file names, durations,
@@ -313,6 +318,8 @@ plugins` and the plugin folders), `decryption.py` (decryption keys and
   request context), `cancellation.py`, `index_cache.py` (saved indexes),
   `procs.py` (stopping children, also
   when the kill is refused), `sandbox.py` (AppArmor/Snap detection and hints).
+- `agents/pcap-lens.agent.md` (the PCAP Lens custom agent, `chatAgents`) and
+  `skills/analyze-capture/SKILL.md` (`chatSkills`); see _Language model tools_.
 - `backend/dissectors/example.lua` sample dissector (UDP/9999).
 - `media/` icon (`icon.svg` → `icon.png`), `sample.pcapng` (a copy of the
   `mixed.pcapng` fixture that `generate.py` writes), `walkthrough/*.md` (the
@@ -2202,6 +2209,78 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   default `@pcap` route uses the loop when tools exist and statistics are
   allowed (asking once); tools invoked by other participants use the active
   capture's backend.
+  **Copilot harness** (2026-11): VS Code's new Copilot chat engine runs no
+  chat participants ("Replace Chat Participant" warning; the Local harness
+  that runs `@pcap` goes in 2027-02), so the tools carry what `@pcap`'s
+  commands did, as data for the calling model (`aiToolReports.ts`, which
+  reuses the prompts' helpers, so the numbers are the same): `pcap_triage`
+  (checks that found packets, then refused/skipped/empty, scans with
+  filters, expert counts), `pcap_overview` (the Capture Overview pass, top
+  `maxOverviewRows` per breakdown; HTTP hosts, DNS and TLS names go to the
+  stand-ins as names), `pcap_tcp_stream` (`tcpFacts` plus the first
+  retransmissions and zero windows) and `pcap_compare` (statistics);
+  `pcap_sessions` (`only_problems` = the MCP server's `_session_problem`:
+  paths and DNS answers are packet contents) and `pcap_packet_details`
+  (`treeLines` without bytes, ≤ 4 packets, `session.detailParams`) need
+  `allowPacketData`. `ToolHost` gives runTool what isn't the backend's:
+  `detailParams`, `compare` (`resolveToolCapture`, the session's profile or
+  `capture_profile`, `compare_profiles`; `baseline` "other" (default) or
+  "open") and `open`. **Attached captures**: every tool but field search
+  takes `capture` (`CAPTURE_PROPERTY`), the path of a file the user
+  attached (`#file:`, `@file:`) or named; the agent and skill say to pass
+  it (else the model read the attachment's bytes itself: a user's test).
+  runTool checks consent first, then `host.open(capture)` gives that
+  capture's backend and host. `resolveToolCapture` (`aiCapturePath.ts`
+  pure: a `file:` URI, quotes, absolute or relative to the active capture's
+  folder and the workspace folders; then by file name among open and recent
+  captures, then `findFiles` (one match)) only allows a file in a workspace
+  folder, open in the viewer or in Recent Captures (`toolsMayRead`): a tool
+  call mustn't read any file on the machine. An open viewer's backend is
+  used (`viewerOf`); else `ToolCaptures` opens one as the viewer would
+  (`openCaptureBackend`, also behind `captureProfile`: settings of the
+  capture's folder, saved indexes), at most 2 idle ones, closed after 5 min
+  unused or when the file or its dissection settings change (`stampOf`: size,
+  mtime and a hash of `dissectionOptions`, keys included, and the Lua
+  scripts' mtimes). A call holds its backends (`acquire` → `release`, the
+  `leases` runTool's caller gives back), so eviction and the idle timer
+  never close one in use (Codex review of the 0.33.0 PR: a third capture
+  closed the first mid-request); a comparison's other capture is looked
+  for next to the capture compared first (`resolveToolCapture(…, near)`). Registered tools share one masker for the window
+  (not per backend), so stand-ins agree across captures. The viewer tools
+  open the named capture in the viewer first (`vscode.openWith`, waiting
+  up to 120 s for it to load). Results over
+  `maxReportChars` (12k) are cut. `VIEWER_TOOLS` (`pcap_apply_filter`,
+  `pcap_go_to_packet`) act on the active viewer after a confirmation
+  (`prepareInvocation` → `confirmationMessages`, declared in lmTools.ts; the
+  filter is restored from stand-ins and validated first); they aren't in
+  `@pcap`'s loop, which offers buttons. Every tool's `prepareInvocation`
+  gives `describeToolCall` as its progress line. package.json's
+  `languageModelTools` are `ALL_TOOLS` (unit test). `contributes.chatAgents`
+  (`agents/pcap-lens.agent.md`: name, description, argument-hint; no
+  `tools` list, since the documented form for an extension's tool there
+  isn't settled and a wrong name leaves the agent without them, so the body
+  says to use only these tools and never a terminal) and
+  `contributes.chatSkills` (`skills/analyze-capture/SKILL.md`, its `name` =
+  its folder); a unit test checks both are packaged, have plain
+  `key: value` front matter, name only real tools and every one of them,
+  and say the data is untrusted and which setting a refusal names. The
+  smoke test checks every declared tool is registered and runs triage and
+  the overview with statistics allowed, a named fixture read with no
+  editor and a copy outside the workspace refused. `@pcap` stays for the Local
+  harness; the viewer's AI commands open it by default (else the editor
+  fallback). **`pcapViewer.ai.askIn`** (`pcap` default, `agent`;
+  `src/aiAgentQuery.ts` pure) prepares the move: with `agent` and the tools
+  API, summary, triage, compare, explain packets and the expert and TCP
+  stream panels' _Ask Copilot_ ask the consent first, then open
+  `workbench.action.chat.open {query, mode: AGENT_MODE}` (VS Code looks
+  `mode` up by name and ignores an unknown one) with a plain request
+  (`agentQuery`) naming the capture (`captureLabel`: workspace path, else
+  file name; never the home folder) and the `#pcap…` tools to use; an
+  expert row goes as severity, group, protocol and packet numbers, never
+  its message (packet text), and only the user's own question (Codex
+  review: `defaultExpertQuestion` quotes the message). A comparison whose other capture the tools
+  may not read (`toolsCanRead`) and a VoIP call (no tool reads calls) stay
+  with `@pcap`; a failed open falls back to `@pcap`, then the editor.
 - **Language model choice** (`src/aiModel.ts` pure, `pcapViewer.ai.model`,
   application scope; _PCAP: Choose Language Model…_): `modelSelector("")` =
   `{vendor: "copilot"}` (as before), an id = `{id}` only. No fallback to

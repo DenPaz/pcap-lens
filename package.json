@@ -7,7 +7,7 @@
     "color": "#0b3a73",
     "theme": "dark"
   },
-  "version": "0.32.0",
+  "version": "0.33.0",
   "publisher": "denpaz",
   "license": "MIT",
   "repository": {
@@ -2160,6 +2160,19 @@
           "scope": "application",
           "markdownDescription": "The language model the AI features use, by id: empty is automatic (GitHub Copilot's model). Pick one with *PCAP: Choose Language Model…*: any chat model VS Code offers, including those other extensions provide, such as models running on your machine, which keep what the AI features send there. When the chosen model isn't available, AI help says so instead of using another one. User settings only."
         },
+        "pcapViewer.ai.askIn": {
+          "type": "string",
+          "enum": [
+            "pcap",
+            "agent"
+          ],
+          "enumDescriptions": [
+            "Ask `@pcap` in the chat view (its Local harness, until VS Code removes it in 2027-02)",
+            "Ask the PCAP Lens agent, which answers with PCAP Lens's tools (needs VS Code with language model tools)"
+          ],
+          "default": "pcap",
+          "markdownDescription": "Where the viewer's AI commands ask: *Summarize Capture*, *Triage Capture*, *Compare Captures*, *Ask Copilot About This Packet…* and the Expert Information and TCP Stream Graph panels' *Ask Copilot…*. `pcap` opens the chat with an `@pcap` command; `agent` opens it in the PCAP Lens agent with a request naming the capture and the tools to use (VoIP calls stay with `@pcap`). Either way the consent settings decide what is sent."
+        },
         "pcapViewer.ai.pseudonymizeAddresses": {
           "type": "boolean",
           "default": true,
@@ -2241,6 +2254,16 @@
         ]
       }
     ],
+    "chatAgents": [
+      {
+        "path": "./agents/pcap-lens.agent.md"
+      }
+    ],
+    "chatSkills": [
+      {
+        "path": "./skills/analyze-capture/SKILL.md"
+      }
+    ],
     "languageModelTools": [
       {
         "name": "pcap_capture_info",
@@ -2255,7 +2278,12 @@
         ],
         "inputSchema": {
           "type": "object",
-          "properties": {}
+          "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            }
+          }
         }
       },
       {
@@ -2272,6 +2300,10 @@
         "inputSchema": {
           "type": "object",
           "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
             "filter": {
               "type": "string",
               "description": "A Wireshark display filter; empty counts every packet."
@@ -2296,6 +2328,10 @@
         "inputSchema": {
           "type": "object",
           "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
             "kind": {
               "type": "string",
               "enum": [
@@ -2370,6 +2406,10 @@
         "inputSchema": {
           "type": "object",
           "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
             "filter": {
               "type": "string",
               "description": "A Wireshark display filter."
@@ -2382,6 +2422,255 @@
           },
           "required": [
             "filter"
+          ]
+        }
+      },
+      {
+        "name": "pcap_triage",
+        "displayName": "Triage Capture",
+        "toolReferenceName": "pcapTriage",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Triage checks, scans and expert counts of the open capture (PCAP Lens)",
+        "modelDescription": "Triage the open capture: tshark counts fixed checks (TCP resets and retransmissions, refused connections, unanswered DNS/ICMP/HTTP, DNS and HTTP errors, TLS alerts, clear-text credentials…), each with its display filter and first and last packet, finds port scans and host sweeps, and counts expert information. Start here for 'what is wrong with this capture'.",
+        "tags": [
+          "pcap",
+          "wireshark"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            }
+          }
+        }
+      },
+      {
+        "name": "pcap_overview",
+        "displayName": "Capture Overview",
+        "toolReferenceName": "pcapOverview",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Totals, busiest interval and top addresses, protocols, services, HTTP, DNS and TLS of the open capture (PCAP Lens)",
+        "modelDescription": "Overview of the open capture: totals, the busiest interval, top addresses, protocols, TCP services, HTTP methods/status codes/hosts, DNS results/query types/names and TLS versions/server names, each row with its display filter. An optional display filter limits it.",
+        "tags": [
+          "pcap",
+          "wireshark"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
+            "filter": {
+              "type": "string",
+              "description": "Optional Wireshark display filter."
+            }
+          }
+        }
+      },
+      {
+        "name": "pcap_sessions",
+        "displayName": "Session Tables",
+        "toolReferenceName": "pcapSessions",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "HTTP requests, DNS queries or TLS servers of the open capture, optionally only the failed ones (PCAP Lens)",
+        "modelDescription": "The open capture's HTTP requests (with their responses, status and response time), DNS queries (result, answers, latency) or TLS servers (versions, cipher suites, handshakes without a ServerHello), one row each with a display filter. only_problems keeps HTTP errors and unanswered requests, failed or unanswered DNS queries, TLS servers with failed handshakes.",
+        "tags": [
+          "pcap",
+          "wireshark"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "http",
+                "dns",
+                "tls"
+              ]
+            },
+            "only_problems": {
+              "type": "boolean",
+              "description": "Only the rows with problems."
+            },
+            "filter": {
+              "type": "string",
+              "description": "Optional Wireshark display filter."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 30
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      },
+      {
+        "name": "pcap_tcp_stream",
+        "displayName": "TCP Stream Health",
+        "toolReferenceName": "pcapTcpStream",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Retransmissions, zero windows, round-trip times and throughput of one TCP connection (PCAP Lens)",
+        "modelDescription": "Health of one TCP connection of the open capture (by tcp.stream number, or a packet in it): packets, bytes and throughput per direction, retransmission rate, zero windows, window range, round-trip times, and the first retransmitted and zero-window packets.",
+        "tags": [
+          "pcap",
+          "wireshark"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
+            "stream": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The tcp.stream number."
+            },
+            "packet": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Or a packet of the stream."
+            }
+          }
+        }
+      },
+      {
+        "name": "pcap_packet_details",
+        "displayName": "Packet Details",
+        "toolReferenceName": "pcapPacketDetails",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "The full dissection of up to 4 packets of the open capture (PCAP Lens)",
+        "modelDescription": "The full dissection of up to 4 packets of the open capture (the details pane's tree as indented lines: every protocol and field, with tshark's analysis such as retransmission or response-time fields). Byte dumps are left out.",
+        "tags": [
+          "pcap",
+          "wireshark"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
+            "packets": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "minItems": 1,
+              "maxItems": 4,
+              "description": "Packet numbers."
+            }
+          },
+          "required": [
+            "packets"
+          ]
+        }
+      },
+      {
+        "name": "pcap_compare",
+        "displayName": "Compare Captures",
+        "toolReferenceName": "pcapCompare",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "What changed between the open capture and another capture file (PCAP Lens)",
+        "modelDescription": "Compare the open capture with another capture file: totals and rates, triage checks whose counts changed, and the protocols, flows (client → server:port), endpoints and expert messages that are new, gone or changed, plus scans in either. Give the other file's path (absolute, or relative to the open capture's folder or a workspace folder) and which one is the baseline.",
+        "tags": [
+          "pcap",
+          "wireshark"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
+            "other": {
+              "type": "string",
+              "description": "Path of the other capture file."
+            },
+            "baseline": {
+              "type": "string",
+              "enum": [
+                "other",
+                "open"
+              ],
+              "description": "Which capture is the baseline (before): the other one (default) or the open one."
+            }
+          },
+          "required": [
+            "other"
+          ]
+        }
+      },
+      {
+        "name": "pcap_apply_filter",
+        "displayName": "Apply Display Filter",
+        "toolReferenceName": "pcapApplyFilter",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Apply a display filter in the PCAP Lens viewer (asks first)",
+        "modelDescription": "Apply a Wireshark display filter in the PCAP Lens viewer, so the user sees the matching packets (the user confirms first). The filter is checked with tshark; an empty one clears the filter.",
+        "tags": [
+          "pcap",
+          "wireshark"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
+            "filter": {
+              "type": "string",
+              "description": "A Wireshark display filter."
+            }
+          },
+          "required": [
+            "filter"
+          ]
+        }
+      },
+      {
+        "name": "pcap_go_to_packet",
+        "displayName": "Go to Packet",
+        "toolReferenceName": "pcapGoToPacket",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Select a packet in the PCAP Lens viewer (asks first)",
+        "modelDescription": "Select a packet in the PCAP Lens viewer and show its details (the user confirms first).",
+        "tags": [
+          "pcap",
+          "wireshark"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
+            "packet": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The packet number."
+            }
+          },
+          "required": [
+            "packet"
           ]
         }
       }

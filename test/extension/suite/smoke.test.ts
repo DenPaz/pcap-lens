@@ -842,13 +842,11 @@ suite("PCAP Lens smoke test", () => {
       this.skip(); // (VS Code before the tools API: @pcap works without them)
     }
     const names = (lm.tools ?? []).map((t) => t.name);
-    for (const name of [
-      "pcap_capture_info",
-      "pcap_count",
-      "pcap_stats",
-      "pcap_field_search",
-      "pcap_list_packets",
-    ]) {
+    const declared = (ext!.packageJSON.contributes.languageModelTools as { name: string }[]).map(
+      (t) => t.name,
+    );
+    assert.ok(declared.includes("pcap_triage") && declared.includes("pcap_apply_filter"));
+    for (const name of declared) {
       assert.ok(names.includes(name), `${name} is registered`);
     }
     if (typeof lm.invokeTool !== "function") {
@@ -867,6 +865,53 @@ suite("PCAP Lens smoke test", () => {
     assert.match(await text("pcap_field_search", { prefix: "dns.flags.rc" }), /dns\.flags\.rcode/);
     // Counting is capture statistics: refused until the user allows it.
     assert.match(await text("pcap_count", { filter: "dns" }), /Not allowed/);
+    // Allowed (user settings), the agent's tools answer from tshark.
+    const ai = vscode.workspace.getConfiguration("pcapViewer.ai");
+    await ai.update("allowCaptureStatistics", true, vscode.ConfigurationTarget.Global);
+    try {
+      assert.match(
+        await text("pcap_triage", {}),
+        /^Triage checks counted by tshark: \d+ of \d+ found packets\./m,
+      );
+      assert.match(await text("pcap_overview", {}), /^Capture overview: \d+ packets/m);
+      assert.match(await text("pcap_sessions", { kind: "dns" }), /Not allowed/, "packet data");
+      // Another capture by name (one the user attached): read in a backend of the tools' own.
+      assert.match(
+        await text("pcap_overview", { capture: "http.pcap" }),
+        /^Capture overview: 11 packets/m,
+      );
+      // Outside the workspace, the viewer and Recent Captures: refused.
+      const outside = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "pcap-outside-")), "x.pcap");
+      fs.copyFileSync(path.join(FIXTURES, "http.pcap"), outside);
+      assert.match(
+        await text("pcap_overview", { capture: outside }),
+        /PCAP Lens's tools read captures in the workspace folders/,
+      );
+      // Comparing a named capture: the other's relative path is next to it first,
+      // not next to the active capture (dns.pcap), where a decoy of that name is.
+      const sub = fs.mkdtempSync(path.join(FIXTURES, "smoke-near-"));
+      const decoy = path.join(FIXTURES, "smoke-baseline.pcap");
+      try {
+        fs.copyFileSync(path.join(FIXTURES, "office-after.pcap"), path.join(sub, "current.pcap"));
+        fs.copyFileSync(
+          path.join(FIXTURES, "office-before.pcap"),
+          path.join(sub, "smoke-baseline.pcap"),
+        );
+        fs.copyFileSync(path.join(FIXTURES, "http.pcap"), decoy);
+        assert.match(
+          await text("pcap_compare", {
+            capture: path.join(path.basename(sub), "current.pcap"),
+            other: "smoke-baseline.pcap",
+          }),
+          /^Before \(baseline\): smoke-baseline\.pcap, 96 packets\. After: current\.pcap, 103 packets\./m,
+        );
+      } finally {
+        fs.rmSync(sub, { recursive: true, force: true });
+        fs.rmSync(decoy, { force: true });
+      }
+    } finally {
+      await ai.update("allowCaptureStatistics", undefined, vscode.ConfigurationTarget.Global);
+    }
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
     await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
   });

@@ -14,8 +14,18 @@ export interface ToolInvocationOptions {
   toolInvocationToken?: unknown;
 }
 
+/** What VS Code shows while a tool runs, and the question it asks first (PreparedToolInvocation). */
+export interface PreparedInvocation {
+  invocationMessage?: string;
+  confirmationMessages?: { title: string; message: string | vscode.MarkdownString };
+}
+
 export interface LanguageModelToolImpl {
   invoke(options: ToolInvocationOptions, token: vscode.CancellationToken): Promise<unknown>;
+  prepareInvocation?(
+    options: { input: unknown },
+    token: vscode.CancellationToken,
+  ): PreparedInvocation | undefined | Promise<PreparedInvocation | undefined>;
 }
 
 interface TextPart {
