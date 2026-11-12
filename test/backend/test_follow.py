@@ -5,9 +5,17 @@ tshark can't decrypt points at the connection, not at AES)."""
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
+import pytest
+
+from pcap_backend.cancellation import CancelToken
+from pcap_backend.pcap_service import PcapService
+from pcap_backend.protocol import RequestContext
+from pcap_backend.service import streams
 from pcap_backend.service.streams import _default_substream
+from pcap_backend.tshark import StreamResult
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 sys.path.insert(0, str(FIXTURES))
@@ -61,3 +69,31 @@ def test_default_substream() -> None:
     assert _default_substream("quic", [(5, [0]), (6, [4])], [0, 4], None) == 0
     assert _default_substream("quic", [(5, [0]), (6, [4])], [0, 4], 6) == 4
     assert _default_substream("quic", [], [], 6) == 0
+
+
+@pytest.mark.tshark
+def test_a_follow_cut_at_max_bytes_is_truncated_not_an_error(
+    service: PcapService, ctx: RequestContext, patch_service: Callable[[str, object], None]
+) -> None:
+    # Past maxBytes the loop stops reading, which kills tshark: that kill is
+    # ours, not a crash (Codex review of the 0.32.0 release PR: Follow Stream
+    # failed with "tshark follow failed" instead of the truncated stream).
+    service.open({"path": str(FIXTURES / "objects.pcap")}, ctx)
+    real = streams.stream_lines
+
+    def killed_when_closed(
+        argv: list[str], result: StreamResult, token: CancelToken
+    ) -> Iterator[bytes]:
+        lines = list(real(argv, result, token))
+        try:
+            yield from lines
+        except GeneratorExit:
+            result.returncode = -9  # (what stopping a tshark still writing gives)
+            raise
+
+    patch_service("stream_lines", killed_when_closed)
+    res = service.follow_stream({"proto": "tcp", "stream": 0, "maxBytes": 1024}, ctx)
+    assert res["truncated"] is True
+    assert 0 < sum(len(seg["hex"]) // 2 for seg in res["segments"]) <= 1024
+    whole = service.follow_stream({"proto": "tcp", "stream": 0}, ctx)
+    assert whole["truncated"] is False

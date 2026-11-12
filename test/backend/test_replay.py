@@ -21,7 +21,8 @@ from pcap_backend.cancellation import CancelledError, CancelToken
 from pcap_backend.pcap_service import PcapService
 from pcap_backend.protocol import FilterError, InvalidParamsError, NotOpenError, RequestContext
 from pcap_backend.replay import Record, TargetError
-from pcap_backend.tshark import find_tool
+from pcap_backend.service import replaying
+from pcap_backend.tshark import StreamResult, find_tool
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 sys.path.insert(0, str(FIXTURES))
@@ -726,6 +727,36 @@ def test_replay_stop_while_tshark_looks_for_packets(
     assert opened.replay_stop({}, ctx) == {"stopped": True}
     worker.join(10)
     assert out["stopped"] is True and out["targets"][0]["connections"] == 0
+
+
+@pytest.mark.tshark
+def test_a_tshark_crash_partway_is_an_error_not_a_shorter_replay(
+    opened: PcapService,
+    ctx: RequestContext,
+    services: tuple[Collector, Collector, Datagrams],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # tshark 4.6 crashed partway through rtcp_coverage.pcap.gz's pass: the
+    # replay sent half the bytes and said nothing.
+    hi2, _, _ = services
+    opened.replay_targets({}, ctx)
+    real = replaying.stream_lines
+
+    def crashing(argv: list[str], result: StreamResult, token: CancelToken) -> Iterator[bytes]:
+        lines = list(real(argv, result, token))
+        yield from lines[:4]
+        result.returncode, result.lines = -11, 4  # (SIGSEGV after four lines)
+
+    monkeypatch.setattr(replaying, "stream_lines", crashing)
+    params = {"speed": 0, "targets": {HI2: {"ip": "127.0.0.1", "port": hi2.port}}}
+    progress: list[dict[str, Any]] = []
+    ctx.progress = progress.append
+    result = opened.replay(params, ctx)
+    log = [line for p in progress if p["phase"] == "replay" for line in p["log"]]
+    errors = [line["text"] for line in log + result["log"] if line["level"] == "error"]
+    assert len(errors) == 1
+    assert errors[0].startswith("replay.pcap was only partly replayed (4 packets read): tshark")
+    assert "crashed (a segmentation fault)" in errors[0]
 
 
 # -- several captures, jitter, loss, until stopped ------------------------------------

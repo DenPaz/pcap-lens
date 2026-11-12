@@ -11,7 +11,7 @@ from typing import Any
 from pcap_backend import replay as engine
 from pcap_backend.cancellation import CancelledError, CancelToken
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, RpcError, param
-from pcap_backend.tshark import StreamResult, ToolError, Tshark, failed, stream_lines
+from pcap_backend.tshark import StreamResult, ToolError, Tshark, broke, stream_lines
 
 from .base import ServiceBase
 from .helpers import _readable_capture
@@ -239,16 +239,25 @@ class ReplayMixin(ServiceBase):
 
         def source_events(i: int, source: _Source) -> Iterator[engine.Event]:
             planner = engine.Planner(i)
+            read = 0
             try:
                 for rec in self._replay_records(
                     tshark, source.path, source.scope, runner.pass_token
                 ):
+                    read += 1
                     yield from planner.feed(rec)
                 yield from planner.finish()
             except (ToolError, RpcError, OSError) as exc:
                 if runner.pass_token.cancelled:
                     raise CancelledError from exc
-                runner.log(f"{source.name} can't be read: {exc}", level="error")
+                if read:
+                    # (tshark crashed partway: what came before was sent.)
+                    runner.log(
+                        f"{source.name} was only partly replayed ({read:,} packets read): {exc}",
+                        level="error",
+                    )
+                else:
+                    runner.log(f"{source.name} can't be read: {exc}", level="error")
             runner.planned(i, planner)
 
         def events() -> Iterator[engine.Event]:
@@ -409,5 +418,5 @@ class ReplayMixin(ServiceBase):
             rec = engine.parse_record(raw.decode("utf-8", "replace"))
             if rec is not None:
                 yield rec
-        if failed(result.returncode, result.stderr) and not result.lines:
+        if broke(result.returncode, result.stderr, result.lines > 0):
             raise tshark.error(result.stderr, result.returncode, "tshark failed")

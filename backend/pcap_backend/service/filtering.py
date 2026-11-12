@@ -10,11 +10,10 @@ from pcap_backend.cache import FrameIndex
 from pcap_backend.cancellation import CancelledError
 from pcap_backend.filterhelp import error_span
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, param
-from pcap_backend.tshark import StreamResult, stream_lines
+from pcap_backend.tshark import StreamResult, broke, stream_lines
 
 from .packets import PacketsMixin
 from .state import (
-    _TRUNCATION_HINTS,
     FIRST_BATCH,
     FIRST_BATCH_S,
     PROGRESS_INTERVAL_S,
@@ -305,10 +304,10 @@ class FilteringMixin(PacketsMixin):
                 ctx.progress(
                     {"phase": "filter", "matched": len(frames), "fraction": min(0.99, n / total)}
                 )
-        if result.returncode not in (0, None) and not frames and result.stderr:
-            if any(h in result.stderr for h in _TRUNCATION_HINTS):
-                return FrameIndex(frames, len(frames))
-            # (The filter was validated before: this is tshark failing to read
-            # the capture, e.g. a file deleted meanwhile, not a filter error.)
+        # (The filter was validated before: this is tshark failing to read the
+        # capture, e.g. a file deleted meanwhile, or crashing partway, whose
+        # matches so far would pass for all of them: Wireshark's rtcp_coverage
+        # under tshark 4.6 matched none of an address's 186 packets.)
+        if broke(result.returncode, result.stderr, bool(frames)):
             raise f.tshark.error(result.stderr, result.returncode, "tshark can't read the file")
         return FrameIndex(frames, len(frames))

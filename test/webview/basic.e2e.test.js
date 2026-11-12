@@ -20,9 +20,10 @@ const maybe = deps ? suite : suite.skip;
 
 maybe("webview basic view (Chromium, no tshark)", function () {
   this.timeout(60_000);
-  const { BasicCapture, BASIC_COLUMNS, basicRequest } = deps
+  const { BasicCapture, BasicCancelledError, BASIC_COLUMNS, basicRequest } = deps
     ? require(path.join(ROOT, "out", "src", "basicCapture.js"))
     : {};
+  const { BasicFilterError } = deps ? require(path.join(ROOT, "out", "src", "basicFilter.js")) : {};
   let server, browser, page, capture;
   const hostLog = [];
   const pageErrors = [];
@@ -79,14 +80,25 @@ maybe("webview basic view (Chromium, no tshark)", function () {
       if (msg.type === "ready") {
         await post(initMessage());
       } else if (msg.type === "rpc") {
+        // (As PcapEditorSession.answerBasic.)
         try {
-          const result = basicRequest(capture, msg.method, msg.params ?? {});
+          const result = await basicRequest(capture, msg.method, msg.params ?? {}, {});
           await post({ type: "rpcResult", id: msg.id, result });
         } catch (err) {
+          const code =
+            err instanceof BasicFilterError
+              ? -32010
+              : err instanceof BasicCancelledError
+                ? -32800
+                : -32001;
+          const data =
+            err instanceof BasicFilterError
+              ? { expr: msg.params?.expr, ...(err.span ? { span: err.span } : {}) }
+              : undefined;
           await post({
             type: "rpcError",
             id: msg.id,
-            error: { code: -32001, message: err.message },
+            error: { code, message: err.message, data },
           });
         }
       }
@@ -100,7 +112,7 @@ maybe("webview basic view (Chromium, no tshark)", function () {
     server?.close();
   });
 
-  test("the packets, with a banner saying what is missing; filters are off", async () => {
+  test("the packets, with a banner saying what is missing", async () => {
     await page.waitForFunction(
       () => document.querySelectorAll("#list-rows .list-row:not(.loading)").length === 11,
     );
@@ -112,8 +124,12 @@ maybe("webview basic view (Chromium, no tshark)", function () {
     assert.equal(banner.hidden, false);
     assert.match(banner.text, /Basic view: Wireshark's tshark wasn't found/);
     assert.equal(banner.title, "tshark was not found (searched: PATH)");
-    assert.equal(await page.isDisabled("#filter-input"), true);
-    assert.match(await page.getAttribute("#filter-input", "placeholder"), /need tshark/);
+    assert.match(banner.text, /Filters work on the common fields/);
+    assert.equal(await page.isDisabled("#filter-input"), false);
+    assert.match(
+      await page.getAttribute("#filter-input", "placeholder"),
+      /basic view: common fields/,
+    );
     const cells = await page.$$eval("#list-rows .list-row:not(.loading)", (rows) =>
       [...rows[3].children].map((c) => c.textContent),
     );
@@ -153,11 +169,7 @@ maybe("webview basic view (Chromium, no tshark)", function () {
     assert.equal(await page.isVisible("#comment-editor"), false);
     assert.ok(!hostLog.some((m) => m.type === "setComment"));
     // A filter left in the box by a full load: a basic init shows every packet.
-    await page.evaluate(() => {
-      const input = /** @type {HTMLInputElement} */ (document.getElementById("filter-input"));
-      input.disabled = false;
-      input.value = "tcp.port == 80";
-    });
+    await page.fill("#filter-input", "tcp.port == 80");
     hostLog.length = 0;
     await post(initMessage());
     await page.waitForFunction(
@@ -170,6 +182,57 @@ maybe("webview basic view (Chromium, no tshark)", function () {
     );
     await page.click("#list-rows .list-row:nth-child(4)");
     await page.waitForSelector("#detail .node-row");
+  });
+
+  test("display filters: suggestions, applying, a refused field underlined, clearing", async () => {
+    await page.fill("#filter-input", "");
+    await page.click("#filter-input");
+    await page.keyboard.type("tcp.fl");
+    await page.waitForSelector("#suggest:not(.hidden) .suggest-item");
+    const labels = await page.$$eval("#suggest .suggest-item .suggest-label", (items) =>
+      items.map((i) => i.textContent),
+    );
+    assert.ok(labels.includes("tcp.flags.syn"), labels.join(", "));
+    await page.keyboard.press("Escape");
+    await page.fill("#filter-input", "tcp.len > 0 && ip.src == 93.184.216.34");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(
+      () => document.querySelectorAll("#list-rows .list-row:not(.loading)").length === 2,
+    );
+    const shown = await page.$$eval("#list-rows .list-row:not(.loading)", (rows) =>
+      rows.map((r) => r.children[0].textContent),
+    );
+    assert.deepEqual(shown, ["6", "7"]);
+    assert.ok(hostLog.some((m) => m.type === "filterApplied"));
+    // A field the basic view doesn't read: refused, the name underlined, the rows kept.
+    await page.fill("#filter-input", 'http.user_agent contains "curl"');
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() =>
+      /isn't a field the basic view reads/.test(
+        document.getElementById("filter-error").textContent,
+      ),
+    );
+    await page.waitForSelector("#filter-paint-text .tok-error");
+    assert.equal(await page.textContent("#filter-paint-text .tok-error"), "http.user_agent");
+    assert.equal(await page.locator("#list-rows .list-row:not(.loading)").count(), 2);
+    await page.click("#filter-clear");
+    await page.waitForFunction(
+      () => document.querySelectorAll("#list-rows .list-row:not(.loading)").length === 11,
+    );
+  });
+
+  test("a filter that matches nothing says which of its fields no packet has", async () => {
+    await page.fill("#filter-input", 'dns.qry.name contains "x"');
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() =>
+      /No packet in this capture has dns\.qry\.name/.test(
+        document.getElementById("list-empty")?.textContent ?? "",
+      ),
+    );
+    await page.click("#filter-clear");
+    await page.waitForFunction(
+      () => document.querySelectorAll("#list-rows .list-row:not(.loading)").length === 11,
+    );
   });
 
   test("sorting says it needs tshark; Set Up… and Reload reach the host", async () => {

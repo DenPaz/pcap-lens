@@ -3067,8 +3067,9 @@
         ? "Python 3.12 or newer wasn't found"
         : "Wireshark's tshark wasn't found";
     return (
-      `Basic view: ${what}, so PCAP Lens read this capture itself. Filters, sorting, ` +
-      "statistics, streams and full protocol details need tshark: set it up, then Reload."
+      `Basic view: ${what}, so PCAP Lens read this capture itself. Filters work on the ` +
+      "common fields (Ctrl+Space lists them); sorting, statistics, streams and full " +
+      "protocol details need tshark: set it up, then Reload."
     );
   }
 

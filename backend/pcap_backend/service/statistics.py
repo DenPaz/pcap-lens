@@ -8,7 +8,7 @@ from typing import Any
 from pcap_backend import overview, sequence, sessions, stats, triage
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, param
 from pcap_backend.stats import IoSeries, Table
-from pcap_backend.tshark import StreamResult, ToolError, failed, run, stream_lines
+from pcap_backend.tshark import StreamResult, ToolError, broke, failed, run, stream_lines
 
 from .dissection import DissectionMixin
 from .helpers import _fields_args
@@ -374,7 +374,7 @@ class StatisticsMixin(DissectionMixin):
         for name in stats.MULTICAST_FIELDS:
             args += ["-e", name]
         res = run(f.tshark.argv(*args, capture=str(f.path)), ctx.token)
-        if failed(res.returncode, res.stderr) and not res.stdout:
+        if broke(res.returncode, res.stderr, bool(res.stdout)):
             raise f.tshark.error(res.stderr, res.returncode, "tshark failed")
         return stats.multicast_streams(res.stdout.decode("utf-8", "replace").split("\n"))
 
@@ -527,7 +527,7 @@ class StatisticsMixin(DissectionMixin):
 
         summary.add_lines(lines())
         ctx.token.raise_if_cancelled()
-        if not summary.packets and failed(result.returncode, result.stderr):
+        if broke(result.returncode, result.stderr, bool(summary.packets)):
             raise f.tshark.error(result.stderr, result.returncode, "tshark failed")
         return summary.to_json()
 
@@ -545,7 +545,7 @@ class StatisticsMixin(DissectionMixin):
             capture=str(f.path),
         )  # fmt: skip
         res = run(argv, ctx.token)
-        if failed(res.returncode, res.stderr) and not res.stdout:
+        if broke(res.returncode, res.stderr, bool(res.stdout)):
             raise f.tshark.error(res.stderr, res.returncode, "tshark failed")
         hex_ = "".join(c for c in res.stdout.decode("ascii", "replace") if c in _HEX_DIGITS)
         size = len(hex_) // 2
@@ -561,6 +561,6 @@ class StatisticsMixin(DissectionMixin):
         argv = f.tshark.argv(*extra, "-q", "-n", "-z", spec, capture=str(f.path))
         res = run(argv, ctx.token)
         text = res.stdout.decode("utf-8", "replace")
-        if failed(res.returncode, res.stderr) and not text.strip():
+        if broke(res.returncode, res.stderr, bool(text.strip())):
             raise f.tshark.error(res.stderr, res.returncode, f"tshark -z {spec} failed")
         return text

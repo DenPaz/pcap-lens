@@ -166,8 +166,9 @@ window.addEventListener("message", (event) => {
 
 /** @param {any} msg */
 /**
- * The basic view's banner, and the filter box off while it shows (filters
- * need tshark). `basic`: what is missing, and why the full viewer couldn't start.
+ * The basic view's banner and the filter box's hint (its filters know only
+ * the basic dissector's fields). `basic`: what is missing, and why the full
+ * viewer couldn't start.
  * @param {{missing: "python" | "tshark", reason: string} | null} basic
  */
 function showBasic(basic) {
@@ -175,13 +176,13 @@ function showBasic(basic) {
   el.basicBanner.classList.toggle("hidden", !basic);
   el.basicText.textContent = basic ? lib.basicViewText(basic.missing) : "";
   el.basicBanner.title = basic ? basic.reason : "";
-  el.filterInput.disabled = !!basic;
   if (basic) {
-    // (An earlier full load's filter can't apply here: onInit must load every packet.)
+    // (An earlier full load's filter may name fields the basic view doesn't
+    // read: onInit loads every packet instead.)
     el.filterInput.value = "";
   }
   el.filterInput.placeholder = basic
-    ? "Display filters need tshark (see above)"
+    ? "Apply a display filter (basic view: common fields, Ctrl+Space lists them) …"
     : "Apply a display filter … (Enter to apply, Ctrl+Space for suggestions)";
 }
 

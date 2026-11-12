@@ -7,6 +7,45 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.32.0 — 2026-11-12
+
+### Added
+
+- The basic view (no Python or tshark) filters: display filters over the
+  common fields of the headers it reads, with suggestions and underlined
+  errors, plus Find Packet, marks, ignored packets and the filter builder
+  [acc2bbf]
+- MCP server: `overview` (the capture at a glance), `sessions` (HTTP
+  requests, DNS queries and TLS servers with response times, or only the
+  failing ones), `voip_calls` (calls, quality, problems, RTP streams) and
+  `tcp_stream` (retransmissions, zero windows, round-trip times of one
+  connection), and results as structured content for clients that use it
+  [d2d14d5]
+- MCP server: each tool declares the shape of its result (an output schema),
+  so clients that read structured results know every field and its type
+  [dbf9f6b]
+
+### Fixed
+
+- A capture that crashes tshark partway says so instead of failing with an
+  internal error ("frame 48 out of order"), and so do the details of a
+  packet tshark crashes on [f501b46]
+- A tshark that crashes or is killed (out of memory) partway through a
+  replay, a follow, Export Objects, coloring, VoIP calls or a statistics
+  table is reported, instead of replaying or showing only what came before
+  it [78bc2ff]
+- A display filter that crashes tshark partway is an error instead of
+  showing (and remembering) only the packets before the crash, and a
+  statistics table whose report runs away (a dissector looping) stops at
+  256 MB instead of taking gigabytes of memory [38c7426]
+
+[acc2bbf]: https://github.com/DenPaz/pcap-lens/commit/acc2bbf
+[d2d14d5]: https://github.com/DenPaz/pcap-lens/commit/d2d14d5
+[dbf9f6b]: https://github.com/DenPaz/pcap-lens/commit/dbf9f6b
+[f501b46]: https://github.com/DenPaz/pcap-lens/commit/f501b46
+[78bc2ff]: https://github.com/DenPaz/pcap-lens/commit/78bc2ff
+[38c7426]: https://github.com/DenPaz/pcap-lens/commit/38c7426
+
 ## 0.31.0 — 2026-11-11
 
 ### Added

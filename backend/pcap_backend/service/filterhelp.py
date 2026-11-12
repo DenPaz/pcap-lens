@@ -8,7 +8,7 @@ from typing import Any
 
 from pcap_backend import filterhelp
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, param
-from pcap_backend.tshark import StreamResult, failed, stream_lines
+from pcap_backend.tshark import StreamResult, broke, stream_lines
 
 from .dissection import DissectionMixin
 
@@ -81,7 +81,8 @@ class FilterHelpMixin(DissectionMixin):
             if isinstance(lines, Generator):
                 lines.close()  # (stops tshark once every field was seen)
         ctx.token.raise_if_cancelled()
-        if not seen and failed(result.returncode, result.stderr):
+        # (Stopped once every field was seen: tshark was killed on purpose.)
+        if len(seen) < len(names) and broke(result.returncode, result.stderr, bool(seen)):
             raise f.tshark.error(result.stderr, result.returncode, "looking for the fields failed")
         return seen
 
@@ -146,7 +147,7 @@ class FilterHelpMixin(DissectionMixin):
 
         counted = filterhelp.count_values(cells())
         ctx.token.raise_if_cancelled()
-        if not counted["packets"] and failed(result.returncode, result.stderr):
+        if broke(result.returncode, result.stderr, bool(counted["packets"])):
             raise f.tshark.error(result.stderr, result.returncode, f"reading {name} failed")
         counts = counted["counts"]
         ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))

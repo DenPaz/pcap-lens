@@ -24,6 +24,7 @@ dev = [
     "pytest-bdd>=9.0.1",
     "pytest-cov>=7.1.0",
     "pytest-xdist>=3.8",
+    "jsonschema>=4.23",
 ]
 
 [build-system]

@@ -18,6 +18,7 @@ from pcap_backend.tshark import (
     ToolError,
     ToolNotFoundError,
     Tshark,
+    crash,
     find_tool,
     run,
     stream_lines,
@@ -136,16 +137,23 @@ class DetailMixin(DissectionMixin):
                 wait([hex_future])
             raise
         hex_res = hex_future.result()
-        if not pdml_res.stdout.strip():
+        # (A tshark that crashed mid-packet left cut PDML: Wireshark's
+        # rtcp_coverage under 4.6. Its crash is the answer, not a parse error.)
+        if not pdml_res.stdout.strip() or crash(pdml_res.returncode):
             raise tshark.error(
                 pdml_res.stderr,
                 pdml_res.returncode,
                 f"tshark returned no detail for frame {number}",
             )
         sources = pdml.parse_hexdump(hex_res.stdout.decode("utf-8", "replace"))
-        tree = pdml.parse_pdml(
-            pdml_res.stdout, max(1, len(sources)), [bytes(s.data) for s in sources]
-        )
+        try:
+            tree = pdml.parse_pdml(
+                pdml_res.stdout, max(1, len(sources)), [bytes(s.data) for s in sources]
+            )
+        except pdml.PdmlError as exc:
+            if pdml_res.returncode == 0:
+                raise
+            raise tshark.error(pdml_res.stderr, pdml_res.returncode, str(exc)) from exc
         return {
             "tree": tree,
             "sources": [s.to_json() for s in sources],

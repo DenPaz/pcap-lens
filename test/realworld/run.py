@@ -88,6 +88,18 @@ BUSY_CPU = 50.0
 # The programs MemoryWatch may stop (ps's comm: a path on macOS, 15
 # characters on Linux); never the backends or the harness, whose memory is ours.
 WIRESHARK_TOOLS = {"tshark", "editcap", "mergecap", "capinfos", "dumpcap", "text2pcap"}
+# ``python -m pcap_backend``, with every thread's stack printed to stderr on
+# SIGUSR1 (POSIX), which a timeout with no busy tool asks for: macOS (tshark
+# 4.6) timed out on openflow_v6_coverage's expert statistics with no tool
+# running at all, so the wait was the backend's own.
+BACKEND_MAIN = (
+    "import faulthandler, runpy, signal\n"
+    "if hasattr(signal, 'SIGUSR1'):\n"
+    "    faulthandler.register(signal.SIGUSR1, all_threads=True)\n"
+    "runpy.run_module('pcap_backend', run_name='__main__', alter_sys=True)\n"
+)
+STACK_WAIT_S = 3.0
+MAX_STACK_FRAMES = 4  # of our own code, per thread
 
 with (ROOT / "package.json").open(encoding="utf-8") as fh:
     _PROPS: dict[str, Any] = {}
@@ -190,7 +202,7 @@ class Server:
             "PYTHONPATH": str(ROOT / "backend"),
         }
         self.proc = subprocess.Popen(
-            [sys.executable, "-m", "pcap_backend"],
+            [sys.executable, "-c", BACKEND_MAIN],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -225,6 +237,28 @@ class Server:
         assert self.proc.stderr is not None
         for raw in self.proc.stderr:
             self.stderr.append(raw.decode("utf-8", "replace").rstrip())
+
+    def stacks(self) -> str:
+        """Where the backend's threads are now (``summarize_stacks`` of the
+        dump SIGUSR1 makes it print), "" when it can't say (Windows, gone)."""
+        sigusr1 = getattr(signal, "SIGUSR1", None)
+        if sigusr1 is None or self.proc.poll() is not None:
+            return ""
+        mark = len(self.stderr)
+        try:
+            os.kill(self.proc.pid, sigusr1)
+        except OSError:
+            return ""
+        deadline = time.monotonic() + STACK_WAIT_S
+        seen = mark
+        quiet_since = time.monotonic()
+        while time.monotonic() < deadline:
+            time.sleep(0.1)
+            if len(self.stderr) != seen:
+                seen, quiet_since = len(self.stderr), time.monotonic()
+            elif seen > mark and time.monotonic() - quiet_since > 0.5:
+                break
+        return summarize_stacks(self.stderr[mark:])
 
     def call(self, method: str, params: dict[str, Any], timeout: float) -> Any:
         with self._lock:
@@ -337,8 +371,14 @@ class Run:
             result = self.server.call(method, params or {}, self.timeout)
         except RpcError as exc:
             took = time.monotonic() - start
+            waiting = ""
             if exc.code == TIMEOUT_CODE:
                 busy += busy_tools(self.server.proc.pid)
+                if not busy:
+                    waiting = _waiting_detail(self.server.proc.pid)
+                    stacks = self.server.stacks()
+                    if stacks:
+                        waiting += f" (backend: {stacks})"
             status = (
                 "expected"
                 if exc.code in EXPECTED_CODES
@@ -347,7 +387,7 @@ class Run:
                 else "problem"
             )
             data = f" {json.dumps(exc.data)[:300]}" if exc.data else ""
-            detail = f"[{exc.code}] {exc.message}{data}{_busy_detail(busy)}"
+            detail = f"[{exc.code}] {exc.message}{data}{_busy_detail(busy)}{waiting}"
             self.report.steps.append(Step(name, status, took, detail))
             return None
         finally:
@@ -452,7 +492,10 @@ def record_count(path: Path) -> int | None:
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
-    return None if done.returncode < 0 else len(done.stdout.split())
+    # (Lines of packet numbers only: tshark 4.6 printed 14 more words for
+    # drdynvc_coverage's 139 packets, which a count of words took as packets.)
+    numbers = [ln for ln in done.stdout.split(b"\n") if ln.strip().isdigit()]
+    return None if done.returncode < 0 else len(numbers)
 
 
 def exercise(path: Path, timeout: float, quick: bool = False) -> Report:
@@ -931,17 +974,36 @@ def _overview(run: Run, frames: int) -> None:
             got = _count(run, item["filter"])
             if got is None:
                 continue
-            if card in exact:
-                ok = got == item["count"]
-            elif card in at_least:
-                ok = got >= item["count"]
-            else:
-                ok = got >= 1
-            run.check(
-                "overview row filter",
-                ok,
-                f"{item['filter']} matches {got}, the card counts {item['count']}",
+            kind = "exact" if card in exact else "at least" if card in at_least else "some"
+            status = overview_row_status(kind, item["filter"], got, item["count"])
+            detail = f"{item['filter']} matches {got}, the card counts {item['count']}"
+            if status == "note":
+                detail += f" ({MALFORMED_NOTE})"
+            run.report.steps.append(
+                Step("overview row filter", status, 0.0, "" if status == "ok" else detail)
             )
+
+
+MALFORMED_NOTE = "tshark 4.6's protocol hierarchy counts malformed layers its filter doesn't match"
+
+
+def overview_row_status(kind: str, flt: str, got: int, count: int) -> str:
+    """How an overview row's filter compares with the card's count: ``exact``
+    rows match it, protocol rows (``at least``) match at least it, the rest
+    match something. tshark 4.6's protocol hierarchy (macOS CI) counts
+    ``_ws.malformed`` in packets its own ``_ws.malformed`` filter doesn't
+    match (dpnss/epl/nfapi_coverage: card 3/3/10, filter 2/0/4; 4.2.2 agrees
+    with itself), so that row matching fewer is a note: tshark's own
+    disagreement, kept visible without failing the run."""
+    if kind == "exact":
+        ok = got == count
+    elif kind == "at least":
+        ok = got >= count
+        if not ok and flt == "_ws.malformed":
+            return "note"
+    else:
+        ok = got >= 1
+    return "ok" if ok else "problem"
 
 
 def _sessions(run: Run) -> None:
@@ -1659,8 +1721,8 @@ def processes() -> list[Proc]:
     return rows
 
 
-def tools_under(procs: list[Proc], root: int) -> list[Proc]:
-    """The Wireshark tools among ``root``'s descendants, at any depth."""
+def descendants(procs: list[Proc], root: int) -> list[Proc]:
+    """``root``'s descendants, at any depth."""
     children: dict[int, list[int]] = {}
     for p in procs:
         children.setdefault(p.ppid, []).append(p.pid)
@@ -1671,7 +1733,12 @@ def tools_under(procs: list[Proc], root: int) -> list[Proc]:
             if child not in mine:
                 mine.add(child)
                 todo.append(child)
-    return [p for p in procs if p.pid in mine and p.program in WIRESHARK_TOOLS]
+    return [p for p in procs if p.pid in mine]
+
+
+def tools_under(procs: list[Proc], root: int) -> list[Proc]:
+    """The Wireshark tools among ``root``'s descendants, at any depth."""
+    return [p for p in descendants(procs, root) if p.program in WIRESHARK_TOOLS]
 
 
 def busy_tools(root: int) -> list[str]:
@@ -1680,16 +1747,83 @@ def busy_tools(root: int) -> list[str]:
     BUSY_CPU) or have used BUSY_CPU % of a CPU, rather than sleeping on a
     pipe the backend reads: a request that waits on one waits on tshark's own
     dissection (4.2.2 loops on kafka_coverage.pcap.gz's conversations,
-    ignoring SIGTERM). [] when ``ps`` can't tell (Windows)."""
+    ignoring SIGTERM). A tool the kernel is still dumping core for counts
+    too: tshark crashed, and an Ubuntu runner's crash handler kept 4.2.2's
+    two-pass crash on drdynvc_coverage.pcapng.gz from ending for over 120 s
+    (it ends in 0.15 s with a plain core pattern). [] when ``ps`` can't tell
+    (Windows)."""
     try:
         procs = processes()
     except (OSError, subprocess.SubprocessError):
         return []
-    return [
-        f"{p.program} at {p.cpu:.0f}% CPU"
-        for p in tools_under(procs, root)
-        if p.state.startswith("R") or p.cpu >= BUSY_CPU
-    ]
+    busy = []
+    for p in tools_under(procs, root):
+        if core_dumping(p.pid):
+            busy.append(f"{p.program} crashed, its core still being dumped")
+        elif p.state.startswith("R") or p.cpu >= BUSY_CPU:
+            busy.append(f"{p.program} at {p.cpu:.0f}% CPU")
+    return busy
+
+
+# Programs that hold a crashed process while they write its report (macOS's
+# crash reporter; Linux's apport and systemd-coredump read the core).
+CRASH_REPORTERS = frozenset({"ReportCrash", "apport", "systemd-coredump"})
+
+
+def waiting_on(procs: list[Proc], root: int) -> list[str]:
+    """What a request that timed out with no busy tool was waiting on: the
+    backend (``root``) and every process under it with its ``ps`` state,
+    CPU share and memory, and any crash reporter running on the machine.
+    macOS (tshark 4.6) timed out with no busy tshark on several captures
+    that crash or use much memory; this says which next time."""
+
+    def row(p: Proc, name: str) -> str:
+        return f"{name} {p.state} {p.cpu:.0f}% CPU {p.rss_kb // 1024} MB"
+
+    rows = [row(p, "backend") for p in procs if p.pid == root]
+    rows += [row(p, p.program) for p in descendants(procs, root)]
+    reporters = sorted({p.program for p in procs if p.program in CRASH_REPORTERS})
+    return rows + [f"{r} running" for r in reporters]
+
+
+def _waiting_detail(root: int) -> str:
+    try:
+        what = waiting_on(processes(), root)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return f" (waiting on: {'; '.join(what)})" if what else ""
+
+
+_STACK_THREAD = re.compile(r"^(?:Current thread|Thread) (0x[0-9a-f]+)", re.IGNORECASE)
+_STACK_FRAME = re.compile(r'^\s+File "(?P<file>[^"]+)", line (?P<line>\d+) in (?P<func>\S+)')
+
+
+def summarize_stacks(lines: list[str]) -> str:
+    """faulthandler's dump of every thread, cut to our own frames (files in
+    pcap_backend, innermost first, MAX_STACK_FRAMES a thread): one
+    "file:line func < caller" chain per thread that is in our code, "; "
+    between threads. Threads only in the standard library (the pool's idle
+    workers, the stdin reader) are left out."""
+    threads: list[list[str]] = []
+    for line in lines:
+        if _STACK_THREAD.match(line):
+            threads.append([])
+            continue
+        m = _STACK_FRAME.match(line)
+        path = m["file"].replace("\\", "/") if m else ""
+        if m and threads and "pcap_backend" in path and len(threads[-1]) < MAX_STACK_FRAMES:
+            threads[-1].append(f"{path.rsplit('/', 1)[-1]}:{m['line']} {m['func']}")
+    return "; ".join(" < ".join(t) for t in threads if t)
+
+
+def core_dumping(pid: int) -> bool:
+    """Whether the kernel is writing ``pid``'s core dump (Linux 4.15+:
+    ``CoreDumping: 1`` in its status; False elsewhere or once it is gone)."""
+    try:
+        status = Path(f"/proc/{pid}/status").read_text(errors="replace")
+    except OSError:
+        return False
+    return any(ln.split() == ["CoreDumping:", "1"] for ln in status.split("\n"))
 
 
 class MemoryWatch:
@@ -1745,6 +1879,36 @@ def watch_memory(jobs: int, mb: int | None) -> MemoryWatch | None:
     return MemoryWatch(mb).start()
 
 
+def part_of[T](items: list[T], spec: str) -> list[T]:
+    """The ``K/N`` part of ``items``: every Nth from the Kth (1-based), so
+    each part gets its share of the large ``*_coverage`` captures, which
+    sit together in name order. macOS ran Wireshark's 1,602 captures one at
+    a time and hit GitHub's 6-hour limit at 1,418; its job runs in parts."""
+    k, sep, n = spec.partition("/")
+    if not sep or not k.isdigit() or not n.isdigit() or not 1 <= int(k) <= int(n):
+        raise ValueError(f"--part takes K/N with 1 <= K <= N, not {spec!r}")
+    return items[int(k) - 1 :: int(n)]
+
+
+def chosen_captures(args: argparse.Namespace) -> list[Path]:
+    """The captures the command line names (fetched, given, --only, --part);
+    ValueError when there are none."""
+    captures: list[Path] = []
+    if "wireshark" in args.fetch:
+        captures += fetch_wireshark(CACHE / "wireshark")
+    if "tcpdump" in args.fetch:
+        captures += fetch_tcpdump(CACHE / "tcpdump")
+    for p in args.paths:
+        captures += sorted(x for x in p.rglob("*") if x.is_file()) if p.is_dir() else [p]
+    if args.only:
+        captures = [c for c in captures if args.only in c.name]
+    if args.part:
+        captures = part_of(captures, args.part)
+    if not captures:
+        raise ValueError("no captures: give paths or --fetch")
+    return captures
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -1768,19 +1932,17 @@ def main(argv: list[str] | None = None) -> int:
         help="memory each Wireshark tool may use (default: a share of the machine's, 0 = no cap)",
     )
     ap.add_argument("--out", type=Path, help="write the full report as JSON")
+    ap.add_argument(
+        "--part",
+        metavar="K/N",
+        help="only every Nth capture from the Kth (a CI job's share of a large set)",
+    )
     args = ap.parse_args(argv)
 
-    captures: list[Path] = []
-    if "wireshark" in args.fetch:
-        captures += fetch_wireshark(CACHE / "wireshark")
-    if "tcpdump" in args.fetch:
-        captures += fetch_tcpdump(CACHE / "tcpdump")
-    for p in args.paths:
-        captures += sorted(x for x in p.rglob("*") if x.is_file()) if p.is_dir() else [p]
-    if args.only:
-        captures = [c for c in captures if args.only in c.name]
-    if not captures:
-        ap.error("no captures: give paths or --fetch")
+    try:
+        captures = chosen_captures(args)
+    except ValueError as exc:
+        ap.error(str(exc))
 
     watch = watch_memory(args.jobs, args.memory)
     if watch:

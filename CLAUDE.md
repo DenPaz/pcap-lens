@@ -293,7 +293,8 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   Dump), `ber.py` (counting back-to-back BER records), `codecs.py` (G.722,
   G.726-32 and L16 decoders), `triage.py` (the AI triage's checks),
   `compare.py` (capture profiles and diffs),
-  `mcp.py` (the MCP server) and `standins.py` (its address stand-ins),
+  `mcp.py` (the MCP server), `mcp_schemas.py` (its tools' output schemas) and
+  `standins.py` (its address stand-ins),
   `replay.py` (Replay to Service: records, planner, socket engine),
   `replay_cli.py` (its command line, `pcap-lens-replay`; the launcher
   `backend/pcap-lens-replay.py`),
@@ -716,17 +717,45 @@ function/value/string` (the debugger's and outline's theme colours) and
   addresses) and 802.15.4; TCP shows raw sequence numbers. `init` carries
   `basic {missing, reason}`; the webview shows `#basic-banner`
   (`lib.basicViewText`, Set Up… = `setUp` → the walkthrough, Reload),
-  disables the filter box, and sorting says it needs tshark. `forwardRpc`
-  answers from `basicRequest` (list_packets with every `timeFormat` and
-  `timeRef` as the backend formats them (`timeText`, `formatSeconds`,
-  `formatAbsolute`; "since previous displayed" = since previous captured),
-  packet_detail with its `number`, find_frame, view_frames; empty
-  field_types, packet_comments, view_overview); a filter left in the box is
-  cleared and comments can't be edited (the webview says why; the host
-  ignores `setComment`); a simple packet block's captured length is cut at
-  its interface's snap length, not its padded block (Codex review); anything
-  else is a `NeedsToolsError` ("Filtering needs tshark: …", code
-  TsharkNotFound). Added after comparing with a pure-JavaScript viewer: the
+  and sorting says it needs tshark. `forwardRpc` answers from
+  `basicRequest` (`answerBasic`, async: a cancel sets the request's
+  `BasicRequestContext.cancelled`, `progress` posts "progress"): list_packets
+  with every `timeFormat` and `timeRef` as the backend formats them
+  (`timeText`, `formatSeconds`, `formatAbsolute`; "since previous displayed"
+  = since the view's previous packet), packet_detail with its `number`,
+  find_frame, view_frames, empty packet_comments and view_overview; a filter
+  left in the box by a full load is cleared and comments can't be edited (the
+  webview says why; the host ignores `setComment`); a simple packet block's
+  captured length is cut at its interface's snap length, not its padded block
+  (Codex review); the rest (statistics, export…) is a `NeedsToolsError`
+  ("Expert information needs tshark: …", code TsharkNotFound).
+  **Basic filters** (`src/basicFilter.ts`, pure): Wireshark's filter
+  language minus slices, functions, arithmetic and field references (each
+  refused saying it needs tshark), over `BASIC_PROTOCOLS`/`BASIC_FIELDS`
+  (tshark's names, types and descriptions of what the dissector reads, plus
+  `ip.addr`, `tcp.port`, `tcp.flags.*`, `tcp.len`, `http.request.method`,
+  `dns.qry.type`, `_ws.col.*`…). Tested against `tshark -Y` (4.2):
+  `and` binds tighter than `or`; `!=` is all_ne (`!==` any_ne; 4.2 refuses
+  `~=`, so it's not offered); a comparison with an absent field is false;
+  any non-zero number is a true boolean; a protocol's bytes for `contains`
+  run to the end of its data (`ip`, `tcp` include the payload: Layer's
+  `extent`); strings order case-sensitively, as tshark (Codex review:
+  they were lower-cased, so `<= "GET"` missed GET), and a quoted string's
+  bytes (`Token.bytes`, for `contains` and byte fields) are its text in
+  UTF-8 with `\xHH` escapes as single bytes, as tshark reads them (they
+  were Latin-1); errors are tshark's words where it has them, with a [start,
+  end) span. `dissect(…, fields)` fills a field → values map (`put`; tree
+  fields typed by `fieldValue`, the rest put directly); `BasicCapture.values`
+  dissects only for non-frame fields. `set_filter` walks every packet
+  (yielding and checking for a cancel every `FILTER_YIELD`; a newer filter
+  supersedes by `filterSeq`), keeps `MAX_CACHED_FILTERS` results and sets
+  `view` (`filterId` + 1); validate_filter, field_index (prefix or words),
+  field_types, field_values, filter_hints, find_packet (filter, string,
+  regex, hex; in bytes, list or details; marked), mark/ignore_packets work
+  too. Differences from tshark on the fixtures are reassembly only: an HTTP
+  message over several segments is HTTP at its first (tshark: its last), a
+  pipelined second response isn't read, and tshark's `data` and
+  `_ws.malformed` cover protocols the basic view doesn't decode. Added after comparing with a pure-JavaScript viewer: the
   first run without the tools showed only an error. Tests:
   `basicCapture.test.ts`, `test/webview/basic.e2e.test.js` (no tshark
   needed), and the smoke test's missing `tsharkPath`, then Reload.
@@ -2666,13 +2695,69 @@ false` the open capture's slot is free, so `files` holds up to 101. The
   4.2.2 passes them): overview protocol rows whose filter matches fewer
   packets than the card counts under 4.6 (`_ws.malformed` in
   `dpnss`/`epl`/`nfapi_coverage`: card 3/3/10, filter 2/0/4; `data` in
-  `meta_coverage` passed on a Mac rerun), so the macOS run of Wireshark's
-  set keeps listing these three problems. Run on a Mac (tshark 4.6) later: `moldudp_coverage` only
+  `meta_coverage` passed on a Mac rerun); since the overview's own
+  `_ws.malformed` row is tshark disagreeing with itself, the harness counts
+  it as a note (`overview_row_status`, `MALFORMED_NOTE`), so a red weekly
+  run means something new. Run on a Mac (tshark 4.6) later: `moldudp_coverage` only
   notes (killed tools, a busy tshark); `m3ua_coverage`'s first data segment
   reuses the SYN's sequence number, whose byte a receiver and the replay
   planner drop and 4.2's Follow dropped too, while 4.6's Follow keeps it,
   so `segment_payloads` now starts each direction at its first SYN + 1
   (a SYN's own data there too), like the planner.
+  The run on `dev` after that (2026-11-11; Wireshark's set grown to 1,602)
+  found tshark 4.6 crashing mid-output: `stream_lines` passed on the cut last
+  line ("48" of "488\t…", `pfcp_coverage`), which the index pass read as
+  packet 48; a last line without its line break now counts only when the
+  child exits with 0 (`_exited_cleanly`). Cut PDML from a crash
+  (`rtcp_coverage`) is the crash's ToolError, not a PdmlError (`_dissect`).
+  `record_count` counts lines of packet numbers only (4.6 printed 14 more
+  words for `drdynvc_coverage`'s 139 packets). Not yet explained, 4.6 only:
+  `drdynvc_coverage`'s HTTP and TLS session tables empty where tshark finds
+  2 each, and `openflow_v6`/`rdt_coverage` passes not answering in 120 s
+  with no busy tshark. The rerun's Linux job (4.2.2) timed out on
+  `drdynvc_coverage`'s triage with no busy tshark, where 4.2.2's two-pass
+  run segfaults in 0.15 s locally (60 of 60 runs, as root or not): most
+  likely the runner's crash handler holding the crashed tshark while it
+  reads the core. `busy_tools` now also counts a tool whose
+  `/proc/<pid>/status` says `CoreDumping: 1` (`core_dumping`), so such a
+  timeout is a note, and the workflow prints the runner's `core_pattern`.
+  The rerun's macOS job reached 1,418 of the 1,602 captures in GitHub's
+  6 hours, so Wireshark's set runs there in two jobs (`--part 1/2`, `2/2`:
+  every other capture, `part_of`). It found tshark 4.6 crashing partway
+  through `rtcp_coverage`'s replay pass while the replay sent what came
+  before (half the bytes) with no error: most passes took output after a
+  failure as complete (`failed(…) and not lines`). `tshark.broke(rc,
+stderr, wrote)` is now that check everywhere, and a crash always breaks
+  the pass; a replay logs "x was only partly replayed (N packets read)".
+  Its `moldudp_coverage` expert pass and `nfs_coverage_malformed`'s VoIP
+  calls timed out with no busy tshark (as `openflow_v6`/`rdt_coverage`
+  before): a timeout now names what it waited on (`waiting_on`: each
+  tool's `ps` state, CPU and memory, and a running crash reporter such as
+  macOS's ReportCrash, which holds a crashed process while it writes the
+  report). The run after that (two macOS parts, 2 h 58 for part 1; Linux
+  clean with 1,652 captures, its `core_pattern` systemd-coredump) still
+  timed out on `openflow_v6_coverage`'s expert pass with no process under
+  the backend at all, so the wait is the backend's own: the harness now
+  starts it with `faulthandler` on SIGUSR1 (`BACKEND_MAIN`) and a timeout
+  without a busy tool adds the backend's stacks (`Server.stacks`,
+  `summarize_stacks`: our frames only) and every process under it. Its
+  `rtcp_coverage` replay listed 5,543 bytes and sent 70,955: a pass cut
+  short by a kill (likely the memory watch) passed as complete, since
+  `broke` took any signal for the backend's own stop; the backend's own
+  kills raise CancelledError before any check, so `broke` now counts every
+  signal death as broken. (Follow Stream stops reading past `maxBytes`,
+  which kills tshark: a truncated follow skips `broke`; Codex review of the
+  0.32.0 PR, which found the capped follow failing.)
+  The next run's stacks named the rest: the backend itself at 2-5.6 GB
+  in `run()` under `_expert`'s `_tap` (openflow_v5/v6_coverage under 4.6;
+  only tshark's memory was watched), keeping a looping dissector's
+  report whole. `run()` now reads stdout itself (`_chunks`, shared with
+  `stream_lines`) up to `MAX_OUTPUT_BYTES` (256 MB), past which it stops
+  the child and raises a ToolError, with stderr through the capped
+  `_StderrCollector`. The same run's `rtcp_coverage` overview row matched
+  0 of 186 packets: the filter pass (`_run_filter`, also behind
+  `count_matches`) took a crashed tshark's matches as the result and
+  cached them; it and the field passes of `filterhelp` use `broke` now.
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage
@@ -2739,7 +2824,21 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   and need `--allow-packet-data`; the refusal and the instructions say the
   user chose this and not to read contents another way (`_CONTENTS_REFUSED`:
   in a test Claude Code ran tshark through Bash after a plain "this server
-  doesn't return"), compare_captures (`{before, after, limit}`: both
+  doesn't return"), overview (the Capture Overview's `overview` pass,
+  breakdowns cut to `limit` rows by `_cut_breakdowns`, the timeline's
+  busiest interval; HTTP, DNS and TLS without a request, query or hello
+  are left out and named in `absent`), sessions (`{kind: http|dns|tls}` →
+  the session tables, `only_problems` (`_session_problem`: HTTP ≥ 400 or no
+  response, DNS not NoError, TLS servers with unanswered handshakes),
+  offset/limit in capture order, `notListed` past the backend's row cap),
+  voip_calls (summary by state, calls with quality, problems, reasons and
+  timings, streams without a call, registrations; `call` gives one call's
+  messages (`MAX_CALL_MESSAGES`) and streams; DTMF events keep their
+  digits only with `--allow-packet-data`: they can be PINs, and so do the
+  messages' names (`_without_digits`: IAX2's "DTMF 7", MGCP's "NTFY
+  D/2,D/0"; Codex review of the 0.32.0 PR), tcp_stream
+  (`tcp_graph`'s points → `tcp_facts`, a port of aiAnomaly.ts' `tcpFacts`
+  plus the first retransmission and zero-window packets), compare_captures (`{before, after, limit}`: both
   captures' `capture_profile`, then `compare.diff`; names relative to the
   root), validate_filter, search_fields, and with
   `--allow-packet-data`
@@ -2750,7 +2849,21 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   one summary line each, since Frame and Ethernet filled a short `max_lines`
   before the DNS part in a test; byte dumps "[N bytes not
   shown]" unless `--allow-packet-bytes`) and follow_stream (printable text
-  per segment, `max_bytes`). All are `readOnlyHint`. `--stand-ins`:
+  per segment, `max_bytes`). All are `readOnlyHint`. From protocol
+  2025-06-18 (`STRUCTURED_SINCE`; the negotiated version is kept) a result
+  also comes as `structuredContent` (the same object, through
+  `AddressMasker.mask_deep` with stand-ins), and tools/list gives each tool's
+  `outputSchema` (`mcp_schemas.OUTPUT_SCHEMAS`; only to those clients: one
+  that gets a schema must get structured results). The schemas type every
+  key a result can hold, require only the keys a successful result always
+  has and leave objects open, so a new key never makes a client reject a
+  result; `voip_calls` is the list or one call (`anyOf` of two required
+  sets). The test client (`test_mcp.py` `Client.request`) checks every
+  structured result its tests get against its tool's schema with
+  `jsonschema` (a dev dependency; the backend stays stdlib-only), and
+  `test_every_tool_output_matches_its_schema` calls every tool, with and
+  without stand-ins (it found DTMF durations, null for H.323, MGCP and
+  IAX2 digits). `--stand-ins`:
   `standins.AddressMasker` (a port of aiPrivacy.ts without host names: the
   server runs `-n`) masks every result's text and restores tokens in the
   arguments. VS Code: `contributes.mcpServerDefinitionProviders`

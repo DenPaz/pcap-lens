@@ -29,9 +29,13 @@ does all the dissection and filtering, so results match Wireshark exactly.
 Until both are installed, a `.pcap` or `.pcapng` (also `.gz`) opens in a
 **basic view**: PCAP Lens reads the file itself and shows the packet list
 (addresses, protocol, info) and each packet's link, IP, TCP/UDP, ICMP, ARP,
-DNS, HTTP and TLS headers with their bytes. Filters, sorting, statistics,
-streams and everything else need tshark; a banner says what is missing, and
-_Reload_ opens the full viewer once it is set up.
+DNS, HTTP and TLS headers with their bytes. Display filters work on those
+headers' common fields (`ip.addr == 10.0.0.0/8 && tcp.port in {80, 443}`,
+`dns.qry.name contains "example"`, `frame contains "GET"`; Ctrl+Space lists
+them), and so do Find Packet, marks and the filter builder. Without
+reassembly, a message split over several TCP segments counts at its first one.
+Sorting, statistics, streams and everything else need tshark; a banner says
+what is missing, and _Reload_ opens the full viewer once it is set up.
 
 Every command is in the Command Palette (`PCAP: …`) and in the viewer's **☰**
 menu, grouped and searchable. The **PCAP Lens** view in the activity bar lists
@@ -185,8 +189,10 @@ capture data needs your consent first, and addresses become stand-ins such as
   **summaries**, **explain packets** and **Ask Copilot** in the expert, TCP
   graph and VoIP panels.
 - **MCP server** for Claude Code, Claude Desktop, Cursor and VS Code's agent
-  mode: read-only tools over capture files (counts, statistics, triage,
-  comparison and, if allowed, packets). It dissects captures as the viewer
+  mode: read-only tools over capture files (an overview, counts, statistics,
+  triage, HTTP requests, DNS queries and TLS servers with their response
+  times, VoIP calls with their quality, TCP connection health, comparison
+  and, if allowed, packets). It dissects captures as the viewer
   does: your Lua dissectors, Decode As rules, preferences, Wireshark profile
   and tshark's plugins (compiled ones too). VS Code 1.101+ lists it by itself;
   _PCAP: Copy MCP Server Configuration…_ gives the setup for the others.

@@ -14,10 +14,12 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from pcap_backend import mcp
 from pcap_backend import triage as triage_checks
 from pcap_backend.mcp import Captures, McpConfig, McpServer, Toolbox
+from pcap_backend.mcp_schemas import OUTPUT_SCHEMAS
 from pcap_backend.protocol import RequestContext
 from pcap_backend.standins import AddressMasker
 
@@ -47,6 +49,8 @@ class Client:
         self._thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self._thread.start()
         self._next = 0
+        self._output_schemas: dict[str, Any] | None = None
+        self.checked: set[str] = set()  # tools whose results matched their outputSchema
         self._messages: list[dict[str, Any]] = []
         self._lock = threading.Condition()
         self._reader = threading.Thread(target=self._read, daemon=True)
@@ -68,7 +72,21 @@ class Client:
         self._next += 1
         rid = self._next
         self.send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params or {}})
-        return self.wait(rid, timeout)
+        response = self.wait(rid, timeout)
+        if method == "tools/call":
+            self._check_output((params or {}).get("name"), response.get("result") or {})
+        return response
+
+    def _check_output(self, name: Any, result: dict[str, Any]) -> None:
+        """Every structured result a test gets matches its tool's outputSchema."""
+        structured = result.get("structuredContent")
+        if structured is None or result.get("isError"):
+            return
+        if self._output_schemas is None:
+            tools = self.request("tools/list")["result"]["tools"]
+            self._output_schemas = {t["name"]: t["outputSchema"] for t in tools}
+        Draft202012Validator(self._output_schemas[name]).validate(structured)
+        self.checked.add(name)
 
     def wait(self, rid: int, timeout: float = 60) -> dict[str, Any]:
         end = time.monotonic() + timeout
@@ -144,6 +162,10 @@ def test_handshake_tools_and_errors(client_for: Any) -> None:
         "validate_filter",
         "search_fields",
         "plugins",
+        "overview",
+        "sessions",
+        "voip_calls",
+        "tcp_stream",
     }, "no packet contents without --allow-packet-data"
     assert all(t["annotations"]["readOnlyHint"] for t in tools.values())
     assert tools["statistics"]["inputSchema"]["required"] == ["capture", "kind"]
@@ -233,6 +255,228 @@ def test_statistics_tools(client_for: Any) -> None:
     assert invalid["valid"] is False and invalid["error"]
     fields, _ = c.call("search_fields", query="dns reply code", limit=5)
     assert any(f["name"] == "dns.flags.rcode" for f in fields["fields"])
+
+
+@pytest.mark.tshark
+def test_overview_and_sessions(client_for: Any) -> None:
+    c = client_for()
+    ov, failed = c.call("overview", capture="sessions.pcap", limit=2, buckets=6)
+    assert not failed
+    assert (ov["packets"], ov["bytes"]) == (62, 5154)
+    assert sum(ov["timeline"]["packets"]) == 62 and len(ov["timeline"]["packets"]) <= 6
+    assert ov["timeline"]["busiest"]["packets"] == max(ov["timeline"]["packets"])
+    addresses = ov["addresses"]
+    assert len(addresses["items"]) == 2 and addresses["more"] == addresses["total"] - 2
+    assert addresses["items"][0]["filter"] == "ip.addr == 192.168.1.10"
+    assert ov["http"]["requests"] == 7 and len(ov["http"]["statuses"]["items"]) == 2
+    assert {"dns", "tls", "protocols", "services"} <= set(ov)
+    limited, _ = c.call("overview", capture="sessions.pcap", filter="dns")
+    assert limited["packets"] == 9 and limited["absent"] == ["http", "tls"]
+    assert "absent" not in ov
+
+    http, failed = c.call("sessions", capture="sessions.pcap", kind="http")
+    assert not failed and http["summary"] == {"requests": 7, "unanswered": 1}
+    assert http["matching"] == len(http["rows"]) == 7 and not http["more"]
+    assert http["columns"][7] == "Status"
+    bad, _ = c.call("sessions", capture="sessions.pcap", kind="http", only_problems=True)
+    assert [r["cells"][7] for r in bad["rows"]] == [500, 404, None, 404]
+    assert bad["rows"][2]["cells"][8] == "No response" and "response" not in bad["rows"][2]
+    page, _ = c.call("sessions", capture="sessions.pcap", kind="http", offset=5, limit=1)
+    assert [r["frame"] for r in page["rows"]] == [59] and page["more"]
+    dns, _ = c.call("sessions", capture="sessions.pcap", kind="dns", only_problems=True)
+    assert [r["cells"][7] for r in dns["rows"]] == ["NXDomain", "No response"]
+    tls, _ = c.call("sessions", capture="sessions.pcap", kind="tls", only_problems=True)
+    assert [r["cells"][1] for r in tls["rows"]] == ["cdn.example.net"]
+    assert tls["rows"][0]["filter"] == "tcp.stream in {4}"
+    text, failed = c.call("sessions", capture="sessions.pcap", kind="smtp")
+    assert failed and "kind" in text
+    text, failed = c.call("sessions", capture="sessions.pcap", kind="dns", only_problems="yes")
+    assert failed and "true or false" in text
+
+
+@pytest.mark.tshark
+def test_tcp_stream(client_for: Any) -> None:
+    c = client_for()
+    retrans, _ = c.call(
+        "count_packets", capture="office-after.pcap", filter="tcp.analysis.retransmission"
+    )
+    assert retrans["count"] >= 1
+    first = retrans["packets"][0]
+    health, failed = c.call("tcp_stream", capture="office-after.pcap", packet=first)
+    assert not failed
+    assert health["filter"] == f"tcp.stream == {health['stream']}"
+    assert first in health["retransmissionPackets"]
+    sent = [d for d in health["directions"] if d["retransmissions"]]
+    assert len(sent) == 1 and sent[0]["retransmissionRate"] > 0
+    assert sent[0]["direction"].startswith(health["endpoints"][0]) or sent[0][
+        "direction"
+    ].startswith(health["endpoints"][1])
+    by_number, _ = c.call("tcp_stream", capture="office-after.pcap", stream=health["stream"])
+    assert by_number == health
+    web, _ = c.call("tcp_stream", capture="sessions.pcap", stream=0)
+    assert web["syns"] == 2 and web["rtt"]["samples"] > 0
+    assert web["rtt"]["minMs"] <= web["rtt"]["medianMs"] <= web["rtt"]["maxMs"]
+    assert sum(d["packets"] for d in web["directions"]) == web["packets"]
+    text, failed = c.call("tcp_stream", capture="sessions.pcap")
+    assert failed and "stream" in text
+
+
+def test_tcp_facts_of_points() -> None:
+    fields = ["frame", "time", "dir", "seq", "len", "ack", "win", "rtt", "retrans", "syn"]
+    points = [
+        [1, 0.0, 0, 0, 0, 0, 8192, None, 0, 1],
+        [2, 0.01, 1, 0, 0, 1, 4096, 0.01, 0, 1],
+        [3, 0.02, 0, 1, 100, 1, 8192, 0.01, 0, 0],
+        [4, 0.5, 0, 1, 100, 1, 8192, None, 1, 0],
+        [5, 0.6, 1, 1, 0, 101, 0, 0.03, 0, 0],
+        [6, 0.7, 1, 1, 0, 101, 2048, 0.02, 0, 0],
+    ]
+    facts = mcp.tcp_facts(points, fields, ["a:1", "b:2"])
+    one, two = facts["directions"]
+    assert (one["direction"], two["direction"]) == ("a:1 → b:2", "b:2 → a:1")
+    assert (one["dataPackets"], one["bytes"], one["retransmissions"]) == (2, 200, 1)
+    assert one["retransmissionRate"] == 0.5 and facts["retransmissionRate"] == 0.5
+    assert (two["zeroWindows"], two["minWindow"], two["maxWindow"]) == (1, 2048, 2048)
+    assert facts["rtt"] == {"samples": 4, "minMs": 10.0, "medianMs": 15.0, "maxMs": 30.0}
+    assert facts["syns"] == 2 and facts["durationSeconds"] == 0.7
+    assert (facts["retransmissionPackets"], facts["zeroWindowPackets"]) == ([4], [5])
+    assert mcp.tcp_facts([], fields, [])["rtt"] is None
+
+
+@pytest.mark.tshark
+def test_voip_calls(client_for: Any) -> None:
+    c = client_for()
+    calls, failed = c.call("voip_calls", capture="voip-calls.pcap")
+    assert not failed
+    assert calls["summary"]["calls"] == 5 and calls["summary"]["withProblems"] >= 1
+    assert sum(calls["summary"]["byState"].values()) == 5
+    first = calls["calls"][0]
+    assert (first["from"], first["endedBy"]) == ("dave@10.0.1.1", "callee")
+    assert first["quality"]["mos"] > 4 and isinstance(first["messages"], int)
+    # DTMF digits can be PINs: without --allow-packet-data only where and when.
+    assert len(first["dtmf"]) == 3 and all("digit" not in e for e in first["dtmf"])
+    assert "hidden" in calls["dtmfDigits"]
+    one_way = calls["calls"][1]
+    assert {p["kind"] for p in one_way["problems"]} >= {"one-way", "codec", "ssrc", "gap"}
+    assert len(calls["registrations"]) == 3
+
+    detail, _ = c.call("voip_calls", capture="voip-calls.pcap", call=0)
+    assert detail["call"]["callId"] == "dtmf@10.0.1.1"
+    assert detail["call"]["messages"][0] == {
+        "packet": 1, "time": 0.0, "from": "10.0.1.1", "to": "10.0.1.2", "message": "INVITE (SDP)",
+    }  # fmt: skip
+    assert [s["stream"] for s in detail["streams"]] == first["streams"]
+    assert all(s["filter"].startswith("rtp.ssrc == ") for s in detail["streams"])
+    text, failed = c.call("voip_calls", capture="voip-calls.pcap", call=9)
+    assert failed and "calls 0 to 4" in text
+
+    shared = client_for(allow_packet_data=True)
+    digits, _ = shared.call("voip_calls", capture="voip-calls.pcap", call=0)
+    assert [e["digit"] for e in digits["call"]["dtmf"]] == ["4", "7", "#"]
+    assert "dtmfDigits" not in digits
+
+    # Nor in the signalling messages' names (IAX2 "DTMF 7", MGCP's observed
+    # digits): Codex review of the 0.32.0 release PR.
+    def messages(client: Any, call: int) -> list[str]:
+        detail, failed = client.call("voip_calls", capture="voip-other.pcap", call=call)
+        assert not failed and detail["call"]["protocol"] in ("IAX2", "MGCP")
+        return [m["message"] for m in detail["call"]["messages"]]
+
+    iax2, mgcp = messages(c, 3), messages(c, 5)
+    assert "DTMF (digit hidden)" in iax2 and not any("DTMF 7" in m for m in iax2)
+    assert "NTFY 4 DTMF digits hidden" in mgcp and not any("D/" in m for m in mgcp)
+    assert "NTFY L/hd" in mgcp  # (other events stay)
+    assert "DTMF 7" in messages(shared, 3) and "NTFY D/2,D/0,D/0,D/2" in messages(shared, 5)
+
+
+@pytest.mark.tshark
+def test_structured_results(client_for: Any) -> None:
+    c = client_for(stand_ins=True)
+    c.request("initialize", {"protocolVersion": "2025-06-18"})
+    res = c.request(
+        "tools/call", {"name": "count_packets", "arguments": {"capture": "dns.pcap", "filter": ""}}
+    )["result"]
+    structured = res["structuredContent"]
+    assert structured == json.loads(res["content"][0]["text"])
+    assert structured["capture"] == "dns.pcap" and structured["count"] > 0
+    conv = c.request(
+        "tools/call",
+        {"name": "statistics", "arguments": {"capture": "dns.pcap", "kind": "conversations"}},
+    )["result"]
+    assert conv["structuredContent"]["rows"][0]["cells"][0].startswith("IP_")  # (masked too)
+    assert conv["structuredContent"] == json.loads(conv["content"][0]["text"])
+    failed = c.request("tools/call", {"name": "overview", "arguments": {"capture": "x.pcap"}})
+    assert failed["result"]["isError"] and "structuredContent" not in failed["result"]
+    old = client_for()
+    old.request("initialize", {"protocolVersion": "2025-03-26"})
+    res = old.request(
+        "tools/call", {"name": "count_packets", "arguments": {"capture": "dns.pcap", "filter": ""}}
+    )["result"]
+    assert "structuredContent" not in res
+
+
+def test_output_schemas_are_listed_for_structured_clients(client_for: Any) -> None:
+    for name, schema in OUTPUT_SCHEMAS.items():
+        Draft202012Validator.check_schema(schema)
+        assert schema["type"] == "object", name
+    c = client_for(allow_packet_data=True)
+    c.request("initialize", {"protocolVersion": "2025-06-18"})
+    tools = c.request("tools/list")["result"]["tools"]
+    assert {t["name"] for t in tools} == set(OUTPUT_SCHEMAS)
+    assert all(t["outputSchema"] == OUTPUT_SCHEMAS[t["name"]] for t in tools)
+    old = client_for()
+    old.request("initialize", {"protocolVersion": "2025-03-26"})
+    assert not any("outputSchema" in t for t in old.request("tools/list")["result"]["tools"])
+
+
+@pytest.mark.tshark
+@pytest.mark.parametrize("stand_ins", [False, True])
+def test_every_tool_output_matches_its_schema(client_for: Any, stand_ins: bool) -> None:
+    # (Client.request checks each structured result; this calls every tool,
+    # and the variants whose results differ in shape.)
+    c = client_for(allow_packet_data=True, allow_packet_bytes=True, stand_ins=stand_ins)
+    c.request("initialize", {"protocolVersion": "2025-06-18"})
+    calls: list[tuple[str, dict[str, Any]]] = [
+        ("list_captures", {"limit": 3}),
+        ("plugins", {}),
+        ("capture_info", {"capture": "http.pcap"}),
+        ("count_packets", {"capture": "dns.pcap", "filter": "dns"}),
+        *(
+            ("statistics", {"capture": "services.pcap", "kind": kind})
+            for kind in ("conversations", "protocol_hierarchy", "expert", "io", "dns", "http")
+        ),
+        ("statistics", {"capture": "network.pcap", "kind": "hosts", "filter": "dns"}),
+        ("triage", {"capture": "office-after.pcap"}),
+        ("overview", {"capture": "sessions.pcap", "limit": 2, "buckets": 4}),
+        ("overview", {"capture": "dns.pcap", "filter": "udp"}),
+        *(
+            ("sessions", {"capture": "sessions.pcap", "kind": kind, "only_problems": True})
+            for kind in ("http", "dns", "tls")
+        ),
+        ("voip_calls", {"capture": "voip-calls.pcap"}),
+        ("voip_calls", {"capture": "voip-calls.pcap", "call": 0}),
+        ("voip_calls", {"capture": "voip-media.pcap", "call": 0}),
+        ("voip_calls", {"capture": "voip-other.pcap"}),
+        ("tcp_stream", {"capture": "http.pcap", "stream": 0}),
+        ("tcp_stream", {"capture": "office-after.pcap", "packet": 1}),
+        ("compare_captures", {"before": "office-before.pcap", "after": "office-after.pcap"}),
+        ("field_values", {"capture": "dns.pcap", "field": "dns.qry.name"}),
+        ("validate_filter", {"filter": "dns"}),
+        ("validate_filter", {"filter": "dns =="}),
+        ("search_fields", {"query": "dns response code"}),
+        ("list_packets", {"capture": "dns.pcap", "limit": 3}),
+        ("packet_details", {"capture": "dns.pcap", "packet": 1, "protocols": ["dns"]}),
+        ("follow_stream", {"capture": "http.pcap", "protocol": "tcp", "stream": 0}),
+        ("follow_stream", {"capture": "streams.pcapng", "protocol": "http2", "stream": 0}),
+    ]
+    for name, args in calls:
+        result, failed = c.call(name, **args)
+        assert not failed, (name, args, result)
+    assert c.checked == set(OUTPUT_SCHEMAS)
+    # A result that doesn't match its schema fails the check.
+    bad = {**c.call("count_packets", capture="dns.pcap", filter="dns")[0], "count": "six"}
+    with pytest.raises(Exception, match="is not of type 'integer'"):
+        Draft202012Validator(OUTPUT_SCHEMAS["count_packets"]).validate(bad)
 
 
 @pytest.mark.tshark

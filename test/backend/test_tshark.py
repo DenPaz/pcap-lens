@@ -15,6 +15,7 @@ from pcap_backend.tshark import (
     ConfigError,
     DissectionOptions,
     StreamResult,
+    ToolError,
     ToolNotFoundError,
     Tshark,
     clean_stderr,
@@ -85,6 +86,16 @@ def test_argv_is_a_list_with_options_first() -> None:
 )
 def test_crash(code: int | None, what: str | None) -> None:
     assert ts.crash(code) == what
+
+
+def test_a_crash_breaks_a_pass_even_after_output() -> None:
+    assert ts.broke(-11, "", wrote=True)  # (the rest of its output is missing)
+    assert ts.broke(1, "tshark: Some fields aren't valid", wrote=False)
+    assert not ts.broke(1, "tshark: Some fields aren't valid", wrote=True)
+    # (Killed by someone else: the backend's own kills are cancellations.)
+    assert ts.broke(-9, "", wrote=True) and ts.broke(-15, "", wrote=False)
+    assert not ts.broke(2, "cut short in the middle of a packet", wrote=False)
+    assert not ts.broke(0, "", wrote=False)
 
 
 def test_error_explains_a_crash() -> None:
@@ -232,6 +243,28 @@ def test_stream_lines_keeps_the_exit_code() -> None:
     script = "import sys; sys.stdout.write('x' * 70000 + '\\r\\n\\nlast')"
     lines = list(ts.stream_lines([sys.executable, "-c", script], StreamResult()))
     assert lines == [b"x" * 70000, b"", b"last"]
+
+
+def test_stream_lines_drops_the_cut_line_of_a_crashed_child() -> None:
+    # tshark crashing mid-line (Wireshark's pfcp_coverage under 4.6) left "48" of
+    # "488\t...": the cut line isn't a row, and the failure is the exit code.
+    script = "import os, sys\nsys.stdout.write('487\\tok\\n48'); sys.stdout.flush(); os._exit(5)"
+    result = StreamResult()
+    assert list(ts.stream_lines([sys.executable, "-c", script], result)) == [b"487\tok"]
+    assert result.returncode == 5
+
+
+def test_run_stops_a_child_whose_output_passes_the_limit() -> None:
+    # tshark 4.6's expert report of Wireshark's openflow_v6_coverage took the
+    # backend to 2 GB: its output is kept up to a limit, then tshark is stopped.
+    script = "import sys\nwhile True: sys.stdout.write('x' * 65536)"
+    with pytest.raises(ToolError, match="wrote more than 1 MB"):
+        ts.run([sys.executable, "-c", script], max_bytes=1 << 20)
+    assert len(ts.PROCESSES) == 0
+    # Within the limit: all of it, the exit code and stderr.
+    script = "import sys\nsys.stdout.write('y' * 200000); sys.stderr.write('oops'); sys.exit(2)"
+    res = ts.run([sys.executable, "-c", script], max_bytes=1 << 20)
+    assert (res.stdout, res.returncode, res.stderr) == (b"y" * 200000, 2, "oops")
 
 
 def test_run_captures_stderr() -> None:
