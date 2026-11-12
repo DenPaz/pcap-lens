@@ -7,6 +7,14 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Changed
+
+- The PCAP Lens agent and the analyze-capture skill know which tools need
+  which AI setting and how many rows each returns, so without packet data
+  they answer from statistics instead of asking for packets [e8ea0c5]
+
+[e8ea0c5]: https://github.com/DenPaz/pcap-lens/commit/e8ea0c5
+
 ## 0.33.1 — 2026-11-12
 
 ### Added
