@@ -18,6 +18,7 @@ import {
   defaultExpertQuestion,
   parseAnomalyArgs,
 } from "../aiAnomaly";
+import { AGENT_MODE, AgentAsk, agentQuery, askInSetting } from "../aiAgentQuery";
 import { STATISTICS_CONSENT } from "../aiConsent";
 import { CaptureDiff, compareQuery, parseCompareArgs } from "../aiCompare";
 import { modelItems, modelLabel, unusableReason, unusableWhy } from "../aiModel";
@@ -40,7 +41,13 @@ import { SECTION } from "../config";
 import { toolsRuntime } from "../lmTools";
 import type { PcapEditorProvider, PcapEditorSession } from "../pcapEditor";
 import { OtherCapture, captureProfile, pickOtherCapture, resolveCapturePath } from "./compare";
-import { ToolCaptures, resolveToolCapture, viewerOf } from "./toolCaptures";
+import {
+  ToolCaptures,
+  captureLabel,
+  resolveToolCapture,
+  toolsCanRead,
+  viewerOf,
+} from "./toolCaptures";
 import { requireSession } from "./filter";
 
 /** "PCAP: Suggest Display Filter…": describe the packets, pick a validated filter, it lands in the filter bar. */
@@ -656,6 +663,37 @@ async function openChatWith(query: string, log: vscode.LogOutputChannel): Promis
   }
 }
 
+/** Whether the viewer's AI buttons ask the PCAP Lens agent (`pcapViewer.ai.askIn`) and its tools exist. */
+function askingAgent(): boolean {
+  return (
+    askInSetting(vscode.workspace.getConfiguration(SECTION).get("ai.askIn")) === "agent" &&
+    toolsRuntime() !== undefined
+  );
+}
+
+/**
+ * Open the chat view in the PCAP Lens agent with `ask`'s request sent (an
+ * agent VS Code doesn't know is ignored: the request goes to the current
+ * one). False when VS Code can't, and `@pcap` or the editor answer instead.
+ */
+async function openAgentWith(ask: AgentAsk, log: vscode.LogOutputChannel): Promise<boolean> {
+  if (!(await vscode.commands.getCommands(true)).includes("workbench.action.chat.open")) {
+    return false;
+  }
+  try {
+    await vscode.commands.executeCommand("workbench.action.chat.open", {
+      query: agentQuery(ask),
+      mode: AGENT_MODE,
+    });
+    return true;
+  } catch (err) {
+    log.info(
+      `workbench.action.chat.open in the ${AGENT_MODE} agent failed (${(err as Error)?.message ?? err}); asking @pcap`,
+    );
+    return false;
+  }
+}
+
 /**
  * Without the chat view: ask the language model directly and stream the answer
  * into an untitled Markdown document, then offer the same buttons.
@@ -749,6 +787,14 @@ export async function summarizeCapture(
     void vscode.window.showInformationMessage("AI help is turned off (pcapViewer.ai.enabled).");
     return;
   }
+  if (askingAgent()) {
+    if (!(await statisticsConsent())) {
+      return;
+    }
+    if (await openAgentWith({ kind: "summary", capture: captureLabel(session.uri) }, log)) {
+      return;
+    }
+  }
   if (await openChatWith(summaryQuery(), log)) {
     return;
   }
@@ -779,6 +825,21 @@ export async function compareCaptures(
   if (!other) {
     return;
   }
+  // (the agent's tools read the other capture only where they may: else @pcap, which reads any)
+  if (askingAgent() && toolsCanRead(other.uri, provider, context)) {
+    if (!(await statisticsConsent())) {
+      return;
+    }
+    const ask: AgentAsk = {
+      kind: "compare",
+      capture: captureLabel(session.uri),
+      other: captureLabel(other.uri),
+      baseline: other.is === "before" ? "other" : "open",
+    };
+    if (await openAgentWith(ask, log)) {
+      return;
+    }
+  }
   if (await openChatWith(compareQuery(keep(compareSelections, other)), log)) {
     return;
   }
@@ -804,6 +865,14 @@ export async function triageCapture(
   if (!aiEnabled()) {
     void vscode.window.showInformationMessage("AI help is turned off (pcapViewer.ai.enabled).");
     return;
+  }
+  if (askingAgent()) {
+    if (!(await statisticsConsent())) {
+      return;
+    }
+    if (await openAgentWith({ kind: "triage", capture: captureLabel(session.uri) }, log)) {
+      return;
+    }
   }
   if (await openChatWith(triageQuery(), log)) {
     return;
@@ -859,6 +928,20 @@ export async function askAboutAnomaly(
     target = { kind: "expert", ref: rows ? keepSelection(rows) : undefined };
     question ||= rows ? defaultExpertQuestion(rows) : "";
   }
+  // (a call stays with @pcap: no tool reads VoIP calls yet)
+  if (askingAgent() && ask.kind !== "call") {
+    if (!(await statisticsConsent())) {
+      return;
+    }
+    const capture = captureLabel(session.uri);
+    const agentAsk: AgentAsk =
+      ask.kind === "stream"
+        ? { kind: "stream", capture, stream: ask.stream, question: ask.question }
+        : { kind: "expert", capture, rows: ask.rows, question };
+    if (await openAgentWith(agentAsk, log)) {
+      return;
+    }
+  }
   if (await openChatWith(anomalyQuery(target, question), log)) {
     return;
   }
@@ -896,6 +979,15 @@ export async function askAboutPackets(
   if (!picked.length) {
     void vscode.window.showInformationMessage("Select the packets to ask about first.");
     return;
+  }
+  if (askingAgent()) {
+    if (!(await packetDataConsent()).allowed) {
+      return;
+    }
+    const ask: AgentAsk = { kind: "packets", capture: captureLabel(session.uri), frames: picked };
+    if (await openAgentWith(ask, log)) {
+      return;
+    }
   }
   if (!(await openChatWith(explainQuery(picked), log))) {
     await explainInEditor(session, picked);

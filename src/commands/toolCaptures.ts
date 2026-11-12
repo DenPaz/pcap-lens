@@ -43,11 +43,7 @@ export async function resolveToolCapture(
   provider: PcapEditorProvider,
   context: vscode.ExtensionContext,
 ): Promise<vscode.Uri | string> {
-  const folders = (vscode.workspace.workspaceFolders ?? [])
-    .filter((f) => f.uri.scheme === "file")
-    .map((f) => f.uri.fsPath);
-  const open = provider.allSessions.filter((s) => s.uri.scheme === "file").map((s) => s.uri.fsPath);
-  const recent = parseRecent(context.globalState.get(RECENT_KEY)).map((e) => e.path);
+  const { folders, open, recent } = readablePlaces(provider, context);
   const active = provider.activeSession;
   const dirs = [
     ...(active?.uri.scheme === "file" ? [path.dirname(active.uri.fsPath)] : []),
@@ -73,6 +69,39 @@ export async function resolveToolCapture(
     return `PCAP Lens's tools read captures in the workspace folders, open in the viewer or in Recent Captures; ${file} is none of those. Open it in PCAP Lens first.`;
   }
   return vscode.Uri.file(file);
+}
+
+/** The workspace folders, open captures and recent captures: the places tools may read from. */
+function readablePlaces(
+  provider: PcapEditorProvider,
+  context: vscode.ExtensionContext,
+): { folders: string[]; open: string[]; recent: string[] } {
+  return {
+    folders: (vscode.workspace.workspaceFolders ?? [])
+      .filter((f) => f.uri.scheme === "file")
+      .map((f) => f.uri.fsPath),
+    open: provider.allSessions.filter((s) => s.uri.scheme === "file").map((s) => s.uri.fsPath),
+    recent: parseRecent(context.globalState.get(RECENT_KEY)).map((e) => e.path),
+  };
+}
+
+/** Whether the tools may read `uri` (see `resolveToolCapture`). */
+export function toolsCanRead(
+  uri: vscode.Uri,
+  provider: PcapEditorProvider,
+  context: vscode.ExtensionContext,
+): boolean {
+  return uri.scheme === "file" && toolsMayRead(uri.fsPath, readablePlaces(provider, context));
+}
+
+/**
+ * How a chat request names `uri` for the tools' `capture` argument: its path
+ * in the workspace, else its file name (found among the open and recent
+ * captures), so no home folder goes to the model.
+ */
+export function captureLabel(uri: vscode.Uri): string {
+  const rel = vscode.workspace.asRelativePath(uri, false);
+  return rel && rel !== uri.fsPath && !path.isAbsolute(rel) ? rel : path.basename(uri.fsPath);
 }
 
 /** The loaded viewer of `uri`, if one is open (and done loading enough to answer). */

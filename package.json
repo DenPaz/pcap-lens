@@ -2160,6 +2160,19 @@
           "scope": "application",
           "markdownDescription": "The language model the AI features use, by id: empty is automatic (GitHub Copilot's model). Pick one with *PCAP: Choose Language Model…*: any chat model VS Code offers, including those other extensions provide, such as models running on your machine, which keep what the AI features send there. When the chosen model isn't available, AI help says so instead of using another one. User settings only."
         },
+        "pcapViewer.ai.askIn": {
+          "type": "string",
+          "enum": [
+            "pcap",
+            "agent"
+          ],
+          "enumDescriptions": [
+            "Ask `@pcap` in the chat view (its Local harness, until VS Code removes it in 2027-02)",
+            "Ask the PCAP Lens agent, which answers with PCAP Lens's tools (needs VS Code with language model tools)"
+          ],
+          "default": "pcap",
+          "markdownDescription": "Where the viewer's AI commands ask: *Summarize Capture*, *Triage Capture*, *Compare Captures*, *Ask Copilot About This Packet…* and the Expert Information and TCP Stream Graph panels' *Ask Copilot…*. `pcap` opens the chat with an `@pcap` command; `agent` opens it in the PCAP Lens agent with a request naming the capture and the tools to use (VoIP calls stay with `@pcap`). Either way the consent settings decide what is sent."
+        },
         "pcapViewer.ai.pseudonymizeAddresses": {
           "type": "boolean",
           "default": true,

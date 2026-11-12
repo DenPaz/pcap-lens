@@ -15,6 +15,8 @@ commit) that made it. The format follows
   file, and applying a filter or going to a packet after you confirm [8eb5d54]
 - The agent's tools also read a capture attached to the chat (`#file:`) or
   named, when it is in the workspace, open or in Recent Captures [b9f346b]
+- `pcapViewer.ai.askIn`: `agent` makes the viewer's AI commands ask the PCAP
+  Lens agent instead of `@pcap` (the default until VS Code drops `@pcap`)
 
 ### Fixed
 

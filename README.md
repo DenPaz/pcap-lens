@@ -193,7 +193,10 @@ capture data needs your consent first, and addresses become stand-ins such as
   (`#file:trace.pcap`) or name: tshark decodes that file, which may be in a
   workspace folder, open in the viewer or in Recent Captures. Copilot sends
   an attached file's own contents to the model as well, whatever PCAP Lens's
-  settings say; naming the file in words doesn't.
+  settings say; naming the file in words doesn't. The viewer's AI commands
+  (summary, triage, compare, explain packets, _Ask Copilot_ in the panels)
+  ask `@pcap` for now; set `pcapViewer.ai.askIn` to `agent` to have them ask
+  the PCAP Lens agent instead.
 - **Filter suggestions** (✨ or `@pcap`), **capture filters** and **Lua
   dissectors** from a description, all checked by tshark before use.
 - **Triage** (`@pcap /triage`): ranked findings from 33 checks tshark counts

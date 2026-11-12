@@ -2261,8 +2261,19 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   smoke test checks every declared tool is registered and runs triage and
   the overview with statistics allowed, a named fixture read with no
   editor and a copy outside the workspace refused. `@pcap` stays for the Local
-  harness; the viewer's _Ask Copilot_ commands still open it (else the
-  editor fallback).
+  harness; the viewer's AI commands open it by default (else the editor
+  fallback). **`pcapViewer.ai.askIn`** (`pcap` default, `agent`;
+  `src/aiAgentQuery.ts` pure) prepares the move: with `agent` and the tools
+  API, summary, triage, compare, explain packets and the expert and TCP
+  stream panels' _Ask Copilot_ ask the consent first, then open
+  `workbench.action.chat.open {query, mode: AGENT_MODE}` (VS Code looks
+  `mode` up by name and ignores an unknown one) with a plain request
+  (`agentQuery`) naming the capture (`captureLabel`: workspace path, else
+  file name; never the home folder) and the `#pcap…` tools to use; an
+  expert row goes as severity, group, protocol and packet numbers, never
+  its message (packet text). A comparison whose other capture the tools
+  may not read (`toolsCanRead`) and a VoIP call (no tool reads calls) stay
+  with `@pcap`; a failed open falls back to `@pcap`, then the editor.
 - **Language model choice** (`src/aiModel.ts` pure, `pcapViewer.ai.model`,
   application scope; _PCAP: Choose Language Model…_): `modelSelector("")` =
   `{vendor: "copilot"}` (as before), an id = `{id}` only. No fallback to
