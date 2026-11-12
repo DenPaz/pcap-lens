@@ -14,10 +14,12 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from pcap_backend import mcp
 from pcap_backend import triage as triage_checks
 from pcap_backend.mcp import Captures, McpConfig, McpServer, Toolbox
+from pcap_backend.mcp_schemas import OUTPUT_SCHEMAS
 from pcap_backend.protocol import RequestContext
 from pcap_backend.standins import AddressMasker
 
@@ -47,6 +49,8 @@ class Client:
         self._thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self._thread.start()
         self._next = 0
+        self._output_schemas: dict[str, Any] | None = None
+        self.checked: set[str] = set()  # tools whose results matched their outputSchema
         self._messages: list[dict[str, Any]] = []
         self._lock = threading.Condition()
         self._reader = threading.Thread(target=self._read, daemon=True)
@@ -68,7 +72,21 @@ class Client:
         self._next += 1
         rid = self._next
         self.send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params or {}})
-        return self.wait(rid, timeout)
+        response = self.wait(rid, timeout)
+        if method == "tools/call":
+            self._check_output((params or {}).get("name"), response.get("result") or {})
+        return response
+
+    def _check_output(self, name: Any, result: dict[str, Any]) -> None:
+        """Every structured result a test gets matches its tool's outputSchema."""
+        structured = result.get("structuredContent")
+        if structured is None or result.get("isError"):
+            return
+        if self._output_schemas is None:
+            tools = self.request("tools/list")["result"]["tools"]
+            self._output_schemas = {t["name"]: t["outputSchema"] for t in tools}
+        Draft202012Validator(self._output_schemas[name]).validate(structured)
+        self.checked.add(name)
 
     def wait(self, rid: int, timeout: float = 60) -> dict[str, Any]:
         end = time.monotonic() + timeout
@@ -382,6 +400,70 @@ def test_structured_results(client_for: Any) -> None:
         "tools/call", {"name": "count_packets", "arguments": {"capture": "dns.pcap", "filter": ""}}
     )["result"]
     assert "structuredContent" not in res
+
+
+def test_output_schemas_are_listed_for_structured_clients(client_for: Any) -> None:
+    for name, schema in OUTPUT_SCHEMAS.items():
+        Draft202012Validator.check_schema(schema)
+        assert schema["type"] == "object", name
+    c = client_for(allow_packet_data=True)
+    c.request("initialize", {"protocolVersion": "2025-06-18"})
+    tools = c.request("tools/list")["result"]["tools"]
+    assert {t["name"] for t in tools} == set(OUTPUT_SCHEMAS)
+    assert all(t["outputSchema"] == OUTPUT_SCHEMAS[t["name"]] for t in tools)
+    old = client_for()
+    old.request("initialize", {"protocolVersion": "2025-03-26"})
+    assert not any("outputSchema" in t for t in old.request("tools/list")["result"]["tools"])
+
+
+@pytest.mark.tshark
+@pytest.mark.parametrize("stand_ins", [False, True])
+def test_every_tool_output_matches_its_schema(client_for: Any, stand_ins: bool) -> None:
+    # (Client.request checks each structured result; this calls every tool,
+    # and the variants whose results differ in shape.)
+    c = client_for(allow_packet_data=True, allow_packet_bytes=True, stand_ins=stand_ins)
+    c.request("initialize", {"protocolVersion": "2025-06-18"})
+    calls: list[tuple[str, dict[str, Any]]] = [
+        ("list_captures", {"limit": 3}),
+        ("plugins", {}),
+        ("capture_info", {"capture": "http.pcap"}),
+        ("count_packets", {"capture": "dns.pcap", "filter": "dns"}),
+        *(
+            ("statistics", {"capture": "services.pcap", "kind": kind})
+            for kind in ("conversations", "protocol_hierarchy", "expert", "io", "dns", "http")
+        ),
+        ("statistics", {"capture": "network.pcap", "kind": "hosts", "filter": "dns"}),
+        ("triage", {"capture": "office-after.pcap"}),
+        ("overview", {"capture": "sessions.pcap", "limit": 2, "buckets": 4}),
+        ("overview", {"capture": "dns.pcap", "filter": "udp"}),
+        *(
+            ("sessions", {"capture": "sessions.pcap", "kind": kind, "only_problems": True})
+            for kind in ("http", "dns", "tls")
+        ),
+        ("voip_calls", {"capture": "voip-calls.pcap"}),
+        ("voip_calls", {"capture": "voip-calls.pcap", "call": 0}),
+        ("voip_calls", {"capture": "voip-media.pcap", "call": 0}),
+        ("voip_calls", {"capture": "voip-other.pcap"}),
+        ("tcp_stream", {"capture": "http.pcap", "stream": 0}),
+        ("tcp_stream", {"capture": "office-after.pcap", "packet": 1}),
+        ("compare_captures", {"before": "office-before.pcap", "after": "office-after.pcap"}),
+        ("field_values", {"capture": "dns.pcap", "field": "dns.qry.name"}),
+        ("validate_filter", {"filter": "dns"}),
+        ("validate_filter", {"filter": "dns =="}),
+        ("search_fields", {"query": "dns response code"}),
+        ("list_packets", {"capture": "dns.pcap", "limit": 3}),
+        ("packet_details", {"capture": "dns.pcap", "packet": 1, "protocols": ["dns"]}),
+        ("follow_stream", {"capture": "http.pcap", "protocol": "tcp", "stream": 0}),
+        ("follow_stream", {"capture": "streams.pcapng", "protocol": "http2", "stream": 0}),
+    ]
+    for name, args in calls:
+        result, failed = c.call(name, **args)
+        assert not failed, (name, args, result)
+    assert c.checked == set(OUTPUT_SCHEMAS)
+    # A result that doesn't match its schema fails the check.
+    bad = {**c.call("count_packets", capture="dns.pcap", filter="dns")[0], "count": "six"}
+    with pytest.raises(Exception, match="is not of type 'integer'"):
+        Draft202012Validator(OUTPUT_SCHEMAS["count_packets"]).validate(bad)
 
 
 @pytest.mark.tshark

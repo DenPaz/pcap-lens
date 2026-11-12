@@ -41,6 +41,7 @@ from typing import IO, Any
 
 from . import compare, navigation
 from .cancellation import CancelledError, CancelToken
+from .mcp_schemas import OUTPUT_SCHEMAS
 from .overview import MAX_BUCKETS
 from .pcap_service import PcapService
 from .protocol import (
@@ -427,20 +428,25 @@ class Tool:
     run: Callable[[dict[str, Any], RequestContext], Any]
     packet_data: bool = False
 
-    def spec(self) -> dict[str, Any]:
-        return {
+    def spec(self, structured: bool = False) -> dict[str, Any]:
+        """The tool for tools/list; ``structured``: with its ``outputSchema``
+        (only clients that get structuredContent, protocol 2025-06-18 on)."""
+        out: dict[str, Any] = {
             "name": self.name,
             "title": self.title,
             "description": self.description,
             "inputSchema": self.schema,
-            "annotations": {
-                "title": self.title,
-                "readOnlyHint": True,
-                "destructiveHint": False,
-                "idempotentHint": True,
-                "openWorldHint": False,
-            },
         }
+        if structured:
+            out["outputSchema"] = OUTPUT_SCHEMAS[self.name]
+        out["annotations"] = {
+            "title": self.title,
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        }
+        return out
 
 
 def _schema(props: dict[str, Any], required: list[str]) -> dict[str, Any]:
@@ -1781,7 +1787,9 @@ class McpServer:
             case "ping":
                 self._respond(req_id, {})
             case "tools/list":
-                self._respond(req_id, {"tools": [t.spec() for t in self.toolbox.tools.values()]})
+                structured = self.protocol >= STRUCTURED_SINCE
+                tools = [t.spec(structured) for t in self.toolbox.tools.values()]
+                self._respond(req_id, {"tools": tools})
             case "tools/call":
                 token = CancelToken()
                 with self._inflight_lock:

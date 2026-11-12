@@ -19,6 +19,8 @@ commit) that made it. The format follows
   `tcp_stream` (retransmissions, zero windows, round-trip times of one
   connection), and results as structured content for clients that use it
   [d2d14d5]
+- MCP server: each tool declares the shape of its result (an output schema),
+  so clients that read structured results know every field and its type
 
 ### Fixed
 

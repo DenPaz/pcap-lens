@@ -293,7 +293,8 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   Dump), `ber.py` (counting back-to-back BER records), `codecs.py` (G.722,
   G.726-32 and L16 decoders), `triage.py` (the AI triage's checks),
   `compare.py` (capture profiles and diffs),
-  `mcp.py` (the MCP server) and `standins.py` (its address stand-ins),
+  `mcp.py` (the MCP server), `mcp_schemas.py` (its tools' output schemas) and
+  `standins.py` (its address stand-ins),
   `replay.py` (Replay to Service: records, planner, socket engine),
   `replay_cli.py` (its command line, `pcap-lens-replay`; the launcher
   `backend/pcap-lens-replay.py`),
@@ -2843,7 +2844,18 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   per segment, `max_bytes`). All are `readOnlyHint`. From protocol
   2025-06-18 (`STRUCTURED_SINCE`; the negotiated version is kept) a result
   also comes as `structuredContent` (the same object, through
-  `AddressMasker.mask_deep` with stand-ins); no `outputSchema` yet. `--stand-ins`:
+  `AddressMasker.mask_deep` with stand-ins), and tools/list gives each tool's
+  `outputSchema` (`mcp_schemas.OUTPUT_SCHEMAS`; only to those clients: one
+  that gets a schema must get structured results). The schemas type every
+  key a result can hold, require only the keys a successful result always
+  has and leave objects open, so a new key never makes a client reject a
+  result; `voip_calls` is the list or one call (`anyOf` of two required
+  sets). The test client (`test_mcp.py` `Client.request`) checks every
+  structured result its tests get against its tool's schema with
+  `jsonschema` (a dev dependency; the backend stays stdlib-only), and
+  `test_every_tool_output_matches_its_schema` calls every tool, with and
+  without stand-ins (it found DTMF durations, null for H.323, MGCP and
+  IAX2 digits). `--stand-ins`:
   `standins.AddressMasker` (a port of aiPrivacy.ts without host names: the
   server runs `-n`) masks every result's text and restores tokens in the
   arguments. VS Code: `contributes.mcpServerDefinitionProviders`
