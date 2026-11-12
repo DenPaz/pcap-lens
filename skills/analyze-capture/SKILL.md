@@ -1,12 +1,15 @@
 ---
 name: analyze-capture
-description: Analyze the packet capture (.pcap, .pcapng) open in the PCAP Lens viewer with its tools - triage, overview, failed HTTP/DNS/TLS sessions, TCP connection health, packet details, comparing with a baseline - and show the evidence in the viewer. Use when asked what is wrong with a capture, why something failed or is slow, or what a capture contains.
+description: Analyze a packet capture (.pcap, .pcapng) open in the PCAP Lens viewer or attached to the chat with PCAP Lens's tools - triage, overview, failed HTTP/DNS/TLS sessions, TCP connection health, packet details, comparing with a baseline - and show the evidence in the viewer. Use when asked what is wrong with a capture, why something failed or is slow, or what a capture contains.
 ---
 
-# Analyze a capture open in PCAP Lens
+# Analyze a capture with PCAP Lens
 
 PCAP Lens's tools compute everything with tshark from the capture open in
-the viewer. Answer from their results, never from guesses.
+the viewer, or from the capture file their `capture` argument names: pass
+the path of a capture the user attached (`#file:`, `@file:`) or named.
+Answer from their results, never from guesses, and don't decode an
+attachment's bytes yourself.
 
 ## Steps
 
@@ -33,7 +36,8 @@ the viewer. Answer from their results, never from guesses.
 3. Answer with the numbers: what happened, how many packets, from which
    packet on, and why it matters. Give the display filter for each finding.
 4. Offer to show it: `pcap_apply_filter` (filter the viewer) and
-   `pcap_go_to_packet` (select a packet). The user confirms each.
+   `pcap_go_to_packet` (select a packet). The user confirms each; with
+   `capture`, the file opens in the viewer first.
 
 ## Rules
 

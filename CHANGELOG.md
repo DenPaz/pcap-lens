@@ -13,6 +13,8 @@ commit) that made it. The format follows
   skill), with tools any agent can call: triage, overview, failed HTTP/DNS/TLS
   sessions, TCP connection health, packet details, comparison with a baseline
   file, and applying a filter or going to a packet after you confirm [8eb5d54]
+- The agent's tools also read a capture attached to the chat (`#file:`) or
+  named, when it is in the workspace, open or in Recent Captures
 
 ### Fixed
 

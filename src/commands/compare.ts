@@ -1,15 +1,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { BackendClient, findPython } from "../backendClient";
-import { readSettings } from "../config";
-import {
-  PcapEditorProvider,
-  PcapEditorSession,
-  dissectionOptions,
-  indexCacheDir,
-} from "../pcapEditor";
+import type { PcapEditorProvider, PcapEditorSession } from "../pcapEditor";
 import { pickFile } from "./openFile";
+import { openCaptureBackend } from "./toolCaptures";
 
 /**
  * The other capture of a comparison (`@pcap /compare`, _PCAP: Compare
@@ -95,37 +89,9 @@ export async function captureProfile(
       }
     }
   }
-  const settings = readSettings(uri);
-  const py = findPython(settings.pythonPath || undefined);
-  if ("error" in py) {
-    throw new Error(py.error);
-  }
-  const client = new BackendClient({
-    python: py.python,
-    backendDir: vscode.Uri.joinPath(context.extensionUri, "backend").fsPath,
-    logger: { info: (m) => log.info(m), warn: (m) => log.warn(m), error: (m) => log.error(m) },
-  });
-  const cancellation = token;
+  const client = await openCaptureBackend(context, log, uri, token);
   try {
-    client.start();
-    await client.request(
-      "initialize",
-      { tsharkPath: settings.tsharkPath || undefined },
-      { timeoutMs: 120_000, cancellation },
-    );
-    await client.request(
-      "open",
-      {
-        ...dissectionOptions(settings),
-        path: uri.fsPath,
-        cache:
-          settings.indexCacheBytes > 0
-            ? { dir: indexCacheDir(context), maxBytes: settings.indexCacheBytes }
-            : undefined,
-      },
-      { timeoutMs: 0, cancellation },
-    );
-    return await client.request("capture_profile", {}, { timeoutMs: 0, cancellation });
+    return await client.request("capture_profile", {}, { timeoutMs: 0, cancellation: token });
   } finally {
     await client.dispose();
   }

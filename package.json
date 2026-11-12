@@ -2265,7 +2265,12 @@
         ],
         "inputSchema": {
           "type": "object",
-          "properties": {}
+          "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            }
+          }
         }
       },
       {
@@ -2282,6 +2287,10 @@
         "inputSchema": {
           "type": "object",
           "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
             "filter": {
               "type": "string",
               "description": "A Wireshark display filter; empty counts every packet."
@@ -2306,6 +2315,10 @@
         "inputSchema": {
           "type": "object",
           "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
             "kind": {
               "type": "string",
               "enum": [
@@ -2380,6 +2393,10 @@
         "inputSchema": {
           "type": "object",
           "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
             "filter": {
               "type": "string",
               "description": "A Wireshark display filter."
@@ -2408,7 +2425,12 @@
         ],
         "inputSchema": {
           "type": "object",
-          "properties": {}
+          "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            }
+          }
         }
       },
       {
@@ -2425,6 +2447,10 @@
         "inputSchema": {
           "type": "object",
           "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
             "filter": {
               "type": "string",
               "description": "Optional Wireshark display filter."
@@ -2446,6 +2472,10 @@
         "inputSchema": {
           "type": "object",
           "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
             "kind": {
               "type": "string",
               "enum": [
@@ -2487,6 +2517,10 @@
         "inputSchema": {
           "type": "object",
           "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
             "stream": {
               "type": "integer",
               "minimum": 0,
@@ -2514,6 +2548,10 @@
         "inputSchema": {
           "type": "object",
           "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
             "packets": {
               "type": "array",
               "items": {
@@ -2544,6 +2582,10 @@
         "inputSchema": {
           "type": "object",
           "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
             "other": {
               "type": "string",
               "description": "Path of the other capture file."
@@ -2576,6 +2618,10 @@
         "inputSchema": {
           "type": "object",
           "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
             "filter": {
               "type": "string",
               "description": "A Wireshark display filter."
@@ -2600,6 +2646,10 @@
         "inputSchema": {
           "type": "object",
           "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
             "packet": {
               "type": "integer",
               "minimum": 1,

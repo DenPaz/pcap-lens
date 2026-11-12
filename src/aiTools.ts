@@ -100,6 +100,15 @@ export interface ToolSpec {
 }
 
 const STATS_KINDS = ["phs", "conv", "endpoints", "expert", "io"] as const;
+
+/** Every capture tool's optional `capture`: another capture file than the one open in the viewer. */
+const CAPTURE_PROPERTY = {
+  capture: {
+    type: "string",
+    description:
+      "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens.",
+  },
+};
 const CONV_TYPES = ["eth", "ip", "ipv6", "tcp", "udp"] as const;
 
 export const PCAP_TOOLS: readonly ToolSpec[] = [
@@ -107,7 +116,7 @@ export const PCAP_TOOLS: readonly ToolSpec[] = [
     name: "pcap_capture_info",
     description:
       "Properties of the capture open in PCAP Lens: number of packets, first/last packet time, duration, file size, link type and file format.",
-    inputSchema: { type: "object", properties: {} },
+    inputSchema: { type: "object", properties: { ...CAPTURE_PROPERTY } },
     needs: "statistics",
   },
   {
@@ -117,6 +126,7 @@ export const PCAP_TOOLS: readonly ToolSpec[] = [
     inputSchema: {
       type: "object",
       properties: {
+        ...CAPTURE_PROPERTY,
         filter: {
           type: "string",
           description: "A Wireshark display filter; empty counts every packet.",
@@ -133,6 +143,7 @@ export const PCAP_TOOLS: readonly ToolSpec[] = [
     inputSchema: {
       type: "object",
       properties: {
+        ...CAPTURE_PROPERTY,
         kind: { type: "string", enum: [...STATS_KINDS] },
         type: {
           type: "string",
@@ -166,6 +177,7 @@ export const PCAP_TOOLS: readonly ToolSpec[] = [
     inputSchema: {
       type: "object",
       properties: {
+        ...CAPTURE_PROPERTY,
         filter: { type: "string", description: "A Wireshark display filter." },
         limit: { type: "integer", minimum: 1, maximum: 20 },
       },
@@ -177,7 +189,7 @@ export const PCAP_TOOLS: readonly ToolSpec[] = [
     name: "pcap_triage",
     description:
       "Triage the open capture: tshark counts fixed checks (TCP resets and retransmissions, refused connections, unanswered DNS/ICMP/HTTP, DNS and HTTP errors, TLS alerts, clear-text credentials…), each with its display filter and first and last packet, finds port scans and host sweeps, and counts expert information. Start here for 'what is wrong with this capture'.",
-    inputSchema: { type: "object", properties: {} },
+    inputSchema: { type: "object", properties: { ...CAPTURE_PROPERTY } },
     needs: "statistics",
   },
   {
@@ -187,6 +199,7 @@ export const PCAP_TOOLS: readonly ToolSpec[] = [
     inputSchema: {
       type: "object",
       properties: {
+        ...CAPTURE_PROPERTY,
         filter: { type: "string", description: "Optional Wireshark display filter." },
       },
     },
@@ -199,6 +212,7 @@ export const PCAP_TOOLS: readonly ToolSpec[] = [
     inputSchema: {
       type: "object",
       properties: {
+        ...CAPTURE_PROPERTY,
         kind: { type: "string", enum: Object.keys(SESSION_KINDS) },
         only_problems: { type: "boolean", description: "Only the rows with problems." },
         filter: { type: "string", description: "Optional Wireshark display filter." },
@@ -215,6 +229,7 @@ export const PCAP_TOOLS: readonly ToolSpec[] = [
     inputSchema: {
       type: "object",
       properties: {
+        ...CAPTURE_PROPERTY,
         stream: { type: "integer", minimum: 0, description: "The tcp.stream number." },
         packet: { type: "integer", minimum: 1, description: "Or a packet of the stream." },
       },
@@ -228,6 +243,7 @@ export const PCAP_TOOLS: readonly ToolSpec[] = [
     inputSchema: {
       type: "object",
       properties: {
+        ...CAPTURE_PROPERTY,
         packets: {
           type: "array",
           items: { type: "integer", minimum: 1 },
@@ -247,6 +263,7 @@ export const PCAP_TOOLS: readonly ToolSpec[] = [
     inputSchema: {
       type: "object",
       properties: {
+        ...CAPTURE_PROPERTY,
         other: { type: "string", description: "Path of the other capture file." },
         baseline: {
           type: "string",
@@ -273,6 +290,7 @@ export const VIEWER_TOOLS: readonly ToolSpec[] = [
     inputSchema: {
       type: "object",
       properties: {
+        ...CAPTURE_PROPERTY,
         filter: { type: "string", description: "A Wireshark display filter." },
       },
       required: ["filter"],
@@ -286,6 +304,7 @@ export const VIEWER_TOOLS: readonly ToolSpec[] = [
     inputSchema: {
       type: "object",
       properties: {
+        ...CAPTURE_PROPERTY,
         packet: { type: "integer", minimum: 1, description: "The packet number." },
       },
       required: ["packet"],
@@ -303,6 +322,11 @@ export interface ToolHost {
   detailParams?(frame: number): Record<string, unknown>;
   /** The diff of the open capture and another one (compare_profiles), or why there is none. */
   compare?(other: string, open: "before" | "after"): Promise<CaptureDiff | string>;
+  /**
+   * The backend (and host) of the capture a tool's `capture` argument names,
+   * or why it can't be read. Without it, a `capture` argument is refused.
+   */
+  open?(capture: string): Promise<{ backend: ToolBackend; host: ToolHost } | string>;
 }
 
 export interface ToolConsent {
@@ -423,6 +447,19 @@ export async function runTool(
   }
   const args = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
   try {
+    const capture = str(args.capture).trim();
+    if (capture && name !== "pcap_field_search") {
+      if (!host.open) {
+        return {
+          text: "Only the capture open in PCAP Lens can be read here (no capture argument).",
+        };
+      }
+      const opened = await host.open(capture);
+      if (typeof opened === "string") {
+        return { text: opened };
+      }
+      ({ backend, host } = opened);
+    }
     switch (name) {
       case "pcap_capture_info": {
         type Info = {

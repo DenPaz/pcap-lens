@@ -875,6 +875,18 @@ suite("PCAP Lens smoke test", () => {
       );
       assert.match(await text("pcap_overview", {}), /^Capture overview: \d+ packets/m);
       assert.match(await text("pcap_sessions", { kind: "dns" }), /Not allowed/, "packet data");
+      // Another capture by name (one the user attached): read in a backend of the tools' own.
+      assert.match(
+        await text("pcap_overview", { capture: "http.pcap" }),
+        /^Capture overview: 11 packets/m,
+      );
+      // Outside the workspace, the viewer and Recent Captures: refused.
+      const outside = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "pcap-outside-")), "x.pcap");
+      fs.copyFileSync(path.join(FIXTURES, "http.pcap"), outside);
+      assert.match(
+        await text("pcap_overview", { capture: outside }),
+        /PCAP Lens's tools read captures in the workspace folders/,
+      );
     } finally {
       await ai.update("allowCaptureStatistics", undefined, vscode.ConfigurationTarget.Global);
     }

@@ -208,11 +208,12 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   `src/rotation.ts` recognises rotated capture pieces (pure).
   AI: `src/aiFilter.ts`, `aiCaptureFilter.ts`, `aiDissector.ts`,
   `aiExplain.ts`, `aiSummary.ts`, `aiTriage.ts`, `aiCompare.ts`, `aiScans.ts`, `aiAnomaly.ts`, `aiTools.ts`
-  (tool specs, `runTool`, `runToolLoop`), `aiToolReports.ts` (the report tools' text), `aiModel.ts` (model choice),
+  (tool specs, `runTool`, `runToolLoop`), `aiToolReports.ts` (the report tools' text), `aiCapturePath.ts` (the file a tool's `capture` names), `aiModel.ts` (model choice),
   `aiPrivacy.ts` (address stand-ins) and `aiConsent.ts` are pure prompt
   builders/parsers; `src/ai.ts` (`FilterAssistant`) and
   `src/lmTools.ts` (the tools API, declared locally) talk to `vscode.lm`;
-  `src/commands/ai.ts` holds commands, consent and the `@pcap` participant.
+  `src/commands/ai.ts` holds commands, consent and the `@pcap` participant;
+  `src/commands/toolCaptures.ts` the tools' backends for named captures.
   `src/mcpConfig.ts` the MCP server's command line and configuration
   snippets (pure); `src/commands/mcp.ts` its VS Code registration.
   `src/captureModel.ts` pure capture/editing helpers (file names, durations,
@@ -2222,8 +2223,26 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   paths and DNS answers are packet contents) and `pcap_packet_details`
   (`treeLines` without bytes, ≤ 4 packets, `session.detailParams`) need
   `allowPacketData`. `ToolHost` gives runTool what isn't the backend's:
-  `detailParams`, and `compare` (`resolveCapturePath`, `captureProfile`,
-  `compare_profiles`; `baseline` "other" (default) or "open"). Results over
+  `detailParams`, `compare` (`resolveToolCapture`, the session's profile or
+  `capture_profile`, `compare_profiles`; `baseline` "other" (default) or
+  "open") and `open`. **Attached captures**: every tool but field search
+  takes `capture` (`CAPTURE_PROPERTY`), the path of a file the user
+  attached (`#file:`, `@file:`) or named; the agent and skill say to pass
+  it (else the model read the attachment's bytes itself: a user's test).
+  runTool checks consent first, then `host.open(capture)` gives that
+  capture's backend and host. `resolveToolCapture` (`aiCapturePath.ts`
+  pure: a `file:` URI, quotes, absolute or relative to the active capture's
+  folder and the workspace folders; then by file name among open and recent
+  captures, then `findFiles` (one match)) only allows a file in a workspace
+  folder, open in the viewer or in Recent Captures (`toolsMayRead`): a tool
+  call mustn't read any file on the machine. An open viewer's backend is
+  used (`viewerOf`); else `ToolCaptures` opens one as the viewer would
+  (`openCaptureBackend`, also behind `captureProfile`: settings of the
+  capture's folder, saved indexes), at most 2, closed after 5 min unused or
+  when the file changes. Registered tools share one masker for the window
+  (not per backend), so stand-ins agree across captures. The viewer tools
+  open the named capture in the viewer first (`vscode.openWith`, waiting
+  up to 120 s for it to load). Results over
   `maxReportChars` (12k) are cut. `VIEWER_TOOLS` (`pcap_apply_filter`,
   `pcap_go_to_packet`) act on the active viewer after a confirmation
   (`prepareInvocation` → `confirmationMessages`, declared in lmTools.ts; the
@@ -2240,7 +2259,8 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   `key: value` front matter, name only real tools and every one of them,
   and say the data is untrusted and which setting a refusal names. The
   smoke test checks every declared tool is registered and runs triage and
-  the overview with statistics allowed. `@pcap` stays for the Local
+  the overview with statistics allowed, a named fixture read with no
+  editor and a copy outside the workspace refused. `@pcap` stays for the Local
   harness; the viewer's _Ask Copilot_ commands still open it (else the
   editor fallback).
 - **Language model choice** (`src/aiModel.ts` pure, `pcapViewer.ai.model`,

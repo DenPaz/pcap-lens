@@ -71,6 +71,72 @@ suite("AI report tools", () => {
     assert.deepEqual(silent.asked, []);
   });
 
+  test("a capture argument: read through the host, after the consent check", async () => {
+    const opened: string[] = [];
+    const other: ToolBackend = {
+      request: <T>(method: string) =>
+        Promise.resolve(
+          (method === "capture_info"
+            ? {
+                frames: 7,
+                startTime: null,
+                endTime: null,
+                size: 10,
+                linkType: null,
+                fileType: null,
+              }
+            : {}) as T,
+        ),
+    };
+    const host = {
+      open: async (capture: string) => {
+        opened.push(capture);
+        return capture === "missing.pcap"
+          ? "No capture file missing.pcap."
+          : { backend: other, host: {} };
+      },
+    };
+    const info = await runTool(
+      "pcap_capture_info",
+      { capture: "b.pcap" },
+      silent,
+      ALL,
+      undefined,
+      host,
+    );
+    assert.match(info.text, /^Packets: 7$/m, "the named capture's backend answered");
+    assert.equal(
+      (
+        await runTool(
+          "pcap_count",
+          { capture: "missing.pcap", filter: "" },
+          silent,
+          ALL,
+          undefined,
+          host,
+        )
+      ).text,
+      "No capture file missing.pcap.",
+    );
+    assert.equal(
+      (await runTool("pcap_triage", { capture: "b.pcap" }, silent, NONE, undefined, host)).refused,
+      "statistics",
+    );
+    assert.deepEqual(opened, ["b.pcap", "missing.pcap"], "nothing opened without consent");
+    assert.match(
+      (await runTool("pcap_triage", { capture: "b.pcap" }, silent, ALL)).text,
+      /Only the capture open in PCAP Lens/,
+      "no host to open it",
+    );
+    assert.ok(
+      PCAP_TOOLS.filter((t) => t.name !== "pcap_field_search").every(
+        (t) => "capture" in ((t.inputSchema.properties as object) ?? {}),
+      ),
+      "every capture tool takes it",
+    );
+    assert.deepEqual(silent.asked, []);
+  });
+
   test("the viewer tools are declared but not in @pcap's loop", () => {
     assert.deepEqual(
       VIEWER_TOOLS.map((t) => t.name),
