@@ -505,44 +505,57 @@ class _StderrCollector(threading.Thread):
         return clean_stderr(b"".join(self.chunks).decode("utf-8", "replace"))
 
 
+# What run() keeps of a child's stdout. Every report it parses is far
+# smaller; past this a dissector loops: tshark 4.6's expert reports of
+# Wireshark's openflow_v5/v6_coverage captures took the backend to 2-5.6 GB
+# (the real-capture harness only watches tshark's own memory).
+MAX_OUTPUT_BYTES = 256 << 20
+
+
 def run(
     argv: Sequence[str],
     token: CancelToken | None = None,
     env: Mapping[str, str] | None = None,
+    max_bytes: int | None = None,
 ) -> RunResult:
     """Run a command to completion, capturing output. Cancellable via ``token``.
 
     ``env`` replaces the environment when given (defaults to inheriting ours).
+    stdout is kept up to ``max_bytes`` (MAX_OUTPUT_BYTES): past that the child
+    is stopped and a ToolError says so. stderr keeps its first MiB.
     """
+    limit = MAX_OUTPUT_BYTES if max_bytes is None else max_bytes
     token = token or CancelToken()
     proc = _popen(argv, env)
     PROCESSES.add(proc)
-    finished = False
+    collector = _StderrCollector(proc)
+    collector.start()
+    out = bytearray()
     try:
         token.register(proc)  # kills the process if the token is already cancelled
         try:
-            # Poll so cancellation works even if the kill is refused (AppArmor):
-            # communicate() can be retried after a timeout without losing output.
-            while True:
-                try:
-                    out, err = proc.communicate(timeout=procs.POLL_INTERVAL)
-                    finished = True
+            for chunk in _chunks(proc, token):
+                out += chunk
+                if len(out) > limit:
                     break
-                except subprocess.TimeoutExpired:
-                    token.raise_if_cancelled()
+            else:
+                _exited_cleanly(proc, token)  # (waits for it, a cancel stops the wait)
         finally:
             token.unregister(proc)
     finally:
-        if finished:
-            PROCESSES.discard(proc)  # communicate() reaped it and closed its pipes
-        else:
-            # Cancelled: stop it, reap it and close its pipes. Also when it has
-            # exited already: any poll() (the kill of a cancelled token,
-            # kill_all, len(PROCESSES)) can have reaped it, and its pipes are
-            # still open.
-            procs.stop_process(proc, on_reaped=lambda: PROCESSES.discard(proc))
+        # Stops it if it's still running (too much output or a cancel), reaps
+        # it or leaves it to a reaper, and closes its pipes.
+        procs.stop_process(proc, [collector], on_reaped=lambda: PROCESSES.discard(proc))
     token.raise_if_cancelled()
-    return RunResult(proc.returncode, out, clean_stderr(err.decode("utf-8", "replace")))
+    stderr = collector.text
+    if len(out) > limit:
+        raise ToolError(
+            f"{Path(argv[0]).name} wrote more than {limit >> 20} MB, which usually means a"
+            " dissector looping; it was stopped",
+            stderr,
+            proc.returncode,
+        )
+    return RunResult(proc.returncode, bytes(out), stderr)
 
 
 def stream_lines(
@@ -593,25 +606,36 @@ def stream_lines(
 def _lines(proc: subprocess.Popen[bytes], token: CancelToken) -> Generator[bytes]:
     """stdout lines without the line break; stops early once ``token`` is cancelled.
 
-    On POSIX the pipe is polled, so a cancel is noticed within POLL_INTERVAL
-    even when the child writes nothing and can't be killed (AppArmor). Windows
-    can't poll pipes, but there the kill always works and ends the read.
-
     A last line without its line break is passed on only when the child exits
     with 0: a tshark that crashed mid-line (Wireshark's pfcp_coverage under
     4.6) left "48" of "488\t…", which the index pass read as packet 48.
     """
+    pending = b""
+    for chunk in _chunks(proc, token):
+        lines = (pending + chunk).split(b"\n")
+        pending = lines.pop()
+        for line in lines:
+            yield line.removesuffix(b"\r")
+    if pending and not token.cancelled and _exited_cleanly(proc, token):
+        yield pending.removesuffix(b"\r")
+
+
+def _chunks(proc: subprocess.Popen[bytes], token: CancelToken) -> Generator[bytes]:
+    """stdout as it comes; stops early once ``token`` is cancelled.
+
+    On POSIX the pipe is polled, so a cancel is noticed within POLL_INTERVAL
+    even when the child writes nothing and can't be killed (AppArmor). Windows
+    can't poll pipes, but there the kill always works and ends the read.
+    """
     assert proc.stdout is not None
     if IS_WINDOWS:
-        for raw in proc.stdout:
-            if token.cancelled:
+        while not token.cancelled:
+            chunk = proc.stdout.read1(1 << 16)  # type: ignore[attr-defined]
+            if not chunk:
                 return
-            if not raw.endswith(b"\n") and not _exited_cleanly(proc, token):
-                return
-            yield raw.rstrip(b"\r\n")
+            yield chunk
         return
     fd = proc.stdout.fileno()
-    pending = b""
     with selectors.DefaultSelector() as sel:
         sel.register(fd, selectors.EVENT_READ)
         while not token.cancelled:
@@ -619,15 +643,8 @@ def _lines(proc: subprocess.Popen[bytes], token: CancelToken) -> Generator[bytes
                 continue
             chunk = os.read(fd, 1 << 16)
             if not chunk:
-                break
-            lines = (pending + chunk).split(b"\n")
-            pending = lines.pop()
-            for line in lines:
-                yield line.removesuffix(b"\r")
-        else:
-            return
-    if pending and _exited_cleanly(proc, token):
-        yield pending.removesuffix(b"\r")
+                return
+            yield chunk
 
 
 def _exited_cleanly(proc: subprocess.Popen[bytes], token: CancelToken) -> bool:

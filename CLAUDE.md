@@ -2741,6 +2741,16 @@ stderr, wrote)` is now that check everywhere, and a crash always breaks
   `broke` took any signal for the backend's own stop; the backend's own
   kills raise CancelledError before any check, so `broke` now counts every
   signal death as broken.
+  The next run's stacks named the rest: the backend itself at 2-5.6 GB
+  in `run()` under `_expert`'s `_tap` (openflow_v5/v6_coverage under 4.6;
+  only tshark's memory was watched), keeping a looping dissector's
+  report whole. `run()` now reads stdout itself (`_chunks`, shared with
+  `stream_lines`) up to `MAX_OUTPUT_BYTES` (256 MB), past which it stops
+  the child and raises a ToolError, with stderr through the capped
+  `_StderrCollector`. The same run's `rtcp_coverage` overview row matched
+  0 of 186 packets: the filter pass (`_run_filter`, also behind
+  `count_matches`) took a crashed tshark's matches as the result and
+  cached them; it and the field passes of `filterhelp` use `broke` now.
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage

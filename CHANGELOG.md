@@ -29,6 +29,10 @@ commit) that made it. The format follows
   replay, a follow, Export Objects, coloring, VoIP calls or a statistics
   table is reported, instead of replaying or showing only what came before
   it [78bc2ff]
+- A display filter that crashes tshark partway is an error instead of
+  showing (and remembering) only the packets before the crash, and a
+  statistics table whose report runs away (a dissector looping) stops at
+  256 MB instead of taking gigabytes of memory
 
 [acc2bbf]: https://github.com/DenPaz/pcap-lens/commit/acc2bbf
 [d2d14d5]: https://github.com/DenPaz/pcap-lens/commit/d2d14d5

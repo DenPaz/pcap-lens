@@ -15,6 +15,7 @@ from pcap_backend.tshark import (
     ConfigError,
     DissectionOptions,
     StreamResult,
+    ToolError,
     ToolNotFoundError,
     Tshark,
     clean_stderr,
@@ -251,6 +252,19 @@ def test_stream_lines_drops_the_cut_line_of_a_crashed_child() -> None:
     result = StreamResult()
     assert list(ts.stream_lines([sys.executable, "-c", script], result)) == [b"487\tok"]
     assert result.returncode == 5
+
+
+def test_run_stops_a_child_whose_output_passes_the_limit() -> None:
+    # tshark 4.6's expert report of Wireshark's openflow_v6_coverage took the
+    # backend to 2 GB: its output is kept up to a limit, then tshark is stopped.
+    script = "import sys\nwhile True: sys.stdout.write('x' * 65536)"
+    with pytest.raises(ToolError, match="wrote more than 1 MB"):
+        ts.run([sys.executable, "-c", script], max_bytes=1 << 20)
+    assert len(ts.PROCESSES) == 0
+    # Within the limit: all of it, the exit code and stderr.
+    script = "import sys\nsys.stdout.write('y' * 200000); sys.stderr.write('oops'); sys.exit(2)"
+    res = ts.run([sys.executable, "-c", script], max_bytes=1 << 20)
+    assert (res.stdout, res.returncode, res.stderr) == (b"y" * 200000, 2, "oops")
 
 
 def test_run_captures_stderr() -> None:

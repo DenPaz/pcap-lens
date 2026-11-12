@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
+from pcap_backend.cancellation import CancelToken
 from pcap_backend.pcap_service import MAX_MATCH_FRAMES, PcapService
 from pcap_backend.protocol import (
     FilterError,
@@ -15,6 +17,8 @@ from pcap_backend.protocol import (
     NotOpenError,
     RequestContext,
 )
+from pcap_backend.service import filtering
+from pcap_backend.tshark import StreamResult, ToolError
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
@@ -64,3 +68,24 @@ def test_waits_for_indexing(
     with pytest.raises(IndexingError):
         service.count_matches({"filter": "tcp"}, ctx)
     slow_index.set()
+
+
+@pytest.mark.tshark
+@pytest.mark.parametrize("matches", [0, 2])
+def test_a_tshark_crash_is_an_error_not_fewer_matches(
+    service: PcapService, ctx: RequestContext, monkeypatch: pytest.MonkeyPatch, matches: int
+) -> None:
+    # tshark 4.6 crashed reading rtcp_coverage.pcap.gz: an address that the
+    # overview counted in 186 packets matched none, and that count was cached.
+    service.open({"path": str(FIXTURES / "mixed.pcapng")}, ctx)
+    real = filtering.stream_lines
+
+    def crashing(argv: list[str], result: StreamResult, token: CancelToken) -> Iterator[bytes]:
+        yield from list(real(argv, result, token))[:matches]
+        result.returncode, result.stderr = -11, ""  # (SIGSEGV)
+
+    monkeypatch.setattr(filtering, "stream_lines", crashing)
+    with pytest.raises(ToolError, match="segmentation fault"):
+        service.count_matches({"filter": "dns"}, ctx)
+    monkeypatch.setattr(filtering, "stream_lines", real)
+    assert service.count_matches({"filter": "dns"}, ctx)["count"] == 6  # (nothing cached)
