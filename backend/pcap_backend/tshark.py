@@ -610,14 +610,19 @@ def _lines(proc: subprocess.Popen[bytes], token: CancelToken) -> Generator[bytes
     with 0: a tshark that crashed mid-line (Wireshark's pfcp_coverage under
     4.6) left "48" of "488\t…", which the index pass read as packet 48.
     """
+
+    # (Windows: a child's text-mode stdout writes "\r\n" as "\r\r\n".)
+    def strip(line: bytes) -> bytes:
+        return line.rstrip(b"\r") if IS_WINDOWS else line.removesuffix(b"\r")
+
     pending = b""
     for chunk in _chunks(proc, token):
         lines = (pending + chunk).split(b"\n")
         pending = lines.pop()
         for line in lines:
-            yield line.removesuffix(b"\r")
+            yield strip(line)
     if pending and not token.cancelled and _exited_cleanly(proc, token):
-        yield pending.removesuffix(b"\r")
+        yield strip(pending)
 
 
 def _chunks(proc: subprocess.Popen[bytes], token: CancelToken) -> Generator[bytes]:
