@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.34.0 — 2026-11-12
+
 ### Added
 
 - MCP server: `rtp_stream` (one RTP or IAX2 stream's loss, jitter, lost and
@@ -18,9 +20,9 @@ commit) that made it. The format follows
   Diagram, Ctrl+Right / Ctrl+Left (⌘ on macOS), Shift+Right for one field's
   subtree, and the tree's menu; a huge tree opens in steps instead of
   freezing [1879372]
-- Import from Hex Dump reads hex streams (Copy as Hex Stream, `tshark -e
-data`, colon-separated bytes), one packet per line, and picks that layout
-  when it sees one [3effa25]
+- Import from Hex Dump reads hex streams, one packet per line (Wireshark's
+  Copy as Hex Stream, `tshark -e data`, colon-separated bytes), and picks
+  that layout when it sees one [3effa25]
 
 ### Changed
 
