@@ -17,6 +17,7 @@ commit) that made it. The format follows
   named, when it is in the workspace, open or in Recent Captures [b9f346b]
 - `pcapViewer.ai.askIn`: `agent` makes the viewer's AI commands ask the PCAP
   Lens agent instead of `@pcap` (the default until VS Code drops `@pcap`)
+  [e1b8bd5]
 
 ### Fixed
 
@@ -25,6 +26,7 @@ commit) that made it. The format follows
 
 [8eb5d54]: https://github.com/DenPaz/pcap-lens/commit/8eb5d54
 [b9f346b]: https://github.com/DenPaz/pcap-lens/commit/b9f346b
+[e1b8bd5]: https://github.com/DenPaz/pcap-lens/commit/e1b8bd5
 
 ## 0.32.0 — 2026-11-12
 
