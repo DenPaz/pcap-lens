@@ -3249,7 +3249,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
 
       await page.click("#comment-edit");
       assert.equal(await page.inputValue("#comment-input"), "The request\nsecond line\twith a tab");
-      await page.fill("#comment-input", "edited request");
+      await page.fill("#comment-input", "edited request \t\n ");
       await page.press("#comment-input", "Control+Enter");
       await expectHostLast({ type: "setComment", frame: 4, text: "edited request" });
       await page.waitForFunction(

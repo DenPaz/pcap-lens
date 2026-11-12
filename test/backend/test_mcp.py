@@ -495,6 +495,32 @@ def test_sequence_check(client_for: Any) -> None:
         assert failed and words in text, (bad, text)
 
 
+def test_sequence_streams_of_the_panel_table() -> None:
+    blank = [None] * 8
+    rows = [
+        {
+            "cells": ["0x1", 9, 1, 12, 2, 0, 0, 0, "2 missing"],
+            "frame": 3,
+            "filter": "k",
+            "depth": 0,
+        },
+        {"cells": ["Missing 4", *blank], "frame": 7, "depth": 1, "problem": "gap"},
+        {"cells": ["… 1,234 more problems", *blank], "depth": 1},
+        {"cells": ["0x2", 5, 1, 5, 0, 0, 0, 0, "fine"], "frame": 4, "depth": 0},
+        {"cells": ["not … 9 more problems at all", *blank], "depth": 1},
+    ]
+    one, two = mcp._sequence_streams(rows, 1)
+    assert (one["values"], one["missing"], one["firstPacket"], one["filter"]) == (
+        ["0x1"],
+        2,
+        3,
+        "k",
+    )
+    assert one["problems"] == [{"kind": "gap", "text": "Missing 4", "packet": 7}]
+    assert one["moreProblems"] == 1234
+    assert (two["problems"], two["moreProblems"], two["result"]) == ([], 0, "fine")
+
+
 @pytest.mark.tshark
 def test_export_objects_and_credentials(client_for: Any) -> None:
     c = client_for()

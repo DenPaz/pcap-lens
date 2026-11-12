@@ -773,7 +773,8 @@ def _fields_arg(args: Mapping[str, Any], name: str) -> list[str]:
     return [v.strip() for v in value if v.strip()]
 
 
-_MORE_PROBLEMS = re.compile(r"([\d,]+) more problems")
+# sequence.table's last row of a stream: "… 1,234 more problems".
+_MORE_PROBLEMS = re.compile(r"… ([\d,]+) more problems")
 
 
 def _sequence_streams(rows: list[dict[str, Any]], key_count: int) -> list[dict[str, Any]]:
@@ -807,7 +808,7 @@ def _sequence_streams(rows: list[dict[str, Any]], key_count: int) -> list[dict[s
             streams[-1]["problems"].append(
                 {"kind": row["problem"], "text": cells[0], "packet": row.get("frame")}
             )
-        elif streams and cells and (m := _MORE_PROBLEMS.search(str(cells[0]))):
+        elif streams and cells and (m := _MORE_PROBLEMS.fullmatch(str(cells[0]))):
             streams[-1]["moreProblems"] += int(m[1].replace(",", ""))
     return streams
 
