@@ -327,6 +327,12 @@ plugins` and the plugin folders), `decryption.py` (decryption keys and
 - `media/` icon (`icon.svg` → `icon.png`), `sample.pcapng` (a copy of the
   `mixed.pcapng` fixture that `generate.py` writes), `walkthrough/*.md` (the
   walkthrough's pages) and `screenshots/` (README only, not packaged).
+- `docs/` (not packaged): `replay-to-service.md` (the feature's tracking
+  notes) and `wiki/`, the pages of the GitHub Wiki (`Home.md`, `_Sidebar.md`,
+  one guide per area; links are Wiki page names like `MCP-Server`). Sessions
+  can't push the Wiki (`pcap-lens.wiki.git` isn't a session repository), so
+  the maintainer copies `docs/wiki/*.md` into a clone of it and pushes. Keep
+  them in step with README when a feature changes.
 - `scripts/` release helper (`release.mjs`, tests in `test/scripts`), the AI
   evals (`evals/grade.mjs` pure, `evals/run.mjs` by hand), icon and
   screenshot renderers, `themes.js` (VS Code's Dark Modern, Light Modern and
