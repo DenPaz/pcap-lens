@@ -1,7 +1,7 @@
 // @ts-check
 /** The packet detail tree, the hex view and the bytes pane's copy menu. */
 
-import { CANCELLED, cancelRpc, el, lib, rpc, state, vscode } from "./core.js";
+import { CANCELLED, cancelRpc, el, isMac, lib, rpc, state, vscode } from "./core.js";
 import { gotoFrame, showComment } from "./comments.js";
 import { copy } from "./contextmenu.js";
 import { showMenu } from "./menu.js";
@@ -9,6 +9,7 @@ import { applyDetailView, clearDiagram, markDiagramSelection } from "./diagram.j
 import { decorateFrameLink, frameLinkTarget, loadFieldTypes } from "./navigation.js";
 import { scheduleRender } from "./list.js";
 import { persist } from "./status.js";
+import { showNotice } from "./filterbar.js";
 
 /** @param {number} frame */
 /**
@@ -129,6 +130,7 @@ export function clearDetail() {
   void showComment(null);
   state.detail = null;
   state.selectedNodeId = null;
+  resetPending();
   nodeIndex.clear();
   showDetailNote("", false);
   el.tree.replaceChildren();
@@ -164,12 +166,15 @@ function showDetail(detail) {
   // The exact view replacing the quick one: keep the reader where they were.
   const sameFrame = state.detail?.number === detail.number;
   const scrollTop = el.detailPane.scrollTop;
+  // An Expand All still running on the quick view goes on in the exact one.
+  const resumeExpandAll = sameFrame && expandingAll && !capped;
   state.detail = detail;
   showDetailNote(
     detail.approximate ? `${quickNote(detail)} Loading the exact view` : "",
     !!detail.approximate,
   );
   state.selectedNodeId = null;
+  resetPending();
   nodeIndex.clear();
   el.treePlaceholder.classList.add("hidden");
   const frag = document.createDocumentFragment();
@@ -177,18 +182,18 @@ function showDetail(detail) {
     frag.append(buildNode(node, [], 0));
   }
   el.tree.replaceChildren(frag);
+  drainPending(); // (the nodes remembered open: at once, or in slices for a huge tree)
   renderSourceTabs(detail.sources);
   hex = null;
   showSource(0);
   void loadFieldTypes(detail);
-  // Keep the same field selected when moving between similar packets.
-  if (previousKey) {
-    for (const entry of nodeIndex.values()) {
-      if (lib.nodeKey(entry.path) === previousKey) {
-        selectNode(entry.node.id, { scroll: !sameFrame });
-        break;
-      }
-    }
+  // Keep the same field selected when moving between similar packets (a
+  // huge tree may build it in a later slice: selectWhenBuilt).
+  if (previousKey && !selectKey(previousKey, !sameFrame) && pendingAt < pending.length) {
+    selectWhenBuilt = { key: previousKey, scroll: !sameFrame };
+  }
+  if (resumeExpandAll) {
+    expandAllNodes();
   }
   showFieldStatus(); // (the same field in this packet, or none)
   if (!revealFindMatch()) {
@@ -219,10 +224,15 @@ export function revealFindMatch() {
 }
 
 /**
- * @param {any} node @param {any[]} parentPath @param {number} depth
+ * A node's row (and, folded, the group its children go in). A node to be
+ * open, remembered in state.expanded or under an Expand All (`all`), joins
+ * the queue that drainPending opens: building a whole huge tree at once
+ * froze the webview.
+ * @param {any} node @param {any[]} parentPath @param {number} depth @param {boolean} [all]
  * @returns {HTMLElement}
  */
-function buildNode(node, parentPath, depth) {
+function buildNode(node, parentPath, depth, all = false) {
+  rowsBuilt++;
   const path = [...parentPath, node];
   const wrap = document.createElement("div");
   wrap.setAttribute("role", "treeitem");
@@ -251,14 +261,21 @@ function buildNode(node, parentPath, depth) {
     children.setAttribute("role", "group");
     entry.children = children;
     wrap.append(children);
-    const open = state.expanded.has(lib.nodeKey(path));
-    setExpanded(entry, open, false);
+    setExpanded(entry, false, false);
+    if (all || state.expanded.has(lib.nodeKey(path))) {
+      pending.push({ entry, all });
+    }
   }
   return wrap;
 }
 
-/** @param {NodeEntry} entry @param {boolean} open @param {boolean} [remember] */
-export function setExpanded(entry, open, remember = true) {
+/**
+ * Open or fold one node (building its children's rows the first time).
+ * `remember`: keep it in state.expanded for the next packets; `all`: its
+ * children open too, all the way down (Expand All).
+ * @param {NodeEntry} entry @param {boolean} open @param {boolean} [remember] @param {boolean} [all]
+ */
+export function setExpanded(entry, open, remember = true, all = false) {
   if (!entry.children) {
     return;
   }
@@ -266,7 +283,7 @@ export function setExpanded(entry, open, remember = true) {
     const depth = entry.path.length;
     const frag = document.createDocumentFragment();
     for (const child of entry.node.children) {
-      frag.append(buildNode(child, entry.path, depth));
+      frag.append(buildNode(child, entry.path, depth, all));
     }
     entry.children.append(frag);
     entry.built = true;
@@ -285,12 +302,213 @@ export function setExpanded(entry, open, remember = true) {
     }
     persist();
   }
+  if (open) {
+    drainPending(); // (children remembered open)
+  }
 }
 
 /** @param {NodeEntry} entry */
 function isExpanded(entry) {
   return !!entry.children && !entry.children.classList.contains("hidden");
 }
+
+// ---------------------------------------------------- opening many nodes
+
+/** Nodes to open, in the order found (breadth first), from pendingAt on. */
+/** @type {{entry: NodeEntry, all: boolean}[]} */
+let pending = [];
+let pendingAt = 0;
+let draining = false;
+let drainTimer = 0;
+/** Rows buildNode built in the current slice. */
+let rowsBuilt = 0;
+/** An Expand All is running; the rows it built; whether it hit lib.TREE_EXPAND_MAX. */
+let expandingAll = false;
+let expandedRows = 0;
+let capped = false;
+/** @type {{key: string, scroll: boolean} | null} */
+let selectWhenBuilt = null;
+
+function resetPending() {
+  window.clearTimeout(drainTimer);
+  pending = [];
+  pendingAt = 0;
+  expandingAll = false;
+  capped = false;
+  selectWhenBuilt = null;
+}
+
+/**
+ * Open the queued nodes, lib.TREE_EXPAND_SLICE rows at a time: the first
+ * slice now (a normal tree opens at once), the rest after yielding to the
+ * browser, so expanding a tree of a hundred thousand fields doesn't freeze
+ * the webview. An Expand All stops at lib.TREE_EXPAND_MAX rows.
+ */
+function drainPending() {
+  if (draining) {
+    return; // (setExpanded calls it back while a slice runs)
+  }
+  draining = true;
+  window.clearTimeout(drainTimer);
+  rowsBuilt = 0;
+  try {
+    while (pendingAt < pending.length && rowsBuilt < lib.TREE_EXPAND_SLICE) {
+      const { entry, all } = pending[pendingAt++];
+      const key = lib.nodeKey(entry.path);
+      if (all) {
+        if (expandedRows >= lib.TREE_EXPAND_MAX) {
+          capped = true;
+          continue;
+        }
+        state.expanded.add(key);
+      } else if (!state.expanded.has(key)) {
+        continue; // (folded meanwhile)
+      }
+      const before = rowsBuilt;
+      const built = entry.built;
+      setExpanded(entry, true, false, all);
+      if (all) {
+        expandedRows += rowsBuilt - before;
+        if (built) {
+          // (Its children were built earlier: queue the ones that have children.)
+          for (const child of entry.node.children) {
+            const c = nodeIndex.get(child.id);
+            if (c?.children) {
+              pending.push({ entry: c, all: true });
+            }
+          }
+        }
+      }
+    }
+  } finally {
+    draining = false;
+  }
+  if (selectWhenBuilt && selectKey(selectWhenBuilt.key, selectWhenBuilt.scroll)) {
+    selectWhenBuilt = null;
+  }
+  if (pendingAt < pending.length) {
+    drainTimer = window.setTimeout(drainPending, 0);
+    return;
+  }
+  pending = [];
+  pendingAt = 0;
+  selectWhenBuilt = null;
+  if (expandingAll) {
+    expandingAll = false;
+    persist();
+    revealSelected();
+    if (capped) {
+      showNotice(
+        `Expanded the first ${lib.TREE_EXPAND_MAX.toLocaleString()} fields of this packet; ` +
+          "the rest stay folded.",
+      );
+    }
+  }
+}
+
+/** Select the first node whose nodeKey is `key`; whether there was one. @param {string} key @param {boolean} scroll */
+function selectKey(key, scroll) {
+  for (const entry of nodeIndex.values()) {
+    if (lib.nodeKey(entry.path) === key) {
+      selectNode(entry.node.id, { scroll });
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Scroll the selected node into view (after opening or folding around it). */
+function revealSelected() {
+  const entry = state.selectedNodeId !== null ? nodeIndex.get(state.selectedNodeId) : undefined;
+  entry?.row.scrollIntoView({ block: "nearest" });
+}
+
+/** The top-level protocols' entries of the packet shown. */
+function topEntries() {
+  return /** @type {NodeEntry[]} */ (
+    (state.detail?.tree ?? []).map((/** @type {any} */ n) => nodeIndex.get(n.id)).filter(Boolean)
+  );
+}
+
+/**
+ * Open `entries` and everything under them (Expand Subtrees, Shift+→), in
+ * slices; each node is remembered open, as a click on it would.
+ * @param {NodeEntry[]} entries
+ */
+export function expandSubtrees(entries) {
+  if (!expandingAll) {
+    expandedRows = 0;
+    capped = false;
+  }
+  expandingAll = true;
+  for (const entry of entries) {
+    if (entry.children) {
+      pending.push({ entry, all: true });
+    }
+  }
+  drainPending();
+  revealSelected();
+}
+
+/**
+ * Fold `entries` and everything under them, and forget them in
+ * state.expanded (Collapse Subtrees). A selected node they hide hands the
+ * selection to the folded node above it.
+ * @param {NodeEntry[]} entries
+ */
+export function collapseSubtrees(entries) {
+  const roots = entries.filter((e) => e.children);
+  const rootNodes = new Set(roots.map((e) => e.node));
+  /** @param {NodeEntry} e */
+  const under = (e) => e.path.some((n) => rootNodes.has(n));
+  pending = pending.slice(pendingAt).filter((p) => !under(p.entry)); // (no more opening there)
+  pendingAt = 0;
+  for (const root of roots) {
+    for (const key of lib.subtreeKeys(root.path)) {
+      state.expanded.delete(key);
+    }
+  }
+  for (const entry of nodeIndex.values()) {
+    if (entry.children && under(entry) && isExpanded(entry)) {
+      setExpanded(entry, false, false);
+    }
+  }
+  persist();
+  const selected = state.selectedNodeId !== null ? nodeIndex.get(state.selectedNodeId) : undefined;
+  if (selected && under(selected) && !rootNodes.has(selected.node)) {
+    const holder = selected.path.find((n) => rootNodes.has(n));
+    selectNode(holder.id, { scroll: true });
+  } else {
+    revealSelected();
+  }
+}
+
+/** Expand All: every node of the packet shown. */
+export function expandAllNodes() {
+  expandSubtrees(topEntries());
+}
+
+/** Collapse All: every node folded; a hidden selection moves to its top-level protocol. */
+export function collapseAllNodes() {
+  collapseSubtrees(topEntries());
+}
+
+/** The keys of Expand All and Collapse All (⌘ on macOS, where Ctrl+arrows switch desktops). */
+export const TREE_KEYS = {
+  expandAll: { key: "ctrl+right", mac: "cmd+right" },
+  collapseAll: { key: "ctrl+left", mac: "cmd+left" },
+  expandSubtree: { key: "shift+right" },
+};
+
+/** @param {keyof typeof TREE_KEYS} name */
+export function treeKeyLabel(name) {
+  return lib.formatKeybinding(TREE_KEYS[name], isMac);
+}
+
+el.treeExpandAll.title = `Expand All (${treeKeyLabel("expandAll")})`;
+el.treeCollapseAll.title = `Collapse All (${treeKeyLabel("collapseAll")})`;
+el.treeExpandAll.addEventListener("click", () => expandAllNodes());
+el.treeCollapseAll.addEventListener("click", () => collapseAllNodes());
 
 el.tree.addEventListener("click", (e) => {
   const row = /** @type {HTMLElement | null} */ (
@@ -331,6 +549,27 @@ el.tree.addEventListener("keydown", (e) => {
     return;
   }
   const current = state.selectedNodeId !== null ? nodeIndex.get(state.selectedNodeId) : undefined;
+  // As in Wireshark: Ctrl+→ / Ctrl+← (⌘ on macOS) expand and collapse every
+  // node, Shift+→ the selected node's whole subtree. (Checked before the
+  // plain arrows below, which ignore modifiers.)
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      e.preventDefault();
+      if (e.key === "ArrowRight") {
+        expandAllNodes();
+      } else {
+        collapseAllNodes();
+      }
+      return;
+    }
+  }
+  if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && e.key === "ArrowRight") {
+    e.preventDefault();
+    if (current) {
+      expandSubtrees([current]);
+    }
+    return;
+  }
   const idx = current ? visible.indexOf(current.row) : -1;
   /** @param {number} i */
   const go = (i) => {

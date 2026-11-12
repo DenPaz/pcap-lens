@@ -836,6 +836,15 @@ body {
   margin-left: auto;
 }
 
+/* Expand All / Collapse All: icon only, a little apart from the view switch. */
+#detail-views button.tree-tool {
+  padding: var(--control-pad-y-sm) var(--space-2);
+}
+
+#detail-views #tree-expand-all {
+  margin-left: var(--space-3);
+}
+
 /* Quick (approximate) view of a late packet, until the exact one replaces it. */
 #detail-note {
   padding: var(--space-2) var(--space-4);

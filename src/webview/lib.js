@@ -791,6 +791,80 @@
     return path.map((n) => n.name || n.label.replace(/\d+/g, "#")).join("/");
   }
 
+  /** Rows the details tree builds before it yields to the browser (Expand All). */
+  const TREE_EXPAND_SLICE = 2000;
+  /** Rows one Expand All builds at most: the rest of a huge tree stays folded. */
+  const TREE_EXPAND_MAX = 50000;
+
+  /**
+   * Every node with children under `nodes` (themselves included), in
+   * document order: what Expand All opens. Iterative, as trees can be deep.
+   * @param {TreeNode[]} nodes
+   * @returns {TreeNode[]}
+   */
+  function parentNodes(nodes) {
+    /** @type {TreeNode[]} */
+    const out = [];
+    const stack = [...nodes].reverse();
+    while (stack.length) {
+      const node = /** @type {TreeNode} */ (stack.pop());
+      if (node.children?.length) {
+        out.push(node);
+        for (let i = node.children.length - 1; i >= 0; i--) {
+          stack.push(node.children[i]);
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * The nodeKey of every node with children in the subtree at `path` (its
+   * last node), itself included: what Collapse Subtrees forgets.
+   * @param {TreeNode[]} path
+   * @returns {string[]}
+   */
+  function subtreeKeys(path) {
+    /** @type {string[]} */
+    const keys = [];
+    /** @type {TreeNode[][]} */
+    const stack = [path];
+    while (stack.length) {
+      const here = /** @type {TreeNode[]} */ (stack.pop());
+      const node = here[here.length - 1];
+      if (node.children?.length) {
+        keys.push(nodeKey(here));
+        for (const child of node.children) {
+          stack.push([...here, child]);
+        }
+      }
+    }
+    return keys;
+  }
+
+  /**
+   * The top-level node whose subtree holds `target` (itself when it is one),
+   * or null: where the selection goes when Collapse All hides it.
+   * @param {TreeNode[]} nodes @param {TreeNode | null | undefined} target
+   * @returns {TreeNode | null}
+   */
+  function topLevelOf(nodes, target) {
+    if (!target) {
+      return null;
+    }
+    for (const top of nodes) {
+      const stack = [top];
+      while (stack.length) {
+        const node = /** @type {TreeNode} */ (stack.pop());
+        if (node === target) {
+          return top;
+        }
+        stack.push(...(node.children ?? []));
+      }
+    }
+    return null;
+  }
+
   // ---------------------------------------------------------------- autocomplete
 
   /** Comparison operators offered after a field name. */
@@ -3037,6 +3111,8 @@
         ["Home / End", "First / last field"],
         ["Enter", "Follow a link to another packet, or expand / collapse"],
         ["Space", "Expand / collapse"],
+        ["Shift+→", "Expand the field and everything under it"],
+        ["Ctrl+→ / Ctrl+←", "Expand / collapse every field"],
         ["← on a protocol", "Back to the packet list"],
       ],
     },
@@ -3598,6 +3674,11 @@
     combineFilter,
     findNodeForByte,
     nodeKey,
+    TREE_EXPAND_SLICE,
+    TREE_EXPAND_MAX,
+    parentNodes,
+    subtreeKeys,
+    topLevelOf,
     completionContext,
     operatorSuggestions,
     applyCompletion,

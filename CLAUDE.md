@@ -618,6 +618,33 @@ frame.number==N` (no `-c`, both the PDML and the `-x` run), so references
   one). Quick results have their own LRU (16) keyed by (frame, window). Ask
   Copilot uses quick details for late packets too, and the prompt says which
   trees are approximate.
+- **Detail tree expansion** (`viewer/detail.js`): a node's children's rows
+  are built the first time it opens (`setExpanded`); what is open is
+  `state.expanded`, `lib.nodeKey` paths (names, else labels with digits as
+  `#`), so the same fields open in the next packet and when the exact detail
+  replaces the quick view (persisted: the last 200). Nodes to open, remembered
+  ones or under an Expand All (`all`), go through one queue (`pending`,
+  breadth first) that `drainPending` opens `lib.TREE_EXPAND_SLICE` (2,000)
+  built rows at a time, the first slice at once and the rest after
+  `setTimeout(0)`, so a normal tree opens as before and a tree of a hundred
+  thousand fields never blocks the webview (building every row at once
+  did); an Expand All stops at `lib.TREE_EXPAND_MAX` (50,000) built rows,
+  with a notice, and goes on in the exact view when one replaces the quick
+  one mid-run. Re-opening built rows is free, so slices count built rows.
+  A packet's previously selected field may come in a later slice
+  (`selectWhenBuilt`). **Expand All / Collapse All** (Wireshark's): the
+  `#tree-expand-all`/`#tree-collapse-all` icon buttons in `#detail-views`
+  after Tree | Diagram (hidden in Diagram view, disabled without a detail:
+  `applyDetailView`), `Ctrl+→`/`Ctrl+←` in the tree (`⌘` on macOS, where
+  Ctrl+arrows switch desktops; checked before the plain arrows, which
+  ignored modifiers; VS Code binds Ctrl+arrows only for text editors), and
+  the tree menu's Expand All / Collapse All plus Expand Subtrees (`Shift+→`)
+  / Collapse Subtrees of the clicked node (they replaced a synchronous
+  recursion). `collapseSubtrees` forgets the keys (`lib.subtreeKeys`),
+  folds the built rows, drops queued opens below, and moves a selection it
+  hides to the folded node (Collapse All: the top-level protocol). The
+  packet window panel shares `lib.parentNodes` and `lib.topLevelOf`. The
+  keys are in `lib.VIEWER_KEYS` (the `?` dialog), not package.json.
 - **Packet diagram** (`lib.packetDiagram`, `viewer/diagram.js`): the details
   pane's _Tree | Diagram_ switch (`#detail-views`, in the sticky
   `#detail-head` with the comment bar and the quick-view note;

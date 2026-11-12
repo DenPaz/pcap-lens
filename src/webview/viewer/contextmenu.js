@@ -7,7 +7,15 @@ import { visibleColumns } from "./columns.js";
 import { rowAt } from "./list.js";
 import { copyRows, focusIndex, selectAll, selectIndex, selectedFrames } from "./selection.js";
 import { deleteComment, editComment, gotoFrame } from "./comments.js";
-import { nodeIndex, selectNode, setExpanded } from "./detail.js";
+import {
+  collapseAllNodes,
+  collapseSubtrees,
+  expandAllNodes,
+  expandSubtrees,
+  nodeIndex,
+  selectNode,
+  treeKeyLabel,
+} from "./detail.js";
 import { applyFilter, validateSoon } from "./filterbar.js";
 import { openFilterBuilder } from "./builder.js";
 import {
@@ -467,13 +475,26 @@ export function showTreeMenu(entry, x, y) {
         }),
     });
   }
+  entries.push("-");
   if (entry.children) {
     entries.push(
-      "-",
-      { label: "Expand Subtrees", icon: "expand-all", action: () => expandAll(entry, true) },
-      { label: "Collapse Subtrees", icon: "collapse-all", action: () => expandAll(entry, false) },
+      {
+        label: "Expand Subtrees",
+        icon: "expand-all",
+        keys: treeKeyLabel("expandSubtree"),
+        action: () => expandSubtrees([entry]),
+      },
+      {
+        label: "Collapse Subtrees",
+        icon: "collapse-all",
+        action: () => collapseSubtrees([entry]),
+      },
     );
   }
+  entries.push(
+    { label: "Expand All", keys: treeKeyLabel("expandAll"), action: () => expandAllNodes() },
+    { label: "Collapse All", keys: treeKeyLabel("collapseAll"), action: () => collapseAllNodes() },
+  );
   showMenu(x, y, entries);
 }
 
@@ -481,19 +502,6 @@ export function showTreeMenu(entry, x, y) {
 function fieldBytes(node) {
   const src = state.detail?.sources[node.src];
   return src ? src.hex.slice(node.pos * 2, (node.pos + node.size) * 2) : "";
-}
-
-/** @param {NodeEntry} entry @param {boolean} open */
-function expandAll(entry, open) {
-  setExpanded(entry, open);
-  if (entry.built) {
-    for (const child of entry.node.children) {
-      const c = nodeIndex.get(child.id);
-      if (c && c.children) {
-        expandAll(c, open);
-      }
-    }
-  }
 }
 
 /** @param {string} expr @param {boolean} apply */

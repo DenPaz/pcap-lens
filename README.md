@@ -60,6 +60,9 @@ dissector you pick).
   open resumes.
 - **Protocol tree and hex view** with two-way highlighting and reassembled
   data; right-click a field to filter on it, colorize, add a column or copy.
+  **Expand All** and **Collapse All** (the tree's buttons, `Ctrl+Right` and
+  `Ctrl+Left`, or its menu; `Shift+Right` opens one field's whole subtree)
+  stay in effect for the next packets.
   The panes go below, stacked or beside the list, with or without the bytes
   (the toolbar's _Pane Layout_ button).
 - **Packet diagram**: each header drawn 32 bits a row, every field to the
@@ -229,6 +232,8 @@ capture data needs your consent first, and addresses become stand-ins such as
 | `Ctrl+.`, `Ctrl+,`                | Next / previous packet in conversation |
 | `Ctrl+M`, `Ctrl+Shift+N` / `B`    | Mark; next / previous marked           |
 | `Ctrl+D`, `Ctrl+T`, `Ctrl+Alt+C`  | Ignore, time reference, packet comment |
+| `Ctrl+Right`, `Ctrl+Left`         | Details: expand all, collapse all      |
+| `Shift+Right`                     | Details: expand the field's subtree    |
 | `Ctrl+A`, `Shift`/`Ctrl`+click    | Select all, select a range or more     |
 | `Shift+F10`                       | Context menu                           |
 

@@ -876,6 +876,36 @@ suite("webview lib: follow stream and statistics helpers", () => {
     );
     assert.deepEqual(mac.at(-1).keys[1], ["⌘M", "Toggle Mark"]);
     assert.equal(lib.shortcutSections([], false).at(-1).area, "Help", "no commands section");
+    // The details tree's Expand All / Collapse All keys, ⌘ on macOS.
+    const details = (/** @type {boolean} */ isMac) =>
+      lib.shortcutSections([], isMac).find((s) => s.area === "Packet details").keys;
+    assert.ok(details(false).some(([k, what]) => k === "Ctrl+→ / Ctrl+←" && /every/.test(what)));
+    assert.ok(details(true).some(([k]) => k === "⌘→ / ⌘←"));
+    assert.ok(details(false).some(([k, what]) => k === "Shift+→" && /everything under/.test(what)));
+  });
+
+  test("tree helpers for Expand All and Collapse All", () => {
+    const leaf = (/** @type {number} */ id) => ({ id, label: `leaf ${id}`, src: 0 });
+    const deep = { id: 4, label: "Deep", name: "p.deep", src: 0, children: [leaf(5)] };
+    const flags = { id: 3, label: "Flags", name: "p.flags", src: 0, children: [deep, leaf(6)] };
+    const proto = { id: 1, label: "Proto", name: "p", src: 0, children: [leaf(2), flags] };
+    const other = { id: 7, label: "Other", name: "o", src: 0, children: [leaf(8)] };
+    const tree = [proto, other, leaf(9)];
+    // Every node with children, in document order (iterative: no recursion limit).
+    assert.deepEqual(
+      lib.parentNodes(tree).map((/** @type {any} */ n) => n.id),
+      [1, 3, 4, 7],
+    );
+    assert.deepEqual(lib.parentNodes([leaf(1)]), []);
+    // The keys Collapse Subtrees forgets: the subtree's own and its descendants'.
+    assert.deepEqual(lib.subtreeKeys([proto, flags]).sort(), ["p/p.flags", "p/p.flags/p.deep"]);
+    assert.deepEqual(lib.subtreeKeys([proto, leaf(2)]), []);
+    // Where the selection goes when Collapse All hides it.
+    assert.equal(lib.topLevelOf(tree, deep.children[0]), proto);
+    assert.equal(lib.topLevelOf(tree, other), other);
+    assert.equal(lib.topLevelOf(tree, leaf(42)), null);
+    assert.equal(lib.topLevelOf(tree, null), null);
+    assert.ok(lib.TREE_EXPAND_SLICE > 0 && lib.TREE_EXPAND_MAX >= lib.TREE_EXPAND_SLICE);
   });
 
   test("overview strip geometry", () => {

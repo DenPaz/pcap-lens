@@ -219,20 +219,15 @@
   });
 
   expandBtn.addEventListener("click", () => {
-    const walk = (/** @type {TreeNode[]} */ nodes) =>
-      nodes.forEach((n) => {
-        if (n.children?.length) {
-          state.open.add(n.id);
-          walk(n.children);
-        }
-      });
-    walk(state.tree);
+    for (const node of lib.parentNodes(state.tree)) {
+      state.open.add(node.id);
+    }
     renderTree();
   });
   collapseBtn.addEventListener("click", () => {
     state.open.clear();
     // (The selection may be inside a closed node: select its top level.)
-    const top = state.tree.find((n) => contains(n, state.selected));
+    const top = lib.topLevelOf(state.tree, state.selected);
     if (top) {
       state.selected = top;
     }
@@ -240,11 +235,6 @@
     renderHex();
     updateActions();
   });
-
-  /** @param {TreeNode} node @param {TreeNode | null} target */
-  function contains(node, target) {
-    return node === target || !!node.children?.some((c) => contains(c, target));
-  }
 
   // ------------------------------------------------------------------ bytes
 

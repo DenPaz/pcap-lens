@@ -50,6 +50,12 @@ Wireshark colors are drawn as a tint or a stripe
 - Right-click a field to apply or prepare it as a filter, colorize with it,
   add it as a column, copy it, open its protocol's preferences or disable
   the protocol.
+- **Expand All** and **Collapse All**: the buttons beside Tree | Diagram,
+  `Ctrl+Right` and `Ctrl+Left` in the tree (`Cmd` on macOS), or the tree's
+  menu, which also has **Expand Subtrees** and **Collapse Subtrees** for one
+  field (`Shift+Right` expands its whole subtree). What you open stays open
+  for the next packets. A huge tree opens in steps, and at most 50,000
+  fields at once.
 - **Packet diagram**: the details pane's _Diagram_ tab draws each header 32
   bits a row, every field to the bit, like Wireshark's.
 - **Show Packet Bytes** (field menu): a field's bytes decoded (Base64,
@@ -91,5 +97,7 @@ Wireshark colors are drawn as a tint or a stripe
 | `Ctrl+.`, `Ctrl+,`                | Next / previous packet in conversation |
 | `Ctrl+M`, `Ctrl+Shift+N` / `B`    | Mark; next / previous marked           |
 | `Ctrl+D`, `Ctrl+T`, `Ctrl+Alt+C`  | Ignore, time reference, packet comment |
+| `Ctrl+Right`, `Ctrl+Left`         | Details: expand all, collapse all      |
+| `Shift+Right`                     | Details: expand the field's subtree    |
 | `Ctrl+A`, `Shift`/`Ctrl`+click    | Select all, select a range or more     |
 | `Shift+F10`                       | Context menu                           |

@@ -114,6 +114,8 @@ export const el = {
   viewTree: $("view-tree"),
   viewDiagram: $("view-diagram"),
   diagramValues: $("diagram-values"),
+  treeExpandAll: $("tree-expand-all"),
+  treeCollapseAll: $("tree-collapse-all"),
   diagram: $("detail-diagram"),
   commentBar: $("comment-bar"),
   commentView: $("comment-view"),
