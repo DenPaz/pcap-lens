@@ -53,11 +53,31 @@ if the operator were sending it now.
   are put back in order: data after a gap waits for the missing bytes for up
   to 0.5 s of capture time (or 4 MB, or the connection's end); then the gap
   (data missing from the capture) is counted and the data after it is sent.
+- **A SYN's own data** (TCP Fast Open) is sent once, after the connection
+  opens: a retransmitted SYN's copy is a retransmission.
 - **A client FIN closes our sending side** (after its data); a client RST
-  closes the connection.
+  closes the connection (SO_LINGER 0, so the service sees a reset).
+- **Several addresses**: a destination name is resolved to every address
+  (IPv4 first); a refused connection tries the next one, and the one that
+  worked goes first for the next connections (`localhost` can be `::1`
+  first while the service listens on IPv4 only).
+- **Back-pressure, not unbounded buffers**: when more than 32 MB waits to
+  be written (all connections together), the timeline waits for the
+  services to read (Stop still works); at the end, a service gets 10 s to
+  read what was sent, and what it didn't read by then is counted `dropped`
+  with an error.
+- **UDP**: each socket asks for a 256 KiB send buffer (macOS starts at
+  9 KB and refused larger datagrams); a recorded datagram larger than UDP
+  carries (65,507 bytes over IPv4, 65,527 over IPv6) isn't sent but counted
+  `tooLarge`, with an error saying why.
+- **A capture tshark can't read to the end** (it crashed or was killed
+  partway) isn't taken as replayed: the log says "x was only partly
+  replayed (N packets read)".
 - **Local targets only by default**: loopback, private and link-local
   addresses (names are resolved and every address is checked). Anything else
-  needs `allowPublic` (an application-scoped setting in the UI phase).
+  needs `allowPublic`, which the panel sends when the application-scoped
+  setting `pcapViewer.replay.allowPublicTargets` is on (the command line:
+  `--allow-public`).
 - **No TLS in the first version**: encrypted delivery can't be replayed as
   is; a later version can replay decrypted content (key log) over a new TLS
   connection.
@@ -76,6 +96,9 @@ if the operator were sending it now.
     `last`, `firstFrame`, `protocol`.
   - `protocol` is the packet list's Protocol column of the first data packet
     (HI2/HI3 with the internal Lua dissectors loaded).
+  - With several captures (phase 4), a target only other captures record
+    has `firstFrame: null` and `recordedIn` (the first capture, in play
+    order, that has it).
   - Cached per scope; needs a completely indexed capture.
 - `replay {filter?, targets, speed?, loops?, allowPublic?}`: replays until
   done, stopped or cancelled.
@@ -89,9 +112,12 @@ if the operator were sending it now.
   - Returns `{filter, stopped, seconds, loops, speed, targets, log}`; each
     target: `key`, `to`, `connections`, `opened`, `refused`, `reset`,
     `closedByPeer`, `packets`, `bytes`, `dropped`, `received`, `datagrams`,
-    `errors`, `errorCount`; `log` holds the lines not reported yet.
+    `lost`, `tooLarge`, `errors` (the first 10), `errorCount`; `log` holds
+    the lines not reported yet.
 - `replay_stop` → `{stopped}`: ends the running replay cleanly, including a
-  tshark pass still looking for packets.
+  tshark pass still looking for packets. `stopped: false` means no replay
+  is running yet (it is still starting): the panel and the command line
+  then cancel the `replay` request instead.
 
 Phase 4 (several captures, 0.25.2) adds to both requests:
 
@@ -131,7 +157,8 @@ Phase 5 (the command line, 0.30.0):
 ## The panel (phase 2)
 
 _PCAP: Replay to…_ (☰ Capture, or the editor title's overflow menu; titled
-"Replay to Service…" until 0.25.2) opens one panel per capture:
+"Replay to Service…" until 0.25.2) opens one panel per capture, titled
+"Replay":
 
 - **More captures…** (phase 4): a section folded by default, so the panel
   shows the open capture alone, as before 0.25.2. It holds _Add Captures…_
@@ -142,8 +169,9 @@ _PCAP: Replay to…_ (☰ Capture, or the editor title's overflow menu; titled
   read) and _Play_: one after another or merged by recorded time. The open
   capture starts first; moved, it is sent as `openAt` (the captures that
   play before it). Folded, its heading still says how many captures were
-  added and play, and when the open one is left out or plays after others. It opens by itself when a loaded setup has other captures (or leaves
-  the open one out).
+  added and play, and when the open one is left out or plays after others.
+  It opens by itself when a loaded setup has other captures (or leaves the
+  open one out).
 
 - **Packets**: all, or the packets the viewer's filter shows.
 - **Targets table**: one row per recorded target, with its protocol (as the
@@ -179,9 +207,14 @@ _PCAP: Replay to…_ (☰ Capture, or the editor title's overflow menu; titled
   the log) or, for a `.json` name, `resultsToJson` (`format`
   `"pcap-lens-replay-results"`, version 1: the capture, times, options,
   captures and `openAt`, per-target and per-capture counts, the log).
+- **Copy Command Line…** (phase 5): saves the setup (with the open
+  capture's path and the packets played as `filter`) and copies a
+  `pcap-lens-replay.py` command line that replays it without VS Code.
 - Public destinations are refused unless
   `pcapViewer.replay.allowPublicTargets` is on (application scope); the
   refusal links to the setting.
+- While a replay runs, the viewer's status bar shows it ("Replaying to 2
+  targets · 0:12 · 4.7 KB sent"); clicking it shows the panel.
 
 ## Phases
 
@@ -237,6 +270,7 @@ _PCAP: Replay to…_ (☰ Capture, or the editor title's overflow menu; titled
       and `recordedIn` for the others)
 - [x] Save Results… (text or JSON)
 - [x] Real-capture harness: two captures one after another and merged
+- [x] The panel is titled "Replay", like its command (0.29.1)
 
 ### Phase 5: the command line (0.30.0)
 
@@ -261,6 +295,12 @@ _PCAP: Replay to…_ (☰ Capture, or the editor title's overflow menu; titled
       replays into local servers, exit statuses, `--duration`, the
       launcher with SIGINT; the panel e2e test; the smoke test runs the
       copied command line
+
+### Since 0.30.0
+
+- [x] A capture tshark crashes on (or that is killed for its memory)
+      partway is logged as only partly replayed instead of passing as
+      complete (0.32.0)
 
 ## Later
 

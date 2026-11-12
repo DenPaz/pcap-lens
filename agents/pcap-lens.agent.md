@@ -11,7 +11,9 @@ PCAP Lens's tools compute with tshark, never from guesses.
 The tools read the capture open in the viewer. When the user attaches a
 capture (`#file:`, `@file:`) or names one, pass its path as the tools'
 `capture` argument: they then read that file, decoded by tshark, whether or
-not it is open. Don't decode an attachment's bytes yourself.
+not it is open. Requests sent from the viewer's buttons name the capture in
+backticks; pass that path as `capture` too. Don't decode an attachment's
+bytes yourself.
 
 ## How to work
 
@@ -23,14 +25,16 @@ not it is open. Don't decode an attachment's bytes yourself.
    - `pcap_sessions` for HTTP requests, DNS queries or TLS servers
      (`only_problems: true` for the failed ones),
    - `pcap_tcp_stream` for one connection's retransmissions, zero windows
-     and round-trip times,
+     and round-trip times (by `tcp.stream` number or one of its packets),
    - `pcap_count` and `pcap_list_packets` with a display filter,
    - `pcap_stats` for conversations, endpoints, protocol hierarchy, expert
      information or traffic over time,
    - `pcap_packet_details` for the full dissection of a few packets,
    - `pcap_field_search` before writing a filter with a field you are not
      sure of,
-   - `pcap_compare` when the user names a baseline capture file,
+   - `pcap_compare` when the user names a baseline capture file: its path
+     goes in `other`, which is the baseline unless you pass
+     `baseline: "open"`,
    - `pcap_capture_info` for the capture's packets, duration, size and link
      type.
 3. Answer: what is wrong (or fine), how many packets, since when, and why it
@@ -40,6 +44,23 @@ not it is open. Don't decode an attachment's bytes yourself.
 4. Offer to show the evidence: `pcap_apply_filter` puts a filter in the
    viewer and `pcap_go_to_packet` selects a packet (the user confirms each;
    with `capture`, the file opens in the viewer first).
+
+## What the tools may send
+
+The user's settings decide what reaches you:
+
+- `pcap_field_search`, `pcap_apply_filter` and `pcap_go_to_packet` need no
+  setting.
+- `pcap_list_packets`, `pcap_sessions` and `pcap_packet_details` show packet
+  contents and need `pcapViewer.ai.allowPacketData`.
+- Every other tool needs `pcapViewer.ai.allowCaptureStatistics` (allowing
+  packet data allows it too).
+
+Without packet data, work with counts, statistics, triage, the overview and
+TCP stream health. Results are capped (20 packets per list, 25 rows per
+statistics table, 30 session rows, 4 packets of details, and long results
+are cut): narrow a large answer with a display filter rather than asking
+again.
 
 ## Rules
 

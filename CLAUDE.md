@@ -204,13 +204,15 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   pure settings helpers. `src/commands/` command implementations
   (`export.ts`, `coloring.ts`, `dissectors.ts`, `tls.ts`, `merge.ts`,
   `filterButtons.ts`, `importHexDump.ts`, `openFile.ts`, `plugins.ts`, …).
-  `src/luaChoice.ts` per-capture Lua choices. `src/hexDump.ts` guesses a hex
+  `src/luaChoice.ts` per-capture Lua choices. `src/luaTemplate.ts` the New
+  Lua Dissector template and its name/port checks (pure). `src/hexDump.ts` guesses a hex
   dump's layout (pure).
   `src/rotation.ts` recognises rotated capture pieces (pure).
   AI: `src/aiFilter.ts`, `aiCaptureFilter.ts`, `aiDissector.ts`,
   `aiExplain.ts`, `aiSummary.ts`, `aiTriage.ts`, `aiCompare.ts`, `aiScans.ts`, `aiAnomaly.ts`, `aiTools.ts`
   (tool specs, `runTool`, `runToolLoop`), `aiToolReports.ts` (the report tools' text), `aiCapturePath.ts` (the file a tool's `capture` names), `aiModel.ts` (model choice),
-  `aiPrivacy.ts` (address stand-ins) and `aiConsent.ts` are pure prompt
+  `aiPrivacy.ts` (address stand-ins), `aiAgentQuery.ts` (what the viewer's
+  buttons ask the agent) and `aiConsent.ts` are pure prompt
   builders/parsers; `src/ai.ts` (`FilterAssistant`) and
   `src/lmTools.ts` (the tools API, declared locally) talk to `vscode.lm`;
   `src/commands/ai.ts` holds commands, consent and the `@pcap` participant;
@@ -399,7 +401,9 @@ UI behaviour stays in the Chromium test (`test/webview/e2e.test.js`).
 - **Streaming open** (`open {stream: true}`, what the host sends): the index
   pass runs in the pool (`_run_index`); `open` returns once FIRST_BATCH (1000)
   rows are published or after FIRST_BATCH_S (0.5 s) with some (`indexing:
-true`), else when done. The pass then reports through backend notifications
+true`), else when done (a test that expects a small capture's pass to end
+  first raises FIRST_BATCH_S with `patch_service`: Windows CI's tshark took
+  over 0.5 s for `http.pcap`'s 11 packets). The pass then reports through backend notifications
   `index {event: progress|done|failed}` (`service.notify` = `server.notify`;
   `BackendClient.onNotification`). An `_Indexing` object is "attached" under
   `_lock` when `open` publishes the partial capture, so a pass ending at the
@@ -2260,7 +2264,9 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   (`agents/pcap-lens.agent.md`: name, description, argument-hint; no
   `tools` list, since the documented form for an extension's tool there
   isn't settled and a wrong name leaves the agent without them, so the body
-  says to use only these tools and never a terminal) and
+  says to use only these tools and never a terminal; it and the skill say
+  which tools need which `allow*` setting and the tools' row caps, so a
+  model without packet data picks the statistics tools) and
   `contributes.chatSkills` (`skills/analyze-capture/SKILL.md`, its `name` =
   its folder); a unit test checks both are packaged, have plain
   `key: value` front matter, name only real tools and every one of them,

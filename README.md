@@ -70,7 +70,8 @@ dissector you pick).
 - **Show Packet in New Window** and **Show File Format** (the pcap/pcapng
   blocks of the file itself).
 - **Columns**: sort by any column, add custom columns from any field, hide,
-  rename, reorder and resize; row density and time formats of your choice.
+  rename, reorder and resize (double-click a column's separator to fit it to
+  its contents); row density and time formats of your choice.
 - **Coloring rules** like Wireshark's, with an editor, _Colorize with
   Filter…_ and _Colorize Conversation_; colors adapt to dark and
   high-contrast themes.
@@ -207,8 +208,8 @@ capture data needs your consent first, and addresses become stand-ins such as
 - **MCP server** for Claude Code, Claude Desktop, Cursor and VS Code's agent
   mode: read-only tools over capture files (an overview, counts, statistics,
   triage, HTTP requests, DNS queries and TLS servers with their response
-  times, VoIP calls with their quality, TCP connection health, comparison
-  and, if allowed, packets). It dissects captures as the viewer
+  times, VoIP calls with their quality, TCP connection health, a field's
+  values, comparison and, if allowed, packets). It dissects captures as the viewer
   does: your Lua dissectors, Decode As rules, preferences, Wireshark profile
   and tshark's plugins (compiled ones too). VS Code 1.101+ lists it by itself;
   _PCAP: Copy MCP Server Configuration…_ gives the setup for the others.
@@ -234,20 +235,23 @@ capture data needs your consent first, and addresses become stand-ins such as
 Under **PCAP Lens** in the Settings editor (IDs start with `pcapViewer.`).
 The most used:
 
-| Setting                                                | What it does                                       |
-| ------------------------------------------------------ | -------------------------------------------------- |
-| `tsharkPath`, `pythonPath`                             | Tools to use (empty: auto-detect)                  |
-| `luaScripts`, `dissectorsFolder`, `decodeAs`, `prefs`  | Dissection, per workspace folder                   |
-| `tlsKeyLogFile`, `wiresharkProfile`                    | TLS key log; Wireshark profile tshark uses         |
-| `columns`, `columnLayout`, `timeFormat`, `listDensity` | The packet list                                    |
-| `paneLayout`, `showBytesPane`                          | Where the details and bytes go                     |
-| `panelPlacement`                                       | Panels beside the capture or below it              |
-| `coloringRules`, `coloringStyle`                       | Coloring rules and how they are drawn              |
-| `savedFilters`, `filterButtons`                        | Named filters and filter buttons                   |
-| `nameResolution.*`                                     | Which names to show; `external` allows DNS lookups |
-| `geoip.databaseFolders`                                | MaxMind databases for GeoIP                        |
-| `indexCache.*`, `quickDetail.*`                        | Saved indexes; quick view of late packets          |
-| `ai.*`, `mcp.*`                                        | AI features and what they may send (user only)     |
+| Setting                                                | What it does                                                         |
+| ------------------------------------------------------ | -------------------------------------------------------------------- |
+| `tsharkPath`, `pythonPath`                             | Tools to use (empty: auto-detect)                                    |
+| `luaScripts`, `dissectorsFolder`, `decodeAs`, `prefs`  | Dissection, per workspace folder                                     |
+| `enabledProtocols`, `heuristicDissectors`              | Protocols and heuristics switched on or off                          |
+| `tlsKeyLogFile`, `wiresharkProfile`                    | TLS key log; Wireshark profile tshark uses                           |
+| `columns`, `columnLayout`, `timeFormat`, `listDensity` | The packet list                                                      |
+| `paneLayout`, `showBytesPane`                          | Where the details and bytes go                                       |
+| `panelPlacement`                                       | Panels beside the capture or below it                                |
+| `coloringRules`, `coloringStyle`                       | Coloring rules and how they are drawn                                |
+| `savedFilters`, `filterButtons`                        | Named filters and filter buttons                                     |
+| `nameResolution.*`                                     | Which names to show; `external` allows DNS lookups                   |
+| `geoip.databaseFolders`                                | MaxMind databases for GeoIP                                          |
+| `indexCache.*`, `quickDetail.*`                        | Saved indexes; quick view of late packets                            |
+| `capture.*`                                            | Capture limits, promiscuous mode, saved capture filters              |
+| `replay.*`                                             | Replay presets; public destinations                                  |
+| `ai.*`, `mcp.*`                                        | AI features; what they may send and the model are user settings only |
 
 ## Live capture
 
@@ -338,12 +342,13 @@ and Lua dissectors come from user settings only.
   The chat tools only read a capture you name when it is in a workspace
   folder, open in the viewer or in Recent Captures.
 
-| AI feature                                                     | What is sent                                                                                                         | Needs                    |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------ |
-| Filter, capture filter and Lua help                            | Your description, the current filter, protocol and field names                                                       | `ai.enabled`             |
-| Triage, summary, compare, `/anomaly`                           | Capture properties, counts, top conversations/endpoints, expert entries (capped)                                     | `allowCaptureStatistics` |
-| Tools: count, stats, triage, overview                          | Filters and counts, statistics tables (25 rows), overview top 10s, a TCP stream                                      | `allowCaptureStatistics` |
-| Explain packets, tools: list packets, sessions, packet details | Up to 8 packets' rows and trees (tools: 20 rows, 30 sessions, 4 trees, no bytes); bytes only with `allowPacketBytes` | `allowPacketData`        |
+| AI feature                                                               | What is sent                                                                                                         | Needs                    |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| Filter, capture filter and Lua help                                      | Your description, the current filter, protocol and field names                                                       | `ai.enabled`             |
+| Triage, summary, compare, `/anomaly`                                     | Capture properties, counts, top conversations/endpoints, expert entries (capped)                                     | `allowCaptureStatistics` |
+| Tools: field search, apply filter, go to packet                          | Field names you search for; nothing from the capture                                                                 | `ai.enabled`             |
+| Tools: count, stats, triage, overview, TCP stream, compare, capture info | Filters and counts, statistics tables (25 rows), overview top 10s, a TCP stream's health, a comparison's changes     | `allowCaptureStatistics` |
+| Explain packets, tools: list packets, sessions, packet details           | Up to 8 packets' rows and trees (tools: 20 rows, 30 sessions, 4 trees, no bytes); bytes only with `allowPacketBytes` | `allowPacketData`        |
 
 ## How it works
 
@@ -359,8 +364,8 @@ Webview (HTML/JS) --postMessage--> Extension host (TypeScript)
 
 One `tshark` pass indexes the list into a file (8 bytes per packet), filters
 keep matching frame numbers, details dissect only up to the packet. On
-1,000,000 packets (146 MB): open 29–36 s with rows after 0.5 s, reopen
-0.01 s, a page < 1 ms, sort 0.6 s, backend memory 125 MB.
+1,000,000 packets (146 MB): open about 30 s with rows after 0.5 s, reopen
+0.01 s, a page < 1 ms, sort 0.5 s, backend memory 125 MB.
 
 ## Contributing and license
 
