@@ -173,10 +173,11 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   `dev` (the release PR), since dev's push run tested that commit and its
   checks show on the PR. The smoke test's VS Code download isn't cached:
   restoring a cache of it took as long as the download (tried in 2026-11).
-  `runTest.ts` downloads it first (`downloadVSCode`: 3 tries, 60 s idle
-  timeout): a pinned version is looked up in VS Code's release list with no
+  `runTest.ts` downloads it first (`downloadVSCode`: 6 tries over about
+  four minutes, 60 s idle timeout): a pinned version is looked up in VS Code's release list with no
   fallback, and that request once timed out at the 15 s default, failing the
-  oldest-VS-Code job on main before any test ran.
+  oldest-VS-Code job on main before any test ran; another time it
+  answered something that wasn't JSON for over 30 s (`RETRY_WAITS_MS`).
   The unit/webview mocha run has a 10 s timeout (`--timeout 10000` in
   `test:unit`): the Windows runner once took over 2 s on a 30 ms test.
 - **Repository upkeep**: `codeql.yml` (javascript-typescript, python and
@@ -3191,6 +3192,11 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
     _Apply as Column_, rename and remove write for the capture's folder.
     `lib.cellFilter` builds cell filters (ip/ipv6/eth by address form; none for
     Time or Info). `lib.formatBytesAs` has the bytes-pane copy formats.
+    Widths (`state.widths`, kept in the webview state): a header cell's
+    `.resize-handle` drags (`startColumnResize`) and, double-clicked, fits
+    the column like a spreadsheet (`fitColumnToContents`: the title and the
+    drawn rows' cells measured on a canvas, 40–800 px; also the header
+    menu's _Resize to Contents_). Info has no handle: it takes the rest.
 - **Commands menu** (☰ `#filter-menu` after `#filter-field`; `commandMenu.ts`,
   `main.js` `commandsMenu`): the list is built from package.json
   (`context.extension.packageJSON`: `contributes.commands` plus the first

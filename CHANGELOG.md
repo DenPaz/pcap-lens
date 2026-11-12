@@ -7,6 +7,24 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.33.1 — 2026-11-12
+
+### Added
+
+- Double-clicking a column's separator in the packet list fits the column to
+  its contents, as in a spreadsheet (also _Resize to Contents_ in the header
+  menu) [1610f4b]
+
+### Fixed
+
+- CI: a backend test no longer fails when tshark reads a small capture slowly
+  (Windows), and the VS Code smoke test keeps retrying its download for about
+  four minutes [bc9e301] [6250fed]
+
+[1610f4b]: https://github.com/DenPaz/pcap-lens/commit/1610f4b
+[bc9e301]: https://github.com/DenPaz/pcap-lens/commit/bc9e301
+[6250fed]: https://github.com/DenPaz/pcap-lens/commit/6250fed
+
 ## 0.33.0 — 2026-11-12
 
 ### Added

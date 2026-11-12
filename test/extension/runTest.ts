@@ -51,8 +51,14 @@ async function main(): Promise<void> {
   }
 }
 
-/** Tries for each download, and the idle timeout of each request. */
-const DOWNLOAD_ATTEMPTS = 3;
+/**
+ * Tries for each download, and the idle timeout of each request. The waits
+ * between tries grow to a minute, about four minutes in all: VS Code's
+ * release list once timed out, and once answered something that wasn't JSON
+ * for more than the 30 s three tries had covered (2026-11-12).
+ */
+const DOWNLOAD_ATTEMPTS = 6;
+const RETRY_WAITS_MS = [15_000, 30_000, 60_000, 60_000, 60_000];
 const DOWNLOAD_TIMEOUT_MS = 60_000;
 
 /**
@@ -74,7 +80,9 @@ async function downloadVSCode(root: string, version: string | undefined): Promis
         throw err;
       }
       console.warn(`Downloading VS Code failed (attempt ${attempt}), retrying:`, err);
-      await new Promise((resolve) => setTimeout(resolve, 10_000 * attempt));
+      await new Promise((resolve) =>
+        setTimeout(resolve, RETRY_WAITS_MS[Math.min(attempt, RETRY_WAITS_MS.length) - 1]),
+      );
     }
   }
 }

@@ -1736,6 +1736,49 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     assert.deepEqual((await headerIds()).slice(0, 2), ["number", "time"]);
   });
 
+  test("double-clicking a column's separator fits it to its contents", async () => {
+    await cleanView();
+    const header = "#list-header > div[data-id='source']";
+    const handle = page.locator(`${header} .resize-handle`);
+    const width = () => page.$eval(header, (c) => Math.round(c.getBoundingClientRect().width));
+    // Every drawn Source cell shows its whole text.
+    const fits = () =>
+      page.$$eval("#list-rows .list-row:not(.loading)", (rows) =>
+        rows.every((r) => {
+          const ids = [...document.querySelectorAll("#list-header > div")].map((c) => c.dataset.id);
+          const cell = /** @type {HTMLElement} */ (r.children[ids.indexOf("source")]);
+          return cell.scrollWidth <= cell.clientWidth;
+        }),
+      );
+    await page.waitForSelector("#list-rows .list-row:not(.loading)");
+    // Drag the separator left until the addresses are cut.
+    const box = await handle.boundingBox();
+    assert.ok(box);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x - 200, box.y + box.height / 2, { steps: 5 });
+    await page.mouse.up();
+    const narrow = await width();
+    assert.ok(narrow < 60, `narrowed to ${narrow}px`);
+    assert.equal(await fits(), false);
+
+    await handle.dblclick();
+    await page.waitForFunction(
+      ({ h, before }) => document.querySelector(h).getBoundingClientRect().width > before,
+      { h: header, before: narrow },
+    );
+    assert.equal(await fits(), true);
+    // A double-click on the separator doesn't sort by the column.
+    assert.equal(await page.getAttribute(header, "aria-sort"), null);
+    assert.match(
+      (await page.getAttribute(`${header} .resize-handle`, "title")) ?? "",
+      /double-click/i,
+    );
+
+    await page.click(header, { button: "right" });
+    await pickMenu("Reset Column Widths");
+  });
+
   test("cell menu: Apply / Prepare as Filter from a packet-list cell", async () => {
     await cleanView();
     const srcCell = rowEl(1).locator("div").nth(2); // Source of frame 1: 192.168.1.10

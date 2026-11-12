@@ -7,6 +7,7 @@ import os
 import threading
 import time
 from array import array
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -323,8 +324,12 @@ def test_streaming_open(
 
 @pytest.mark.tshark
 def test_streaming_open_finishing_fast_is_a_normal_open(
-    service: PcapService, ctx: RequestContext
+    service: PcapService, ctx: RequestContext, patch_service: Callable[[str, object], None]
 ) -> None:
+    # A pass that ends before the first batch is due answers like a plain
+    # open. The 0.5 s default was too short for tshark on Windows CI (the open
+    # returned after the first of 11 rows), so the batch is never due here.
+    patch_service("FIRST_BATCH_S", 600.0)
     res = service.open({"path": str(FIXTURES / "http.pcap"), "stream": True}, ctx)
     assert res["frames"] == 11 and res["indexing"] is False  # done before the first batch
 
