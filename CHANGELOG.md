@@ -21,10 +21,11 @@ commit) that made it. The format follows
   packet tshark crashes on [f501b46]
 - A tshark crash partway through a replay, a follow, Export Objects,
   coloring, VoIP calls or a statistics table is reported, instead of
-  replaying or showing only what came before it
+  replaying or showing only what came before it [78bc2ff]
 
 [acc2bbf]: https://github.com/DenPaz/pcap-lens/commit/acc2bbf
 [f501b46]: https://github.com/DenPaz/pcap-lens/commit/f501b46
+[78bc2ff]: https://github.com/DenPaz/pcap-lens/commit/78bc2ff
 
 ## 0.31.0 — 2026-11-11
 
