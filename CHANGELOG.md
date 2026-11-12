@@ -14,6 +14,9 @@ commit) that made it. The format follows
   reordered messages per stream, e.g. per GTP tunnel or interception),
   `export_objects` (the files a capture carries) and `credentials`
   (clear-text logins; user names only with packet data allowed) [6c3af0b]
+- Expand All and Collapse All in the packet details: buttons beside Tree |
+  Diagram, Ctrl+Right / Ctrl+Left, Shift+Right for one field's subtree, and
+  the tree's menu; a huge tree opens in steps instead of freezing [1879372]
 
 ### Changed
 
@@ -29,6 +32,7 @@ commit) that made it. The format follows
   takes quadratic time (CodeQL's polynomial regular expression alert) [e024aca]
 
 [6c3af0b]: https://github.com/DenPaz/pcap-lens/commit/6c3af0b
+[1879372]: https://github.com/DenPaz/pcap-lens/commit/1879372
 [e024aca]: https://github.com/DenPaz/pcap-lens/commit/e024aca
 [e8ea0c5]: https://github.com/DenPaz/pcap-lens/commit/e8ea0c5
 
