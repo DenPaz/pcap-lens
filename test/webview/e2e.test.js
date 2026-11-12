@@ -3324,10 +3324,13 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
           selectedShown: !!sel && /** @type {HTMLElement} */ (sel).offsetParent !== null,
         };
       });
-    // The buttons: after the Tree | Diagram switch, named, with their keys.
+    // The buttons: after the Tree | Diagram switch, named, with their keys
+    // (⌘ on macOS, where Ctrl+arrows switch desktops).
+    const mac = process.platform === "darwin";
+    const mod = mac ? "Meta" : "Control";
     for (const [id, name, key] of [
-      ["#tree-expand-all", "Expand All", "Ctrl+Right"],
-      ["#tree-collapse-all", "Collapse All", "Ctrl+Left"],
+      ["#tree-expand-all", "Expand All", mac ? "⌘→" : "Ctrl+Right"],
+      ["#tree-collapse-all", "Collapse All", mac ? "⌘←" : "Ctrl+Left"],
     ]) {
       assert.ok(await page.isVisible(id), id);
       assert.ok(await page.isEnabled(id), id);
@@ -3361,9 +3364,9 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     assert.match(now.selected, /^Internet Protocol Version 4/);
     assert.ok(now.selectedShown, "the selection stays on screen");
 
-    // The keys, while the tree has focus: Ctrl+Right, Ctrl+Left, Shift+Right.
+    // The keys, while the tree has focus: Ctrl+Right, Ctrl+Left (⌘ on macOS), Shift+Right.
     await page.focus("#detail-tree");
-    await page.keyboard.press("Control+ArrowRight");
+    await page.keyboard.press(`${mod}+ArrowRight`);
     await page.waitForFunction(
       () => !document.querySelector("#detail-tree [role=treeitem][aria-expanded=false]"),
     );
@@ -3371,7 +3374,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     assert.equal(now.open, now.parents);
     assert.match(now.selected, /^Internet Protocol Version 4/, "Expand All keeps the selection");
     assert.ok(now.selectedShown);
-    await page.keyboard.press("Control+ArrowLeft");
+    await page.keyboard.press(`${mod}+ArrowLeft`);
     assert.equal((await tree()).open, 0);
     // Shift+Right: the selected node's whole subtree, nothing else.
     await page.click("#detail-tree .node-row:has-text('Transmission Control Protocol')");
@@ -3413,7 +3416,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     }
     assert.equal(
       await menuItem("Expand All").locator(".keys").textContent(),
-      "Ctrl+Right",
+      mac ? "⌘→" : "Ctrl+Right",
       "the menu names the key",
     );
     await pickMenu("Collapse Subtrees");
