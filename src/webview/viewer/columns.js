@@ -81,7 +81,14 @@ export function rebuildColumns() {
       if (c.id !== "info") {
         const handle = document.createElement("div");
         handle.className = "resize-handle";
+        handle.title = "Drag to resize, double-click to fit the contents";
         handle.addEventListener("mousedown", (e) => startColumnResize(e, c.id, cell));
+        // (as in a spreadsheet: double-clicking the separator fits the column)
+        handle.addEventListener("dblclick", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          fitColumnToContents(c.id);
+        });
         cell.append(handle);
       }
       return cell;
@@ -381,4 +388,32 @@ function startColumnResize(e, id, cell) {
   };
   window.addEventListener("mousemove", move);
   window.addEventListener("mouseup", up);
+}
+
+/**
+ * Fit column `id` to its widest text: the title and the cells of the rows
+ * drawn now (the list draws only the rows on screen, so scrolling and fitting
+ * again can widen it). Double-click on its separator, or the header menu's
+ * Resize to Contents. @param {string} id
+ */
+export function fitColumnToContents(id) {
+  const pos = visibleColumns().findIndex((v) => v.column.id === id);
+  if (pos < 0) {
+    return;
+  }
+  const sample = /** @type {HTMLElement | null} */ (
+    el.rows.firstElementChild?.children[pos] ?? el.header.children[pos] ?? null
+  );
+  const ctx = document.createElement("canvas").getContext("2d");
+  if (!ctx || !sample) {
+    return;
+  }
+  ctx.font = getComputedStyle(sample).font;
+  let widest = ctx.measureText(visibleColumns()[pos].column.title).width + 16;
+  for (const rowEl of el.rows.children) {
+    widest = Math.max(widest, ctx.measureText(rowEl.children[pos]?.textContent ?? "").width);
+  }
+  state.widths[id] = Math.min(800, Math.max(40, Math.ceil(widest + 20)));
+  applyColumnWidths();
+  persist();
 }

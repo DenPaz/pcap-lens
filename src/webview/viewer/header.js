@@ -5,6 +5,7 @@ import { el, lib, state, vscode } from "./core.js";
 import {
   applyColumnWidths,
   columns,
+  fitColumnToContents,
   rebuildColumns,
   resizing,
   setSort,
@@ -34,29 +35,6 @@ function setHidden(id, hidden) {
   }
   state.layout = { ...state.layout, hidden: next };
   saveLayout();
-}
-
-/** Width of the widest header/cell text currently rendered in the column. @param {string} id */
-function resizeToContents(id) {
-  const pos = visibleColumns().findIndex((v) => v.column.id === id);
-  if (pos < 0) {
-    return;
-  }
-  const sample = /** @type {HTMLElement | null} */ (
-    el.rows.firstElementChild?.children[pos] ?? el.header.children[pos] ?? null
-  );
-  const ctx = document.createElement("canvas").getContext("2d");
-  if (!ctx || !sample) {
-    return;
-  }
-  ctx.font = getComputedStyle(sample).font;
-  let widest = ctx.measureText(visibleColumns()[pos].column.title).width + 16;
-  for (const rowEl of el.rows.children) {
-    widest = Math.max(widest, ctx.measureText(rowEl.children[pos]?.textContent ?? "").width);
-  }
-  state.widths[id] = Math.min(800, Math.max(40, Math.ceil(widest + 20)));
-  applyColumnWidths();
-  persist();
 }
 
 el.header.addEventListener("contextmenu", (e) => {
@@ -100,7 +78,7 @@ el.header.addEventListener("contextmenu", (e) => {
     items.push({
       label: "Resize to Contents",
       icon: "arrow-both",
-      action: () => resizeToContents(col.id),
+      action: () => fitColumnToContents(col.id),
     });
   }
   if (col.custom) {
