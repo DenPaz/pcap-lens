@@ -7,12 +7,23 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- MCP server: `rtp_stream` (one RTP or IAX2 stream's loss, jitter, lost and
+  late packets and a timeline), `sequence_check` (missing, duplicated and
+  reordered messages per stream, e.g. per GTP tunnel or interception),
+  `export_objects` (the files a capture carries) and `credentials`
+  (clear-text logins; user names only with packet data allowed) [6c3af0b]
+
 ### Changed
 
+- MCP server: expert entries keep 20 of their packet numbers, and IAX2
+  voice streams are marked as such [6c3af0b]
 - The PCAP Lens agent and the analyze-capture skill know which tools need
   which AI setting and how many rows each returns, so without packet data
   they answer from statistics instead of asking for packets [e8ea0c5]
 
+[6c3af0b]: https://github.com/DenPaz/pcap-lens/commit/6c3af0b
 [e8ea0c5]: https://github.com/DenPaz/pcap-lens/commit/e8ea0c5
 
 ## 0.33.1 — 2026-11-12
