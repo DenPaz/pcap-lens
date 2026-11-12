@@ -20,7 +20,7 @@ commit) that made it. The format follows
   connection), and results as structured content for clients that use it
   [d2d14d5]
 - MCP server: each tool declares the shape of its result (an output schema),
-  so clients that read structured results know every field and its type
+  so clients that read structured results know every field and its type [dbf9f6b]
 
 ### Fixed
 
@@ -38,6 +38,7 @@ commit) that made it. The format follows
 
 [acc2bbf]: https://github.com/DenPaz/pcap-lens/commit/acc2bbf
 [d2d14d5]: https://github.com/DenPaz/pcap-lens/commit/d2d14d5
+[dbf9f6b]: https://github.com/DenPaz/pcap-lens/commit/dbf9f6b
 [f501b46]: https://github.com/DenPaz/pcap-lens/commit/f501b46
 [78bc2ff]: https://github.com/DenPaz/pcap-lens/commit/78bc2ff
 [38c7426]: https://github.com/DenPaz/pcap-lens/commit/38c7426
