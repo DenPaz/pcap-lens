@@ -19,7 +19,7 @@ commit) that made it. The format follows
   subtree, and the tree's menu; a huge tree opens in steps instead of
   freezing [1879372]
 - Import from Hex Dump reads hex streams (Copy as Hex Stream, `tshark -e
-  data`, colon-separated bytes), one packet per line, and picks that layout
+data`, colon-separated bytes), one packet per line, and picks that layout
   when it sees one [3effa25]
 
 ### Changed
