@@ -87,6 +87,15 @@ def test_crash(code: int | None, what: str | None) -> None:
     assert ts.crash(code) == what
 
 
+def test_a_crash_breaks_a_pass_even_after_output() -> None:
+    assert ts.broke(-11, "", wrote=True)  # (the rest of its output is missing)
+    assert ts.broke(1, "tshark: Some fields aren't valid", wrote=False)
+    assert not ts.broke(1, "tshark: Some fields aren't valid", wrote=True)
+    assert not ts.broke(-9, "", wrote=True)  # (stopped by the backend)
+    assert not ts.broke(2, "cut short in the middle of a packet", wrote=False)
+    assert not ts.broke(0, "", wrote=False)
+
+
 def test_error_explains_a_crash() -> None:
     err = Tshark(Path("tshark")).error("", -11, "tshark -z io,phs failed")
     assert str(err).startswith("tshark crashed (a segmentation fault) while reading")

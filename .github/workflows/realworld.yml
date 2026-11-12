@@ -3,9 +3,9 @@ name: Real captures
 # Every backend feature over Wireshark's and tcpdump's own test captures
 # (test/realworld/run.py, what `make realworld` runs by hand): weekly, and by
 # hand. Linux has the distribution's tshark, macOS Homebrew's (the newest
-# release, which most users run). One job per system and source: Wireshark's
-# set grew to 1,243 captures (2 h 10 on Linux, two at a time; macOS, one at a
-# time, passed 5 h before reaching tcpdump's). A capture with a problem fails
+# release, which most users run). One job per system and source, and two for
+# Wireshark's set on macOS: it grew to 1,602 captures (3 h on Linux, two at a
+# time; macOS, one at a time, reached 1,418 in 6 h). A capture with a problem fails
 # the job; the run's summary lists them and the artifact has every step. The
 # captures stay in the Actions cache, never in the repository or an artifact
 # (they aren't ours to redistribute).
@@ -29,7 +29,7 @@ concurrency:
 
 jobs:
   realworld:
-    name: ${{ matrix.name }}, ${{ matrix.source }}
+    name: ${{ matrix.name }}, ${{ matrix.source }}${{ matrix.part && format(' ({0})', matrix.part) || '' }}
     # (A fork's schedule would download every capture for nothing.)
     if: github.event_name == 'workflow_dispatch' || github.repository == 'DenPaz/pcap-lens'
     runs-on: ${{ matrix.os }}
@@ -37,14 +37,15 @@ jobs:
     timeout-minutes: 360
     strategy:
       fail-fast: false
+      # macOS runs one capture at a time: Wireshark's set (1,602 captures)
+      # reached 1,418 in GitHub's 6 hours, so it runs in two parts (--part).
       matrix:
-        source: [wireshark, tcpdump]
-        os: [ubuntu-latest, macos-latest]
         include:
-          - os: ubuntu-latest
-            name: Linux (distribution tshark)
-          - os: macos-latest
-            name: macOS (Homebrew tshark)
+          - { os: ubuntu-latest, name: Linux (distribution tshark), source: wireshark }
+          - { os: ubuntu-latest, name: Linux (distribution tshark), source: tcpdump }
+          - { os: macos-latest, name: macOS (Homebrew tshark), source: wireshark, part: 1/2 }
+          - { os: macos-latest, name: macOS (Homebrew tshark), source: wireshark, part: 2/2 }
+          - { os: macos-latest, name: macOS (Homebrew tshark), source: tcpdump }
     steps:
       - uses: actions/checkout@v7
       - name: Install tshark (Linux)
@@ -91,21 +92,25 @@ jobs:
         env:
           FULL: ${{ inputs.full }}
           SOURCE: ${{ matrix.source }}
+          PART: ${{ matrix.part }}
         run: |
           # (Every step for Wireshark's only by hand with "full"; tcpdump's are
           # many small fuzzed ones, always the quick steps.)
           quick=--quick
           if [ "$FULL" = "true" ] && [ "$SOURCE" = wireshark ]; then quick=; fi
-          uv run python -u test/realworld/run.py --fetch "$SOURCE" $quick --out "$SOURCE.json" 2>&1 | tee "$SOURCE.log"
+          part=()
+          if [ -n "$PART" ]; then part=(--part "$PART"); fi
+          uv run python -u test/realworld/run.py --fetch "$SOURCE" $quick "${part[@]}" --out "$SOURCE.json" 2>&1 | tee "$SOURCE.log"
       - name: Summary
         if: always()
         shell: bash
         env:
           NAME: ${{ matrix.name }}
           SOURCE: ${{ matrix.source }}
+          PART: ${{ matrix.part }}
         run: |
           {
-            echo "## Real captures on ${NAME}: ${SOURCE}"
+            echo "## Real captures on ${NAME}: ${SOURCE} ${PART}"
             echo
             echo '```'
             tshark --version | head -n 1
@@ -117,15 +122,16 @@ jobs:
             sed -n '/^[0-9]* captures, [0-9]* with problems/,$p' "${SOURCE}.log" || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+      # (Both macOS parts hold the same captures: the first part saves them.)
       - uses: actions/cache/save@v6
-        if: always()
+        if: always() && matrix.part != '2/2'
         with:
           path: ~/.cache/pcap-lens-realworld
           key: realworld-captures-${{ runner.os }}-${{ matrix.source }}-${{ github.run_id }}
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: realworld-${{ runner.os }}-${{ matrix.source }}
+          name: realworld-${{ runner.os }}-${{ matrix.source }}${{ matrix.part && format('-part{0}', matrix.part == '1/2' && '1' || '2') || '' }}
           path: ${{ matrix.source }}.json
           if-no-files-found: ignore
       - name: Fail on problems

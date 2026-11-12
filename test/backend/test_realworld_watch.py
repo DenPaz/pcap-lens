@@ -211,3 +211,25 @@ def test_overview_rows_against_their_filters(harness: ModuleType) -> None:
     # tshark 4.6's hierarchy counts malformed layers its own filter misses: a note.
     assert status("at least", "_ws.malformed", 0, 3) == "note"
     assert status("exact", "_ws.malformed", 0, 3) == "problem"
+
+
+def test_a_timeout_names_what_it_waited_on(harness: ModuleType) -> None:
+    # (No busy tool: the states and any crash reporter say why next time.)
+    procs = [
+        harness.Proc(10, 1, 100_000, 2.0, "S", "python3"),  # the backend
+        harness.Proc(11, 10, 900 * 1024, 0.0, "U", "tshark"),
+        harness.Proc(12, 1, 50_000, 30.0, "S", "ReportCrash"),
+        harness.Proc(13, 99, 150_000, 0.0, "S", "tshark"),  # someone else's
+    ]
+    assert harness.waiting_on(procs, 10) == ["tshark U 0% CPU 900 MB", "ReportCrash running"]
+    assert harness.waiting_on(procs[:1], 10) == []
+
+
+def test_a_part_takes_every_nth_capture(harness: ModuleType) -> None:
+    items = list(range(1, 8))
+    assert harness.part_of(items, "1/2") == [1, 3, 5, 7]
+    assert harness.part_of(items, "2/2") == [2, 4, 6]
+    assert harness.part_of(items, "1/1") == items
+    for bad in ("0/2", "3/2", "2", "a/b", "1/0"):
+        with pytest.raises(ValueError, match="K/N"):
+            harness.part_of(items, bad)

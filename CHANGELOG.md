@@ -19,6 +19,9 @@ commit) that made it. The format follows
 - A capture that crashes tshark partway says so instead of failing with an
   internal error ("frame 48 out of order"), and so do the details of a
   packet tshark crashes on [f501b46]
+- A tshark crash partway through a replay, a follow, Export Objects,
+  coloring, VoIP calls or a statistics table is reported, instead of
+  replaying or showing only what came before it
 
 [acc2bbf]: https://github.com/DenPaz/pcap-lens/commit/acc2bbf
 [f501b46]: https://github.com/DenPaz/pcap-lens/commit/f501b46

@@ -337,8 +337,11 @@ class Run:
             result = self.server.call(method, params or {}, self.timeout)
         except RpcError as exc:
             took = time.monotonic() - start
+            waiting = ""
             if exc.code == TIMEOUT_CODE:
                 busy += busy_tools(self.server.proc.pid)
+                if not busy:
+                    waiting = _waiting_detail(self.server.proc.pid)
             status = (
                 "expected"
                 if exc.code in EXPECTED_CODES
@@ -347,7 +350,7 @@ class Run:
                 else "problem"
             )
             data = f" {json.dumps(exc.data)[:300]}" if exc.data else ""
-            detail = f"[{exc.code}] {exc.message}{data}{_busy_detail(busy)}"
+            detail = f"[{exc.code}] {exc.message}{data}{_busy_detail(busy)}{waiting}"
             self.report.steps.append(Step(name, status, took, detail))
             return None
         finally:
@@ -1720,6 +1723,33 @@ def busy_tools(root: int) -> list[str]:
     return busy
 
 
+# Programs that hold a crashed process while they write its report (macOS's
+# crash reporter; Linux's apport and systemd-coredump read the core).
+CRASH_REPORTERS = frozenset({"ReportCrash", "apport", "systemd-coredump"})
+
+
+def waiting_on(procs: list[Proc], root: int) -> list[str]:
+    """What a request that timed out with no busy tool was waiting on: each
+    Wireshark tool under ``root`` with its ``ps`` state, CPU share and
+    memory, and any crash reporter running on the machine. macOS (tshark
+    4.6) timed out with no busy tshark on several captures that crash or
+    use much memory; this says which next time."""
+    tools = [
+        f"{p.program} {p.state} {p.cpu:.0f}% CPU {p.rss_kb // 1024} MB"
+        for p in tools_under(procs, root)
+    ]
+    reporters = sorted({p.program for p in procs if p.program in CRASH_REPORTERS})
+    return tools + [f"{r} running" for r in reporters]
+
+
+def _waiting_detail(root: int) -> str:
+    try:
+        what = waiting_on(processes(), root)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return f" (waiting on: {'; '.join(what)})" if what else " (no Wireshark tool running)"
+
+
 def core_dumping(pid: int) -> bool:
     """Whether the kernel is writing ``pid``'s core dump (Linux 4.15+:
     ``CoreDumping: 1`` in its status; False elsewhere or once it is gone)."""
@@ -1783,6 +1813,36 @@ def watch_memory(jobs: int, mb: int | None) -> MemoryWatch | None:
     return MemoryWatch(mb).start()
 
 
+def part_of[T](items: list[T], spec: str) -> list[T]:
+    """The ``K/N`` part of ``items``: every Nth from the Kth (1-based), so
+    each part gets its share of the large ``*_coverage`` captures, which
+    sit together in name order. macOS ran Wireshark's 1,602 captures one at
+    a time and hit GitHub's 6-hour limit at 1,418; its job runs in parts."""
+    k, sep, n = spec.partition("/")
+    if not sep or not k.isdigit() or not n.isdigit() or not 1 <= int(k) <= int(n):
+        raise ValueError(f"--part takes K/N with 1 <= K <= N, not {spec!r}")
+    return items[int(k) - 1 :: int(n)]
+
+
+def chosen_captures(args: argparse.Namespace) -> list[Path]:
+    """The captures the command line names (fetched, given, --only, --part);
+    ValueError when there are none."""
+    captures: list[Path] = []
+    if "wireshark" in args.fetch:
+        captures += fetch_wireshark(CACHE / "wireshark")
+    if "tcpdump" in args.fetch:
+        captures += fetch_tcpdump(CACHE / "tcpdump")
+    for p in args.paths:
+        captures += sorted(x for x in p.rglob("*") if x.is_file()) if p.is_dir() else [p]
+    if args.only:
+        captures = [c for c in captures if args.only in c.name]
+    if args.part:
+        captures = part_of(captures, args.part)
+    if not captures:
+        raise ValueError("no captures: give paths or --fetch")
+    return captures
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -1806,19 +1866,17 @@ def main(argv: list[str] | None = None) -> int:
         help="memory each Wireshark tool may use (default: a share of the machine's, 0 = no cap)",
     )
     ap.add_argument("--out", type=Path, help="write the full report as JSON")
+    ap.add_argument(
+        "--part",
+        metavar="K/N",
+        help="only every Nth capture from the Kth (a CI job's share of a large set)",
+    )
     args = ap.parse_args(argv)
 
-    captures: list[Path] = []
-    if "wireshark" in args.fetch:
-        captures += fetch_wireshark(CACHE / "wireshark")
-    if "tcpdump" in args.fetch:
-        captures += fetch_tcpdump(CACHE / "tcpdump")
-    for p in args.paths:
-        captures += sorted(x for x in p.rglob("*") if x.is_file()) if p.is_dir() else [p]
-    if args.only:
-        captures = [c for c in captures if args.only in c.name]
-    if not captures:
-        ap.error("no captures: give paths or --fetch")
+    try:
+        captures = chosen_captures(args)
+    except ValueError as exc:
+        ap.error(str(exc))
 
     watch = watch_memory(args.jobs, args.memory)
     if watch:

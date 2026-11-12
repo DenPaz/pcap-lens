@@ -379,6 +379,15 @@ def failed(returncode: int | None, stderr: str) -> bool:
     return not said or not all(_ENDS_EARLY_RE.search(ln) for ln in said)
 
 
+def broke(returncode: int | None, stderr: str, wrote: bool) -> bool:
+    """Whether a pass's output can't be used: tshark crashed, even after
+    writing some (the rest is missing: a replay of rtcp_coverage.pcap.gz
+    sent half its bytes when tshark 4.6 crashed partway through the pass
+    reading it), or it failed without writing anything (``failed``). A
+    pass the backend stopped itself (SIGKILL/SIGTERM) didn't crash."""
+    return crash(returncode) is not None or (not wrote and failed(returncode, stderr))
+
+
 class ProcessRegistry:
     """Every live child process, so shutdown can guarantee no orphans."""
 

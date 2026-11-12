@@ -2716,6 +2716,20 @@ false` the open capture's slot is free, so `files` holds up to 101. The
   reads the core. `busy_tools` now also counts a tool whose
   `/proc/<pid>/status` says `CoreDumping: 1` (`core_dumping`), so such a
   timeout is a note, and the workflow prints the runner's `core_pattern`.
+  The rerun's macOS job reached 1,418 of the 1,602 captures in GitHub's
+  6 hours, so Wireshark's set runs there in two jobs (`--part 1/2`, `2/2`:
+  every other capture, `part_of`). It found tshark 4.6 crashing partway
+  through `rtcp_coverage`'s replay pass while the replay sent what came
+  before (half the bytes) with no error: most passes took output after a
+  failure as complete (`failed(…) and not lines`). `tshark.broke(rc,
+stderr, wrote)` is now that check everywhere, and a crash always breaks
+  the pass; a replay logs "x was only partly replayed (N packets read)".
+  Its `moldudp_coverage` expert pass and `nfs_coverage_malformed`'s VoIP
+  calls timed out with no busy tshark (as `openflow_v6`/`rdt_coverage`
+  before): a timeout now names what it waited on (`waiting_on`: each
+  tool's `ps` state, CPU and memory, and a running crash reporter such as
+  macOS's ReportCrash, which holds a crashed process while it writes the
+  report).
 - **AI answer evals** (`test/evals/cases.json`, `scripts/evals/`): each case
   names a fixture with known problems, the feature (triage, summary,
   compare), `facts` tshark must compute for it (`test_evals.py`: triage
