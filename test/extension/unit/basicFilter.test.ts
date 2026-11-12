@@ -419,7 +419,8 @@ suite("basic view: filtering a capture (counts checked against tshark -Y)", () =
       rec.writeUInt32LE(frame.length, 12);
       return Buffer.concat([rec, frame]);
     });
-    const file = path.join(os.tmpdir(), `pcap-lens-basic-${process.pid}.pcap`);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pcap-lens-basic-"));
+    const file = path.join(dir, "udp.pcap");
     fs.writeFileSync(file, Buffer.concat([header, ...records]));
     const c = await BasicCapture.open(file);
     try {
@@ -443,7 +444,7 @@ suite("basic view: filtering a capture (counts checked against tshark -Y)", () =
       assert.equal(c.view.expr, "ip.ttl == 64");
     } finally {
       c.close();
-      fs.rmSync(file, { force: true });
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });
