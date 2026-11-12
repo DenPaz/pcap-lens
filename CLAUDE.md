@@ -2238,8 +2238,14 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   call mustn't read any file on the machine. An open viewer's backend is
   used (`viewerOf`); else `ToolCaptures` opens one as the viewer would
   (`openCaptureBackend`, also behind `captureProfile`: settings of the
-  capture's folder, saved indexes), at most 2, closed after 5 min unused or
-  when the file changes. Registered tools share one masker for the window
+  capture's folder, saved indexes), at most 2 idle ones, closed after 5 min
+  unused or when the file or its dissection settings change (`stampOf`: size,
+  mtime and a hash of `dissectionOptions`, keys included, and the Lua
+  scripts' mtimes). A call holds its backends (`acquire` → `release`, the
+  `leases` runTool's caller gives back), so eviction and the idle timer
+  never close one in use (Codex review of the 0.33.0 PR: a third capture
+  closed the first mid-request); a comparison's other capture is looked
+  for next to the capture compared first (`resolveToolCapture(…, near)`). Registered tools share one masker for the window
   (not per backend), so stand-ins agree across captures. The viewer tools
   open the named capture in the viewer first (`vscode.openWith`, waiting
   up to 120 s for it to load). Results over
@@ -2271,7 +2277,8 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   (`agentQuery`) naming the capture (`captureLabel`: workspace path, else
   file name; never the home folder) and the `#pcap…` tools to use; an
   expert row goes as severity, group, protocol and packet numbers, never
-  its message (packet text). A comparison whose other capture the tools
+  its message (packet text), and only the user's own question (Codex
+  review: `defaultExpertQuestion` quotes the message). A comparison whose other capture the tools
   may not read (`toolsCanRead`) and a VoIP call (no tool reads calls) stay
   with `@pcap`; a failed open falls back to `@pcap`, then the editor.
 - **Language model choice** (`src/aiModel.ts` pure, `pcapViewer.ai.model`,

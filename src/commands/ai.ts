@@ -937,7 +937,8 @@ export async function askAboutAnomaly(
     const agentAsk: AgentAsk =
       ask.kind === "stream"
         ? { kind: "stream", capture, stream: ask.stream, question: ask.question }
-        : { kind: "expert", capture, rows: ask.rows, question };
+        : // (not `question`: defaultExpertQuestion quotes the row's message, packet text)
+          { kind: "expert", capture, rows: ask.rows, question: ask.question };
     if (await openAgentWith(agentAsk, log)) {
       return;
     }
@@ -1049,23 +1050,29 @@ function registerChatParticipant(
       }
       // With language model tools: answer from computed results (counts, statistics).
       if (session.toolsAvailable && (await statisticsConsent())) {
-        finishInChat(
-          stream,
-          await session.answerWithTools(
-            request.prompt,
-            toolConsent(),
-            chatSink(stream),
-            token,
-            toolHost(
-              provider,
-              context,
-              log,
-              captures,
-              { uri: session.uri, backend: session.backend, session },
+        const leases: Lease[] = [];
+        try {
+          finishInChat(
+            stream,
+            await session.answerWithTools(
+              request.prompt,
+              toolConsent(),
+              chatSink(stream),
               token,
+              toolHost(
+                provider,
+                context,
+                log,
+                captures,
+                { uri: session.uri, backend: session.backend, session },
+                token,
+                leases,
+              ),
             ),
-          ),
-        );
+          );
+        } finally {
+          release(leases);
+        }
         return;
       }
       stream.progress("Asking for display filters and checking them with tshark…");
@@ -1144,18 +1151,33 @@ const NO_BACKEND: ToolBackend = {
   request: () => Promise.reject(new Error("No capture is open in PCAP Lens.")),
 };
 
+/** Gives back a backend of `ToolCaptures` a tool call was using. */
+type Lease = () => void;
+
+/** Gives back every backend a tool call took (`leases`), once it is done. */
+function release(leases: Lease[]): void {
+  for (const done of leases.splice(0)) {
+    done();
+  }
+}
+
 /** A tool input's `capture` argument ("" when there is none). */
 function captureArg(input: unknown): string {
   const capture = (input as { capture?: unknown } | undefined)?.capture;
   return typeof capture === "string" ? capture.trim() : "";
 }
 
-/** The capture a `capture` argument names: its viewer when open, else a backend of the tools' own. */
+/**
+ * The capture a `capture` argument names: its viewer when open, else a
+ * backend of the tools' own, kept open until the call gives it back (its
+ * lease goes into `leases`).
+ */
 async function toolTarget(
   provider: PcapEditorProvider,
   context: vscode.ExtensionContext,
   captures: ToolCaptures,
   capture: string,
+  leases: Lease[],
 ): Promise<ToolTarget | string> {
   const uri = await resolveToolCapture(capture, provider, context);
   if (typeof uri === "string") {
@@ -1166,7 +1188,9 @@ async function toolTarget(
     return { uri, backend: session.backend, session };
   }
   try {
-    return { uri, backend: await captures.backend(uri) };
+    const { client, release: done } = await captures.acquire(uri);
+    leases.push(done);
+    return { uri, backend: client };
   } catch (err) {
     return `Couldn't read ${path.basename(uri.fsPath)}: ${(err as Error)?.message ?? err}`;
   }
@@ -1185,13 +1209,15 @@ function toolHost(
   captures: ToolCaptures,
   target: ToolTarget | undefined,
   token: vscode.CancellationToken,
+  leases: Lease[],
 ): ToolHost {
   const session = target?.session;
   return {
     detailParams: session ? (frame) => session.detailParams(frame) : undefined,
     compare: target
       ? async (other, open) => {
-          const uri = await resolveToolCapture(other, provider, context);
+          // (a relative path is next to the capture being compared first)
+          const uri = await resolveToolCapture(other, provider, context, target.uri);
           if (typeof uri === "string") {
             return uri;
           }
@@ -1219,7 +1245,7 @@ function toolHost(
         }
       : undefined,
     open: async (capture) => {
-      const found = await toolTarget(provider, context, captures, capture);
+      const found = await toolTarget(provider, context, captures, capture, leases);
       if (typeof found === "string") {
         return found;
       }
@@ -1228,7 +1254,7 @@ function toolHost(
       }
       return {
         backend: found.backend,
-        host: toolHost(provider, context, log, captures, found, token),
+        host: toolHost(provider, context, log, captures, found, token, leases),
       };
     },
   };
@@ -1309,14 +1335,20 @@ function registerLanguageModelTools(
         if (!target && !captureArg(input)) {
           return runtime.result(NO_CAPTURE);
         }
-        const result = await runTool(
-          spec.name,
-          input,
-          target?.backend ?? NO_BACKEND,
-          toolConsent(),
-          TOOL_LIMITS,
-          toolHost(provider, context, log, captures, target, token),
-        );
+        const leases: Lease[] = [];
+        let result;
+        try {
+          result = await runTool(
+            spec.name,
+            input,
+            target?.backend ?? NO_BACKEND,
+            toolConsent(),
+            TOOL_LIMITS,
+            toolHost(provider, context, log, captures, target, token, leases),
+          );
+        } finally {
+          release(leases);
+        }
         m.learnNames(result.names ?? []);
         return runtime.result(withStandInNote(m, m.mask(result.text)));
       },

@@ -7,6 +7,7 @@
  * the viewer would (the capture's folder's settings, the saved indexes) and
  * kept for the next calls (a few at a time, closed after a while unused).
  */
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
@@ -35,21 +36,26 @@ const isFile = (p: string): boolean => {
 /**
  * The capture file `text` names, or why there is none it may read. Tried in
  * turn: the path itself (absolute or a `file:` URI), relative to the active
- * capture's folder and the workspace folders, then by file name among the
- * open and recent captures and (one match only) the workspace.
+ * capture's folder (`near`'s first) and the workspace folders, then by file
+ * name among the open and recent captures and (one match only) the workspace.
  */
 export async function resolveToolCapture(
   text: string,
   provider: PcapEditorProvider,
   context: vscode.ExtensionContext,
+  /** A capture whose folder a relative path is tried in first (the one a comparison starts from). */
+  near?: vscode.Uri,
 ): Promise<vscode.Uri | string> {
   const { folders, open, recent } = readablePlaces(provider, context);
   const active = provider.activeSession;
   const dirs = [
-    ...(active?.uri.scheme === "file" ? [path.dirname(active.uri.fsPath)] : []),
+    ...[near, active?.uri]
+      .filter((u): u is vscode.Uri => u?.scheme === "file")
+      .map((u) => path.dirname(u.fsPath)),
     ...folders,
   ];
-  let found = captureCandidates(text, dirs).filter(isFile);
+  // (a path names one file: the first folder it is in wins, in the order above)
+  let found = captureCandidates(text, dirs).filter(isFile).slice(0, 1);
   if (!found.length) {
     found = byFileName(text, [...open, ...recent]).filter(isFile);
   }
@@ -163,15 +169,41 @@ export async function openCaptureBackend(
 
 interface Entry {
   client: Promise<BackendClient>;
-  /** The file's size and modification time when opened: a change means opening it again. */
+  /** The file's size and modification time and the settings it was opened with: a change means opening it again. */
   stamp: string;
+  /** Tool calls using it now: it is closed only when none is. */
+  users: number;
+  /** Replaced (the file or its settings changed) or evicted: closed when its last user is done. */
+  retired?: boolean;
   timer?: ReturnType<typeof setTimeout>;
 }
 
 /**
+ * What an open depends on: the file (size, modification time) and the
+ * settings the viewer would open it with (dissection options and Lua scripts'
+ * modification times; hashed, since the options hold decryption keys).
+ */
+function stampOf(uri: vscode.Uri): string {
+  const st = fs.statSync(uri.fsPath);
+  const settings = readSettings(uri);
+  // (an edited Lua script changes dissection too)
+  const scripts = settings.luaScripts.map((p) => {
+    try {
+      return fs.statSync(p).mtimeMs;
+    } catch {
+      return null;
+    }
+  });
+  const options = JSON.stringify([dissectionOptions(settings), scripts]);
+  return `${st.size}:${st.mtimeMs}:${createHash("sha256").update(options).digest("hex")}`;
+}
+
+/**
  * The tools' own backends for captures not open in the viewer: at most
- * `max`, the least recently used closed first, each closed after `idleMs`
- * unused, all closed with the extension.
+ * `max` kept, the least recently used idle one closed first, each closed
+ * after `idleMs` unused, all closed with the extension. A backend a tool call
+ * is using is never closed under it: `acquire` gives a `release` the call
+ * runs when done.
  */
 export class ToolCaptures implements vscode.Disposable {
   private readonly entries = new Map<string, Entry>();
@@ -183,11 +215,10 @@ export class ToolCaptures implements vscode.Disposable {
     private readonly idleMs = 5 * 60_000,
   ) {}
 
-  /** A backend with `uri` opened (reused while the file is unchanged). */
-  async backend(uri: vscode.Uri): Promise<BackendClient> {
+  /** A backend with `uri` opened (reused while the file and its settings are unchanged), held until `release`. */
+  async acquire(uri: vscode.Uri): Promise<{ client: BackendClient; release: () => void }> {
     const key = uri.fsPath;
-    const st = fs.statSync(key);
-    const stamp = `${st.size}:${st.mtimeMs}`;
+    const stamp = stampOf(uri);
     let entry = this.entries.get(key);
     if (entry && entry.stamp !== stamp) {
       this.close(key);
@@ -196,40 +227,81 @@ export class ToolCaptures implements vscode.Disposable {
     if (!entry) {
       this.log.info(`AI tools: opening ${key} in a backend of their own`);
       const client = openCaptureBackend(this.context, this.log, uri);
-      entry = { client, stamp };
+      entry = { client, stamp, users: 0 };
       this.entries.set(key, entry);
       client.catch(() => {
         if (this.entries.get(key)?.client === client) {
           this.entries.delete(key);
         }
       });
-      for (const old of [...this.entries.keys()].slice(
-        0,
-        Math.max(0, this.entries.size - this.max),
-      )) {
-        this.close(old);
-      }
     } else {
       // (most recently used last)
       this.entries.delete(key);
       this.entries.set(key, entry);
     }
-    clearTimeout(entry.timer);
-    entry.timer = setTimeout(() => this.close(key), this.idleMs);
-    const client = await entry.client;
-    if (!client.running) {
-      this.close(key);
-      return this.backend(uri);
+    const held = entry;
+    held.users++;
+    clearTimeout(held.timer);
+    this.trim();
+    let released = false;
+    const release = (): void => {
+      if (released) {
+        return;
+      }
+      released = true;
+      held.users--;
+      if (held.users > 0) {
+        return;
+      }
+      if (held.retired) {
+        this.dispose1(held);
+        return;
+      }
+      held.timer = setTimeout(() => this.close(key, held), this.idleMs);
+      this.trim();
+    };
+    let client: BackendClient;
+    try {
+      client = await held.client;
+    } catch (err) {
+      release();
+      throw err;
     }
-    return client;
+    if (!client.running) {
+      release();
+      this.close(key, held);
+      return this.acquire(uri);
+    }
+    return { client, release };
   }
 
-  private close(key: string): void {
+  /** Close the least recently used idle backends past `max` (busy ones wait for their release). */
+  private trim(): void {
+    for (const [key, entry] of this.entries) {
+      if (this.entries.size <= this.max) {
+        return;
+      }
+      if (entry.users === 0) {
+        this.close(key, entry);
+      }
+    }
+  }
+
+  /** Forget `key`'s backend (`only` that entry, if given): closed now, or by its last user. */
+  private close(key: string, only?: Entry): void {
     const entry = this.entries.get(key);
-    if (!entry) {
+    if (!entry || (only && entry !== only)) {
       return;
     }
     this.entries.delete(key);
+    clearTimeout(entry.timer);
+    entry.retired = true;
+    if (entry.users === 0) {
+      this.dispose1(entry);
+    }
+  }
+
+  private dispose1(entry: Entry): void {
     clearTimeout(entry.timer);
     void entry.client.then(
       (c) => c.dispose(),
@@ -238,8 +310,9 @@ export class ToolCaptures implements vscode.Disposable {
   }
 
   dispose(): void {
-    for (const key of [...this.entries.keys()]) {
-      this.close(key);
+    for (const entry of this.entries.values()) {
+      this.dispose1(entry);
     }
+    this.entries.clear();
   }
 }

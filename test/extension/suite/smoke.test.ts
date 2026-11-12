@@ -887,6 +887,28 @@ suite("PCAP Lens smoke test", () => {
         await text("pcap_overview", { capture: outside }),
         /PCAP Lens's tools read captures in the workspace folders/,
       );
+      // Comparing a named capture: the other's relative path is next to it first,
+      // not next to the active capture (dns.pcap), where a decoy of that name is.
+      const sub = fs.mkdtempSync(path.join(FIXTURES, "smoke-near-"));
+      const decoy = path.join(FIXTURES, "smoke-baseline.pcap");
+      try {
+        fs.copyFileSync(path.join(FIXTURES, "office-after.pcap"), path.join(sub, "current.pcap"));
+        fs.copyFileSync(
+          path.join(FIXTURES, "office-before.pcap"),
+          path.join(sub, "smoke-baseline.pcap"),
+        );
+        fs.copyFileSync(path.join(FIXTURES, "http.pcap"), decoy);
+        assert.match(
+          await text("pcap_compare", {
+            capture: path.join(path.basename(sub), "current.pcap"),
+            other: "smoke-baseline.pcap",
+          }),
+          /^Before \(baseline\): smoke-baseline\.pcap, 96 packets\. After: current\.pcap, 103 packets\./m,
+        );
+      } finally {
+        fs.rmSync(sub, { recursive: true, force: true });
+        fs.rmSync(decoy, { force: true });
+      }
     } finally {
       await ai.update("allowCaptureStatistics", undefined, vscode.ConfigurationTarget.Global);
     }
