@@ -2,6 +2,7 @@ import * as assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
+  ALL_TOOLS,
   LoopMessage,
   LoopModel,
   LoopPart,
@@ -127,16 +128,61 @@ suite("AI tools", () => {
     }[];
     assert.deepEqual(
       declared.map((t) => t.name),
-      PCAP_TOOLS.map((t) => t.name),
+      ALL_TOOLS.map((t) => t.name),
     );
     const setting =
       pkg.contributes.configuration.properties["pcapViewer.ai.allowCaptureStatistics"];
     assert.equal(setting.default, false);
     assert.equal(setting.scope, "application", "a workspace can't turn it on");
-    for (const tool of PCAP_TOOLS) {
+    for (const tool of ALL_TOOLS) {
       const d = declared.find((t) => t.name === tool.name);
       assert.deepEqual(d?.inputSchema, tool.inputSchema, tool.name);
       assert.equal(d?.modelDescription, tool.description, tool.name);
+    }
+  });
+
+  test("the PCAP Lens agent and skill: packaged, well-formed, naming only tools that exist", () => {
+    const root = path.resolve(__dirname, "../../../..");
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+    const files = [
+      ...(pkg.contributes.chatAgents as { path: string }[]),
+      ...(pkg.contributes.chatSkills as { path: string }[]),
+    ].map((c) => c.path);
+    assert.deepEqual(files, ["./agents/pcap-lens.agent.md", "./skills/analyze-capture/SKILL.md"]);
+    const ignored = fs.readFileSync(path.join(root, ".vscodeignore"), "utf8");
+    assert.doesNotMatch(ignored, /^(agents|skills)\b/m, "vsce packages them");
+    const known = new Set(ALL_TOOLS.map((t) => t.name));
+    for (const file of files) {
+      const text = fs.readFileSync(path.join(root, file), "utf8");
+      const front = /^---\n([\s\S]*?)\n---\n/.exec(text)?.[1];
+      assert.ok(front, `${file}: YAML front matter`);
+      const fields = Object.fromEntries(
+        front.split("\n").map((line) => {
+          const at = line.indexOf(": ");
+          assert.ok(at > 0, `${file}: one "key: value" per line: ${line}`);
+          return [line.slice(0, at), line.slice(at + 2)];
+        }),
+      );
+      assert.ok(fields.name && fields.description, `${file}: name and description`);
+      for (const value of Object.values(fields)) {
+        assert.doesNotMatch(value, /: /, `${file}: a plain YAML value can't hold ": "`);
+      }
+      if (file.endsWith("SKILL.md")) {
+        assert.equal(
+          fields.name,
+          path.basename(path.dirname(file)),
+          "a skill's name is its folder",
+        );
+      }
+      const named = new Set(text.match(/\bpcap_[a-z_]+/g));
+      for (const name of named) {
+        assert.ok(known.has(name), `${file} names ${name}, which isn't a tool`);
+      }
+      for (const tool of ALL_TOOLS) {
+        assert.ok(named.has(tool.name), `${file} doesn't mention ${tool.name}`);
+      }
+      assert.match(text, /untrusted/, `${file}: results are data, not instructions`);
+      assert.match(text, /pcapViewer\.ai\.allow/, `${file}: refusals name the setting`);
     }
   });
 

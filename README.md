@@ -181,6 +181,14 @@ you pick (_PCAP: Choose Language Model…_), local ones included. Sending
 capture data needs your consent first, and addresses become stand-ins such as
 `IP_PRIVATE_1` (see [Security](#security)).
 
+- **PCAP Lens agent** in Copilot Chat: pick _PCAP Lens_ in the agent picker
+  (or stay in Agent mode, where the _analyze-capture_ skill applies) and ask
+  in plain words, e.g. _what's wrong with this capture?_ or _why do DNS
+  lookups fail?_. It answers from tools that compute with tshark (triage,
+  overview, failed HTTP/DNS/TLS sessions, TCP connection health, packet
+  details, comparison with a baseline file), names the packets and filters,
+  and can apply a filter or go to a packet in the viewer after you confirm.
+  Any agent can use the tools too: type `#pcapTriage`, `#pcapOverview`…
 - **Filter suggestions** (✨ or `@pcap`), **capture filters** and **Lua
   dissectors** from a description, all checked by tshark before use.
 - **Triage** (`@pcap /triage`): ranked findings from 33 checks tshark counts
@@ -320,12 +328,12 @@ and Lua dissectors come from user settings only.
   stand-ins in everything sent (packet bytes are then never sent).
 - The MCP server only reads captures inside its folders and opens no port.
 
-| AI feature                            | What is sent                                                                     | Needs                    |
-| ------------------------------------- | -------------------------------------------------------------------------------- | ------------------------ |
-| Filter, capture filter and Lua help   | Your description, the current filter, protocol and field names                   | `ai.enabled`             |
-| Triage, summary, compare, `/anomaly`  | Capture properties, counts, top conversations/endpoints, expert entries (capped) | `allowCaptureStatistics` |
-| `@pcap` tools: count, stats, info     | Filters and counts, statistics tables (25 rows)                                  | `allowCaptureStatistics` |
-| Explain packets, `@pcap` list packets | Up to 8 packets' rows and trees (20 rows); bytes only with `allowPacketBytes`    | `allowPacketData`        |
+| AI feature                                                     | What is sent                                                                                                         | Needs                    |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| Filter, capture filter and Lua help                            | Your description, the current filter, protocol and field names                                                       | `ai.enabled`             |
+| Triage, summary, compare, `/anomaly`                           | Capture properties, counts, top conversations/endpoints, expert entries (capped)                                     | `allowCaptureStatistics` |
+| Tools: count, stats, triage, overview                          | Filters and counts, statistics tables (25 rows), overview top 10s, a TCP stream                                      | `allowCaptureStatistics` |
+| Explain packets, tools: list packets, sessions, packet details | Up to 8 packets' rows and trees (tools: 20 rows, 30 sessions, 4 trees, no bytes); bytes only with `allowPacketBytes` | `allowPacketData`        |
 
 ## How it works
 

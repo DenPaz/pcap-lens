@@ -192,7 +192,7 @@ export function formatBytes(bytes: number): string {
     v /= 1000;
     u++;
   }
-  return u === 0 ? `${v} B` : `${v.toFixed(1)} ${units[u]}`;
+  return u === 0 ? `${Math.round(v)} B` : `${v.toFixed(1)} ${units[u]}`;
 }
 
 /** Seconds as "2 h 3 min", "4.5 s", "12 ms". */

@@ -208,7 +208,7 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   `src/rotation.ts` recognises rotated capture pieces (pure).
   AI: `src/aiFilter.ts`, `aiCaptureFilter.ts`, `aiDissector.ts`,
   `aiExplain.ts`, `aiSummary.ts`, `aiTriage.ts`, `aiCompare.ts`, `aiScans.ts`, `aiAnomaly.ts`, `aiTools.ts`
-  (tool specs, `runTool`, `runToolLoop`), `aiModel.ts` (model choice),
+  (tool specs, `runTool`, `runToolLoop`), `aiToolReports.ts` (the report tools' text), `aiModel.ts` (model choice),
   `aiPrivacy.ts` (address stand-ins) and `aiConsent.ts` are pure prompt
   builders/parsers; `src/ai.ts` (`FilterAssistant`) and
   `src/lmTools.ts` (the tools API, declared locally) talk to `vscode.lm`;
@@ -317,6 +317,8 @@ plugins` and the plugin folders), `decryption.py` (decryption keys and
   request context), `cancellation.py`, `index_cache.py` (saved indexes),
   `procs.py` (stopping children, also
   when the kill is refused), `sandbox.py` (AppArmor/Snap detection and hints).
+- `agents/pcap-lens.agent.md` (the PCAP Lens custom agent, `chatAgents`) and
+  `skills/analyze-capture/SKILL.md` (`chatSkills`); see _Language model tools_.
 - `backend/dissectors/example.lua` sample dissector (UDP/9999).
 - `media/` icon (`icon.svg` → `icon.png`), `sample.pcapng` (a copy of the
   `mixed.pcapng` fixture that `generate.py` writes), `walkthrough/*.md` (the
@@ -2206,6 +2208,41 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   default `@pcap` route uses the loop when tools exist and statistics are
   allowed (asking once); tools invoked by other participants use the active
   capture's backend.
+  **Copilot harness** (2026-11): VS Code's new Copilot chat engine runs no
+  chat participants ("Replace Chat Participant" warning; the Local harness
+  that runs `@pcap` goes in 2027-02), so the tools carry what `@pcap`'s
+  commands did, as data for the calling model (`aiToolReports.ts`, which
+  reuses the prompts' helpers, so the numbers are the same): `pcap_triage`
+  (checks that found packets, then refused/skipped/empty, scans with
+  filters, expert counts), `pcap_overview` (the Capture Overview pass, top
+  `maxOverviewRows` per breakdown; HTTP hosts, DNS and TLS names go to the
+  stand-ins as names), `pcap_tcp_stream` (`tcpFacts` plus the first
+  retransmissions and zero windows) and `pcap_compare` (statistics);
+  `pcap_sessions` (`only_problems` = the MCP server's `_session_problem`:
+  paths and DNS answers are packet contents) and `pcap_packet_details`
+  (`treeLines` without bytes, ≤ 4 packets, `session.detailParams`) need
+  `allowPacketData`. `ToolHost` gives runTool what isn't the backend's:
+  `detailParams`, and `compare` (`resolveCapturePath`, `captureProfile`,
+  `compare_profiles`; `baseline` "other" (default) or "open"). Results over
+  `maxReportChars` (12k) are cut. `VIEWER_TOOLS` (`pcap_apply_filter`,
+  `pcap_go_to_packet`) act on the active viewer after a confirmation
+  (`prepareInvocation` → `confirmationMessages`, declared in lmTools.ts; the
+  filter is restored from stand-ins and validated first); they aren't in
+  `@pcap`'s loop, which offers buttons. Every tool's `prepareInvocation`
+  gives `describeToolCall` as its progress line. package.json's
+  `languageModelTools` are `ALL_TOOLS` (unit test). `contributes.chatAgents`
+  (`agents/pcap-lens.agent.md`: name, description, argument-hint; no
+  `tools` list, since the documented form for an extension's tool there
+  isn't settled and a wrong name leaves the agent without them, so the body
+  says to use only these tools and never a terminal) and
+  `contributes.chatSkills` (`skills/analyze-capture/SKILL.md`, its `name` =
+  its folder); a unit test checks both are packaged, have plain
+  `key: value` front matter, name only real tools and every one of them,
+  and say the data is untrusted and which setting a refusal names. The
+  smoke test checks every declared tool is registered and runs triage and
+  the overview with statistics allowed. `@pcap` stays for the Local
+  harness; the viewer's _Ask Copilot_ commands still open it (else the
+  editor fallback).
 - **Language model choice** (`src/aiModel.ts` pure, `pcapViewer.ai.model`,
   application scope; _PCAP: Choose Language Model…_): `modelSelector("")` =
   `{vendor: "copilot"}` (as before), an id = `{id}` only. No fallback to

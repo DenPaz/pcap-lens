@@ -45,7 +45,9 @@ export const PACKET_DATA_CONSENT =
   "Packet contents can include addresses, names and other private data; with pcapViewer.ai.pseudonymizeAddresses " +
   "on (the default), addresses and resolved host names are replaced by stand-ins, but names inside the packets " +
   "(DNS queries, HTTP hosts, TLS server names) are not. Raw bytes (the hex dump and payload bytes) " +
-  "are not sent unless you also turn on pcapViewer.ai.allowPacketBytes. Your choice is saved in the " +
+  "are not sent unless you also turn on pcapViewer.ai.allowPacketBytes. The same setting lets PCAP Lens's tools, " +
+  "when Copilot calls them, send packet summary lines, the HTTP request, DNS query and TLS server tables and " +
+  "the dissection of a few packets at a time (never bytes). Your choice is saved in the " +
   "pcapViewer.ai.allowPacketData setting (user settings only).";
 
 /** Frames a query may name (the menu passes a multi-selection this way). */

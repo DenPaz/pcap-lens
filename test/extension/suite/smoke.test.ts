@@ -842,13 +842,11 @@ suite("PCAP Lens smoke test", () => {
       this.skip(); // (VS Code before the tools API: @pcap works without them)
     }
     const names = (lm.tools ?? []).map((t) => t.name);
-    for (const name of [
-      "pcap_capture_info",
-      "pcap_count",
-      "pcap_stats",
-      "pcap_field_search",
-      "pcap_list_packets",
-    ]) {
+    const declared = (ext!.packageJSON.contributes.languageModelTools as { name: string }[]).map(
+      (t) => t.name,
+    );
+    assert.ok(declared.includes("pcap_triage") && declared.includes("pcap_apply_filter"));
+    for (const name of declared) {
       assert.ok(names.includes(name), `${name} is registered`);
     }
     if (typeof lm.invokeTool !== "function") {
@@ -867,6 +865,19 @@ suite("PCAP Lens smoke test", () => {
     assert.match(await text("pcap_field_search", { prefix: "dns.flags.rc" }), /dns\.flags\.rcode/);
     // Counting is capture statistics: refused until the user allows it.
     assert.match(await text("pcap_count", { filter: "dns" }), /Not allowed/);
+    // Allowed (user settings), the agent's tools answer from tshark.
+    const ai = vscode.workspace.getConfiguration("pcapViewer.ai");
+    await ai.update("allowCaptureStatistics", true, vscode.ConfigurationTarget.Global);
+    try {
+      assert.match(
+        await text("pcap_triage", {}),
+        /^Triage checks counted by tshark: \d+ of \d+ found packets\./m,
+      );
+      assert.match(await text("pcap_overview", {}), /^Capture overview: \d+ packets/m);
+      assert.match(await text("pcap_sessions", { kind: "dns" }), /Not allowed/, "packet data");
+    } finally {
+      await ai.update("allowCaptureStatistics", undefined, vscode.ConfigurationTarget.Global);
+    }
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
     await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
   });
