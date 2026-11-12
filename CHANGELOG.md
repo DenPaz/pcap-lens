@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.32.0 — 2026-11-12
+
 ### Added
 
 - The basic view (no Python or tshark) filters: display filters over the
@@ -20,7 +22,8 @@ commit) that made it. The format follows
   connection), and results as structured content for clients that use it
   [d2d14d5]
 - MCP server: each tool declares the shape of its result (an output schema),
-  so clients that read structured results know every field and its type [dbf9f6b]
+  so clients that read structured results know every field and its type
+  [dbf9f6b]
 
 ### Fixed
 
