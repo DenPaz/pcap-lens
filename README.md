@@ -208,8 +208,10 @@ capture data needs your consent first, and addresses become stand-ins such as
 - **MCP server** for Claude Code, Claude Desktop, Cursor and VS Code's agent
   mode: read-only tools over capture files (an overview, counts, statistics,
   triage, HTTP requests, DNS queries and TLS servers with their response
-  times, VoIP calls with their quality, TCP connection health, a field's
-  values, comparison and, if allowed, packets). It dissects captures as the viewer
+  times, VoIP calls with their quality, an RTP stream's loss and jitter over
+  time, TCP connection health, sequence-number checks, the files and
+  clear-text logins a capture carries, a field's values, comparison and, if
+  allowed, packets). It dissects captures as the viewer
   does: your Lua dissectors, Decode As rules, preferences, Wireshark profile
   and tshark's plugins (compiled ones too). VS Code 1.101+ lists it by itself;
   _PCAP: Copy MCP Server Configuration…_ gives the setup for the others.

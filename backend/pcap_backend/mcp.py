@@ -39,7 +39,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Any
 
-from . import compare, navigation
+from . import compare, navigation, objects, sequence
 from .cancellation import CancelledError, CancelToken
 from .mcp_schemas import OUTPUT_SCHEMAS
 from .overview import MAX_BUCKETS
@@ -109,6 +109,13 @@ _TREE_KINDS = {"phs", "http", "dns", "plen", "sip", "ipv4", "ipv6", "io"}
 SESSION_KINDS = {"http": "http_requests", "dns": "dns_queries", "tls": "tls_servers"}
 MAX_CALL_MESSAGES = 60  # a call's messages in voip_calls' detail (as the AI call prompt)
 MAX_FLAGGED = 10  # tcp_stream's packets of retransmissions and zero windows
+MAX_EXPERT_FRAMES = 20  # packets per expert row in statistics (the backend keeps 1,000)
+MAX_SEQUENCE_PROBLEMS = 200  # problems per stream in sequence_check (sequence.MAX_PROBLEMS)
+WRAP_BITS = (0, 8, 16, 24, 32)  # sequence_check's counter widths (sequence.WRAPS)
+# rtp_stream's per-packet problems (voip.POINT_FIELDS' status: 0 is fine).
+_RTP_PROBLEMS = {1: "lost", 2: "out_of_order", 3: "payload_changed"}
+# The stream's own facts at the top of rtp_stream's result (from _stream_row).
+_RTP_STREAM_KEYS = ("stream", "from", "to", "ssrc", "iax2", "payload", "quality", "rtcp", "filter")
 # MCP's structured tool results (structuredContent) start with this version.
 STRUCTURED_SINCE = "2025-06-18"
 # Other names assistants use for the kinds (also tshark's own -z names).
@@ -637,6 +644,7 @@ _NEXT: tuple[tuple[str, str], ...] = (
     ("icmp_", "statistics kind=expert; field_values icmp.type, icmp.code"),
     ("tls_", "field_values tls.alert_message.desc or tls.handshake.version with the filter"),
     ("malformed", "statistics kind=expert (which protocol, with packet numbers)"),
+    ("cleartext_credentials", "credentials (which protocols and packets)"),
 )
 
 # Said wherever packet contents are refused: a model with a shell otherwise
@@ -751,6 +759,104 @@ def _printable(data: bytes) -> str:
     """Payload as text: printable ASCII, newlines and tabs; the rest as '.'."""
     text = data.replace(b"\r\n", b"\n")
     return "".join(chr(b) if 32 <= b < 127 or b in (9, 10) else "." for b in text)
+
+
+def _fields_arg(args: Mapping[str, Any], name: str) -> list[str]:
+    """A list of field names (also given as one comma-separated string)."""
+    value = args.get(name)
+    if value is None or value == "":
+        return []
+    if isinstance(value, str):
+        value = value.split(",")
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise ToolFailureError(f"'{name}' must be a list of field names")
+    return [v.strip() for v in value if v.strip()]
+
+
+_MORE_PROBLEMS = re.compile(r"([\d,]+) more problems")
+
+
+def _sequence_streams(rows: list[dict[str, Any]], key_count: int) -> list[dict[str, Any]]:
+    """The sequence check's table (sequence.table) back as streams: a stream
+    row (depth 0: key values, then the counts) and its problem rows under it."""
+    streams: list[dict[str, Any]] = []
+    for row in rows:
+        cells = row.get("cells") or []
+        if row.get("depth", 0) == 0:
+            counts = cells[key_count:]
+            if len(counts) < 8:
+                continue
+            stream: dict[str, Any] = {
+                "values": cells[:key_count],
+                "messages": counts[0],
+                "first": counts[1],
+                "last": counts[2],
+                "missing": counts[3],
+                "duplicates": counts[4],
+                "late": counts[5],
+                "restarts": counts[6],
+                "result": counts[7],
+                "firstPacket": row.get("frame"),
+                "problems": [],
+                "moreProblems": 0,
+            }
+            if row.get("filter"):
+                stream["filter"] = row["filter"]
+            streams.append(stream)
+        elif streams and row.get("problem"):
+            streams[-1]["problems"].append(
+                {"kind": row["problem"], "text": cells[0], "packet": row.get("frame")}
+            )
+        elif streams and cells and (m := _MORE_PROBLEMS.search(str(cells[0]))):
+            streams[-1]["moreProblems"] += int(m[1].replace(",", ""))
+    return streams
+
+
+def _rtp_points(
+    fields: list[str], points: list[list[Any]], buckets: int
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """An RTP stream analysis' points (voip.POINT_FIELDS) as its problem
+    packets and a timeline of ``buckets`` equal intervals: packets, packets
+    lost, the largest jitter and gap between packets in each."""
+    at = {name: i for i, name in enumerate(fields)}
+    if not points or not {"frame", "time", "seq", "status"} <= at.keys():
+        return [], []
+    problems: list[dict[str, Any]] = []
+    duration = max(float(points[-1][at["time"]]), 0.0)
+    width = duration / buckets if duration > 0 else 0.0
+    count = buckets if width else 1
+    timeline = [
+        {
+            "startSeconds": round(i * width, 3),
+            "endSeconds": round((i + 1) * width, 3) if width else round(duration, 3),
+            "packets": 0,
+            "lost": 0,
+            "maxJitterMs": 0.0,
+            "maxDeltaMs": 0.0,
+        }
+        for i in range(count)
+    ]
+    for p in points:
+        status = int(p[at["status"]] or 0)
+        gap = int(p[at["gap"]] or 0) if "gap" in at else 0
+        if status in _RTP_PROBLEMS:
+            problem: dict[str, Any] = {
+                "packet": p[at["frame"]],
+                "seq": p[at["seq"]],
+                "problem": _RTP_PROBLEMS[status],
+            }
+            if gap:
+                problem["lostBefore"] = gap
+            problems.append(problem)
+        time = max(float(p[at["time"]]), 0.0)
+        cell = timeline[min(int(time / width), count - 1) if width else 0]
+        cell["packets"] += 1
+        cell["lost"] += gap
+        if "jitter" in at:
+            cell["maxJitterMs"] = max(cell["maxJitterMs"], float(p[at["jitter"]] or 0))
+        if "delta" in at:
+            cell["maxDeltaMs"] = max(cell["maxDeltaMs"], float(p[at["delta"]] or 0))
+    return problems, timeline
 
 
 class Toolbox:
@@ -968,6 +1074,141 @@ class Toolbox:
                     ["capture"],
                 ),
                 self.tcp_stream,
+            ),
+            Tool(
+                "rtp_stream",
+                "RTP stream analysis",
+                "Packet-by-packet analysis of one RTP (or IAX2 voice) stream, as Wireshark's RTP "
+                "Stream Analysis: packets expected and lost, sequence errors, jitter (RFC 3550), "
+                "the largest gap between packets, clock skew, the voice quality (MOS), RTCP "
+                "reports, each lost, late or duplicated packet with its sequence number, and a "
+                "timeline of loss and jitter that shows when it got worse. Give 'stream', a "
+                "stream's number from voip_calls.",
+                _schema(
+                    {
+                        "capture": _CAPTURE,
+                        "stream": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "The stream's number in voip_calls",
+                        },
+                        "heuristic_rtp": {
+                            "type": "boolean",
+                            "description": "As given to voip_calls (streams no signalling set up)",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": MAX_ROWS,
+                            "description": "Problem packets to list (default 20)",
+                        },
+                        "buckets": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": MAX_BUCKETS,
+                            "description": "Intervals of the timeline (default 10)",
+                        },
+                    },
+                    ["capture", "stream"],
+                ),
+                self.rtp_stream,
+            ),
+            Tool(
+                "sequence_check",
+                "Check message sequence numbers",
+                "Check the numbers a field gives messages, per stream: which are missing, "
+                "duplicated, late (reordered) or restarted, e.g. GTP-U per tunnel (sequence "
+                "gtp.seq_number, streams_by gtp.teid), a lawful-interception delivery per "
+                "interception (its sequence number per LIID and CIN), or a Lua dissector's own "
+                "counter. Streams with problems come first, each problem with its packet. "
+                "Counters that wrap need wrap_bits.",
+                _schema(
+                    {
+                        "capture": _CAPTURE,
+                        "sequence": {
+                            "type": "string",
+                            "description": "The field that numbers the messages",
+                        },
+                        "streams_by": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "maxItems": 4,
+                            "description": "Fields whose values tell streams apart (none: one)",
+                        },
+                        "wrap_bits": {
+                            "type": "integer",
+                            "enum": list(WRAP_BITS),
+                            "description": "The counter's width when it wraps (0: it doesn't)",
+                        },
+                        "restart_drop": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": (
+                                "A number this far below the highest one starts a new run "
+                                f"(a restart; default {sequence.DEFAULT_REORDER})"
+                            ),
+                        },
+                        "filter": {**_FILTER, "description": "Only the packets matching it"},
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": MAX_ROWS,
+                            "description": "Streams to list (default 20)",
+                        },
+                        "problems": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": MAX_SEQUENCE_PROBLEMS,
+                            "description": "Problems to list per stream (default 10)",
+                        },
+                    },
+                    ["capture", "sequence"],
+                ),
+                self.sequence_check,
+            ),
+            Tool(
+                "export_objects",
+                "Files carried in the capture",
+                "The files the capture carries over HTTP, SMB, TFTP, IMF (e-mail), DICOM and "
+                "FTP-DATA, as Wireshark's Export Objects lists them: protocol, file name, size, "
+                "content type, host and the packet that carried it, with counts per protocol. "
+                "Lists them only: the files' contents are never returned.",
+                _schema(
+                    {
+                        "capture": _CAPTURE,
+                        "protocol": {"type": "string", "enum": list(objects.PROTOCOLS)},
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": MAX_ROWS,
+                            "description": "Files to list (default 50), in capture order",
+                        },
+                    },
+                    ["capture"],
+                ),
+                self.export_objects,
+            ),
+            Tool(
+                "credentials",
+                "Credentials sent in clear text",
+                "Logins tshark sees in clear text (HTTP basic auth, FTP, POP, IMAP and others "
+                "tshark's credentials report knows): protocol, packet and the packet holding the "
+                "user name. The user names themselves only when the server allows packet "
+                "contents.",
+                _schema(
+                    {
+                        "capture": _CAPTURE,
+                        "filter": {**_FILTER, "description": "Only the packets matching it"},
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": MAX_ROWS,
+                            "description": "Logins to list (default 50)",
+                        },
+                    },
+                    ["capture"],
+                ),
+                self.credentials,
             ),
             Tool(
                 "compare_captures",
@@ -1228,6 +1469,12 @@ class Toolbox:
             for key in ("depth", "filter", "frame", "frames"):
                 if row.get(key) not in (None, "", []):
                     item[key] = row[key]
+            frames = item.get("frames")
+            if isinstance(frames, list) and len(frames) > MAX_EXPERT_FRAMES:
+                # (A row may hold 1,000 packets, 25 rows by default: the Count
+                # cell still says how many there are.)
+                item["frames"] = frames[:MAX_EXPERT_FRAMES]
+                item["moreFrames"] = len(frames) - MAX_EXPERT_FRAMES
             shown.append(item)
         extra = {
             k: v
@@ -1520,6 +1767,7 @@ class Toolbox:
         }
         for key in (
             "ssrc",
+            "iax2",
             "payload",
             "packets",
             "lost",
@@ -1560,6 +1808,180 @@ class Toolbox:
             "endpoints": endpoints,
             **tcp_facts(graph.get("points") or [], graph.get("fields") or [], endpoints),
         }
+
+    def rtp_stream(self, args: dict[str, Any], ctx: RequestContext) -> Any:
+        path = self.captures.resolve(_capture_arg(args))
+        if args.get("stream") is None:
+            raise ToolFailureError("give 'stream', a stream's number from voip_calls")
+        index = _int(args, "stream", 0, 0, 1 << 40)
+        heuristic = _bool(args, "heuristic_rtp")
+        limit = _int(args, "limit", 20, 0, MAX_ROWS)
+        buckets = _int(args, "buckets", 10, 1, MAX_BUCKETS)
+        service = self.captures.get(path, ctx)
+        calls = service.voip_calls({"heuristic": heuristic}, ctx)
+        streams: list[dict[str, Any]] = calls.get("streams", [])
+        if not 0 <= index < len(streams):
+            raise ToolFailureError(
+                f"no stream {index}: voip_calls lists streams 0 to {len(streams) - 1}"
+                if streams
+                else f"no stream {index}: the capture has no RTP streams"
+                + ("" if heuristic else " (heuristic_rtp finds those no signalling set up)")
+            )
+        analysis = service.rtp_stream({"stream": streams[index]}, ctx)
+        row = self._stream_row(index, streams[index])
+        out: dict[str, Any] = {k: row[k] for k in _RTP_STREAM_KEYS if k in row}
+        call = next((c for c in calls.get("calls", []) if index in c.get("streams", [])), None)
+        if call is not None:
+            out["call"] = call.get("id")
+        summary = dict(analysis.get("summary") or {})
+        if "maxDeltaFrame" in summary:
+            summary["maxDeltaPacket"] = summary.pop("maxDeltaFrame")
+        if "duration" in summary:
+            summary["durationSeconds"] = summary.pop("duration")
+        out["summary"] = summary
+        problems, timeline = _rtp_points(
+            analysis.get("fields") or [], analysis.get("points") or [], buckets
+        )
+        out["problems"] = problems[:limit]
+        out["moreProblems"] = max(0, len(problems) - limit)
+        out["timeline"] = timeline
+        return out
+
+    def sequence_check(self, args: dict[str, Any], ctx: RequestContext) -> Any:
+        path = self.captures.resolve(_capture_arg(args))
+        seq = _str(args, "sequence")
+        if not seq:
+            raise ToolFailureError(
+                "'sequence' must name the field that numbers the messages, e.g. gtp.seq_number"
+            )
+        keys = _fields_arg(args, "streams_by")
+        bits = _int(args, "wrap_bits", 0, 0, 64)
+        if bits not in WRAP_BITS:
+            raise ToolFailureError(f"'wrap_bits' must be one of {', '.join(map(str, WRAP_BITS))}")
+        reorder = _int(args, "restart_drop", sequence.DEFAULT_REORDER, 1, 1 << 32)
+        limit = _int(args, "limit", 20, 1, MAX_ROWS)
+        per_stream = _int(args, "problems", 10, 0, MAX_SEQUENCE_PROBLEMS)
+        flt = _str(args, "filter")
+        service = self.captures.get(path, ctx)
+        table = service.stats(
+            {
+                "kind": "sequences",
+                "key": keys,
+                "seq": seq,
+                "wrap": (1 << bits) if bits else 0,
+                "reorder": reorder,
+                "filter": flt,
+            },
+            ctx,
+        )
+        types = service.field_types({"names": keys}, ctx)["types"] if keys else {}
+        show_keys = self.config.allow_packet_data or all(
+            _numeric(types.get(k, {}).get("type", "")) for k in keys
+        )
+        streams = _sequence_streams(table.get("rows", []), len(keys) or 1)
+        summary = dict(table.get("summary") or {})
+        more = int(summary.pop("more", 0) or 0)
+        shown: list[dict[str, Any]] = []
+        for number, stream in enumerate(streams[:limit], 1):
+            item: dict[str, Any] = {"stream": number}
+            values = stream.pop("values")
+            if keys and show_keys:
+                item["key"] = dict(zip(keys, values, strict=False))
+            filter_ = stream.pop("filter", None)
+            if filter_ and (show_keys or not keys):
+                item["filter"] = filter_
+            problems = stream.pop("problems")
+            item.update(stream)
+            item["problems"] = problems[:per_stream]
+            item["moreProblems"] = stream["moreProblems"] + max(0, len(problems) - per_stream)
+            shown.append(item)
+        out: dict[str, Any] = {
+            "sequence": seq,
+            "streamsBy": keys,
+            "wrapBits": bits,
+            "restartDrop": reorder,
+            "filter": flt,
+            "summary": summary,
+            "streams": shown,
+            "moreStreams": more + max(0, len(streams) - limit),
+        }
+        if not show_keys:
+            out["keyValues"] = (
+                "hidden: the streams' key values are text fields, packet contents the user has "
+                f"not allowed this server to share ({_CONTENTS_REFUSED}); streams are numbered "
+                "instead, and their problems' packets can be looked at"
+            )
+        return out
+
+    def export_objects(self, args: dict[str, Any], ctx: RequestContext) -> Any:
+        path = self.captures.resolve(_capture_arg(args))
+        proto = _str(args, "protocol").lower()
+        if proto and proto not in objects.PROTOCOLS:
+            raise ToolFailureError(f"'protocol' must be one of {', '.join(objects.PROTOCOLS)}")
+        limit = _int(args, "limit", 50, 1, MAX_ROWS)
+        service = self.captures.get(path, ctx)
+        found: list[dict[str, Any]] = service.export_objects({}, ctx).get("objects", [])
+        by_protocol: dict[str, dict[str, int]] = {}
+        for o in found:
+            counts = by_protocol.setdefault(o["protocol"], {"files": 0, "bytes": 0})
+            counts["files"] += 1
+            counts["bytes"] += int(o.get("size") or 0)
+        chosen = [o for o in found if not proto or o["protocol"] == proto]
+        rows: list[dict[str, Any]] = []
+        for o in chosen[:limit]:
+            row: dict[str, Any] = {"protocol": o["protocol"], "name": o["name"], "size": o["size"]}
+            for key, name in (("contentType", "contentType"), ("host", "host")):
+                if o.get(key):
+                    row[name] = o[key]
+            if o.get("frame"):
+                row["packet"] = o["frame"]
+                row["filter"] = f"frame.number == {o['frame']}"
+            rows.append(row)
+        return {
+            "protocol": proto,
+            "total": len(chosen),
+            "byProtocol": by_protocol,
+            "files": rows,
+            "more": max(0, len(chosen) - limit),
+        }
+
+    def credentials(self, args: dict[str, Any], ctx: RequestContext) -> Any:
+        path = self.captures.resolve(_capture_arg(args))
+        flt = _str(args, "filter")
+        limit = _int(args, "limit", 50, 1, MAX_ROWS)
+        service = self.captures.get(path, ctx)
+        table = service.stats({"kind": "credentials", "filter": flt}, ctx)
+        logins: list[dict[str, Any]] = []
+        by_protocol: dict[str, int] = {}
+        for row in table.get("rows", []):
+            cells = row.get("cells") or []
+            if len(cells) < 3:
+                continue
+            protocol = str(cells[1])
+            by_protocol[protocol] = by_protocol.get(protocol, 0) + 1
+            login: dict[str, Any] = {"protocol": protocol, "packet": row.get("frame", cells[0])}
+            if row.get("usernameFrame"):
+                login["usernamePacket"] = row["usernameFrame"]
+            if self.config.allow_packet_data:
+                login["username"] = cells[2]
+            if row.get("filter"):
+                login["filter"] = row["filter"]
+            logins.append(login)
+        out: dict[str, Any] = {
+            "filter": flt,
+            "total": len(logins),
+            "byProtocol": by_protocol,
+            "logins": logins[:limit],
+            "more": max(0, len(logins) - limit),
+        }
+        if table.get("unfiltered"):
+            out["unfiltered"] = True
+        if not self.config.allow_packet_data:
+            out["usernames"] = (
+                "hidden: user names are packet contents the user has not allowed this server "
+                f"to share ({_CONTENTS_REFUSED})"
+            )
+        return out
 
     def field_values(self, args: dict[str, Any], ctx: RequestContext) -> Any:
         path = self.captures.resolve(_capture_arg(args))
@@ -1700,9 +2122,12 @@ def _instructions(config: McpConfig) -> str:
             "(dns, http, sip, expert) or field_values with the count's filter. For slow or "
             "failing requests and lookups use sessions (HTTP requests, DNS queries, TLS servers "
             "with response times; only_problems), for a bad TCP connection tcp_stream "
-            "(retransmissions, zero windows, round-trip times), for calls voip_calls. The first "
-            "call on a capture indexes it, which can take a while for big files; later calls "
-            "are fast."
+            "(retransmissions, zero windows, round-trip times), for calls voip_calls and, for "
+            "one stream's loss and jitter over time, rtp_stream. sequence_check finds missing, "
+            "duplicated and reordered messages by a sequence number field (GTP tunnels, "
+            "interception deliveries); export_objects lists the files a capture carries and "
+            "credentials the logins sent in clear text. The first call on a capture indexes "
+            "it, which can take a while for big files; later calls are fast."
         ),
         "Allowed folders: " + ", ".join(str(r) for r in config.roots) + ".",
         (

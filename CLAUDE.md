@@ -2899,7 +2899,9 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   extension, depth 8, hidden and venv folders skipped), capture_info,
   count_packets (`count_matches` got an `offset`), statistics (kinds mapped
   to `stats`, other spellings through `_stats_kind`: "Protocol Hierarchy",
-  `phs`, `conversation`…, tables cut to their top rows by bytes, default 25; tree
+  `phs`, `conversation`…, tables cut to their top rows by bytes, default 25;
+  an expert row keeps `MAX_EXPERT_FRAMES` (20) of its up to 1,000 packets,
+  `moreFrames` counting the rest; tree
   reports (`_TREE_KINDS`) in order, default 100: a cut DNS tree read as
   missing data),
   triage (found checks by count, each with a `next` hint from `_NEXT` by id
@@ -2924,7 +2926,21 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   messages' names (`_without_digits`: IAX2's "DTMF 7", MGCP's "NTFY
   D/2,D/0"; Codex review of the 0.32.0 PR), tcp_stream
   (`tcp_graph`'s points → `tcp_facts`, a port of aiAnomaly.ts' `tcpFacts`
-  plus the first retransmission and zero-window packets), compare_captures (`{before, after, limit}`: both
+  plus the first retransmission and zero-window packets), rtp_stream
+  (`{stream}`: a voip_calls stream number → `rtp_stream`'s analysis: the
+  summary, each lost/late/changed packet (`_RTP_PROBLEMS`, POINT_FIELDS'
+  status) and a timeline of `buckets` intervals with packets, loss, max
+  jitter and delta (`_rtp_points`); the stream's call; IAX2 streams carry
+  `iax2`, in voip_calls' rows too), sequence_check (`stats {kind:
+"sequences"}`; `streams_by` (a list or comma-separated), `wrap_bits`,
+  `restart_drop`; `_sequence_streams` turns the panel's table back into
+  streams with their problems, cut per stream; key values only when every
+  key field is numeric (`_numeric`) or packet data is allowed, else streams
+  are numbered and lose their filter: a LIID is a text field),
+  export_objects (Export Objects' list: names, sizes, types, hosts and
+  packets per protocol, never the files), credentials (`stats {kind:
+"credentials"}`: protocol and packets; user names only with
+  `--allow-packet-data`; triage's `cleartext_credentials` points to it), compare_captures (`{before, after, limit}`: both
   captures' `capture_profile`, then `compare.diff`; names relative to the
   root), validate_filter, search_fields, and with
   `--allow-packet-data`
