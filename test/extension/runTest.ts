@@ -7,7 +7,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { runTests } from "@vscode/test-electron";
+import { downloadAndUnzipVSCode, runTests } from "@vscode/test-electron";
 
 async function main(): Promise<void> {
   const root = path.resolve(__dirname, "../../..");
@@ -22,8 +22,9 @@ async function main(): Promise<void> {
     console.log(`Smoke test on VS Code ${version}`);
   }
   try {
+    const vscodeExecutablePath = await downloadVSCode(root, version);
     await runTests({
-      ...(version ? { version } : {}),
+      vscodeExecutablePath,
       extensionDevelopmentPath: root,
       extensionTestsPath: path.resolve(__dirname, "suite", "index"),
       // Live capture with a stand-in dumpcap (test/fixtures/fake_dumpcap.py): no capture rights needed.
@@ -47,6 +48,34 @@ async function main(): Promise<void> {
   } catch (err) {
     console.error("Extension tests failed:", err);
     process.exit(1);
+  }
+}
+
+/** Tries for each download, and the idle timeout of each request. */
+const DOWNLOAD_ATTEMPTS = 3;
+const DOWNLOAD_TIMEOUT_MS = 60_000;
+
+/**
+ * Downloads (or finds in .vscode-test) the VS Code to test on, retrying: a
+ * pinned version is first looked up in VS Code's release list, with no
+ * fallback, and that request once took over test-electron's 15 s default
+ * and failed CI's oldest-VS-Code job before any test ran.
+ */
+async function downloadVSCode(root: string, version: string | undefined): Promise<string> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await downloadAndUnzipVSCode({
+        ...(version ? { version } : {}),
+        extensionDevelopmentPath: root,
+        timeout: DOWNLOAD_TIMEOUT_MS,
+      });
+    } catch (err) {
+      if (attempt >= DOWNLOAD_ATTEMPTS) {
+        throw err;
+      }
+      console.warn(`Downloading VS Code failed (attempt ${attempt}), retrying:`, err);
+      await new Promise((resolve) => setTimeout(resolve, 10_000 * attempt));
+    }
   }
 }
 
