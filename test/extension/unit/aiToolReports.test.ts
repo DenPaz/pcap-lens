@@ -208,7 +208,8 @@ suite("AI report tools on the real backend", function () {
       );
 
       const details = await runTool("pcap_packet_details", { packets: [4, 999, 4] }, backend, ALL);
-      assert.match(details.text, /^## Packet 4\nFrame 4: 124 bytes on wire/);
+      // (tshark 4.6 writes "Frame 4: Packet, 124 bytes on wire".)
+      assert.match(details.text, /^## Packet 4\nFrame 4: (Packet, )?124 bytes on wire/);
       assert.match(details.text, /^ {2}Host: www\.example\.com\\r\\n$/m);
       assert.match(details.text, /tcp\.payload: \[70 bytes not sent\]/, "no byte dumps");
       assert.match(details.text, /No such packet: 999\.$/);
