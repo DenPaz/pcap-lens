@@ -15,8 +15,12 @@ commit) that made it. The format follows
   `export_objects` (the files a capture carries) and `credentials`
   (clear-text logins; user names only with packet data allowed) [6c3af0b]
 - Expand All and Collapse All in the packet details: buttons beside Tree |
-  Diagram, Ctrl+Right / Ctrl+Left, Shift+Right for one field's subtree, and
-  the tree's menu; a huge tree opens in steps instead of freezing [1879372]
+  Diagram, Ctrl+Right / Ctrl+Left (⌘ on macOS), Shift+Right for one field's
+  subtree, and the tree's menu; a huge tree opens in steps instead of
+  freezing [1879372]
+- Import from Hex Dump reads hex streams (Copy as Hex Stream, `tshark -e
+  data`, colon-separated bytes), one packet per line, and picks that layout
+  when it sees one [3effa25]
 
 ### Changed
 
@@ -28,6 +32,9 @@ commit) that made it. The format follows
 
 ### Fixed
 
+- tshark's own diagnostics about its tables ("Extended value string
+  'mcc_mnc_codes' forced to fall back to linear search", tshark 4.6.8 with
+  5G captures) go to the log instead of showing as capture warnings [02ed177]
 - Saving a packet comment with a long run of spaces inside it no longer
   takes quadratic time (CodeQL's polynomial regular expression alert) [e024aca]
 
@@ -35,6 +42,8 @@ commit) that made it. The format follows
 [1879372]: https://github.com/DenPaz/pcap-lens/commit/1879372
 [e024aca]: https://github.com/DenPaz/pcap-lens/commit/e024aca
 [e8ea0c5]: https://github.com/DenPaz/pcap-lens/commit/e8ea0c5
+[3effa25]: https://github.com/DenPaz/pcap-lens/commit/3effa25
+[02ed177]: https://github.com/DenPaz/pcap-lens/commit/02ed177
 
 ## 0.33.1 — 2026-11-12
 
