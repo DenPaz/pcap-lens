@@ -98,13 +98,14 @@ const OFFSET_LABELS: Record<OffsetBase, string> = {
   hex: "Hexadecimal offsets (0000, 0010, …)",
   dec: "Decimal offsets (0000, 0016, …)",
   oct: "Octal offsets (0000, 0020, …)",
-  none: "No offsets (only hex bytes)",
+  none: "No offsets (only hex bytes, all one packet)",
+  stream: "Hex stream, one packet per line (4500003c…)",
 };
 
 async function chooseOffsets(guess: OffsetBase): Promise<OffsetBase | undefined> {
   const order: OffsetBase[] = [
     guess,
-    ...(["hex", "dec", "oct", "none"] as const).filter((b) => b !== guess),
+    ...(["hex", "dec", "oct", "none", "stream"] as const).filter((b) => b !== guess),
   ];
   return choose(
     order.map((value) => ({
@@ -265,7 +266,8 @@ export async function importHexDump(
     const text = await sample(source);
     const offsets = await chooseOffsets(guessOffsets(text));
     const encapsulation = offsets && (await chooseEncapsulation());
-    const timestamps = encapsulation && (await chooseTimestamps());
+    // (A hex stream has nothing but bytes: no times to read.)
+    const timestamps = encapsulation && (offsets === "stream" ? {} : await chooseTimestamps());
     if (!offsets || !encapsulation || !timestamps) {
       return undefined;
     }

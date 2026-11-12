@@ -1,8 +1,8 @@
 @tshark
 Feature: Import from Hex Dump
-  text2pcap turns a hex dump into a capture: frames as Wireshark copies them,
-  payloads behind a dummy header, raw IP packets with times. No capture needs
-  to be open.
+  text2pcap turns a hex dump into a capture: frames as Wireshark copies them
+  (as a dump or a hex stream), payloads behind a dummy header, raw IP packets
+  with times. No capture needs to be open.
 
   Scenario: Frames copied from Wireshark
     When I import the hex dump "frames.txt"
@@ -15,6 +15,19 @@ Feature: Import from Hex Dump
   Scenario: The dump given as text instead of a file
     When I import the text of the hex dump "frames.txt"
     Then the import wrote 11 packets
+
+  Scenario: A hex stream, one packet per line
+    When I import the hex dump "stream.txt" with offsets stream
+    Then the import wrote 11 packets
+    When I open the imported capture
+    Then the "Info" column of row 4 starts with "GET /index.html"
+    When I import the text of the hex dump "stream.txt" with offsets stream
+    Then the import wrote 11 packets
+
+  Scenario: A hex stream imported as a dump says what it is
+    When I import the hex dump "stream.txt"
+    Then the request fails with "it looks like a hex stream"
+    And no imported capture was written
 
   Scenario: Payloads behind a dummy UDP header
     When I import the hex dump "sip-payload.txt" with header udp, srcPort 5060, dstPort 5060, srcIp 10.0.0.1 and dstIp 10.0.0.2

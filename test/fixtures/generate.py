@@ -1635,12 +1635,14 @@ SIP_PAYLOADS = [
 
 def hexdump_fixtures() -> None:
     """Hex dumps for Import from Hex Dump (text2pcap): the frames of http.pcap
-    as Wireshark copies them; two SIP payloads without headers (imported with a
-    dummy UDP header); raw IPv4 packets each after a time of day."""
+    as Wireshark copies them, and as hex streams (*Copy as Hex Stream*, one
+    packet per line); two SIP payloads without headers (imported with a dummy
+    UDP header); raw IPv4 packets each after a time of day."""
     folder = HERE / "hexdump"
     folder.mkdir(exist_ok=True)
     frames = [bytes(pkt) for pkt in http_packets()]
     (folder / "frames.txt").write_text("\n".join(hex_dump(f) for f in frames), newline="\n")
+    (folder / "stream.txt").write_text("".join(f"{f.hex()}\n" for f in frames), newline="\n")
     (folder / "sip-payload.txt").write_text(
         "\n".join(hex_dump(p, ascii_column=False) for p in SIP_PAYLOADS), newline="\n"
     )

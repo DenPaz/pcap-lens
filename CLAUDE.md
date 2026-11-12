@@ -1074,15 +1074,23 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   `-t` time format, `-D`, `-a`, `-l` or a dummy header `-e/-i/-u/-T/-s/-S/-P`
   with `-4/-6` addresses; a dummy header forces Ethernet), text written to a
   temp file, output through `atomic_output`; "wrote 0 packets" is an
-  InvalidParamsError and writes nothing. Needs no open capture (`withBackend`).
+  InvalidParamsError and writes nothing (`no_packets_message`: it names a
+  hex stream when the text looks like one; checked before the exit code,
+  since text2pcap fails with "result out of range" on a long stream read
+  as offsets). **Hex streams** (`offsets: "stream"`): bytes written together
+  (Copy as Hex Stream, `tshark -e data`) or colon-separated, one packet per
+  line, which text2pcap reads in no mode (`-o none` makes every byte one
+  packet), so `stream_as_dump` rewrites them as a dump (16 bytes a line,
+  offsets from 0 per packet) and runs `-o hex`; no times or directions. Needs no open capture (`withBackend`).
   The host asks source (editor/selection, clipboard, file), offsets
-  (`guessOffsets`: bytes-only lines = none, else the base in which offsets
+  (`guessOffsets`: every line a stream line = stream (the sample's last line
+  may be cut), spaced bytes only = none, else the base in which offsets
   advance by the previous line's byte count, hex on ties), what the bytes
   hold, and times; `hasAsciiColumn` adds `-a` for hexdump -C. Args
   `{text | input, options}` skip the questions (smoke test). The result opens
   as an unsaved capture named after the file. Fixtures: `hexdump/*.txt`
-  (generate.py: http.pcap's frames as Wireshark copies them, SIP payloads,
-  timed IPv4).
+  (generate.py: http.pcap's frames as Wireshark copies them and as a hex
+  stream, SIP payloads, timed IPv4).
 - **C numbers for the tools** (`tshark.tool_env`, every `Popen`): tshark
   formats and reads numbers by the locale, so in pt_BR it refused
   `-z io,stat,0.5` and wrote "1.175 bytes" and "0,000000" into the
@@ -1104,6 +1112,12 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   plays Windows' tshark with Linux's in pt_BR without tool_env; CI's
   Windows job ends by running the statistics tests again after
   `Set-Culture pt-BR`.
+- **tshark's own diagnostics** (`tshark.clean_stderr`, which every
+  collected stderr goes through): wslog lines about Wireshark's tables
+  ("[WSUtil WARNING] … Extended value string 'mcc_mnc_codes' forced to
+  fall back to linear search", tshark 4.6.8 on a 5G capture; `[Epan
+WARNING]` before 4.6) and their indented continuation are logged once
+  each and dropped, so they no longer show up as capture warnings.
 - **Never `str.splitlines()` on packet-derived text**: it also splits on
   `\x1c`–`\x1e`, `\x85`, `\u2028`… Stats parsers use `_lines()` (split on `\n`).
 - **Panel placement** (`pcapViewer.panelPlacement`: beside, below;

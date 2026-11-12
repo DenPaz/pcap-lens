@@ -4,7 +4,12 @@ text2pcap reads hex dumps with an offset at the start of each line (``od -Ax
 -tx1``, Wireshark's *Copy as Hex Dump*, ``hexdump -C`` with ``asciiDump``),
 one packet per run of offsets starting at 0, and writes pcapng. Options:
 
-* ``offsets``: ``hex`` (default), ``oct``, ``dec`` or ``none`` (``-o``);
+* ``offsets``: ``hex`` (default), ``oct``, ``dec`` or ``none`` (``-o``; with
+  ``none`` every byte goes into one packet), or ``stream``: a hex stream, one
+  packet per line with its bytes written together (Wireshark's *Copy as Hex
+  Stream*, ``tshark -e data``) or colon-separated, which text2pcap can't
+  read: ``stream_as_dump`` rewrites it as a dump with offsets (no times or
+  directions then);
 * ``timestamp``: a strptime format (plus ``%f``) or ``ISO`` for a time before
   each packet (``-t``), ``direction`` for an I/O mark before it (``-D``),
   ``asciiDump`` to skip a trailing ASCII column that looks like hex (``-a``);
@@ -26,12 +31,14 @@ from typing import Any
 
 from .protocol import InvalidParamsError
 
-OFFSETS = ("hex", "oct", "dec", "none")
+OFFSETS = ("hex", "oct", "dec", "none", "stream")
 HEADERS = ("none", "ethernet", "ip", "udp", "tcp", "sctp", "sctpData", "exportPdu")
 MAX_PACKET = 262_144  # text2pcap's own default and maximum
 MAX_TEXT = 64 * 1024 * 1024
 _DISSECTOR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]*$")
 _WROTE_RE = re.compile(r"Read (\d+) potential packets?, wrote (\d+) packets?")
+_STREAM_LINE = re.compile(r"(?:[0-9A-Fa-f]{2})+|[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2})+")
+_SNIFF_LINES = 500
 
 
 def _int(params: Mapping[str, Any], key: str, low: int, high: int, default: int) -> int:
@@ -87,12 +94,17 @@ def text2pcap_options(params: Mapping[str, Any]) -> list[str]:
     offsets = params.get("offsets", "hex") or "hex"
     if offsets not in OFFSETS:
         raise InvalidParamsError(f"offsets must be one of {', '.join(OFFSETS)}")
-    options = ["-o", str(offsets)]
+    stream = offsets == "stream"
+    options = ["-o", "hex" if stream else str(offsets)]  # (a stream becomes a hex dump)
     if timestamp := _text(params, "timestamp"):
+        if stream:
+            raise InvalidParamsError("a hex stream has no times: leave timestamp out")
         options += ["-t", timestamp]
     if params.get("direction"):
+        if stream:
+            raise InvalidParamsError("a hex stream has no directions: leave direction out")
         options.append("-D")
-    if params.get("asciiDump"):
+    if params.get("asciiDump") and not stream:
         options.append("-a")
     header = params.get("header", "none") or "none"
     if header not in HEADERS:
@@ -133,3 +145,51 @@ def written_packets(stderr: str) -> tuple[int, int] | None:
     """(packets read, packets written) from text2pcap's summary line."""
     m = _WROTE_RE.search(stderr)
     return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def looks_like_stream(text: str) -> bool:
+    """Whether the first lines are a hex stream (bytes written together or
+    with colons, not as spaced bytes, which text2pcap reads with ``none``)."""
+    lines = [ln.strip() for ln in text.split("\n")[:_SNIFF_LINES]]
+    lines = [ln for ln in lines if ln]
+    return bool(lines) and all(
+        _STREAM_LINE.fullmatch(ln) and len(ln) > 2 for ln in lines[:-1] or lines
+    )
+
+
+def stream_as_dump(text: str) -> str:
+    """A hex stream as a dump text2pcap reads: each line one packet, written
+    16 bytes a line with hex offsets from 0. A line that isn't one is an
+    InvalidParamsError naming it."""
+    out: list[str] = []
+    for number, raw in enumerate(text.split("\n"), 1):
+        line = raw.strip()
+        if not line:
+            continue
+        if not _STREAM_LINE.fullmatch(line):
+            raise InvalidParamsError(
+                f"line {number} isn't a hex stream (two hex digits a byte, written together "
+                f"or with colons, one packet a line): {line[:40]}"
+            )
+        digits = line.replace(":", "")
+        for at in range(0, len(digits), 32):
+            chunk = digits[at : at + 32]
+            pairs = " ".join(chunk[i : i + 2] for i in range(0, len(chunk), 2))
+            out.append(f"{at // 2:06x}  {pairs}")
+    if not out:
+        raise InvalidParamsError("the hex stream holds no packets")
+    return "\n".join(out) + "\n"
+
+
+def no_packets_message(sample: str) -> str:
+    """Why text2pcap found nothing, and what to choose instead."""
+    if looks_like_stream(sample):
+        return (
+            "no packets found in the hex dump: it looks like a hex stream (one packet per "
+            "line, bytes written together): import it as a hex stream"
+        )
+    return (
+        "no packets found in the hex dump: each line needs an offset (e.g. 0000) followed "
+        "by hex bytes separated by spaces, unless offsets are none (spaced bytes, all one "
+        "packet) or a hex stream (one packet per line)"
+    )

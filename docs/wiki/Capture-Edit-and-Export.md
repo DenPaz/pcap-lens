@@ -46,7 +46,8 @@ it was:
   pcapng, so it decrypts anywhere.
 - **Merge Captures…**, **Import from Hex Dump…** (a hex dump from an editor,
   the clipboard or a file, as Wireshark copies it or as `hexdump -C` prints
-  it).
+  it, or a hex stream such as _Copy as Hex Stream_ or `tshark -e data`
+  writes, one packet per line; the layout is detected and offered first).
 
 ## Export
 

@@ -33,6 +33,14 @@ suite("hexDump", () => {
     assert.equal(guessOffsets(""), "hex");
     // xxd-style offsets with a colon count as offsets too.
     assert.equal(guessOffsets("00000000: 45 00 00 1c\n00000004: 7f 00\n"), "hex");
+    // Hex streams (Copy as Hex Stream, colon-separated), a sample's last line cut short.
+    assert.equal(
+      guessOffsets(fs.readFileSync(path.join(HEXDUMPS, "stream.txt"), "utf8")),
+      "stream",
+    );
+    assert.equal(guessOffsets("45:00:00:1c\r\n45:00:00:28\r\n"), "stream");
+    assert.equal(guessOffsets("4500001c0001\n450"), "stream");
+    assert.equal(guessOffsets("45\n00\n"), "none");
   });
 
   test("hasAsciiColumn: hexdump -C's |…| column", () => {

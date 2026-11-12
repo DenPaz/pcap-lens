@@ -74,6 +74,8 @@ def test_dummy_headers(params: dict[str, object], expected: list[str]) -> None:
         ({"maxPacket": 0}, "maxPacket must be from 1"),
         ({"timestamp": "%H\n%M"}, "timestamp must be a single line"),
         ({"interfaceName": "x" * 65}, "interfaceName must be a single line"),
+        ({"offsets": "stream", "timestamp": "ISO"}, "a hex stream has no times"),
+        ({"offsets": "stream", "direction": True}, "a hex stream has no directions"),
     ],
 )
 def test_invalid_options_are_rejected(params: dict[str, object], message: str) -> None:
@@ -86,3 +88,41 @@ def test_written_packets() -> None:
     assert hexdump.written_packets(stderr) == (2, 2)
     assert hexdump.written_packets("Read 1 potential packet, wrote 1 packet (3 bytes)") == (1, 1)
     assert hexdump.written_packets("text2pcap: something else") is None
+
+
+def test_a_hex_stream_becomes_a_dump_with_offsets() -> None:
+    # text2pcap reads neither form; as a dump each line is a packet.
+    assert hexdump.text2pcap_options({"offsets": "stream", "asciiDump": True})[:2] == ["-o", "hex"]
+    stream = "000102030405060708090a0b0c0d0e0f10\r\n\n  aa:BB:cc  \n"
+    assert hexdump.stream_as_dump(stream) == (
+        "000000  00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f\n000010  10\n000000  aa BB cc\n"
+    )
+    with pytest.raises(InvalidParamsError, match=r"line 2 isn't a hex stream.*: 0000  45 00"):
+        hexdump.stream_as_dump("4500\n0000  45 00\n")
+    with pytest.raises(InvalidParamsError, match="line 1 isn't a hex stream"):
+        hexdump.stream_as_dump("450")  # half a byte
+    with pytest.raises(InvalidParamsError, match="holds no packets"):
+        hexdump.stream_as_dump("\n \n")
+
+
+@pytest.mark.parametrize(
+    ("text", "stream"),
+    [
+        ("4500003c1c46\n45000028\n", True),
+        ("45:00:00:3c\n", True),
+        ("4500003c1c46\n450000", True),  # (a sample cut mid-line: the last line may be odd)
+        ("45 00 00 3c\n", False),  # spaced bytes: offsets none reads them
+        ("0000  45 00 00 3c\n", False),
+        ("45\n00\n", False),
+        ("this is not a hex dump\n", False),
+        ("", False),
+    ],
+)
+def test_looks_like_stream(text: str, stream: bool) -> None:
+    assert hexdump.looks_like_stream(text) is stream
+
+
+def test_no_packets_message_names_the_choice() -> None:
+    assert "import it as a hex stream" in hexdump.no_packets_message("4500003c\n")
+    generic = hexdump.no_packets_message("this is not a hex dump\n")
+    assert generic.startswith("no packets found in the hex dump: each line needs an offset")

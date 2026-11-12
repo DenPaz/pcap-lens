@@ -151,7 +151,8 @@ and its rows apply or prepare a filter, go to a packet or copy.
   offers it when an open file grows.
 - **Capture to Files** with size/time/packet rotation and ring buffers.
 - **Edit**: time shift, remove duplicates, keep a range, truncate, split,
-  embed key logs; **merge** captures; **import** a hex dump.
+  embed key logs; **merge** captures; **import** a hex dump or a hex stream
+  (one packet per line).
 - **Export** packets (all, displayed, selected or marked), the list as
   CSV/JSON, dissections as text/PDML/JSON, objects (HTTP, SMB, TFTP, IMF,
   DICOM, FTP-DATA), PDUs, TLS session keys, and a **Capture Report** in
