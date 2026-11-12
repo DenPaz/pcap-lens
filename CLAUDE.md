@@ -3191,6 +3191,11 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
     _Apply as Column_, rename and remove write for the capture's folder.
     `lib.cellFilter` builds cell filters (ip/ipv6/eth by address form; none for
     Time or Info). `lib.formatBytesAs` has the bytes-pane copy formats.
+    Widths (`state.widths`, kept in the webview state): a header cell's
+    `.resize-handle` drags (`startColumnResize`) and, double-clicked, fits
+    the column like a spreadsheet (`fitColumnToContents`: the title and the
+    drawn rows' cells measured on a canvas, 40–800 px; also the header
+    menu's _Resize to Contents_). Info has no handle: it takes the rest.
 - **Commands menu** (☰ `#filter-menu` after `#filter-field`; `commandMenu.ts`,
   `main.js` `commandsMenu`): the list is built from package.json
   (`context.extension.packageJSON`: `contributes.commands` plus the first

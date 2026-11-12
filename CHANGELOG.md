@@ -7,6 +7,14 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- Double-clicking a column's separator in the packet list fits the column to
+  its contents, as in a spreadsheet (also _Resize to Contents_ in the header
+  menu) [1610f4b]
+
+[1610f4b]: https://github.com/DenPaz/pcap-lens/commit/1610f4b
+
 ## 0.33.0 — 2026-11-12
 
 ### Added
