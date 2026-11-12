@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import logging
 import os
 import re
 import selectors
@@ -25,6 +26,8 @@ from pathlib import Path
 from . import decryption, procs, wsprofile
 from .cancellation import CancelledError, CancelToken
 from .sandbox import permission_hint
+
+log = logging.getLogger(__name__)
 
 IS_WINDOWS = sys.platform == "win32"
 
@@ -322,11 +325,43 @@ def _pref_value(value: object) -> str:
 
 _NOISE = ("Running as user", "This could be dangerous")
 
+# Wireshark's own diagnostics of its tables, logged through wslog ("** (tshark:
+# 123) 22:30:01.1 [WSUtil WARNING] …/value_string.c:476 -- _try_val_to_str_
+# ext_init(): Extended value string 'mcc_mnc_codes' forced to fall back to
+# linear search: …", tshark 4.6.8 with a 5G capture; "[Epan WARNING]" before
+# value_string.c moved to wsutil). Nothing about the capture or the settings,
+# and nothing the user can change, so they go to the log instead of a warning.
+_INTERNAL_DIAGNOSTIC = re.compile(
+    r"^\*\* \(\S+:\d+\) .*\[\w+ [A-Z]+\].*\b(?:Extended value string|_val_to_str_ext_init)"
+)
+_logged_diagnostics: set[str] = set()
+
 
 def clean_stderr(text: str) -> str:
-    """Strip tshark's harmless root warning and blank lines."""
-    lines = [ln for ln in text.splitlines() if ln.strip() and not any(n in ln for n in _NOISE)]
+    """Strip tshark's harmless root warning, its internal table diagnostics
+    (logged once each) and blank lines."""
+    lines: list[str] = []
+    diagnostic: list[str] = []  # one being read: its indented lines follow it
+    for ln in [*text.splitlines(), ""]:
+        if diagnostic and ln[:1].isspace() and ln.strip():
+            diagnostic.append(ln.strip())
+            continue
+        if diagnostic:
+            _log_diagnostic(" ".join(diagnostic))
+            diagnostic = []
+        if not ln.strip() or any(n in ln for n in _NOISE):
+            continue
+        if _INTERNAL_DIAGNOSTIC.match(ln):
+            diagnostic = [ln.split("] ", 1)[-1]]
+            continue
+        lines.append(ln)
     return "\n".join(lines)
+
+
+def _log_diagnostic(message: str) -> None:
+    if message not in _logged_diagnostics:  # (stderr is cleaned more than once)
+        _logged_diagnostics.add(message)
+        log.info("tshark's own diagnostic (not shown as a warning): %s", message)
 
 
 # Why a tool's exit code means it crashed: a signal on POSIX (a negative

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
@@ -159,6 +160,31 @@ def test_failed(code: int | None, stderr: str, result: bool) -> None:
 def test_clean_stderr_drops_root_warning() -> None:
     text = 'Running as user "root" and group "root". This could be dangerous.\n\ntshark: boom\n'
     assert clean_stderr(text) == "tshark: boom"
+
+
+def test_clean_stderr_logs_wiresharks_table_diagnostics(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # tshark 4.6.8 printed this while reading a 5G capture: Wireshark's own
+    # table check, nothing a user can act on, so it's logged, not a warning.
+    diag = (
+        "** (tshark:52132) 22:30:01.123456 [WSUtil WARNING] ./wsutil/value_string.c:476 -- "
+        "_try_val_to_str_ext_init(): Extended value string 'mcc_mnc_codes' forced to fall "
+        "back to linear search:\n  entry 1771, value 405034 [0x62e2a] < previous entry, "
+        "value 405035 [0x62e2b]"
+    )
+    older = (
+        "** (tshark:7) 10:00:00.000001 [Epan WARNING] epan/value_string.c:470 -- "
+        "_try_val_to_str_ext_init(): Extended value string 'x' forced to fall back"
+    )
+    lua = "** (tshark:9) 10:00:00.000001 [Lua WARNING] -- not a table diagnostic"
+    monkeypatch.setattr(ts, "_logged_diagnostics", set())
+    with caplog.at_level(logging.INFO, logger="pcap_backend.tshark"):
+        text = clean_stderr(f"{diag}\ntshark: boom\n{older}\n{diag}\n{lua}\n")
+    assert text.split("\n") == ["tshark: boom", lua]
+    logged = [r.getMessage() for r in caplog.records]
+    assert sum("'mcc_mnc_codes'" in m and "entry 1771" in m for m in logged) == 1, "logged once"
+    assert sum("Extended value string 'x'" in m for m in logged) == 1
 
 
 def test_find_tool_configured_path(tmp_path: Path) -> None:
