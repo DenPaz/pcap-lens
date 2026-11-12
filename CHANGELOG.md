@@ -14,7 +14,7 @@ commit) that made it. The format follows
   sessions, TCP connection health, packet details, comparison with a baseline
   file, and applying a filter or going to a packet after you confirm [8eb5d54]
 - The agent's tools also read a capture attached to the chat (`#file:`) or
-  named, when it is in the workspace, open or in Recent Captures
+  named, when it is in the workspace, open or in Recent Captures [b9f346b]
 
 ### Fixed
 
@@ -22,6 +22,7 @@ commit) that made it. The format follows
   ("368.2105964678441 B/s") [8eb5d54]
 
 [8eb5d54]: https://github.com/DenPaz/pcap-lens/commit/8eb5d54
+[b9f346b]: https://github.com/DenPaz/pcap-lens/commit/b9f346b
 
 ## 0.32.0 — 2026-11-12
 
