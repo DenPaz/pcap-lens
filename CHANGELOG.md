@@ -13,6 +13,11 @@ commit) that made it. The format follows
   common fields of the headers it reads, with suggestions and underlined
   errors, plus Find Packet, marks, ignored packets and the filter builder
   [acc2bbf]
+- MCP server: `overview` (the capture at a glance), `sessions` (HTTP
+  requests, DNS queries and TLS servers with response times, or only the
+  failing ones), `voip_calls` (calls, quality, problems, RTP streams) and
+  `tcp_stream` (retransmissions, zero windows, round-trip times of one
+  connection), and results as structured content for clients that use it
 
 ### Fixed
 

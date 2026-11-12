@@ -41,6 +41,7 @@ from typing import IO, Any
 
 from . import compare, navigation
 from .cancellation import CancelledError, CancelToken
+from .overview import MAX_BUCKETS
 from .pcap_service import PcapService
 from .protocol import (
     INVALID_PARAMS,
@@ -103,6 +104,12 @@ STATS_KINDS = {
     "ipv6": "ipv6",
 }
 _TREE_KINDS = {"phs", "http", "dns", "plen", "sip", "ipv4", "ipv6", "io"}
+# sessions' kinds → the backend's session tables (sessions.py).
+SESSION_KINDS = {"http": "http_requests", "dns": "dns_queries", "tls": "tls_servers"}
+MAX_CALL_MESSAGES = 60  # a call's messages in voip_calls' detail (as the AI call prompt)
+MAX_FLAGGED = 10  # tcp_stream's packets of retransmissions and zero windows
+# MCP's structured tool results (structuredContent) start with this version.
+STRUCTURED_SINCE = "2025-06-18"
 # Other names assistants use for the kinds (also tshark's own -z names).
 _KIND_ALIASES = {
     "phs": "protocol_hierarchy",
@@ -465,6 +472,110 @@ def _str(args: Mapping[str, Any], name: str, default: str = "") -> str:
     return value.strip()
 
 
+def _bool(args: Mapping[str, Any], name: str) -> bool:
+    value = args.get(name, False)
+    if value is None:
+        return False
+    if not isinstance(value, bool):
+        raise ToolFailureError(f"'{name}' must be true or false")
+    return value
+
+
+def _cut_breakdowns(value: Any, limit: int) -> Any:
+    """The overview with each breakdown (a dict holding ``items``) cut to
+    ``limit`` rows, ``more`` counting the rows left out."""
+    if isinstance(value, dict):
+        out = {k: _cut_breakdowns(v, limit) for k, v in value.items()}
+        items = value.get("items")
+        if isinstance(items, list) and len(items) > limit:
+            out["items"] = items[:limit]
+            out["more"] = int(value.get("more") or 0) + len(items) - limit
+        return out
+    if isinstance(value, list):
+        return [_cut_breakdowns(v, limit) for v in value]
+    return value
+
+
+def _session_problem(kind: str, cell: Callable[[str], Any]) -> bool:
+    """Whether a session row is one only_problems keeps: an HTTP error or a
+    request without a response, a DNS query that failed or went unanswered,
+    a TLS server with handshakes that got no ServerHello."""
+    if kind == "http":
+        status = cell("status")
+        return not isinstance(status, int) or status >= 400
+    if kind == "dns":
+        return bool(cell("rcode") != "NoError")
+    unanswered = cell("unanswered")
+    return isinstance(unanswered, int) and unanswered > 0
+
+
+def tcp_facts(points: list[list[Any]], fields: list[str], endpoints: list[str]) -> dict[str, Any]:
+    """One TCP stream's health from tcp_graph's points (aiAnomaly.ts'
+    tcpFacts, which the @pcap anomaly prompt uses): per direction packets,
+    data packets, bytes, retransmissions and their rate, zero windows (not
+    on SYNs) and the window's range; round-trip times in ms; the packets of
+    the first retransmissions and zero windows."""
+    at = {name: i for i, name in enumerate(fields)}
+
+    def get(p: list[Any], name: str) -> float:
+        value = p[at[name]] if name in at and at[name] < len(p) else None
+        return float(value) if isinstance(value, int | float) else 0.0
+
+    a = endpoints[0] if endpoints else "A"
+    b = endpoints[1] if len(endpoints) > 1 else "B"
+    directions: list[dict[str, Any]] = []
+    for d in (0, 1):
+        mine = [p for p in points if get(p, "dir") == d]
+        data = [p for p in mine if get(p, "len") > 0]
+        retrans = sum(1 for p in data if get(p, "retrans"))
+        windows = [get(p, "win") for p in mine if not get(p, "syn")]
+        nonzero = [w for w in windows if w > 0]
+        directions.append(
+            {
+                "direction": f"{a} → {b}" if d == 0 else f"{b} → {a}",
+                "packets": len(mine),
+                "dataPackets": len(data),
+                "bytes": int(sum(get(p, "len") for p in data)),
+                "retransmissions": retrans,
+                "retransmissionRate": round(retrans / len(data), 4) if data else 0.0,
+                "zeroWindows": sum(1 for w in windows if w == 0),
+                "minWindow": int(min(nonzero)) if nonzero else 0,
+                "maxWindow": int(max(windows)) if windows else 0,
+            }
+        )
+    rtt_at = at.get("rtt")
+    rtts = sorted(
+        float(p[rtt_at]) * 1000
+        for p in points
+        if rtt_at is not None and rtt_at < len(p) and isinstance(p[rtt_at], int | float)
+    )
+    rtt = None
+    if rtts:
+        mid = len(rtts) // 2
+        median = rtts[mid] if len(rtts) % 2 else (rtts[mid - 1] + rtts[mid]) / 2
+        rtt = {
+            "samples": len(rtts),
+            "minMs": round(rtts[0], 3),
+            "medianMs": round(median, 3),
+            "maxMs": round(rtts[-1], 3),
+        }
+    times = [get(p, "time") for p in points]
+    data_packets = int(directions[0]["dataPackets"] + directions[1]["dataPackets"])
+    retransmissions = int(directions[0]["retransmissions"] + directions[1]["retransmissions"])
+    retrans_frames = [int(get(p, "frame")) for p in points if get(p, "retrans")]
+    zero_frames = [int(get(p, "frame")) for p in points if get(p, "win") == 0 and not get(p, "syn")]
+    return {
+        "packets": len(points),
+        "durationSeconds": round(max(times) - min(times), 6) if times else 0.0,
+        "syns": sum(1 for p in points if get(p, "syn")),
+        "directions": directions,
+        "rtt": rtt,
+        "retransmissionRate": round(retransmissions / data_packets, 4) if data_packets else 0.0,
+        "retransmissionPackets": retrans_frames[:MAX_FLAGGED],
+        "zeroWindowPackets": zero_frames[:MAX_FLAGGED],
+    }
+
+
 def _walk(root: Path) -> Iterator[tuple[str, list[str]]]:
     """The folders under ``root`` that list_captures looks in (no hidden or
     virtual-environment folders, depth 8), with their sorted file names."""
@@ -723,6 +834,114 @@ class Toolbox:
                 "server problem). A good first step to find what is wrong.",
                 _schema({"capture": _CAPTURE}, ["capture"]),
                 self.triage,
+            ),
+            Tool(
+                "overview",
+                "Capture overview",
+                "The capture at a glance in one call: packets, bytes and duration, packets over "
+                "time, and the busiest IP addresses, protocols, TCP services (connections by "
+                "port), HTTP methods, status codes, hosts and content types, DNS results, query "
+                "types and names, and TLS server names and versions. Every row has its count and a "
+                "display filter for drilling down (count_packets, sessions, statistics). A good "
+                "first call on a capture you don't know.",
+                _schema(
+                    {
+                        "capture": _CAPTURE,
+                        "filter": {**_FILTER, "description": "Only the packets matching it"},
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": MAX_ROWS,
+                            "description": "Rows per breakdown (default 10)",
+                        },
+                        "buckets": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": MAX_BUCKETS,
+                            "description": "Intervals of the packets-over-time line (default 24)",
+                        },
+                    },
+                    ["capture"],
+                ),
+                self.overview,
+            ),
+            Tool(
+                "sessions",
+                "HTTP requests, DNS queries, TLS servers",
+                "One row per HTTP request (method, host, path, status, content type, size, "
+                "response time; 'No response' when none came), per DNS query (name, type, result, "
+                "answers, response time) or per TLS server (server name, connections, handshakes "
+                "without a ServerHello, versions, cipher suites and ALPN it chose), with a summary "
+                "and each row's display filter. 'only_problems' keeps HTTP errors (4xx, 5xx) and "
+                "unanswered requests, failed or unanswered DNS queries, TLS servers with "
+                "unanswered handshakes. Use it for slow or failing requests and lookups.",
+                _schema(
+                    {
+                        "capture": _CAPTURE,
+                        "kind": {"type": "string", "enum": list(SESSION_KINDS)},
+                        "filter": {**_FILTER, "description": "Only the packets matching it"},
+                        "only_problems": {"type": "boolean"},
+                        "offset": {"type": "integer", "minimum": 0},
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": MAX_ROWS,
+                            "description": "Rows to return (default 50), in capture order",
+                        },
+                    },
+                    ["capture", "kind"],
+                ),
+                self.sessions,
+            ),
+            Tool(
+                "voip_calls",
+                "VoIP calls",
+                "The VoIP calls (SIP, H.323, MGCP, IAX2) with caller, callee, state, final "
+                "response, release reasons (Q.850), who hung up, ringing and setup times, the "
+                "voice quality of their RTP streams (MOS from the E-model), DTMF events and "
+                "problems found (one-way audio, no RTP, codec mismatch, SSRC change, silence "
+                "gaps), plus each RTP stream's loss, jitter and RTCP reports, and SIP "
+                "registrations. Give 'call' (an id) for that call's messages and streams.",
+                _schema(
+                    {
+                        "capture": _CAPTURE,
+                        "call": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "A call's id from the list: its full detail",
+                        },
+                        "heuristic_rtp": {
+                            "type": "boolean",
+                            "description": "Also find RTP no signalling set up (slower)",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": MAX_ROWS,
+                            "description": "Calls to list (default 20)",
+                        },
+                    },
+                    ["capture"],
+                ),
+                self.voip_calls,
+            ),
+            Tool(
+                "tcp_stream",
+                "TCP stream health",
+                "How one TCP connection went, per direction: packets, data packets and bytes, "
+                "retransmissions and their rate, zero windows, the receive window's range, and "
+                "round-trip times (min, median, max), with the packets of the first "
+                "retransmissions and zero windows. Give the stream number (tcp.stream) or a "
+                "packet in it.",
+                _schema(
+                    {
+                        "capture": _CAPTURE,
+                        "stream": {"type": "integer", "minimum": 0},
+                        "packet": {"type": "integer", "minimum": 1},
+                    },
+                    ["capture"],
+                ),
+                self.tcp_stream,
             ),
             Tool(
                 "compare_captures",
@@ -1073,6 +1292,248 @@ class Toolbox:
             ],
         }
 
+    def overview(self, args: dict[str, Any], ctx: RequestContext) -> Any:
+        path = self.captures.resolve(_capture_arg(args))
+        flt = _str(args, "filter")
+        limit = _int(args, "limit", 10, 1, MAX_ROWS)
+        buckets = _int(args, "buckets", 24, 1, MAX_BUCKETS)
+        service = self.captures.get(path, ctx)
+        res = service.overview({"filter": flt, "buckets": buckets}, ctx)
+        timeline = res.get("timeline") or {}
+        counts: list[int] = list(timeline.get("packets") or [])
+        out: dict[str, Any] = {
+            "filter": res.get("filter", flt),
+            "packets": res.get("packets"),
+            "bytes": res.get("bytes"),
+            "durationSeconds": res.get("duration"),
+            "timeline": {
+                "intervalSeconds": timeline.get("interval"),
+                "packets": counts,
+                "bytes": timeline.get("bytes") or [],
+            },
+        }
+        if counts and max(counts) > 0:
+            peak = counts.index(max(counts))
+            interval = float(timeline.get("interval") or 0)
+            out["timeline"]["busiest"] = {
+                "fromSeconds": round(peak * interval, 6),
+                "packets": counts[peak],
+            }
+        for key in ("addresses", "protocols", "services"):
+            if res.get(key):
+                out[key] = _cut_breakdowns(res[key], limit)
+        absent = []
+        for key in ("http", "dns", "tls"):
+            part = res.get(key) or {}
+            # (Left out without a request, query or hello, as the viewer does.)
+            if any(isinstance(v, int) and v > 0 for v in part.values()):
+                out[key] = _cut_breakdowns(part, limit)
+            else:
+                absent.append(key)
+        if absent:
+            out["absent"] = absent
+        return out
+
+    def sessions(self, args: dict[str, Any], ctx: RequestContext) -> Any:
+        path = self.captures.resolve(_capture_arg(args))
+        kind = _str(args, "kind").lower()
+        if kind not in SESSION_KINDS:
+            raise ToolFailureError(f"'kind' {kind!r} is not one of {', '.join(SESSION_KINDS)}")
+        flt = _str(args, "filter")
+        problems = _bool(args, "only_problems")
+        offset = _int(args, "offset", 0, 0, 1 << 40)
+        limit = _int(args, "limit", 50, 1, MAX_ROWS)
+        service = self.captures.get(path, ctx)
+        table = service.stats({"kind": SESSION_KINDS[kind], "filter": flt}, ctx)
+        ids = [c.get("id") for c in table.get("columns", [])]
+        rows: list[dict[str, Any]] = list(table.get("rows", []))
+        if problems:
+
+            def keep(row: dict[str, Any]) -> bool:
+                cells = row["cells"]
+
+                def cell(name: str) -> Any:
+                    i = ids.index(name) if name in ids else -1
+                    return cells[i] if 0 <= i < len(cells) else None
+
+                return _session_problem(kind, cell)
+
+            rows = [r for r in rows if keep(r)]
+        page = rows[offset : offset + limit]
+        shown = []
+        for row in page:
+            item: dict[str, Any] = {"cells": row["cells"]}
+            for key in ("filter", "frame", "response"):
+                if row.get(key) not in (None, ""):
+                    item[key] = row[key]
+            shown.append(item)
+        out: dict[str, Any] = {
+            "kind": kind,
+            "filter": table.get("filter", flt),
+            "summary": table.get("summary") or {},
+            "columns": [c.get("label") for c in table.get("columns", [])],
+            "matching": len(rows),
+            "offset": offset,
+            "rows": shown,
+            "more": offset + len(page) < len(rows),
+        }
+        if problems:
+            out["onlyProblems"] = True
+        if table.get("more"):
+            # (Past the backend's row limit: those aren't in 'matching'.)
+            out["notListed"] = table["more"]
+        return out
+
+    def voip_calls(self, args: dict[str, Any], ctx: RequestContext) -> Any:
+        path = self.captures.resolve(_capture_arg(args))
+        limit = _int(args, "limit", 20, 1, MAX_ROWS)
+        heuristic = _bool(args, "heuristic_rtp")
+        service = self.captures.get(path, ctx)
+        res = service.voip_calls({"heuristic": heuristic}, ctx)
+        calls: list[dict[str, Any]] = res.get("calls", [])
+        streams: list[dict[str, Any]] = res.get("streams", [])
+        out: dict[str, Any] = {}
+        if not self.config.allow_packet_data:
+            out["dtmfDigits"] = (
+                "hidden: DTMF digits can be PINs or card numbers, packet contents the user has "
+                "not allowed this server to share"
+            )
+        if args.get("call") is not None:
+            wanted = _int(args, "call", 0, 0, 1 << 40)
+            call = next((c for c in calls if c.get("id") == wanted), None)
+            if call is None:
+                raise ToolFailureError(
+                    f"no call {wanted}: the capture has calls 0 to {len(calls) - 1}"
+                    if calls
+                    else f"no call {wanted}: the capture has no calls"
+                )
+            linked = [i for i in call.get("streams", []) if 0 <= i < len(streams)]
+            return {
+                "call": self._call_row(call, detail=True),
+                "streams": [self._stream_row(i, streams[i]) for i in linked],
+                **out,
+            }
+        linked_ids = {i for c in calls for i in c.get("streams", [])}
+        others = [i for i in range(len(streams)) if i not in linked_ids]
+        states: dict[str, int] = {}
+        for c in calls:
+            states[c.get("state") or "?"] = states.get(c.get("state") or "?", 0) + 1
+        return {
+            "summary": {
+                "calls": len(calls),
+                "byState": states,
+                "withProblems": sum(1 for c in calls if c.get("problems")),
+                "streams": len(streams),
+            },
+            "calls": [self._call_row(c, detail=False) for c in calls[:limit]],
+            "moreCalls": max(0, len(calls) - limit),
+            "streamsWithoutCall": [self._stream_row(i, streams[i]) for i in others[:limit]],
+            "registrations": res.get("registrations", [])[:limit],
+            "heuristicRtp": bool(res.get("heuristic", heuristic)),
+            **out,
+        }
+
+    def _dtmf(self, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """DTMF events, their digits only when packet contents may be shared."""
+        keys: tuple[str, ...] = ("frame", "time", "method", "src", "duration")
+        if self.config.allow_packet_data:
+            keys = ("digit", *keys)
+        return [{k: e[k] for k in keys if k in e} for e in events]
+
+    def _call_row(self, call: dict[str, Any], detail: bool) -> dict[str, Any]:
+        row: dict[str, Any] = {
+            k: call[k]
+            for k in (
+                "id",
+                "protocol",
+                "from",
+                "to",
+                "caller",
+                "callee",
+                "state",
+                "final",
+                "reasons",
+                "endedBy",
+                "dialed",
+                "quality",
+                "problems",
+                "streams",
+                "filter",
+            )
+            if call.get(k) not in (None, "", [])
+        }
+        for key, name in (
+            ("start", "startSeconds"),
+            ("ringing", "ringingSeconds"),
+            ("setup", "setupSeconds"),
+            ("duration", "durationSeconds"),
+        ):
+            if call.get(key) is not None:
+                row[name] = call[key]
+        if call.get("dtmf"):
+            row["dtmf"] = self._dtmf(call["dtmf"])
+        messages = call.get("messages") or []
+        if detail:
+            if call.get("callId"):
+                row["callId"] = call["callId"]
+            row["messages"] = [
+                {"packet": m[0], "time": m[1], "from": m[2], "to": m[3], "message": m[4]}
+                for m in messages[:MAX_CALL_MESSAGES]
+            ]
+            row["moreMessages"] = max(0, len(messages) - MAX_CALL_MESSAGES)
+        else:
+            row["messages"] = len(messages)
+        return row
+
+    def _stream_row(self, index: int, s: dict[str, Any]) -> dict[str, Any]:
+        row: dict[str, Any] = {
+            "stream": index,
+            "from": f"{s.get('src')}:{s.get('srcPort')}",
+            "to": f"{s.get('dst')}:{s.get('dstPort')}",
+        }
+        for key in (
+            "ssrc",
+            "payload",
+            "packets",
+            "lost",
+            "lostPercent",
+            "meanJitter",
+            "maxJitter",
+            "maxDelta",
+            "start",
+            "end",
+            "firstFrame",
+            "quality",
+            "rtcp",
+            "gaps",
+            "problem",
+            "filter",
+        ):
+            if s.get(key) not in (None, "", []):
+                row[key] = s[key]
+        if s.get("dtmf"):
+            row["dtmf"] = self._dtmf(s["dtmf"])
+        return row
+
+    def tcp_stream(self, args: dict[str, Any], ctx: RequestContext) -> Any:
+        path = self.captures.resolve(_capture_arg(args))
+        params: dict[str, Any] = {}
+        if args.get("stream") is not None:
+            params["stream"] = _int(args, "stream", 0, 0, 1 << 40)
+        elif args.get("packet") is not None:
+            params["frame"] = _int(args, "packet", 1, 1, 1 << 40)
+        else:
+            raise ToolFailureError("give 'stream' (its tcp.stream number) or 'packet' (one in it)")
+        service = self.captures.get(path, ctx)
+        graph = service.tcp_graph(params, ctx)
+        endpoints = graph.get("endpoints") or []
+        return {
+            "stream": graph.get("stream"),
+            "filter": f"tcp.stream == {graph.get('stream')}",
+            "endpoints": endpoints,
+            **tcp_facts(graph.get("points") or [], graph.get("fields") or [], endpoints),
+        }
+
     def field_values(self, args: dict[str, Any], ctx: RequestContext) -> Any:
         path = self.captures.resolve(_capture_arg(args))
         name = _str(args, "field")
@@ -1205,12 +1666,16 @@ def _instructions(config: McpConfig) -> str:
     parts = [
         (
             "PCAP Lens reads packet captures with tshark (Wireshark's engine). Find files with "
-            "list_captures, then start with capture_info and triage; check ideas with "
-            "count_packets and statistics (display filters as in Wireshark; search_fields finds "
-            "field names, validate_filter checks a filter). To see what is behind a count (which "
-            "DNS rcodes, HTTP status codes, ports…) use statistics (dns, http, sip, expert) or "
-            "field_values with the count's filter. The first call on a capture indexes it, which "
-            "can take a while for big files; later calls are fast."
+            "list_captures, then start with overview (what is in the capture) and triage (what "
+            "looks wrong); check ideas with count_packets and statistics (display filters as in "
+            "Wireshark; search_fields finds field names, validate_filter checks a filter). To see "
+            "what is behind a count (which DNS rcodes, HTTP status codes, ports…) use statistics "
+            "(dns, http, sip, expert) or field_values with the count's filter. For slow or "
+            "failing requests and lookups use sessions (HTTP requests, DNS queries, TLS servers "
+            "with response times; only_problems), for a bad TCP connection tcp_stream "
+            "(retransmissions, zero windows, round-trip times), for calls voip_calls. The first "
+            "call on a capture indexes it, which can take a while for big files; later calls "
+            "are fast."
         ),
         "Allowed folders: " + ", ".join(str(r) for r in config.roots) + ".",
         (
@@ -1257,6 +1722,7 @@ class McpServer:
         self._inflight: dict[int | str, CancelToken] = {}
         self._inflight_lock = threading.Lock()
         self._pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="mcp")
+        self.protocol = DEFAULT_PROTOCOL
 
     def _send(self, message: Mapping[str, Any]) -> None:
         data = json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n"
@@ -1330,6 +1796,7 @@ class McpServer:
     def initialize(self, params: Mapping[str, Any]) -> dict[str, Any]:
         asked = params.get("protocolVersion")
         version = asked if asked in PROTOCOL_VERSIONS else DEFAULT_PROTOCOL
+        self.protocol = version
         return {
             "protocolVersion": version,
             "capabilities": {"tools": {"listChanged": False}},
@@ -1383,7 +1850,7 @@ class McpServer:
                     result = self.toolbox.labelled(restored, tool.run(restored, ctx))
                 token.raise_if_cancelled()
                 text = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
-                self._respond(req_id, self._content(text, error=False))
+                self._respond(req_id, self._content(text, error=False, structured=result))
             except CancelledError:
                 return  # (a cancelled request gets no response)
             except (ToolFailureError, RpcError, ToolNotFoundError, ToolError, ConfigError) as exc:
@@ -1395,8 +1862,17 @@ class McpServer:
             with self._inflight_lock:
                 self._inflight.pop(req_id, None)
 
-    def _content(self, text: str, error: bool) -> dict[str, Any]:
-        return {"content": [{"type": "text", "text": self.masker.mask(text)}], "isError": error}
+    def _content(self, text: str, error: bool, structured: Any = None) -> dict[str, Any]:
+        """A tool result: the JSON as text (what every client reads) and,
+        from protocol 2025-06-18, the same object as ``structuredContent``
+        for clients that use it, both with stand-ins when asked."""
+        out: dict[str, Any] = {
+            "content": [{"type": "text", "text": self.masker.mask(text)}],
+            "isError": error,
+        }
+        if isinstance(structured, dict) and self.protocol >= STRUCTURED_SINCE:
+            out["structuredContent"] = self.masker.mask_deep(structured)
+        return out
 
     def shutdown(self) -> None:
         with self._inflight_lock:

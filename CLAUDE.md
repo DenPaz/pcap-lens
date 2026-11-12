@@ -2796,7 +2796,19 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   and need `--allow-packet-data`; the refusal and the instructions say the
   user chose this and not to read contents another way (`_CONTENTS_REFUSED`:
   in a test Claude Code ran tshark through Bash after a plain "this server
-  doesn't return"), compare_captures (`{before, after, limit}`: both
+  doesn't return"), overview (the Capture Overview's `overview` pass,
+  breakdowns cut to `limit` rows by `_cut_breakdowns`, the timeline's
+  busiest interval; HTTP, DNS and TLS without a request, query or hello
+  are left out and named in `absent`), sessions (`{kind: http|dns|tls}` →
+  the session tables, `only_problems` (`_session_problem`: HTTP ≥ 400 or no
+  response, DNS not NoError, TLS servers with unanswered handshakes),
+  offset/limit in capture order, `notListed` past the backend's row cap),
+  voip_calls (summary by state, calls with quality, problems, reasons and
+  timings, streams without a call, registrations; `call` gives one call's
+  messages (`MAX_CALL_MESSAGES`) and streams; DTMF events keep their
+  digits only with `--allow-packet-data`: they can be PINs), tcp_stream
+  (`tcp_graph`'s points → `tcp_facts`, a port of aiAnomaly.ts' `tcpFacts`
+  plus the first retransmission and zero-window packets), compare_captures (`{before, after, limit}`: both
   captures' `capture_profile`, then `compare.diff`; names relative to the
   root), validate_filter, search_fields, and with
   `--allow-packet-data`
@@ -2807,7 +2819,10 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   one summary line each, since Frame and Ethernet filled a short `max_lines`
   before the DNS part in a test; byte dumps "[N bytes not
   shown]" unless `--allow-packet-bytes`) and follow_stream (printable text
-  per segment, `max_bytes`). All are `readOnlyHint`. `--stand-ins`:
+  per segment, `max_bytes`). All are `readOnlyHint`. From protocol
+  2025-06-18 (`STRUCTURED_SINCE`; the negotiated version is kept) a result
+  also comes as `structuredContent` (the same object, through
+  `AddressMasker.mask_deep` with stand-ins); no `outputSchema` yet. `--stand-ins`:
   `standins.AddressMasker` (a port of aiPrivacy.ts without host names: the
   server runs `-n`) masks every result's text and restores tokens in the
   arguments. VS Code: `contributes.mcpServerDefinitionProviders`

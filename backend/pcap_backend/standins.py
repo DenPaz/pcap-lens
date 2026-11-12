@@ -193,6 +193,19 @@ class AddressMasker:
             return {k: self.restore_deep(v) for k, v in value.items()}
         return value
 
+    def mask_deep(self, value: Any) -> Any:
+        """Strings inside a value (a tool's structured result) masked; keys,
+        which the server names, stay."""
+        if not self.enabled:
+            return value
+        if isinstance(value, str):
+            return self.mask(value)
+        if isinstance(value, list | tuple):
+            return [self.mask_deep(v) for v in value]
+        if isinstance(value, dict):
+            return {k: self.mask_deep(v) for k, v in value.items()}
+        return value
+
     @property
     def size(self) -> int:
         with self._lock:
