@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.33.0 — 2026-11-12
+
 ### Added
 
 - A PCAP Lens agent for Copilot Chat's agent mode (and an analyze-capture
