@@ -23,7 +23,13 @@ commit) that made it. The format follows
   which AI setting and how many rows each returns, so without packet data
   they answer from statistics instead of asking for packets [e8ea0c5]
 
+### Fixed
+
+- Saving a packet comment with a long run of spaces inside it no longer
+  takes quadratic time (CodeQL's polynomial regular expression alert) [e024aca]
+
 [6c3af0b]: https://github.com/DenPaz/pcap-lens/commit/6c3af0b
+[e024aca]: https://github.com/DenPaz/pcap-lens/commit/e024aca
 [e8ea0c5]: https://github.com/DenPaz/pcap-lens/commit/e8ea0c5
 
 ## 0.33.1 — 2026-11-12
