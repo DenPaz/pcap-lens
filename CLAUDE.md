@@ -739,7 +739,11 @@ function/value/string` (the debugger's and outline's theme colours) and
   `~=`, so it's not offered); a comparison with an absent field is false;
   any non-zero number is a true boolean; a protocol's bytes for `contains`
   run to the end of its data (`ip`, `tcp` include the payload: Layer's
-  `extent`); errors are tshark's words where it has them, with a [start,
+  `extent`); strings order case-sensitively, as tshark (Codex review:
+  they were lower-cased, so `<= "GET"` missed GET), and a quoted string's
+  bytes (`Token.bytes`, for `contains` and byte fields) are its text in
+  UTF-8 with `\xHH` escapes as single bytes, as tshark reads them (they
+  were Latin-1); errors are tshark's words where it has them, with a [start,
   end) span. `dissect(…, fields)` fills a field → values map (`put`; tree
   fields typed by `fieldValue`, the rest put directly); `BasicCapture.values`
   dissects only for non-frame fields. `set_filter` walks every packet
@@ -2741,7 +2745,9 @@ stderr, wrote)` is now that check everywhere, and a crash always breaks
   short by a kill (likely the memory watch) passed as complete, since
   `broke` took any signal for the backend's own stop; the backend's own
   kills raise CancelledError before any check, so `broke` now counts every
-  signal death as broken.
+  signal death as broken. (Follow Stream stops reading past `maxBytes`,
+  which kills tshark: a truncated follow skips `broke`; Codex review of the
+  0.32.0 PR, which found the capped follow failing.)
   The next run's stacks named the rest: the backend itself at 2-5.6 GB
   in `run()` under `_expert`'s `_tap` (openflow_v5/v6_coverage under 4.6;
   only tshark's memory was watched), keeping a looping dissector's
@@ -2828,7 +2834,9 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   voip_calls (summary by state, calls with quality, problems, reasons and
   timings, streams without a call, registrations; `call` gives one call's
   messages (`MAX_CALL_MESSAGES`) and streams; DTMF events keep their
-  digits only with `--allow-packet-data`: they can be PINs), tcp_stream
+  digits only with `--allow-packet-data`: they can be PINs, and so do the
+  messages' names (`_without_digits`: IAX2's "DTMF 7", MGCP's "NTFY
+  D/2,D/0"; Codex review of the 0.32.0 PR), tcp_stream
   (`tcp_graph`'s points → `tcp_facts`, a port of aiAnomaly.ts' `tcpFacts`
   plus the first retransmission and zero-window packets), compare_captures (`{before, after, limit}`: both
   captures' `capture_profile`, then `compare.diff`; names relative to the

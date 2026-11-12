@@ -220,6 +220,9 @@ interface Token {
   text: string;
   /** A string's value (escapes resolved); a word's text. */
   value: string;
+  /** A string's bytes, as tshark reads it: its text in UTF-8, \xHH escapes as
+   * those bytes ("é" is c3:a9, "\xe9" is e9). */
+  bytes?: Buffer;
   start: number;
   end: number;
 }
@@ -241,6 +244,11 @@ function tokenize(expr: string): Token[] {
       const raw = c !== '"';
       i += raw ? 2 : 1;
       let value = "";
+      const bytes: number[] = [];
+      const add = (text: string) => {
+        value += text;
+        bytes.push(...Buffer.from(text, "utf8"));
+      };
       for (;;) {
         if (i >= expr.length) {
           throw new BasicFilterError("The string has no closing quote.", [start, expr.length]);
@@ -254,26 +262,37 @@ function tokenize(expr: string): Token[] {
           const next = expr[i + 1] ?? "";
           const simple: Record<string, string> = { n: "\n", t: "\t", r: "\r", "0": "\0" };
           if (next === "x" && /^[0-9a-fA-F]{2}$/.test(expr.slice(i + 2, i + 4))) {
-            value += String.fromCharCode(parseInt(expr.slice(i + 2, i + 4), 16));
+            const byte = parseInt(expr.slice(i + 2, i + 4), 16);
+            value += String.fromCharCode(byte);
+            bytes.push(byte);
             i += 4;
           } else if (next in simple) {
-            value += simple[next];
+            add(simple[next]);
             i += 2;
           } else {
-            value += next;
+            add(next);
             i += 2;
           }
           continue;
         }
         if (ch === "\\" && raw && expr[i + 1] === '"') {
-          value += '\\"';
+          add('\\"');
           i += 2;
           continue;
         }
-        value += ch;
-        i++;
+        // (A whole code point: an emoji's two halves encode as one character.)
+        const char = String.fromCodePoint(expr.codePointAt(i) ?? 0);
+        add(char);
+        i += char.length;
       }
-      tokens.push({ kind: "string", text: expr.slice(start, i), value, start, end: i });
+      tokens.push({
+        kind: "string",
+        text: expr.slice(start, i),
+        value,
+        bytes: Buffer.from(bytes),
+        start,
+        end: i,
+      });
       continue;
     }
     if ("(){},".includes(c)) {
@@ -559,7 +578,7 @@ class Parser {
     if (type === "FT_STRING") {
       return v.value;
     }
-    return v.kind === "string" ? Buffer.from(v.value, "latin1") : this.bytes(v);
+    return v.kind === "string" ? (v.bytes ?? Buffer.from(v.value, "utf8")) : this.bytes(v);
   }
 
   private bytes(v: Token): Buffer {
@@ -593,12 +612,12 @@ class Parser {
         }
         return {
           kind: "bytes",
-          value: v.kind === "string" ? Buffer.from(v.value, "latin1") : this.bytes(v),
+          value: v.kind === "string" ? (v.bytes ?? Buffer.from(v.value, "utf8")) : this.bytes(v),
         };
       case "FT_BYTES":
         return {
           kind: "bytes",
-          value: v.kind === "string" ? Buffer.from(v.value, "latin1") : this.bytes(v),
+          value: v.kind === "string" ? (v.bytes ?? Buffer.from(v.value, "utf8")) : this.bytes(v),
         };
       case "FT_STRING":
         return { kind: "string", value: v.value };
@@ -862,9 +881,14 @@ function order(type: FieldType, v: FieldValue, lit: Literal): number | null {
       break;
     }
     case "ether":
-    case "string":
       a = typeof v === "string" ? v.toLowerCase() : null;
       b = lit.value;
+      break;
+    case "string":
+      // (Case-sensitive, as tshark and equality: "GET" <= "GET". Codex
+      // review of the 0.32.0 release PR.)
+      a = typeof v !== "string" ? null : type === "FT_ETHER" ? v.toLowerCase() : v;
+      b = type === "FT_ETHER" ? lit.value.toLowerCase() : lit.value;
       break;
     default:
       a = Buffer.isBuffer(v) ? v.toString("hex") : null;

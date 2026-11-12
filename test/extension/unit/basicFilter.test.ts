@@ -139,6 +139,22 @@ suite("basic view: display filters", () => {
     assert.equal(test1('frame contains "\\x47E"', { frame: [Buffer.from("GET")] }), true);
   });
 
+  test("strings order by case as tshark does, and text is UTF-8 bytes (Codex review)", () => {
+    // tshark -Y on http.pcap's GET: <= "GET" and < "get" match, > "GET" doesn't.
+    assert.equal(test1('http.request.method <= "GET"', packet), true);
+    assert.equal(test1('http.request.method < "get"', packet), true);
+    assert.equal(test1('http.request.method > "GET"', packet), false);
+    assert.equal(test1('http.request.method >= "Get"', packet), false);
+    // A UDP payload "café ☕ 😀" in UTF-8: quoted text is its UTF-8 bytes, an
+    // escape one byte (tshark: "é" and "caf\xc3\xa9" match, "\xe9" doesn't).
+    const frame = { frame: [Buffer.from("café ☕ 😀", "utf8")] };
+    assert.equal(test1('frame contains "é"', frame), true);
+    assert.equal(test1('frame contains "café ☕ 😀"', frame), true);
+    assert.equal(test1('frame contains "caf\\xc3\\xa9"', frame), true);
+    assert.equal(test1('frame contains "\\xe9"', frame), false);
+    assert.equal(test1("frame contains c3:a9", frame), true);
+  });
+
   test("refused filters say why and where (UTF-16 spans, as tshark's)", () => {
     assert.deepEqual(refusal("tcp.port == 99999"), {
       message: '"99999" too big for this field, maximum 65535.',

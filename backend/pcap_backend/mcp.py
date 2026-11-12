@@ -502,6 +502,26 @@ def _cut_breakdowns(value: Any, limit: int) -> Any:
     return value
 
 
+# DTMF digits in signalling message labels: IAX2's "DTMF 7", MGCP's observed
+# events "NTFY D/2,D/0" (Codex review of the 0.32.0 release PR: call details
+# showed them while saying DTMF digits were hidden).
+_IAX2_DTMF = re.compile(r"^(DTMF)\s+\S+$")
+_MGCP_DIGIT = re.compile(r"(?<![\w/])D/[^,\s)]+")
+
+
+def _without_digits(label: str) -> str:
+    """A message label with its DTMF digits left out."""
+    if _IAX2_DTMF.match(label):
+        return "DTMF (digit hidden)"
+    digits = len(_MGCP_DIGIT.findall(label))
+    if not digits:
+        return label
+    events = [e for e in _MGCP_DIGIT.sub("", label).split(",") if e.strip()]
+    hidden = f"{digits} DTMF digit{'s' if digits > 1 else ''} hidden"
+    rest = ",".join(events).strip()
+    return f"{rest}, {hidden}" if rest.startswith("NTFY") and rest != "NTFY" else f"NTFY {hidden}"
+
+
 def _session_problem(kind: str, cell: Callable[[str], Any]) -> bool:
     """Whether a session row is one only_problems keeps: an HTTP error or a
     request without a response, a DNS query that failed or went unanswered,
@@ -1482,8 +1502,9 @@ class Toolbox:
         if detail:
             if call.get("callId"):
                 row["callId"] = call["callId"]
+            label = (lambda text: text) if self.config.allow_packet_data else _without_digits
             row["messages"] = [
-                {"packet": m[0], "time": m[1], "from": m[2], "to": m[3], "message": m[4]}
+                {"packet": m[0], "time": m[1], "from": m[2], "to": m[3], "message": label(m[4])}
                 for m in messages[:MAX_CALL_MESSAGES]
             ]
             row["moreMessages"] = max(0, len(messages) - MAX_CALL_MESSAGES)

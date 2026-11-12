@@ -172,7 +172,8 @@ class StreamsMixin(PacketsMixin):
                 truncated = True
                 break  # closing the generator kills tshark
             lines.append(line)
-        if broke(result.returncode, result.stderr, bool(lines)):
+        # (Cut at max_bytes: stopping the loop killed tshark, which is no crash.)
+        if not truncated and broke(result.returncode, result.stderr, bool(lines)):
             raise f.tshark.error(result.stderr, result.returncode, "tshark follow failed")
         followed = stats.parse_follow_raw("\n".join(lines))
         followed.update({"proto": proto, "stream": stream, "truncated": truncated, **extra})

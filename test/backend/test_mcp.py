@@ -375,6 +375,19 @@ def test_voip_calls(client_for: Any) -> None:
     assert [e["digit"] for e in digits["call"]["dtmf"]] == ["4", "7", "#"]
     assert "dtmfDigits" not in digits
 
+    # Nor in the signalling messages' names (IAX2 "DTMF 7", MGCP's observed
+    # digits): Codex review of the 0.32.0 release PR.
+    def messages(client: Any, call: int) -> list[str]:
+        detail, failed = client.call("voip_calls", capture="voip-other.pcap", call=call)
+        assert not failed and detail["call"]["protocol"] in ("IAX2", "MGCP")
+        return [m["message"] for m in detail["call"]["messages"]]
+
+    iax2, mgcp = messages(c, 3), messages(c, 5)
+    assert "DTMF (digit hidden)" in iax2 and not any("DTMF 7" in m for m in iax2)
+    assert "NTFY 4 DTMF digits hidden" in mgcp and not any("D/" in m for m in mgcp)
+    assert "NTFY L/hd" in mgcp  # (other events stay)
+    assert "DTMF 7" in messages(shared, 3) and "NTFY D/2,D/0,D/0,D/2" in messages(shared, 5)
+
 
 @pytest.mark.tshark
 def test_structured_results(client_for: Any) -> None:
