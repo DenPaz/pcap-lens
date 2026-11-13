@@ -631,6 +631,10 @@ frame.number==N` (no `-c`, both the PDML and the `-x` run), so references
   did); an Expand All stops at `lib.TREE_EXPAND_MAX` (50,000) built rows,
   with a notice, and goes on in the exact view when one replaces the quick
   one mid-run. Re-opening built rows is free, so slices count built rows.
+  A node's children are built within the budget too (`buildChildren`:
+  `entry.next` of them so far, the rest queued as a `more` item), also when
+  opened by a click: one field with sixty thousand children built them all
+  in one slice, past both limits (Codex review of the 0.34.0 PR).
   A packet's previously selected field may come in a later slice
   (`selectWhenBuilt`). **Expand All / Collapse All** (Wireshark's): the
   `#tree-expand-all`/`#tree-collapse-all` icon buttons in `#detail-views`
@@ -2977,13 +2981,18 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   (`{stream}`: a voip_calls stream number → `rtp_stream`'s analysis: the
   summary, each lost/late/changed packet (`_RTP_PROBLEMS`, POINT_FIELDS'
   status) and a timeline of `buckets` intervals with packets, loss, max
-  jitter and delta (`_rtp_points`); the stream's call; IAX2 streams carry
+  jitter and delta (`_rtp_points`; a gap's loss is the numbers that never
+  came, 16-bit numbers unwrapped, so reordering isn't loss and the timeline
+  adds up to the summary: `lostBefore`, `arrivedLater`; Codex review); the
+  stream's call; IAX2 streams carry
   `iax2`, in voip_calls' rows too), sequence_check (`stats {kind:
 "sequences"}`; `streams_by` (a list or comma-separated), `wrap_bits`,
   `restart_drop`; `_sequence_streams` turns the panel's table back into
   streams with their problems, cut per stream; key values only when every
   key field is numeric (`_numeric`) or packet data is allowed, else streams
-  are numbered and lose their filter: a LIID is a text field),
+  are numbered and lose their filter: a LIID is a text field; the sequence
+  field itself must be numeric without packet data, since its values come
+  back as numbers: ftp.request.arg would return a password; Codex review),
   export_objects (Export Objects' list: names, sizes, types, hosts and
   packets per protocol, never the files), credentials (`stats {kind:
 "credentials"}`: protocol and packets; user names only with
