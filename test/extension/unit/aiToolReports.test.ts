@@ -20,6 +20,7 @@ import {
   rtpPoints,
   sessionProblem,
   triageReport,
+  voipCallsReport,
   withoutDigits,
 } from "../../../src/aiToolReports";
 import { BackendClient } from "../../../src/backendClient";
@@ -83,6 +84,43 @@ suite("AI report tools", () => {
     assert.equal(withoutDigits("NTFY L/hd,D/5"), "NTFY L/hd, 1 DTMF digit hidden");
     assert.equal(withoutDigits("INVITE (SDP)"), "INVITE (SDP)");
     assert.equal(withoutDigits("CRCX aaln/1@gw1"), "CRCX aaln/1@gw1", "an endpoint isn't a digit");
+  });
+
+  test("an MGCP call's dialled digits aren't sent as its destination without packet data", () => {
+    const call = {
+      id: 0,
+      protocol: "MGCP",
+      from: "aaln/1@gw1.example.net",
+      to: "4321",
+      dialed: "4321",
+      caller: "10.0.4.11",
+      callee: "",
+      state: "Rejected",
+      setup: null,
+      duration: null,
+      messages: [[3, 1, "10.0.4.11", "10.0.4.1", "NTFY D/4,D/3,D/2,D/1"]] as [
+        number,
+        number,
+        string,
+        string,
+        string,
+      ][],
+      streams: [],
+    };
+    const data = { calls: [call], streams: [] };
+    for (const opts of [{}, { call: 0 }]) {
+      const hidden = voipCallsReport(data, {
+        ...opts,
+        limit: 5,
+        packetData: false,
+        maxChars: 9000,
+      });
+      assert.doesNotMatch(hidden.text, /4321|D\/4/, JSON.stringify(opts));
+      assert.match(hidden.text, /\(dialled number hidden\)/);
+      assert.deepEqual(hidden.names, [{ name: "aaln/1@gw1.example.net" }]);
+      const shown = voipCallsReport(data, { ...opts, limit: 5, packetData: true, maxChars: 9000 });
+      assert.match(shown.text, /4321/);
+    }
   });
 
   test("RTP loss is the numbers that never came, across the 16-bit wrap too", () => {

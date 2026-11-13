@@ -10,12 +10,15 @@
 import { CaptureDiff, scanLines, shrinkDiff } from "./aiCompare";
 import { TreeNode, treeLines } from "./aiExplain";
 import {
+  HIDDEN_DIALLED,
   TcpPoint,
   TCP_POINT,
   VoipCallData,
   VoipStreamData,
+  shownCallee,
   tcpFactLines,
   tcpFacts,
+  withoutDigits,
 } from "./aiAnomaly";
 import { Scan, scanFilter, scanSentence } from "./aiScans";
 import {
@@ -460,29 +463,7 @@ export interface VoipCallsData {
   heuristic?: boolean;
 }
 
-// DTMF digits in message labels: IAX2's "DTMF 7", MGCP's observed events
-// "NTFY D/2,D/0" (the MCP server's _without_digits).
-const IAX2_DTMF = /^DTMF\s+\S+$/;
-const MGCP_DIGIT = /(?<![\w/])D\/[^,\s)]+/g;
-
-/** A message label with its DTMF digits left out (they can be PINs or card numbers). */
-export function withoutDigits(label: string): string {
-  if (IAX2_DTMF.test(label)) {
-    return "DTMF (digit hidden)";
-  }
-  const digits = label.match(MGCP_DIGIT)?.length ?? 0;
-  if (!digits) {
-    return label;
-  }
-  const rest = label
-    .replace(MGCP_DIGIT, "")
-    .split(",")
-    .filter((e) => e.trim())
-    .join(",")
-    .trim();
-  const hidden = `${digits} DTMF digit${digits > 1 ? "s" : ""} hidden`;
-  return rest.startsWith("NTFY") && rest !== "NTFY" ? `${rest}, ${hidden}` : `NTFY ${hidden}`;
-}
+export { withoutDigits };
 
 const DIGITS_HIDDEN =
   "DTMF digits are hidden: they can be PINs or card numbers, packet contents the user hasn't allowed (pcapViewer.ai.allowPacketData).";
@@ -512,9 +493,16 @@ function streamLine(index: number, s: VoipStreamRow): string {
   return `- stream ${index}: ${s.src}:${s.srcPort} → ${s.dst}:${s.dstPort}, ${kind}, ${oneLine(s.payload, 40)}, ${formatNumber(s.packets)} packets, ${lost}, max jitter ${msText(s.maxJitter)}, max delta ${msText(s.maxDelta)}, ${mos}${rtcp}${s.problem ? " (tshark flags a problem)" : ""}${s.filter ? ` — ${s.filter}` : ""}`;
 }
 
+/** A call's destination as sent: without packet data, never the digits dialled. */
+const calleeOf = (c: VoipCallRow, packetData: boolean) => (packetData ? c.to : shownCallee(c));
+
 /** The parties' addresses of record name people and hosts: stand-ins replace them. */
-function partyNames(calls: readonly VoipCallRow[]): ShownName[] {
-  return calls.flatMap((c) => [c.from, c.to].filter(Boolean).map((name) => ({ name })));
+function partyNames(calls: readonly VoipCallRow[], packetData: boolean): ShownName[] {
+  return calls.flatMap((c) =>
+    [c.from, calleeOf(c, packetData)]
+      .filter((n) => n && n !== HIDDEN_DIALLED)
+      .map((name) => ({ name })),
+  );
 }
 
 /**
@@ -541,7 +529,7 @@ export function voipCallsReport(
     const protocol = call.protocol ?? "SIP";
     const linked = call.streams.filter((i) => streams[i]);
     const lines = [
-      `Call ${call.id} (${protocol}): ${call.from} → ${call.to}${call.dialed ? `, dialled ${opts.packetData ? call.dialed : "(digits hidden)"}` : ""}.`,
+      `Call ${call.id} (${protocol}): ${call.from} → ${calleeOf(call, opts.packetData)}${call.dialed ? `, dialled ${opts.packetData ? call.dialed : "(digits hidden)"}` : ""}.`,
       `State: ${call.state}; final: ${call.final || "-"}; ended by: ${call.endedBy ?? "-"}.`,
       `Starts ${secText(call.start)} into the capture; ringing after ${secText(call.ringing)}, answered after ${secText(call.setup)}, talk time ${secText(call.duration)}.`,
       ...(call.reasons?.length
@@ -583,7 +571,10 @@ export function voipCallsReport(
     if (!opts.packetData && (call.dtmf?.length || call.dialed)) {
       lines.push(DIGITS_HIDDEN);
     }
-    return { text: cut(lines.join("\n"), opts.maxChars), names: partyNames([call]) };
+    return {
+      text: cut(lines.join("\n"), opts.maxChars),
+      names: partyNames([call], opts.packetData),
+    };
   }
   const states = new Map<string, number>();
   for (const c of calls) {
@@ -603,7 +594,7 @@ export function voipCallsReport(
           c.id,
           c.protocol ?? "SIP",
           c.from,
-          c.to,
+          calleeOf(c, opts.packetData),
           c.state,
           c.final || "-",
           secText(c.setup),
@@ -650,7 +641,7 @@ export function voipCallsReport(
     "Next: pcap_voip_calls with `call` for one call's messages, streams and problems; pcap_rtp_stream with a stream number for its loss and jitter over time.",
   );
   const names = [
-    ...partyNames(shown),
+    ...partyNames(shown, opts.packetData),
     ...regs.slice(0, opts.limit).flatMap((r) => (r.aor ? [{ name: r.aor }] : [])),
   ];
   return { text: cut(lines.join("\n"), opts.maxChars), names };

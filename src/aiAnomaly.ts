@@ -478,12 +478,49 @@ export function framesFilter(rows: readonly ExpertRow[], maxFrames: number): str
 
 // ---------------------------------------------------------------------- VoIP calls
 
+// DTMF digits in message labels: IAX2's "DTMF 7", MGCP's observed events
+// "NTFY D/2,D/0" (the MCP server's _without_digits).
+const IAX2_DTMF = /^DTMF\s+\S+$/;
+const MGCP_DIGIT = /(?<![\w/])D\/[^,\s)]+/g;
+
+/** A message label with its DTMF digits left out (they can be PINs or card numbers). */
+export function withoutDigits(label: string): string {
+  if (IAX2_DTMF.test(label)) {
+    return "DTMF (digit hidden)";
+  }
+  const digits = label.match(MGCP_DIGIT)?.length ?? 0;
+  if (!digits) {
+    return label;
+  }
+  const rest = label
+    .replace(MGCP_DIGIT, "")
+    .split(",")
+    .filter((e) => e.trim())
+    .join(",")
+    .trim();
+  const hidden = `${digits} DTMF digit${digits > 1 ? "s" : ""} hidden`;
+  return rest.startsWith("NTFY") && rest !== "NTFY" ? `${rest}, ${hidden}` : `NTFY ${hidden}`;
+}
+
+export const HIDDEN_DIALLED = "(dialled number hidden)";
+
+/**
+ * A call's destination without its dialled digits: an MGCP call whose
+ * callee endpoint wasn't seen names the digits dialled as its destination
+ * (Codex review of the 0.35.0 release PR).
+ */
+export function shownCallee(call: { to: string; dialed?: string }): string {
+  return call.dialed && call.to === call.dialed ? HIDDEN_DIALLED : call.to;
+}
+
 /** A call as the backend's voip_calls lists it (the fields used here). */
 export interface VoipCallData {
   /** "SIP", "H.323", "MGCP" or "IAX2" (absent: SIP). */
   protocol?: string;
   from: string;
   to: string;
+  /** MGCP: the digits the caller dialled (DTMF). */
+  dialed?: string;
   caller: string;
   callee: string;
   state: string;
@@ -522,7 +559,7 @@ export interface VoipStreamData {
   } | null;
 }
 
-/** What is sent about one call: no message bodies, no DTMF digits. */
+/** What is sent about one call: no message bodies, no DTMF digits (not in message names or as an MGCP destination either). */
 export interface CallSummary {
   protocol: string;
   from: string;
@@ -557,7 +594,7 @@ export function callSummary(
   return {
     protocol: call.protocol ?? "SIP",
     from: call.from,
-    to: call.to,
+    to: shownCallee(call),
     caller: call.caller,
     callee: call.callee,
     state: call.state,
@@ -567,7 +604,9 @@ export function callSummary(
     ringing: call.ringing ?? null,
     setup: call.setup,
     duration: call.duration,
-    messages: call.messages.slice(0, limits.maxCallMessages),
+    messages: call.messages
+      .slice(0, limits.maxCallMessages)
+      .map(([frame, time, src, dst, label]) => [frame, time, src, dst, withoutDigits(label)]),
     moreMessages: Math.max(0, call.messages.length - limits.maxCallMessages),
     streams: linked.slice(0, limits.maxCallStreams),
     moreStreams: Math.max(0, linked.length - limits.maxCallStreams),

@@ -391,6 +391,17 @@ def test_voip_calls(client_for: Any) -> None:
     assert "NTFY 4 DTMF digits hidden" in mgcp and not any("D/" in m for m in mgcp)
     assert "NTFY L/hd" in mgcp  # (other events stay)
     assert "DTMF 7" in messages(shared, 3) and "NTFY D/2,D/0,D/0,D/2" in messages(shared, 5)
+    # The number MGCP's caller dialled is DTMF digits too (Codex review of
+    # the 0.35.0 release PR), and so is the destination of a call whose
+    # callee endpoint wasn't seen.
+    dialled, _ = c.call("voip_calls", capture="voip-other.pcap", call=5)
+    assert "dialed" not in dialled["call"] and dialled["call"]["to"] == "aaln/1@gw2.example.net"
+    shown, _ = shared.call("voip_calls", capture="voip-other.pcap", call=5)
+    assert shown["call"]["dialed"] == "2002"
+    toolbox = mcp.Toolbox(mcp.Captures(mcp.McpConfig(roots=[FIXTURES])))
+    unseen = {"id": 7, "protocol": "MGCP", "from": "aaln/1@gw1", "to": "4321", "dialed": "4321"}
+    assert toolbox._call_row(unseen, detail=False)["to"] == "(dialled number hidden)"
+    assert "dialed" not in toolbox._call_row(unseen, detail=False)
 
 
 @pytest.mark.tshark

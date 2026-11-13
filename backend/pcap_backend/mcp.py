@@ -107,6 +107,7 @@ STATS_KINDS = {
 _TREE_KINDS = {"phs", "http", "dns", "plen", "sip", "ipv4", "ipv6", "io"}
 # sessions' kinds → the backend's session tables (sessions.py).
 SESSION_KINDS = {"http": "http_requests", "dns": "dns_queries", "tls": "tls_servers"}
+HIDDEN_DIALLED = "(dialled number hidden)"
 MAX_CALL_MESSAGES = 60  # a call's messages in voip_calls' detail (as the AI call prompt)
 MAX_FLAGGED = 10  # tcp_stream's packets of retransmissions and zero windows
 MAX_EXPERT_FRAMES = 20  # packets per expert row in statistics (the backend keeps 1,000)
@@ -1753,6 +1754,13 @@ class Toolbox:
             )
             if call.get(k) not in (None, "", [])
         }
+        if not self.config.allow_packet_data and call.get("dialed"):
+            # The digits the caller dialled are DTMF; an MGCP call whose
+            # callee endpoint wasn't seen names them as its destination too
+            # (Codex review of the 0.35.0 release PR).
+            del row["dialed"]
+            if call.get("to") == call["dialed"]:
+                row["to"] = HIDDEN_DIALLED
         for key, name in (
             ("start", "startSeconds"),
             ("ringing", "ringingSeconds"),
