@@ -37,6 +37,7 @@ const ASKS: AgentAsk[] = [
   { kind: "expert", capture: "a.pcapng", rows: [] },
   { kind: "expert", capture: "a.pcapng", rows: [row()] },
   { kind: "packets", capture: "a.pcapng", frames: [7, 1, 2, 3] },
+  { kind: "call", capture: "calls.pcap", call: 2 },
 ];
 
 suite("aiAgentQuery", () => {
@@ -74,6 +75,15 @@ suite("aiAgentQuery", () => {
     assert.match(agentQuery(ASKS[3]), /TCP stream 3 .*#pcapTcpStream/);
     assert.match(agentQuery(ASKS[4]), /#pcapStats \(kind expert\)/);
     assert.match(agentQuery(ASKS[6]), /Packets 1-3 7 .*#pcapPacketDetails/);
+    assert.match(
+      agentQuery(ASKS[7]),
+      /^Explain this call: .* Call 2 of the capture `calls\.pcap`: use #pcapVoipCalls with call 2, then #pcapRtpStream/,
+    );
+    assert.match(
+      agentQuery({ kind: "call", capture: "c", call: 0, heuristic: true }),
+      /#pcapVoipCalls with call 0 and heuristic_rtp: true,/,
+      "the panel's list found RTP heuristically: so must the tool",
+    );
   });
 
   test("a comparison says which capture is the baseline", () => {

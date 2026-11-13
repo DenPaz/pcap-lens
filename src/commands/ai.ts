@@ -894,7 +894,15 @@ export async function triageCapture(
 export type AnomalyAsk =
   | { kind: "expert"; rows: ExpertRow[]; question?: string; sessionId?: number }
   | { kind: "stream"; stream: number; question?: string; sessionId?: number }
-  | { kind: "call"; call: CallSummary; question?: string; sessionId?: number };
+  | {
+      kind: "call";
+      call: CallSummary;
+      /** Its number in voip_calls' list (what the agent's tools take), and whether RTP was found heuristically. */
+      callId?: number;
+      heuristic?: boolean;
+      question?: string;
+      sessionId?: number;
+    };
 
 /** "Ask Copilot…" from a panel: @pcap /anomaly in the chat view, else a direct request. */
 export async function askAboutAnomaly(
@@ -928,8 +936,8 @@ export async function askAboutAnomaly(
     target = { kind: "expert", ref: rows ? keepSelection(rows) : undefined };
     question ||= rows ? defaultExpertQuestion(rows) : "";
   }
-  // (a call stays with @pcap: no tool reads VoIP calls yet)
-  if (askingAgent() && ask.kind !== "call") {
+  // (a call the panel didn't number stays with @pcap, which takes its summary)
+  if (askingAgent() && (ask.kind !== "call" || ask.callId !== undefined)) {
     if (!(await statisticsConsent())) {
       return;
     }
@@ -937,8 +945,16 @@ export async function askAboutAnomaly(
     const agentAsk: AgentAsk =
       ask.kind === "stream"
         ? { kind: "stream", capture, stream: ask.stream, question: ask.question }
-        : // (not `question`: defaultExpertQuestion quotes the row's message, packet text)
-          { kind: "expert", capture, rows: ask.rows, question: ask.question };
+        : ask.kind === "call"
+          ? {
+              kind: "call",
+              capture,
+              call: ask.callId ?? 0,
+              heuristic: ask.heuristic,
+              question: ask.question,
+            }
+          : // (not `question`: defaultExpertQuestion quotes the row's message, packet text)
+            { kind: "expert", capture, rows: ask.rows, question: ask.question };
     if (await openAgentWith(agentAsk, log)) {
       return;
     }

@@ -2278,7 +2278,24 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   `pcap_sessions` (`only_problems` = the MCP server's `_session_problem`:
   paths and DNS answers are packet contents) and `pcap_packet_details`
   (`treeLines` without bytes, ≤ 4 packets, `session.detailParams`) need
-  `allowPacketData`. `ToolHost` gives runTool what isn't the backend's:
+  `allowPacketData`. The MCP server's analyses came next, ported
+  with its privacy rules, under `allowCaptureStatistics` with contents only
+  under `allowPacketData` (`consent.packetData`): `pcap_voip_calls`
+  (`voipCallsReport`: the calls, streams without a call and registrations,
+  or with `call` one call's flow, streams, problems and DTMF; digits, the
+  MGCP dialled number, a destination that is that number (an MGCP callee
+  endpoint not seen: `shownCallee`) and the digits in IAX2/MGCP message
+  names (`withoutDigits`, both in aiAnomaly.ts, so `@pcap`'s `callSummary`
+  hides them too, as the MCP server's `_call_row` does) hidden; the parties and registrations' AORs are
+  `names` for the stand-ins), `pcap_rtp_stream` (voip_calls' stream by
+  number → `rtp_stream`, `rtpPoints` = the MCP server's `_rtp_points`),
+  `pcap_sequence_check` (`sequenceStreams`; a non-numeric sequence field
+  is refused and text key values numbered, as the MCP server does after
+  the 0.34.0 review), `pcap_export_objects` (file names only with packet
+  data; hosts are names) and `pcap_credentials` (user names only with
+  packet data, passwords never); `maxReportRows` (25). The VoIP panel's
+  _Ask Copilot_ now goes to the agent too (`AgentAsk` `call` with
+  voip_calls' `id` and the list's `heuristic`). `ToolHost` gives runTool what isn't the backend's:
   `detailParams`, `compare` (`resolveToolCapture`, the session's profile or
   `capture_profile`, `compare_profiles`; `baseline` "other" (default) or
   "open") and `open`. **Attached captures**: every tool but field search
@@ -2336,9 +2353,10 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   file name; never the home folder) and the `#pcap…` tools to use; an
   expert row goes as severity, group, protocol and packet numbers, never
   its message (packet text), and only the user's own question (Codex
-  review: `defaultExpertQuestion` quotes the message). A comparison whose other capture the tools
-  may not read (`toolsCanRead`) and a VoIP call (no tool reads calls) stay
-  with `@pcap`; a failed open falls back to `@pcap`, then the editor.
+  review: `defaultExpertQuestion` quotes the message); a VoIP call goes by
+  its number (`#pcapVoipCalls with call N`). A comparison whose other
+  capture the tools may not read (`toolsCanRead`) stays with `@pcap`; a
+  failed open falls back to `@pcap`, then the editor.
 - **Language model choice** (`src/aiModel.ts` pure, `pcapViewer.ai.model`,
   application scope; _PCAP: Choose Language Model…_): `modelSelector("")` =
   `{vendor: "copilot"}` (as before), an id = `{id}` only. No fallback to

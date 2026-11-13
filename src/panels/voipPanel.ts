@@ -83,7 +83,9 @@ export class VoipPanel {
 
   readonly panel: vscode.WebviewPanel;
   /** The last list received (for tests). */
-  calls: { calls: VoipCall[]; streams: RtpStream[]; registrations?: unknown[] } | undefined;
+  calls:
+    | { calls: VoipCall[]; streams: RtpStream[]; registrations?: unknown[]; heuristic?: boolean }
+    | undefined;
   private listing: number | undefined;
   /** Where played audio is written (removed with the panel). */
   private readonly audioDir: string;
@@ -171,6 +173,8 @@ export class VoipPanel {
           await vscode.commands.executeCommand("pcapViewer.askAboutAnomaly", {
             kind: "call",
             call: callSummary(call, this.calls.streams),
+            callId: call.id,
+            heuristic: this.calls.heuristic === true,
             sessionId: this.session.id,
           });
         }
@@ -211,7 +215,7 @@ export class VoipPanel {
     this.listing = pending.id;
     try {
       const result = await pending.promise;
-      this.calls = result;
+      this.calls = { ...result, heuristic };
       this.post({ type: "calls", ...result, heuristic });
     } catch (err) {
       this.postError(err);

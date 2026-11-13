@@ -7,6 +7,32 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.35.0 — 2026-11-13
+
+### Added
+
+- Copilot tools for the PCAP Lens agent: VoIP calls (`#pcapVoipCalls`: each
+  call's state, timings, MOS and problems, or one call's flow, media and
+  DTMF), RTP stream analysis (`#pcapRtpStream`), the sequence check
+  (`#pcapSequenceCheck`), exported files (`#pcapExportObjects`) and
+  clear-text logins (`#pcapCredentials`); DTMF digits, file names, user
+  names and text key values only with packet data allowed [e6408d4]
+
+### Changed
+
+- The VoIP Calls panel's _Ask Copilot_ asks the PCAP Lens agent too when
+  `pcapViewer.ai.askIn` is `agent` [e6408d4]
+
+### Fixed
+
+- Without packet data allowed, the digits an MGCP caller dialled are no
+  longer sent to a language model: not by the MCP server's `voip_calls`, nor
+  as a call's destination, nor in `@pcap`'s call explanations, which also
+  leave the digits out of IAX2 and MGCP message names now [e1620c3]
+
+[e1620c3]: https://github.com/DenPaz/pcap-lens/commit/e1620c3
+[e6408d4]: https://github.com/DenPaz/pcap-lens/commit/e6408d4
+
 ## 0.34.0 — 2026-11-12
 
 ### Added

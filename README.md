@@ -190,7 +190,8 @@ capture data needs your consent first, and addresses become stand-ins such as
   (or stay in Agent mode, where the _analyze-capture_ skill applies) and ask
   in plain words, e.g. _what's wrong with this capture?_ or _why do DNS
   lookups fail?_. It answers from tools that compute with tshark (triage,
-  overview, failed HTTP/DNS/TLS sessions, TCP connection health, packet
+  overview, failed HTTP/DNS/TLS sessions, TCP connection health, VoIP calls
+  and RTP streams, sequence gaps, exported files, clear-text logins, packet
   details, comparison with a baseline file), names the packets and filters,
   and can apply a filter or go to a packet in the viewer after you confirm.
   Any agent can use the tools too: type `#pcapTriage`, `#pcapOverview`…
@@ -356,6 +357,8 @@ and Lua dissectors come from user settings only.
 | Triage, summary, compare, `/anomaly`                                     | Capture properties, counts, top conversations/endpoints, expert entries (capped)                                     | `allowCaptureStatistics` |
 | Tools: field search, apply filter, go to packet                          | Field names you search for; nothing from the capture                                                                 | `ai.enabled`             |
 | Tools: count, stats, triage, overview, TCP stream, compare, capture info | Filters and counts, statistics tables (25 rows), overview top 10s, a TCP stream's health, a comparison's changes     | `allowCaptureStatistics` |
+| Tools: VoIP calls, RTP stream, sequence check, exported files, logins    | Calls and streams (25), loss and jitter, sequence problems, file sizes and types, login protocols and packets        | `allowCaptureStatistics` |
+| In those: DTMF digits, file names, user names, text key values           | Only with packet data allowed (passwords never)                                                                      | `allowPacketData`        |
 | Explain packets, tools: list packets, sessions, packet details           | Up to 8 packets' rows and trees (tools: 20 rows, 30 sessions, 4 trees, no bytes); bytes only with `allowPacketBytes` | `allowPacketData`        |
 
 ## How it works

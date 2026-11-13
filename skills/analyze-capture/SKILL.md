@@ -1,6 +1,6 @@
 ---
 name: analyze-capture
-description: Analyze a packet capture (.pcap, .pcapng) open in the PCAP Lens viewer or attached to the chat with PCAP Lens's tools - triage, overview, failed HTTP/DNS/TLS sessions, TCP connection health, packet details, comparing with a baseline - and show the evidence in the viewer. Use when asked what is wrong with a capture, why something failed or is slow, or what a capture contains.
+description: Analyze a packet capture (.pcap, .pcapng) open in the PCAP Lens viewer or attached to the chat with PCAP Lens's tools - triage, overview, failed HTTP/DNS/TLS sessions, TCP connection health, VoIP calls and RTP quality, sequence gaps, packet details, comparing with a baseline - and show the evidence in the viewer. Use when asked what is wrong with a capture, why something failed or is slow, or what a capture contains.
 ---
 
 # Analyze a capture with PCAP Lens
@@ -34,6 +34,14 @@ guesses, and don't decode an attachment's bytes yourself.
    - what changed since a good capture: `pcap_compare` with the other file
      as `other` (the baseline, unless `baseline: "open"` says the open
      capture is);
+   - VoIP: `pcap_voip_calls` lists the calls with their problems and MOS
+     (`call` gives one call's message flow, media and DTMF), and
+     `pcap_rtp_stream` analyses one stream's loss and jitter by its number;
+   - lost or reordered messages: `pcap_sequence_check` with the sequence
+     field and the fields that make a stream (e.g. `gtp.seq_number` per
+     `gtp.teid`);
+   - transferred files and clear-text logins: `pcap_export_objects` and
+     `pcap_credentials`;
    - the capture's own properties (packets, duration, link type):
      `pcap_capture_info`.
 3. Answer with the numbers: what happened, how many packets, from which
@@ -48,12 +56,16 @@ guesses, and don't decode an attachment's bytes yourself.
   setting.
 - `pcap_list_packets`, `pcap_sessions` and `pcap_packet_details` show packet
   contents: they need `pcapViewer.ai.allowPacketData`.
-- The others need `pcapViewer.ai.allowCaptureStatistics` (or packet data).
+- The others need `pcapViewer.ai.allowCaptureStatistics` (or packet data);
+  without packet data they leave out DTMF digits, file names, user names and
+  text key values, and `pcap_sequence_check` needs a numeric sequence field.
+  Passwords are never shown.
 
-Without packet data, answer from counts, statistics, triage, the overview
-and TCP stream health. Results are capped (20 packets per list, 25 rows per
-statistics table, 30 session rows, 4 packets of details, and long results
-are cut): narrow with a display filter.
+Without packet data, answer from counts, statistics, triage, the overview,
+TCP stream health, calls and RTP streams. Results are capped (20 packets per
+list, 25 rows per statistics table, 30 session rows, 4 packets of details,
+25 calls, streams, files or logins, and long results are cut): narrow with a
+display filter.
 
 ## Rules
 

@@ -315,6 +315,46 @@ suite("AI anomaly explanations", () => {
     assert.match(prompt, /^## SIP messages/m);
   });
 
+  test("call prompt: no DTMF digits in message names or as an MGCP destination", () => {
+    // An MGCP call whose callee endpoint wasn't seen names the digits dialled
+    // as its destination (Codex review of the 0.35.0 release PR).
+    const call = callSummary(
+      {
+        protocol: "MGCP",
+        from: "aaln/1@gw1.example.net",
+        to: "4321",
+        dialed: "4321",
+        caller: "10.0.4.11",
+        callee: "",
+        state: "Rejected",
+        setup: null,
+        duration: null,
+        messages: [
+          [1, 0, "10.0.4.11", "10.0.4.1", "NTFY L/hd"],
+          [3, 1, "10.0.4.11", "10.0.4.1", "NTFY D/4,D/3,D/2,D/1"],
+          [5, 2, "10.0.3.10", "10.0.3.1", "DTMF 7"],
+        ],
+        streams: [],
+      },
+      [],
+    );
+    assert.equal(call.to, "(dialled number hidden)");
+    assert.deepEqual(
+      call.messages.map((m) => m[4]),
+      ["NTFY L/hd", "NTFY 4 DTMF digits hidden", "DTMF (digit hidden)"],
+    );
+    const prompt = buildCallPrompt({ question: "", call });
+    assert.doesNotMatch(prompt, /4321|D\/4|DTMF 7/);
+    assert.equal(
+      callSummary(
+        { ...call, to: "aaln/1@gw2.example.net", dialed: "4321", streams: [], messages: [] },
+        [],
+      ).to,
+      "aaln/1@gw2.example.net",
+      "a seen endpoint stays",
+    );
+  });
+
   test("call prompt: the call's own protocol", () => {
     const call = callSummary(
       {
