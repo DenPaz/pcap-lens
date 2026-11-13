@@ -3249,7 +3249,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
 
       await page.click("#comment-edit");
       assert.equal(await page.inputValue("#comment-input"), "The request\nsecond line\twith a tab");
-      await page.fill("#comment-input", "edited request");
+      await page.fill("#comment-input", "edited request \t\n ");
       await page.press("#comment-input", "Control+Enter");
       await expectHostLast({ type: "setComment", frame: 4, text: "edited request" });
       await page.waitForFunction(
@@ -3287,6 +3287,233 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       }
       await reopenCapture("http.pcap");
     }
+  });
+
+  test("details tree: Expand All and Collapse All (buttons, keys, menus, selection)", async () => {
+    await cleanView();
+    await rowEl(4).click();
+    await waitSelected(4);
+    await page.waitForSelector("#detail-tree .node-row");
+    if ((await page.getAttribute("#view-tree", "aria-pressed")) !== "true") {
+      await page.click("#view-tree");
+    }
+    /** Select packet `n` and wait for its own tree (a switch back before it lands keeps the old one). */
+    const showTreeOf = async (/** @type {number} */ n) => {
+      await rowEl(n).click();
+      await waitSelected(n);
+      await page.waitForFunction(
+        (frame) =>
+          document
+            .querySelector("#detail-tree > [role=treeitem] .label")
+            ?.textContent.startsWith(`Frame ${frame}:`),
+        n,
+      );
+    };
+    /** The details tree's state: [label, expanded] of its expandable nodes, and the selection. */
+    const tree = () =>
+      page.evaluate(() => {
+        const items = [...document.querySelectorAll("#detail-tree [role=treeitem][aria-expanded]")];
+        const sel = document.querySelector("#detail-tree .node-row.selected");
+        return {
+          open: items.filter((i) => i.getAttribute("aria-expanded") === "true").length,
+          parents: items.length,
+          top: [...document.querySelectorAll("#detail-tree > [role=treeitem]")].map(
+            (i) => i.getAttribute("aria-expanded") ?? "leaf",
+          ),
+          selected: sel?.querySelector(".label")?.textContent ?? null,
+          selectedShown: !!sel && /** @type {HTMLElement} */ (sel).offsetParent !== null,
+        };
+      });
+    // The buttons: after the Tree | Diagram switch, named, with their keys
+    // (⌘ on macOS, where Ctrl+arrows switch desktops).
+    const mac = process.platform === "darwin";
+    const mod = mac ? "Meta" : "Control";
+    for (const [id, name, key] of [
+      ["#tree-expand-all", "Expand All", mac ? "⌘→" : "Ctrl+Right"],
+      ["#tree-collapse-all", "Collapse All", mac ? "⌘←" : "Ctrl+Left"],
+    ]) {
+      assert.ok(await page.isVisible(id), id);
+      assert.ok(await page.isEnabled(id), id);
+      assert.equal(await page.getAttribute(id, "aria-label"), name);
+      assert.equal(await page.getAttribute(id, "title"), `${name} (${key})`);
+    }
+    assert.deepEqual(
+      await page.$$eval("#detail-views > button:not(.hidden)", (bs) => bs.map((b) => b.id)),
+      ["view-tree", "view-diagram", "tree-expand-all", "tree-collapse-all"],
+    );
+
+    // Expand All opens every node; Collapse All folds them all.
+    await page.click("#tree-expand-all");
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll("#detail-tree [role=treeitem][aria-expanded]")].every(
+        (i) => i.getAttribute("aria-expanded") === "true",
+      ),
+    );
+    const opened = await tree();
+    assert.ok(opened.parents > 10, "the TCP and HTTP trees have nested nodes");
+    assert.equal(opened.open, opened.parents);
+    // A field four levels down is now on screen.
+    assert.ok(await page.isVisible("#detail-tree .node-row:has-text('Acknowledgment')"));
+
+    // Select a nested field; Collapse All moves the selection to its protocol.
+    await page.click("#detail-tree .node-row:has-text('Source Address')");
+    await page.click("#tree-collapse-all");
+    let now = await tree();
+    assert.equal(now.open, 0);
+    assert.ok(now.top.every((t) => t === "false" || t === "leaf"));
+    assert.match(now.selected, /^Internet Protocol Version 4/);
+    assert.ok(now.selectedShown, "the selection stays on screen");
+
+    // The keys, while the tree has focus: Ctrl+Right, Ctrl+Left (⌘ on macOS), Shift+Right.
+    await page.focus("#detail-tree");
+    await page.keyboard.press(`${mod}+ArrowRight`);
+    await page.waitForFunction(
+      () => !document.querySelector("#detail-tree [role=treeitem][aria-expanded=false]"),
+    );
+    now = await tree();
+    assert.equal(now.open, now.parents);
+    assert.match(now.selected, /^Internet Protocol Version 4/, "Expand All keeps the selection");
+    assert.ok(now.selectedShown);
+    await page.keyboard.press(`${mod}+ArrowLeft`);
+    assert.equal((await tree()).open, 0);
+    // Shift+Right: the selected node's whole subtree, nothing else.
+    await page.click("#detail-tree .node-row:has-text('Transmission Control Protocol')");
+    await page.focus("#detail-tree");
+    await page.keyboard.press("Shift+ArrowRight");
+    const tcpOpen = await page.evaluate(() => {
+      const tcp = [...document.querySelectorAll("#detail-tree > [role=treeitem]")].find((i) =>
+        i.querySelector(".label").textContent.startsWith("Transmission Control Protocol"),
+      );
+      const inside = [...tcp.querySelectorAll("[role=treeitem][aria-expanded]")];
+      return {
+        tcp: tcp.getAttribute("aria-expanded"),
+        inside: inside.length,
+        allOpen: inside.every((i) => i.getAttribute("aria-expanded") === "true"),
+      };
+    });
+    assert.deepEqual(tcpOpen, { tcp: "true", inside: tcpOpen.inside, allOpen: true });
+    assert.ok(tcpOpen.inside > 0, "TCP has nested nodes (flags, SEQ/ACK analysis…)");
+    now = await tree();
+    assert.equal(now.open, tcpOpen.inside + 1, "only TCP's subtree opened");
+    // Plain arrows still move and open one level.
+    await page.keyboard.press("ArrowDown");
+    assert.notEqual((await tree()).selected, now.selected);
+
+    // The tree's menu: Expand / Collapse Subtrees of the clicked node, Expand / Collapse All.
+    // (TCP's Flags: IPv4 has a Flags node too, built but folded.)
+    const tcpItem = page
+      .locator("#detail-tree > [role=treeitem]")
+      .filter({ has: page.locator(":scope > .node-row", { hasText: "Transmission Control" }) });
+    const flagsItem = tcpItem
+      .locator("[role=treeitem]")
+      .filter({ has: page.locator(":scope > .node-row", { hasText: /^Flags:/ }) })
+      .first();
+    const flagsRow = flagsItem.locator(":scope > .node-row");
+    await rightClick(flagsRow);
+    const labels = await menuLabels();
+    for (const label of ["Expand Subtrees", "Collapse Subtrees", "Expand All", "Collapse All"]) {
+      assert.ok(labels.includes(label), label);
+    }
+    assert.equal(
+      await menuItem("Expand All").locator(".keys").textContent(),
+      mac ? "⌘→" : "Ctrl+Right",
+      "the menu names the key",
+    );
+    await pickMenu("Collapse Subtrees");
+    assert.equal(await flagsItem.getAttribute("aria-expanded"), "false");
+    assert.match((await tree()).selected, /^Flags:/, "the clicked node stays selected");
+    await rightClick(flagsRow);
+    await pickMenu("Expand Subtrees");
+    assert.equal(await flagsItem.getAttribute("aria-expanded"), "true");
+    await rightClick(flagsRow);
+    await pickMenu("Expand All");
+    await page.waitForFunction(
+      () => !document.querySelector("#detail-tree [role=treeitem][aria-expanded=false]"),
+    );
+
+    // The expansion is remembered: another packet and back, still all open.
+    await showTreeOf(5);
+    await showTreeOf(4);
+    await page.waitForFunction(() => {
+      const items = document.querySelectorAll("#detail-tree [role=treeitem][aria-expanded]");
+      return (
+        items.length > 10 && [...items].every((i) => i.getAttribute("aria-expanded") === "true")
+      );
+    });
+
+    // A huge tree opens in slices (the webview stays responsive) and stops at a cap.
+    // (A slice counts rows built: fold everything and rebuild the tree first.)
+    await page.click("#tree-collapse-all");
+    await showTreeOf(5);
+    await showTreeOf(4);
+    assert.equal(await page.locator("#detail-tree .node-row").count(), 5, "rebuilt, folded");
+    await page.evaluate(() => {
+      window.PcapLib.TREE_EXPAND_SLICE = 3;
+    });
+    try {
+      // (Clicked and counted in one task: the next slices come in later ones.)
+      const first = await page.evaluate(() => {
+        /** @type {HTMLButtonElement} */ (document.querySelector("#tree-expand-all")).click();
+        const items = [...document.querySelectorAll("#detail-tree [role=treeitem][aria-expanded]")];
+        return {
+          open: items.filter((i) => i.getAttribute("aria-expanded") === "true").length,
+          parents: items.length,
+          rows: document.querySelectorAll("#detail-tree .node-row").length,
+        };
+      });
+      assert.ok(
+        first.open > 0 && first.open < first.parents,
+        `only the first slice opened at once: ${first.open} of ${first.parents}`,
+      );
+      // A slice is 3 rows even inside one field: Frame has more children than
+      // that, and they used to be built all at once (Codex review).
+      assert.equal(first.rows, 5 + 3, "the 5 protocols and one slice of rows");
+      await page.waitForFunction(
+        () => !document.querySelector("#detail-tree [role=treeitem][aria-expanded=false]"),
+      );
+      await page.click("#tree-collapse-all");
+      await showTreeOf(5);
+      await showTreeOf(4);
+      await page.evaluate(() => {
+        window.PcapLib.TREE_EXPAND_MAX = 5;
+      });
+      await page.click("#tree-expand-all");
+      await page.waitForFunction(() =>
+        /Expanded the first 5 fields/.test(document.querySelector("#filter-error").textContent),
+      );
+      const capped = await tree();
+      assert.ok(capped.open > 0 && capped.open < capped.parents, "the rest stays folded");
+      assert.equal(
+        await page.locator("#detail-tree .node-row").count(),
+        5 + 5,
+        "the cap counts rows within a field too",
+      );
+      // A field opened by hand builds its children a slice at a time as well.
+      await page.click("#tree-collapse-all");
+      await showTreeOf(5);
+      await showTreeOf(4);
+      await page.click("#detail-tree .node-row:has-text('Frame 4:')");
+      await page.keyboard.press("ArrowRight");
+      await page.waitForFunction(() => {
+        const frame = document.querySelector("#detail-tree > [role=treeitem]");
+        return frame?.querySelectorAll(":scope > [role=group] > [role=treeitem]").length > 3;
+      });
+    } finally {
+      await page.evaluate(() => {
+        window.PcapLib.TREE_EXPAND_SLICE = 2000;
+        window.PcapLib.TREE_EXPAND_MAX = 50000;
+      });
+    }
+    await page.click("#tree-collapse-all");
+
+    // Diagram view: the buttons are hidden; back in Tree view they return.
+    await page.click("#view-diagram");
+    await page.waitForSelector("#detail-diagram:not(.hidden)");
+    assert.ok(await page.isHidden("#tree-expand-all"));
+    assert.ok(await page.isHidden("#tree-collapse-all"));
+    await page.click("#view-tree");
+    assert.ok(await page.isVisible("#tree-expand-all"));
+    assert.deepEqual(await axeViolations(page, { exclude: [["#bytes"]] }), []);
   });
 
   test("live capture: the status bar shows it, the list follows new packets, Stop", async () => {

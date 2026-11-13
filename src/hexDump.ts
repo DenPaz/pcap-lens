@@ -3,12 +3,15 @@
  * backend's import_hexdump (text2pcap) takes. Pure (no `vscode` import).
  */
 
-export type OffsetBase = "hex" | "dec" | "oct" | "none";
+/** `stream`: a hex stream, one packet per line (the backend rewrites it as a dump). */
+export type OffsetBase = "hex" | "dec" | "oct" | "none" | "stream";
 
 const BYTE = /^[0-9a-fA-F]{2}$/;
 const OFFSET = /^[0-9a-fA-F]{3,}:?$/;
 /** hexdump -C's ASCII column: `|...|` at the end of a line. */
 const PIPE_COLUMN = /\|[^|]{1,16}\|\s*$/;
+/** A hex stream's line: bytes written together (Copy as Hex Stream) or with colons. */
+const STREAM_LINE = /^(?:(?:[0-9a-fA-F]{2})+|[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2})+)$/;
 
 interface DumpLine {
   offset: string;
@@ -32,8 +35,9 @@ function dumpLine(line: string): DumpLine | undefined {
 }
 
 /**
- * How the dump's offsets are written: `none` when its lines are only hex
- * bytes; otherwise the base in which consecutive offsets advance by the
+ * How the dump's offsets are written: `stream` when every line is a hex
+ * stream (`4500003c…`: text2pcap reads none of it as it is), `none` when its
+ * lines are only spaced hex bytes; otherwise the base in which consecutive offsets advance by the
  * previous line's byte count (od -Ad / -Ao dumps are decimal / octal), `hex`
  * when nothing decides it. Looks at the first 500 lines.
  */
@@ -43,6 +47,11 @@ export function guessOffsets(text: string): OffsetBase {
     .slice(0, 500)
     .map((l) => l.trimEnd())
     .filter(Boolean);
+  // (The last line of a file's sample may be cut short, half a byte too.)
+  const whole = lines.length > 1 ? lines.slice(0, -1) : lines;
+  if (whole.length && whole.every((l) => STREAM_LINE.test(l.trim()) && l.trim().length > 2)) {
+    return "stream";
+  }
   const bytesOnly = lines.filter((l) =>
     l
       .trim()

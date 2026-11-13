@@ -166,6 +166,10 @@ def test_handshake_tools_and_errors(client_for: Any) -> None:
         "sessions",
         "voip_calls",
         "tcp_stream",
+        "rtp_stream",
+        "sequence_check",
+        "export_objects",
+        "credentials",
     }, "no packet contents without --allow-packet-data"
     assert all(t["annotations"]["readOnlyHint"] for t in tools.values())
     assert tools["statistics"]["inputSchema"]["required"] == ["capture", "kind"]
@@ -390,6 +394,210 @@ def test_voip_calls(client_for: Any) -> None:
 
 
 @pytest.mark.tshark
+def test_rtp_stream(client_for: Any) -> None:
+    c = client_for()
+    calls, _ = c.call("voip_calls", capture="voip.pcap")
+    lossy = next(s for s in calls["calls"][0]["streams"])
+    rtp, failed = c.call("rtp_stream", capture="voip.pcap", stream=lossy, buckets=4)
+    assert not failed
+    assert (rtp["stream"], rtp["call"]) == (lossy, calls["calls"][0]["id"])
+    assert rtp["filter"].startswith("rtp.ssrc == ") and rtp["quality"]["mos"] > 3
+    summary = rtp["summary"]
+    assert (summary["packets"], summary["expected"], summary["lost"]) == (49, 50, 1)
+    assert summary["maxDeltaPacket"] >= 1 and summary["durationSeconds"] > 0.9
+    # The lost packet, with the sequence number after the gap.
+    lost = [p for p in rtp["problems"] if p["problem"] == "lost"]
+    assert len(lost) == 1 and lost[0]["lostBefore"] == 1 and rtp["moreProblems"] == 0
+    # The timeline adds up to the summary and shows where the loss was.
+    assert len(rtp["timeline"]) == 4
+    assert sum(t["packets"] for t in rtp["timeline"]) == summary["packets"]
+    assert sum(t["lost"] for t in rtp["timeline"]) == summary["lost"]
+    assert max(t["maxJitterMs"] for t in rtp["timeline"]) == summary["maxJitter"]
+    assert max(t["maxDeltaMs"] for t in rtp["timeline"]) == summary["maxDelta"]
+    capped, _ = c.call("rtp_stream", capture="voip.pcap", stream=lossy, limit=0)
+    assert capped["problems"] == [] and capped["moreProblems"] == len(rtp["problems"])
+    text, failed = c.call("rtp_stream", capture="voip.pcap", stream=99)
+    assert failed and "streams 0 to" in text
+    text, failed = c.call("rtp_stream", capture="http.pcap", stream=0)
+    assert failed and "no RTP streams" in text and "heuristic_rtp" in text
+    # IAX2 voice isn't RTP, but is analysed the same way.
+    other, _ = c.call("voip_calls", capture="voip-other.pcap")
+    iax2 = next(s for s in _all_streams(c, "voip-other.pcap") if "iax2" in s)
+    voice, failed = c.call("rtp_stream", capture="voip-other.pcap", stream=iax2["stream"])
+    assert not failed and voice["iax2"] == iax2["iax2"] and voice["summary"]["packets"] == 50
+    assert other["summary"]["calls"] > 0
+
+
+def _all_streams(c: Any, capture: str) -> list[dict[str, Any]]:
+    calls, _ = c.call("voip_calls", capture=capture)
+    streams = list(calls["streamsWithoutCall"])
+    for call in calls["calls"]:
+        detail, _ = c.call("voip_calls", capture=capture, call=call["id"])
+        streams += detail["streams"]
+    return streams
+
+
+@pytest.mark.tshark
+def test_sequence_check(client_for: Any) -> None:
+    c = client_for()
+    seq, failed = c.call(
+        "sequence_check",
+        capture="sequences.pcap",
+        sequence="gtp.seq_number",
+        streams_by=["gtp.teid"],
+        wrap_bits=16,
+    )
+    assert not failed
+    assert seq["summary"]["streams"] == 4 and seq["summary"]["withProblems"] == 2
+    assert (seq["summary"]["missing"], seq["summary"]["late"]) == (2, 1)
+    assert seq["moreStreams"] == 0 and "keyValues" not in seq
+    # Streams with problems first, each problem with its packet; tunnel ids
+    # are numbers, so they are shown (and filter the stream).
+    first = seq["streams"][0]
+    assert first["key"] == {"gtp.teid": "0x00000200"} and first["missing"] == 2
+    assert first["filter"] == "gtp.teid == 0x00000200 && gtp.seq_number"
+    assert {p["kind"] for p in first["problems"]} >= {"gap", "late"}
+    assert all(isinstance(p["packet"], int) for p in first["problems"])
+    clean = seq["streams"][-1]
+    assert clean["problems"] == [] and clean["missing"] == 0
+    # Without wrap_bits, the 16-bit counter's wrap reads as a restart or a gap.
+    unwrapped, _ = c.call(
+        "sequence_check", capture="sequences.pcap", sequence="gtp.seq_number",
+        streams_by="gtp.teid",
+    )  # fmt: skip
+    assert unwrapped["summary"] != seq["summary"] and unwrapped["streamsBy"] == ["gtp.teid"]
+    few, _ = c.call(
+        "sequence_check", capture="sequences.pcap", sequence="gtp.seq_number",
+        streams_by=["gtp.teid"], wrap_bits=16, limit=1, problems=1,
+    )  # fmt: skip
+    assert len(few["streams"]) == 1 and few["moreStreams"] == 3
+    assert len(few["streams"][0]["problems"]) == 1
+    assert few["streams"][0]["moreProblems"] == len(first["problems"]) - 1
+    # A text key (an address here; a LIID in a delivery) is packet contents:
+    # streams are numbered, their problems' packets still given.
+    by_address, _ = c.call(
+        "sequence_check", capture="sequences.pcap", sequence="gtp.seq_number",
+        streams_by=["ip.src"],
+    )  # fmt: skip
+    assert "hidden" in by_address["keyValues"]
+    assert all("key" not in s and "filter" not in s for s in by_address["streams"])
+    shown, _ = client_for(allow_packet_data=True).call(
+        "sequence_check", capture="sequences.pcap", sequence="gtp.seq_number",
+        streams_by=["ip.src"],
+    )  # fmt: skip
+    assert "keyValues" not in shown and "ip.src" in shown["streams"][0]["key"]
+    # The sequence field's values come back as numbers: a text field's are
+    # packet contents (a password in ftp.request.arg; Codex review).
+    text, failed = c.call(
+        "sequence_check", capture="sequences.pcap", sequence="ftp.request.arg",
+        filter='ftp.request.command == "PASS"',
+    )  # fmt: skip
+    assert failed and "FT_STRING field" in text and "numeric sequence field" in text
+    allowed, failed = client_for(allow_packet_data=True).call(
+        "sequence_check", capture="sequences.pcap", sequence="ftp.request.arg",
+    )  # fmt: skip
+    assert not failed and allowed["summary"]["streams"] == 0
+    for bad, words in (
+        ({"sequence": ""}, "sequence"),
+        ({"sequence": "gtp.seq_number", "wrap_bits": 12}, "wrap_bits"),
+        ({"sequence": "no.such_field"}, "no.such_field"),
+    ):
+        text, failed = c.call("sequence_check", capture="sequences.pcap", **bad)
+        assert failed and words in text, (bad, text)
+
+
+def test_rtp_points_count_only_numbers_that_never_came() -> None:
+    fields = ["frame", "time", "seq", "delta", "jitter", "skew", "marker", "status", "gap"]
+
+    def point(frame: int, seq: int, status: int = 0, gap: int = 0) -> list[Any]:
+        return [frame, frame / 50, seq, 20.0, 0.0, 0.0, 0, status, gap]
+
+    # 1, 3, 2, 4: the analysis marks a gap at 3 and 2 as late; nothing is lost
+    # (Codex review: the timeline counted one).
+    reordered = [point(1, 1), point(2, 3, 1, 1), point(3, 2, 2), point(4, 4)]
+    problems, timeline = mcp._rtp_points(fields, reordered, 2)
+    assert problems == [{"packet": 3, "seq": 2, "problem": "out_of_order"}]
+    assert sum(t["lost"] for t in timeline) == 0
+    # Across the 16-bit wrap: 65534 then 1 skips 65535 and 0; 0 comes later.
+    wrapped = [point(1, 65534), point(2, 1, 1, 2), point(3, 0, 2), point(4, 2)]
+    problems, timeline = mcp._rtp_points(fields, wrapped, 1)
+    assert problems[0] == {
+        "packet": 2, "seq": 1, "problem": "lost", "lostBefore": 1, "arrivedLater": 1,
+    }  # fmt: skip
+    assert problems[1]["problem"] == "out_of_order" and timeline[0]["lost"] == 1
+
+
+def test_sequence_streams_of_the_panel_table() -> None:
+    blank = [None] * 8
+    rows = [
+        {
+            "cells": ["0x1", 9, 1, 12, 2, 0, 0, 0, "2 missing"],
+            "frame": 3,
+            "filter": "k",
+            "depth": 0,
+        },
+        {"cells": ["Missing 4", *blank], "frame": 7, "depth": 1, "problem": "gap"},
+        {"cells": ["… 1,234 more problems", *blank], "depth": 1},
+        {"cells": ["0x2", 5, 1, 5, 0, 0, 0, 0, "fine"], "frame": 4, "depth": 0},
+        {"cells": ["not … 9 more problems at all", *blank], "depth": 1},
+    ]
+    one, two = mcp._sequence_streams(rows, 1)
+    assert (one["values"], one["missing"], one["firstPacket"], one["filter"]) == (
+        ["0x1"],
+        2,
+        3,
+        "k",
+    )
+    assert one["problems"] == [{"kind": "gap", "text": "Missing 4", "packet": 7}]
+    assert one["moreProblems"] == 1234
+    assert (two["problems"], two["moreProblems"], two["result"]) == ([], 0, "fine")
+
+
+@pytest.mark.tshark
+def test_export_objects_and_credentials(client_for: Any) -> None:
+    c = client_for()
+    found, failed = c.call("export_objects", capture="objects.pcap")
+    assert not failed
+    assert set(found["byProtocol"]) >= {"http", "tftp", "imf"}
+    assert found["total"] == sum(p["files"] for p in found["byProtocol"].values())
+    logo = next(f for f in found["files"] if f["name"] == "logo.png")
+    assert (logo["contentType"], logo["host"], logo["size"]) == ("image/png", "example.com", 776)
+    assert logo["filter"] == f"frame.number == {logo['packet']}"
+    tftp, _ = c.call("export_objects", capture="objects.pcap", protocol="tftp", limit=1)
+    assert {f["protocol"] for f in tftp["files"]} == {"tftp"} and tftp["protocol"] == "tftp"
+    assert tftp["total"] == found["byProtocol"]["tftp"]["files"]
+    text, failed = c.call("export_objects", capture="objects.pcap", protocol="gopher")
+    assert failed and "protocol" in text
+
+    logins, failed = c.call("credentials", capture="credentials.pcap")
+    assert not failed and logins["total"] >= 4
+    assert set(logins["byProtocol"]) >= {"HTTP basic auth", "FTP"}
+    # User names are packet contents.
+    assert all("username" not in row for row in logins["logins"])
+    assert "hidden" in logins["usernames"]
+    ftp = next(row for row in logins["logins"] if row["protocol"] == "FTP")
+    assert ftp["usernamePacket"] < ftp["packet"]
+    shared, _ = client_for(allow_packet_data=True).call("credentials", capture="credentials.pcap")
+    assert {"alice", "bob"} <= {row["username"] for row in shared["logins"]}
+    assert "usernames" not in shared
+    # Triage's clear-text check points at it.
+    triaged, _ = c.call("triage", capture="credentials.pcap")
+    check = next(f for f in triaged["found"] if f["id"] == "cleartext_credentials")
+    assert check["next"].startswith("credentials")
+
+
+@pytest.mark.tshark
+def test_expert_rows_keep_a_few_packets(client_for: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(mcp, "MAX_EXPERT_FRAMES", 3)
+    c = client_for()
+    expert, _ = c.call("statistics", capture="office-after.pcap", kind="expert")
+    many = [r for r in expert["rows"] if r["cells"][-1] > 3]
+    assert many and all(len(r["frames"]) == 3 for r in many)
+    assert all(r["moreFrames"] == r["cells"][-1] - 3 for r in many)
+    assert all("moreFrames" not in r for r in expert["rows"] if r["cells"][-1] <= 3)
+
+
+@pytest.mark.tshark
 def test_structured_results(client_for: Any) -> None:
     c = client_for(stand_ins=True)
     c.request("initialize", {"protocolVersion": "2025-06-18"})
@@ -459,6 +667,15 @@ def test_every_tool_output_matches_its_schema(client_for: Any, stand_ins: bool) 
         ("voip_calls", {"capture": "voip-other.pcap"}),
         ("tcp_stream", {"capture": "http.pcap", "stream": 0}),
         ("tcp_stream", {"capture": "office-after.pcap", "packet": 1}),
+        ("rtp_stream", {"capture": "voip.pcap", "stream": 0}),
+        ("rtp_stream", {"capture": "voip-other.pcap", "stream": 5, "limit": 0}),
+        (
+            "sequence_check",
+            {"capture": "sequences.pcap", "sequence": "gtp.seq_number", "streams_by": ["ip.src"]},
+        ),
+        ("sequence_check", {"capture": "sequences.pcap", "sequence": "gtp.seq_number"}),
+        ("export_objects", {"capture": "objects.pcap"}),
+        ("credentials", {"capture": "credentials.pcap"}),
         ("compare_captures", {"before": "office-before.pcap", "after": "office-after.pcap"}),
         ("field_values", {"capture": "dns.pcap", "field": "dns.qry.name"}),
         ("validate_filter", {"filter": "dns"}),

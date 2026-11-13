@@ -45,6 +45,11 @@ export function applyDetailView() {
   el.viewDiagram.setAttribute("aria-pressed", String(diagram));
   el.diagramValues.classList.toggle("hidden", !diagram);
   el.diagramValues.setAttribute("aria-pressed", String(state.diagramValues));
+  // Expand All / Collapse All act on the tree: shown with it, usable with a packet.
+  for (const button of [el.treeExpandAll, el.treeCollapseAll]) {
+    button.classList.toggle("hidden", diagram);
+    /** @type {HTMLButtonElement} */ (button).disabled = !state.detail;
+  }
   el.tree.classList.toggle("hidden", diagram);
   el.diagram.classList.toggle("hidden", !diagram || !state.detail);
   if (diagram && state.detail && drawn !== state.detail) {

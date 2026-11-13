@@ -76,7 +76,10 @@ function applyComment() {
   if (comment.frame === null) {
     return;
   }
-  const text = el.commentInput.value.replace(/\s+$/, "");
+  // (trimEnd strips what /\s+$/ did, in linear time: the regex retried from
+  // every space of a long run before another character, CodeQL's
+  // polynomial-regex alert.)
+  const text = el.commentInput.value.trimEnd();
   el.commentEditor.classList.add("hidden");
   el.commentView.classList.remove("hidden");
   if (text !== comment.text) {

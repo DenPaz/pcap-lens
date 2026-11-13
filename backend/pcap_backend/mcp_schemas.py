@@ -162,6 +162,7 @@ STREAM = obj(
         "from": STR,
         "to": STR,
         "ssrc": STR,
+        "iax2": _about("An IAX2 voice stream's call number (no SSRC: it isn't RTP)", INT),
         "payload": STR,
         "packets": INT,
         "lost": INT,
@@ -353,6 +354,7 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
                         "filter": _about("Display filter of this row's packets", STR),
                         "frame": INT,
                         "frames": PACKETS,
+                        "moreFrames": _about("Packets left out of frames (expert)", INT),
                     },
                     ("cells",),
                 )
@@ -514,6 +516,171 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "zeroWindowPackets": arr(INT, "The first zero windows"),
         },
         ("stream", "filter", "packets", "directions"),
+    ),
+    "rtp_stream": _capture_result(
+        {
+            "stream": INT,
+            "call": _about("The call the stream belongs to (voip_calls' id)", INT),
+            "from": STR,
+            "to": STR,
+            "ssrc": STR,
+            "iax2": STREAM["properties"]["iax2"],
+            "payload": STR,
+            "quality": QUALITY,
+            "rtcp": STREAM["properties"]["rtcp"],
+            "filter": STR,
+            "summary": obj(
+                {
+                    "packets": INT,
+                    "expected": INT,
+                    "lost": INT,
+                    "lostPercent": NUM,
+                    "sequenceErrors": INT,
+                    "maxDelta": _about("Largest gap between packets, ms", NUM),
+                    "maxDeltaPacket": null(INT),
+                    "maxJitter": _about("ms", NUM),
+                    "meanJitter": _about("ms", NUM),
+                    "maxSkew": _about("ms", NUM),
+                    "clockRate": INT,
+                    "payloadTypes": arr(INT),
+                    "durationSeconds": NUM,
+                }
+            ),
+            "problems": arr(
+                obj(
+                    {
+                        "packet": INT,
+                        "seq": INT,
+                        "problem": _about("lost, out_of_order or payload_changed", STR),
+                        "lostBefore": _about("Packets missing before this one", INT),
+                        "arrivedLater": _about(
+                            "Packets skipped before this one that came later (reordered)", INT
+                        ),
+                    },
+                    ("packet", "seq", "problem"),
+                )
+            ),
+            "moreProblems": INT,
+            "timeline": arr(
+                obj(
+                    {
+                        "startSeconds": NUM,
+                        "endSeconds": NUM,
+                        "packets": INT,
+                        "lost": INT,
+                        "maxJitterMs": NUM,
+                        "maxDeltaMs": NUM,
+                    },
+                    ("startSeconds", "endSeconds", "packets", "lost"),
+                ),
+                "Equal intervals from the stream's first packet",
+            ),
+        },
+        ("stream", "summary", "problems", "moreProblems", "timeline"),
+    ),
+    "sequence_check": _capture_result(
+        {
+            "sequence": STR,
+            "streamsBy": arr(STR),
+            "wrapBits": INT,
+            "restartDrop": INT,
+            "filter": FILTER,
+            "summary": obj(
+                {
+                    "streams": INT,
+                    "withProblems": INT,
+                    "messages": INT,
+                    "missing": INT,
+                    "duplicates": INT,
+                    "late": INT,
+                    "restarts": INT,
+                    "unreadable": _about("Messages whose number isn't a number", INT),
+                    "untracked": _about("Messages of streams past the tracked limit", INT),
+                }
+            ),
+            "streams": arr(
+                obj(
+                    {
+                        "stream": INT,
+                        "key": _about(
+                            "The streams_by fields' values (when they may be shown)", ANY_OBJECT
+                        ),
+                        "filter": STR,
+                        "messages": INT,
+                        "first": null(INT),
+                        "last": null(INT),
+                        "missing": INT,
+                        "duplicates": INT,
+                        "late": INT,
+                        "restarts": INT,
+                        "result": STR,
+                        "firstPacket": null(INT),
+                        "problems": arr(
+                            obj(
+                                {
+                                    "kind": _about("gap, duplicate, late or restart", STR),
+                                    "text": STR,
+                                    "packet": null(INT),
+                                },
+                                ("kind", "text"),
+                            )
+                        ),
+                        "moreProblems": INT,
+                    },
+                    ("stream", "messages", "problems"),
+                ),
+                "Streams with problems first",
+            ),
+            "moreStreams": INT,
+            "keyValues": STR,
+        },
+        ("sequence", "streamsBy", "summary", "streams", "moreStreams"),
+    ),
+    "export_objects": _capture_result(
+        {
+            "protocol": _about("The protocol asked for (empty: all)", STR),
+            "total": INT,
+            "byProtocol": obj({}, description="{files, bytes} per protocol"),
+            "files": arr(
+                obj(
+                    {
+                        "protocol": STR,
+                        "name": STR,
+                        "size": INT,
+                        "contentType": STR,
+                        "host": STR,
+                        "packet": INT,
+                        "filter": STR,
+                    },
+                    ("protocol", "name", "size"),
+                )
+            ),
+            "more": INT,
+        },
+        ("total", "byProtocol", "files", "more"),
+    ),
+    "credentials": _capture_result(
+        {
+            "filter": FILTER,
+            "total": INT,
+            "byProtocol": obj({}, description="Logins per protocol"),
+            "logins": arr(
+                obj(
+                    {
+                        "protocol": STR,
+                        "packet": INT,
+                        "usernamePacket": INT,
+                        "username": _about("Only when the server allows packet contents", STR),
+                        "filter": STR,
+                    },
+                    ("protocol", "packet"),
+                )
+            ),
+            "more": INT,
+            "unfiltered": BOOL,
+            "usernames": STR,
+        },
+        ("total", "byProtocol", "logins", "more"),
     ),
     "compare_captures": obj(
         {

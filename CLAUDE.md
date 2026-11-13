@@ -204,13 +204,15 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   pure settings helpers. `src/commands/` command implementations
   (`export.ts`, `coloring.ts`, `dissectors.ts`, `tls.ts`, `merge.ts`,
   `filterButtons.ts`, `importHexDump.ts`, `openFile.ts`, `plugins.ts`, …).
-  `src/luaChoice.ts` per-capture Lua choices. `src/hexDump.ts` guesses a hex
+  `src/luaChoice.ts` per-capture Lua choices. `src/luaTemplate.ts` the New
+  Lua Dissector template and its name/port checks (pure). `src/hexDump.ts` guesses a hex
   dump's layout (pure).
   `src/rotation.ts` recognises rotated capture pieces (pure).
   AI: `src/aiFilter.ts`, `aiCaptureFilter.ts`, `aiDissector.ts`,
   `aiExplain.ts`, `aiSummary.ts`, `aiTriage.ts`, `aiCompare.ts`, `aiScans.ts`, `aiAnomaly.ts`, `aiTools.ts`
   (tool specs, `runTool`, `runToolLoop`), `aiToolReports.ts` (the report tools' text), `aiCapturePath.ts` (the file a tool's `capture` names), `aiModel.ts` (model choice),
-  `aiPrivacy.ts` (address stand-ins) and `aiConsent.ts` are pure prompt
+  `aiPrivacy.ts` (address stand-ins), `aiAgentQuery.ts` (what the viewer's
+  buttons ask the agent) and `aiConsent.ts` are pure prompt
   builders/parsers; `src/ai.ts` (`FilterAssistant`) and
   `src/lmTools.ts` (the tools API, declared locally) talk to `vscode.lm`;
   `src/commands/ai.ts` holds commands, consent and the `@pcap` participant;
@@ -325,6 +327,12 @@ plugins` and the plugin folders), `decryption.py` (decryption keys and
 - `media/` icon (`icon.svg` → `icon.png`), `sample.pcapng` (a copy of the
   `mixed.pcapng` fixture that `generate.py` writes), `walkthrough/*.md` (the
   walkthrough's pages) and `screenshots/` (README only, not packaged).
+- `docs/` (not packaged): `replay-to-service.md` (the feature's tracking
+  notes) and `wiki/`, the pages of the GitHub Wiki (`Home.md`, `_Sidebar.md`,
+  one guide per area; links are Wiki page names like `MCP-Server`). Sessions
+  can't push the Wiki (`pcap-lens.wiki.git` isn't a session repository), so
+  the maintainer copies `docs/wiki/*.md` into a clone of it and pushes. Keep
+  them in step with README when a feature changes.
 - `scripts/` release helper (`release.mjs`, tests in `test/scripts`), the AI
   evals (`evals/grade.mjs` pure, `evals/run.mjs` by hand), icon and
   screenshot renderers, `themes.js` (VS Code's Dark Modern, Light Modern and
@@ -399,7 +407,9 @@ UI behaviour stays in the Chromium test (`test/webview/e2e.test.js`).
 - **Streaming open** (`open {stream: true}`, what the host sends): the index
   pass runs in the pool (`_run_index`); `open` returns once FIRST_BATCH (1000)
   rows are published or after FIRST_BATCH_S (0.5 s) with some (`indexing:
-true`), else when done. The pass then reports through backend notifications
+true`), else when done (a test that expects a small capture's pass to end
+  first raises FIRST_BATCH_S with `patch_service`: Windows CI's tshark took
+  over 0.5 s for `http.pcap`'s 11 packets). The pass then reports through backend notifications
   `index {event: progress|done|failed}` (`service.notify` = `server.notify`;
   `BackendClient.onNotification`). An `_Indexing` object is "attached" under
   `_lock` when `open` publishes the partial capture, so a pass ending at the
@@ -608,6 +618,37 @@ frame.number==N` (no `-c`, both the PDML and the `-x` run), so references
   one). Quick results have their own LRU (16) keyed by (frame, window). Ask
   Copilot uses quick details for late packets too, and the prompt says which
   trees are approximate.
+- **Detail tree expansion** (`viewer/detail.js`): a node's children's rows
+  are built the first time it opens (`setExpanded`); what is open is
+  `state.expanded`, `lib.nodeKey` paths (names, else labels with digits as
+  `#`), so the same fields open in the next packet and when the exact detail
+  replaces the quick view (persisted: the last 200). Nodes to open, remembered
+  ones or under an Expand All (`all`), go through one queue (`pending`,
+  breadth first) that `drainPending` opens `lib.TREE_EXPAND_SLICE` (2,000)
+  built rows at a time, the first slice at once and the rest after
+  `setTimeout(0)`, so a normal tree opens as before and a tree of a hundred
+  thousand fields never blocks the webview (building every row at once
+  did); an Expand All stops at `lib.TREE_EXPAND_MAX` (50,000) built rows,
+  with a notice, and goes on in the exact view when one replaces the quick
+  one mid-run. Re-opening built rows is free, so slices count built rows.
+  A node's children are built within the budget too (`buildChildren`:
+  `entry.next` of them so far, the rest queued as a `more` item), also when
+  opened by a click: one field with sixty thousand children built them all
+  in one slice, past both limits (Codex review of the 0.34.0 PR).
+  A packet's previously selected field may come in a later slice
+  (`selectWhenBuilt`). **Expand All / Collapse All** (Wireshark's): the
+  `#tree-expand-all`/`#tree-collapse-all` icon buttons in `#detail-views`
+  after Tree | Diagram (hidden in Diagram view, disabled without a detail:
+  `applyDetailView`), `Ctrl+→`/`Ctrl+←` in the tree (`⌘` on macOS, where
+  Ctrl+arrows switch desktops; checked before the plain arrows, which
+  ignored modifiers; VS Code binds Ctrl+arrows only for text editors), and
+  the tree menu's Expand All / Collapse All plus Expand Subtrees (`Shift+→`)
+  / Collapse Subtrees of the clicked node (they replaced a synchronous
+  recursion). `collapseSubtrees` forgets the keys (`lib.subtreeKeys`),
+  folds the built rows, drops queued opens below, and moves a selection it
+  hides to the folded node (Collapse All: the top-level protocol). The
+  packet window panel shares `lib.parentNodes` and `lib.topLevelOf`. The
+  keys are in `lib.VIEWER_KEYS` (the `?` dialog), not package.json.
 - **Packet diagram** (`lib.packetDiagram`, `viewer/diagram.js`): the details
   pane's _Tree | Diagram_ switch (`#detail-views`, in the sticky
   `#detail-head` with the comment bar and the quick-view note;
@@ -1037,15 +1078,23 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   `-t` time format, `-D`, `-a`, `-l` or a dummy header `-e/-i/-u/-T/-s/-S/-P`
   with `-4/-6` addresses; a dummy header forces Ethernet), text written to a
   temp file, output through `atomic_output`; "wrote 0 packets" is an
-  InvalidParamsError and writes nothing. Needs no open capture (`withBackend`).
+  InvalidParamsError and writes nothing (`no_packets_message`: it names a
+  hex stream when the text looks like one; checked before the exit code,
+  since text2pcap fails with "result out of range" on a long stream read
+  as offsets). **Hex streams** (`offsets: "stream"`): bytes written together
+  (Copy as Hex Stream, `tshark -e data`) or colon-separated, one packet per
+  line, which text2pcap reads in no mode (`-o none` makes every byte one
+  packet), so `stream_as_dump` rewrites them as a dump (16 bytes a line,
+  offsets from 0 per packet) and runs `-o hex`; no times or directions. Needs no open capture (`withBackend`).
   The host asks source (editor/selection, clipboard, file), offsets
-  (`guessOffsets`: bytes-only lines = none, else the base in which offsets
+  (`guessOffsets`: every line a stream line = stream (the sample's last line
+  may be cut), spaced bytes only = none, else the base in which offsets
   advance by the previous line's byte count, hex on ties), what the bytes
   hold, and times; `hasAsciiColumn` adds `-a` for hexdump -C. Args
   `{text | input, options}` skip the questions (smoke test). The result opens
   as an unsaved capture named after the file. Fixtures: `hexdump/*.txt`
-  (generate.py: http.pcap's frames as Wireshark copies them, SIP payloads,
-  timed IPv4).
+  (generate.py: http.pcap's frames as Wireshark copies them and as a hex
+  stream, SIP payloads, timed IPv4).
 - **C numbers for the tools** (`tshark.tool_env`, every `Popen`): tshark
   formats and reads numbers by the locale, so in pt_BR it refused
   `-z io,stat,0.5` and wrote "1.175 bytes" and "0,000000" into the
@@ -1067,6 +1116,12 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   plays Windows' tshark with Linux's in pt_BR without tool_env; CI's
   Windows job ends by running the statistics tests again after
   `Set-Culture pt-BR`.
+- **tshark's own diagnostics** (`tshark.clean_stderr`, which every
+  collected stderr goes through): wslog lines about Wireshark's tables
+  ("[WSUtil WARNING] … Extended value string 'mcc_mnc_codes' forced to
+  fall back to linear search", tshark 4.6.8 on a 5G capture; `[Epan
+WARNING]` before 4.6) and their indented continuation are logged once
+  each and dropped, so they no longer show up as capture warnings.
 - **Never `str.splitlines()` on packet-derived text**: it also splits on
   `\x1c`–`\x1e`, `\x85`, `\u2028`… Stats parsers use `_lines()` (split on `\n`).
 - **Panel placement** (`pcapViewer.panelPlacement`: beside, below;
@@ -2260,7 +2315,9 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   (`agents/pcap-lens.agent.md`: name, description, argument-hint; no
   `tools` list, since the documented form for an extension's tool there
   isn't settled and a wrong name leaves the agent without them, so the body
-  says to use only these tools and never a terminal) and
+  says to use only these tools and never a terminal; it and the skill say
+  which tools need which `allow*` setting and the tools' row caps, so a
+  model without packet data picks the statistics tools) and
   `contributes.chatSkills` (`skills/analyze-capture/SKILL.md`, its `name` =
   its folder); a unit test checks both are packaged, have plain
   `key: value` front matter, name only real tools and every one of them,
@@ -2893,7 +2950,9 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   extension, depth 8, hidden and venv folders skipped), capture_info,
   count_packets (`count_matches` got an `offset`), statistics (kinds mapped
   to `stats`, other spellings through `_stats_kind`: "Protocol Hierarchy",
-  `phs`, `conversation`…, tables cut to their top rows by bytes, default 25; tree
+  `phs`, `conversation`…, tables cut to their top rows by bytes, default 25;
+  an expert row keeps `MAX_EXPERT_FRAMES` (20) of its up to 1,000 packets,
+  `moreFrames` counting the rest; tree
   reports (`_TREE_KINDS`) in order, default 100: a cut DNS tree read as
   missing data),
   triage (found checks by count, each with a `next` hint from `_NEXT` by id
@@ -2918,7 +2977,26 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   messages' names (`_without_digits`: IAX2's "DTMF 7", MGCP's "NTFY
   D/2,D/0"; Codex review of the 0.32.0 PR), tcp_stream
   (`tcp_graph`'s points → `tcp_facts`, a port of aiAnomaly.ts' `tcpFacts`
-  plus the first retransmission and zero-window packets), compare_captures (`{before, after, limit}`: both
+  plus the first retransmission and zero-window packets), rtp_stream
+  (`{stream}`: a voip_calls stream number → `rtp_stream`'s analysis: the
+  summary, each lost/late/changed packet (`_RTP_PROBLEMS`, POINT_FIELDS'
+  status) and a timeline of `buckets` intervals with packets, loss, max
+  jitter and delta (`_rtp_points`; a gap's loss is the numbers that never
+  came, 16-bit numbers unwrapped, so reordering isn't loss and the timeline
+  adds up to the summary: `lostBefore`, `arrivedLater`; Codex review); the
+  stream's call; IAX2 streams carry
+  `iax2`, in voip_calls' rows too), sequence_check (`stats {kind:
+"sequences"}`; `streams_by` (a list or comma-separated), `wrap_bits`,
+  `restart_drop`; `_sequence_streams` turns the panel's table back into
+  streams with their problems, cut per stream; key values only when every
+  key field is numeric (`_numeric`) or packet data is allowed, else streams
+  are numbered and lose their filter: a LIID is a text field; the sequence
+  field itself must be numeric without packet data, since its values come
+  back as numbers: ftp.request.arg would return a password; Codex review),
+  export_objects (Export Objects' list: names, sizes, types, hosts and
+  packets per protocol, never the files), credentials (`stats {kind:
+"credentials"}`: protocol and packets; user names only with
+  `--allow-packet-data`; triage's `cleartext_credentials` points to it), compare_captures (`{before, after, limit}`: both
   captures' `capture_profile`, then `compare.diff`; names relative to the
   root), validate_filter, search_fields, and with
   `--allow-packet-data`

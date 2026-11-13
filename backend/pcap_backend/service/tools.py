@@ -82,26 +82,34 @@ class ToolsMixin(ServiceBase):
             raise ToolError("importing a hex dump needs text2pcap (part of Wireshark)") from exc
         ctx.progress({"phase": "import", "fraction": None})
         with tempfile.TemporaryDirectory(prefix="pcapviewer-hexdump-") as scratch:
-            if text is not None:
-                infile = Path(scratch) / "dump.txt"
-                infile.write_text(text, encoding="utf-8", newline="\n")
-            else:
+            if text is None:
                 infile = Path(source).expanduser()
                 if not infile.is_file():
                     raise InvalidParamsError(f"file not found: {infile}")
-            dest = check_destination(param(params, "dest", str), infile)
+                if params.get("offsets") == "stream":
+                    if infile.stat().st_size > hexdump.MAX_TEXT:
+                        raise InvalidParamsError("a hex stream file may hold at most 64 MB")
+                    text = infile.read_text(encoding="utf-8", errors="replace")
+            if text is not None:
+                if params.get("offsets") == "stream":
+                    text = hexdump.stream_as_dump(text)
+                infile = Path(scratch) / "dump.txt"
+                infile.write_text(text, encoding="utf-8", newline="\n")
+            dest = check_destination(
+                param(params, "dest", str), Path(source).expanduser() if source else infile
+            )
             with atomic_output(dest) as tmp:
                 argv = [str(text2pcap), "-F", "pcapng", *options, str(infile), str(tmp)]
                 res = run(argv, ctx.token)
+                counts = hexdump.written_packets(res.stderr)
+                # (A long hex stream read as offsets also fails: "result out of range".)
+                if counts is not None and counts[1] == 0:
+                    with infile.open(encoding="utf-8", errors="replace") as fh:
+                        sample = fh.read(64 * 1024)
+                    raise InvalidParamsError(hexdump.no_packets_message(sample))
                 if res.returncode != 0 or not tmp.exists():
                     raise ToolError(
                         res.stderr.strip() or "text2pcap failed", res.stderr, res.returncode
-                    )
-                counts = hexdump.written_packets(res.stderr)
-                if counts is not None and counts[1] == 0:
-                    raise InvalidParamsError(
-                        "no packets found in the hex dump: each line needs an offset "
-                        "(e.g. 0000) followed by hex bytes, unless offsets are none"
                     )
         return {"path": str(dest), "packets": counts[1] if counts else comments.packet_count(dest)}
 
