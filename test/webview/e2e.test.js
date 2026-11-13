@@ -3458,12 +3458,16 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
         return {
           open: items.filter((i) => i.getAttribute("aria-expanded") === "true").length,
           parents: items.length,
+          rows: document.querySelectorAll("#detail-tree .node-row").length,
         };
       });
       assert.ok(
         first.open > 0 && first.open < first.parents,
         `only the first slice opened at once: ${first.open} of ${first.parents}`,
       );
+      // A slice is 3 rows even inside one field: Frame has more children than
+      // that, and they used to be built all at once (Codex review).
+      assert.equal(first.rows, 5 + 3, "the 5 protocols and one slice of rows");
       await page.waitForFunction(
         () => !document.querySelector("#detail-tree [role=treeitem][aria-expanded=false]"),
       );
@@ -3479,6 +3483,21 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       );
       const capped = await tree();
       assert.ok(capped.open > 0 && capped.open < capped.parents, "the rest stays folded");
+      assert.equal(
+        await page.locator("#detail-tree .node-row").count(),
+        5 + 5,
+        "the cap counts rows within a field too",
+      );
+      // A field opened by hand builds its children a slice at a time as well.
+      await page.click("#tree-collapse-all");
+      await showTreeOf(5);
+      await showTreeOf(4);
+      await page.click("#detail-tree .node-row:has-text('Frame 4:')");
+      await page.keyboard.press("ArrowRight");
+      await page.waitForFunction(() => {
+        const frame = document.querySelector("#detail-tree > [role=treeitem]");
+        return frame?.querySelectorAll(":scope > [role=group] > [role=treeitem]").length > 3;
+      });
     } finally {
       await page.evaluate(() => {
         window.PcapLib.TREE_EXPAND_SLICE = 2000;

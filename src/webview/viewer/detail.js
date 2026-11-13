@@ -154,7 +154,8 @@ export function showFieldStatus() {
 }
 
 /**
- * @typedef {{node: any, path: any[], row: HTMLElement, children: HTMLElement | null, built: boolean}} NodeEntry
+ * `next`: how many of its children's rows are built; `built`: all of them.
+ * @typedef {{node: any, path: any[], row: HTMLElement, children: HTMLElement | null, next: number, built: boolean}} NodeEntry
  * @type {Map<number, NodeEntry>}
  */
 export const nodeIndex = new Map();
@@ -253,7 +254,7 @@ function buildNode(node, parentPath, depth, all = false) {
   row.append(twisty, label);
   wrap.append(row);
   /** @type {NodeEntry} */
-  const entry = { node, path, row, children: null, built: false };
+  const entry = { node, path, row, children: null, next: 0, built: false };
   nodeIndex.set(node.id, entry);
   decorateFrameLink(entry);
   if (node.children && node.children.length) {
@@ -280,13 +281,10 @@ export function setExpanded(entry, open, remember = true, all = false) {
     return;
   }
   if (open && !entry.built) {
-    const depth = entry.path.length;
-    const frag = document.createDocumentFragment();
-    for (const child of entry.node.children) {
-      frag.append(buildNode(child, entry.path, depth, all));
+    if (!draining) {
+      buildBudget = lib.TREE_EXPAND_SLICE; // (a click: a slice of its own)
     }
-    entry.children.append(frag);
-    entry.built = true;
+    buildChildren(entry, all);
   }
   entry.children.classList.toggle("hidden", !open);
   const twisty = /** @type {HTMLElement} */ (entry.row.firstChild);
@@ -307,6 +305,27 @@ export function setExpanded(entry, open, remember = true, all = false) {
   }
 }
 
+/**
+ * Build the next of `entry`'s children's rows, at most buildBudget, and queue
+ * the rest: one field with sixty thousand children built them all in one
+ * slice, past the slice and Expand All's cap (Codex review).
+ * @param {NodeEntry} entry @param {boolean} all
+ */
+function buildChildren(entry, all) {
+  const children = entry.node.children;
+  const depth = entry.path.length;
+  const end = Math.min(children.length, entry.next + Math.max(1, buildBudget));
+  const frag = document.createDocumentFragment();
+  for (; entry.next < end; entry.next++) {
+    frag.append(buildNode(children[entry.next], entry.path, depth, all));
+  }
+  /** @type {HTMLElement} */ (entry.children).append(frag);
+  entry.built = entry.next === children.length;
+  if (!entry.built) {
+    pending.push({ entry, all, more: true });
+  }
+}
+
 /** @param {NodeEntry} entry */
 function isExpanded(entry) {
   return !!entry.children && !entry.children.classList.contains("hidden");
@@ -314,14 +333,18 @@ function isExpanded(entry) {
 
 // ---------------------------------------------------- opening many nodes
 
-/** Nodes to open, in the order found (breadth first), from pendingAt on. */
-/** @type {{entry: NodeEntry, all: boolean}[]} */
+/**
+ * Nodes to open, in the order found (breadth first), from pendingAt on;
+ * `more`: one opened already whose remaining children are still to build.
+ * @type {{entry: NodeEntry, all: boolean, more?: boolean}[]}
+ */
 let pending = [];
 let pendingAt = 0;
 let draining = false;
 let drainTimer = 0;
-/** Rows buildNode built in the current slice. */
+/** Rows buildNode built in the current slice; how many the next node may build. */
 let rowsBuilt = 0;
+let buildBudget = 0;
 /** An Expand All is running; the rows it built; whether it hit lib.TREE_EXPAND_MAX. */
 let expandingAll = false;
 let expandedRows = 0;
@@ -353,7 +376,7 @@ function drainPending() {
   rowsBuilt = 0;
   try {
     while (pendingAt < pending.length && rowsBuilt < lib.TREE_EXPAND_SLICE) {
-      const { entry, all } = pending[pendingAt++];
+      const { entry, all, more } = pending[pendingAt++];
       const key = lib.nodeKey(entry.path);
       if (all) {
         if (expandedRows >= lib.TREE_EXPAND_MAX) {
@@ -365,17 +388,19 @@ function drainPending() {
         continue; // (folded meanwhile)
       }
       const before = rowsBuilt;
-      const built = entry.built;
+      const builtEarlier = more ? 0 : entry.next;
+      buildBudget = lib.TREE_EXPAND_SLICE - rowsBuilt;
+      if (all) {
+        buildBudget = Math.min(buildBudget, lib.TREE_EXPAND_MAX - expandedRows);
+      }
       setExpanded(entry, true, false, all);
       if (all) {
         expandedRows += rowsBuilt - before;
-        if (built) {
-          // (Its children were built earlier: queue the ones that have children.)
-          for (const child of entry.node.children) {
-            const c = nodeIndex.get(child.id);
-            if (c?.children) {
-              pending.push({ entry: c, all: true });
-            }
+        // (Children built before this Expand All: queue the ones that have children.)
+        for (const child of entry.node.children.slice(0, builtEarlier)) {
+          const c = nodeIndex.get(child.id);
+          if (c?.children) {
+            pending.push({ entry: c, all: true });
           }
         }
       }
