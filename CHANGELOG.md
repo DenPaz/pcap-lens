@@ -23,6 +23,14 @@ commit) that made it. The format follows
 - The VoIP Calls panel's _Ask Copilot_ asks the PCAP Lens agent too when
   `pcapViewer.ai.askIn` is `agent` [e6408d4]
 
+### Fixed
+
+- Without packet data allowed, the digits an MGCP caller dialled are no
+  longer sent to a language model: not by the MCP server's `voip_calls`, nor
+  as a call's destination, nor in `@pcap`'s call explanations, which also
+  leave the digits out of IAX2 and MGCP message names now [e1620c3]
+
+[e1620c3]: https://github.com/DenPaz/pcap-lens/commit/e1620c3
 [e6408d4]: https://github.com/DenPaz/pcap-lens/commit/e6408d4
 
 ## 0.34.0 — 2026-11-12

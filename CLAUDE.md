@@ -2283,8 +2283,10 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   under `allowPacketData` (`consent.packetData`): `pcap_voip_calls`
   (`voipCallsReport`: the calls, streams without a call and registrations,
   or with `call` one call's flow, streams, problems and DTMF; digits, the
-  MGCP dialled number and the digits in IAX2/MGCP message names
-  (`withoutDigits`) hidden; the parties and registrations' AORs are
+  MGCP dialled number, a destination that is that number (an MGCP callee
+  endpoint not seen: `shownCallee`) and the digits in IAX2/MGCP message
+  names (`withoutDigits`, both in aiAnomaly.ts, so `@pcap`'s `callSummary`
+  hides them too, as the MCP server's `_call_row` does) hidden; the parties and registrations' AORs are
   `names` for the stand-ins), `pcap_rtp_stream` (voip_calls' stream by
   number → `rtp_stream`, `rtpPoints` = the MCP server's `_rtp_points`),
   `pcap_sequence_check` (`sequenceStreams`; a non-numeric sequence field
