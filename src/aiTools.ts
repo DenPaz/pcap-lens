@@ -17,19 +17,29 @@ import { EXPLAIN_LIMITS, TreeNode, extractFilters } from "./aiExplain";
 import { namesInRows, namesInTree } from "./aiPrivacy";
 import { Scan } from "./aiScans";
 import {
+  CredentialsTable,
+  ExportedObject,
   OverviewData,
   PacketDetail,
+  RtpAnalysis,
   SESSION_KINDS,
+  SequenceTable,
   SessionKind,
   SessionTable,
   ShownName,
   TcpGraph,
+  VoipCallsData,
   compareReport,
+  credentialsReport,
+  objectsReport,
   overviewReport,
   packetDetailsReport,
+  rtpStreamReport,
+  sequenceReport,
   sessionReport,
   tcpStreamReport,
   triageReport,
+  voipCallsReport,
 } from "./aiToolReports";
 import { TriageCheck } from "./aiTriage";
 import {
@@ -70,6 +80,8 @@ export interface ToolLimits {
   maxDetailPackets: number;
   /** Items per new/gone/changed list of a comparison. */
   maxCompareItems: number;
+  /** Rows of the VoIP, RTP, sequence, export objects and credentials reports. */
+  maxReportRows: number;
 }
 
 export const TOOL_LIMITS: ToolLimits = {
@@ -85,6 +97,7 @@ export const TOOL_LIMITS: ToolLimits = {
   maxSessionRows: 30,
   maxDetailPackets: 4,
   maxCompareItems: 15,
+  maxReportRows: 25,
 };
 
 /** What a tool's result reveals: nothing from the capture, statistics, or packet rows. */
@@ -110,6 +123,24 @@ const CAPTURE_PROPERTY = {
   },
 };
 const CONV_TYPES = ["eth", "ip", "ipv6", "tcp", "udp"] as const;
+/** Export Objects' protocols (objects.py). */
+const OBJECT_PROTOCOLS = ["http", "smb", "tftp", "imf", "dicom", "ftp-data"] as const;
+const WRAP_BITS = [0, 8, 16, 24, 32] as const;
+const HEURISTIC_RTP = {
+  heuristic_rtp: {
+    type: "boolean",
+    description: "Also find RTP that no signalling set up (slower; off by default).",
+  },
+};
+/** Types whose values are numbers, not packet text (the MCP server's _numeric). */
+const NUMERIC_TYPES = new Set([
+  "FT_BOOLEAN",
+  "FT_FRAMENUM",
+  "FT_FLOAT",
+  "FT_DOUBLE",
+  "FT_RELATIVE_TIME",
+]);
+const numericType = (type: string) => /^FT_U?INT/.test(type) || NUMERIC_TYPES.has(type);
 
 export const PCAP_TOOLS: readonly ToolSpec[] = [
   {
@@ -273,6 +304,114 @@ export const PCAP_TOOLS: readonly ToolSpec[] = [
         },
       },
       required: ["other"],
+    },
+    needs: "statistics",
+  },
+  {
+    name: "pcap_voip_calls",
+    description:
+      "The open capture's VoIP calls (SIP, H.323, MGCP, IAX2): each call's parties, state, final response, setup and talk time, MOS (ITU-T E-model) and the problems the viewer detected (no RTP, one-way audio, codec mismatch, SSRC change, silences), plus media streams without a call and SIP registrations. With `call` (a call number from the list): its message flow, its media streams with loss, jitter and RTCP, its problems and DTMF. DTMF digits only with packet data allowed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ...CAPTURE_PROPERTY,
+        call: { type: "integer", minimum: 0, description: "A call number from the list." },
+        ...HEURISTIC_RTP,
+        limit: { type: "integer", minimum: 1, maximum: 25 },
+      },
+    },
+    needs: "statistics",
+  },
+  {
+    name: "pcap_rtp_stream",
+    description:
+      "Analysis of one RTP (or IAX2 voice) stream of the open capture, by its stream number from pcap_voip_calls: packets expected and lost, sequence errors, jitter, delta and skew, each lost, late or changed packet, and a timeline of packets, loss, jitter and delta.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ...CAPTURE_PROPERTY,
+        stream: {
+          type: "integer",
+          minimum: 0,
+          description: "A stream number from pcap_voip_calls.",
+        },
+        ...HEURISTIC_RTP,
+        limit: {
+          type: "integer",
+          minimum: 0,
+          maximum: 25,
+          description: "Problem packets listed (default 20).",
+        },
+        buckets: {
+          type: "integer",
+          minimum: 1,
+          maximum: 24,
+          description: "Timeline intervals (default 10).",
+        },
+      },
+      required: ["stream"],
+    },
+    needs: "statistics",
+  },
+  {
+    name: "pcap_sequence_check",
+    description:
+      "Check a sequence-number field per stream in the open capture: missing, duplicated, late (reordered) and restarted numbers, each with its packet. For example sequence gtp.seq_number per gtp.teid (GTP-U tunnels), or any protocol's counter per its connection or interception. Without packet data, the sequence field must be numeric and text key fields are numbered instead of shown.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ...CAPTURE_PROPERTY,
+        sequence: {
+          type: "string",
+          description: "The field that numbers the messages, e.g. gtp.seq_number.",
+        },
+        streams_by: {
+          type: "string",
+          description:
+            "Comma-separated fields whose values make a stream, e.g. gtp.teid (empty: one stream).",
+        },
+        wrap_bits: {
+          type: "integer",
+          enum: [...WRAP_BITS],
+          description: "The counter's width when it wraps (0: it doesn't).",
+        },
+        restart_drop: {
+          type: "integer",
+          minimum: 1,
+          description: "A drop of more than this many numbers starts a new run (default 1000).",
+        },
+        filter: { type: "string", description: "Optional Wireshark display filter." },
+        limit: { type: "integer", minimum: 1, maximum: 25 },
+      },
+      required: ["sequence"],
+    },
+    needs: "statistics",
+  },
+  {
+    name: "pcap_export_objects",
+    description:
+      "The files the open capture carries (Wireshark's Export Objects: HTTP, SMB, TFTP, IMF, DICOM, FTP-DATA): counts and bytes per protocol, and each file's size, content type, host and packet. File names only with packet data allowed. The files themselves are never sent.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ...CAPTURE_PROPERTY,
+        protocol: { type: "string", enum: [...OBJECT_PROTOCOLS] },
+        limit: { type: "integer", minimum: 1, maximum: 25 },
+      },
+    },
+    needs: "statistics",
+  },
+  {
+    name: "pcap_credentials",
+    description:
+      "Clear-text logins tshark finds in the open capture (HTTP basic auth, FTP, POP, IMAP, SMTP, Telnet…): the protocol and packet of each, by protocol. User names only with packet data allowed; passwords are never shown.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ...CAPTURE_PROPERTY,
+        filter: { type: "string", description: "Optional Wireshark display filter." },
+        limit: { type: "integer", minimum: 1, maximum: 25 },
+      },
     },
     needs: "statistics",
   },
@@ -703,6 +842,159 @@ export async function runTool(
         return typeof diff === "string"
           ? { text: diff }
           : compareReport(diff, limits.maxCompareItems, limits.maxReportChars);
+      }
+      case "pcap_voip_calls": {
+        const call =
+          args.call === undefined || args.call === null
+            ? undefined
+            : intIn(args.call, 0, Number.MAX_SAFE_INTEGER, -1);
+        if (call === -1) {
+          return { text: "call must be a call number from the list (0, 1, …)." };
+        }
+        const data = await backend.request<VoipCallsData>(
+          "voip_calls",
+          { heuristic: args.heuristic_rtp === true },
+          { timeoutMs: 0 },
+        );
+        return voipCallsReport(data, {
+          call,
+          limit: intIn(args.limit, 1, limits.maxReportRows, 20),
+          packetData: consent.packetData,
+          maxChars: limits.maxReportChars,
+        });
+      }
+      case "pcap_rtp_stream": {
+        const index = intIn(args.stream, 0, Number.MAX_SAFE_INTEGER, -1);
+        if (index < 0) {
+          return { text: "Give the stream number (stream) from pcap_voip_calls." };
+        }
+        const heuristic = args.heuristic_rtp === true;
+        const data = await backend.request<VoipCallsData>(
+          "voip_calls",
+          { heuristic },
+          { timeoutMs: 0 },
+        );
+        const stream = data.streams[index];
+        if (!stream) {
+          return {
+            text: data.streams.length
+              ? `No stream ${index}: pcap_voip_calls lists streams 0 to ${data.streams.length - 1}.`
+              : `No stream ${index}: the capture has no RTP streams${heuristic ? "" : " (heuristic_rtp finds those no signalling set up)"}.`,
+          };
+        }
+        const analysis = await backend.request<RtpAnalysis>(
+          "rtp_stream",
+          { stream },
+          { timeoutMs: 0 },
+        );
+        return {
+          ...rtpStreamReport(
+            index,
+            stream,
+            data.calls.find((c) => c.streams.includes(index))?.id,
+            analysis,
+            {
+              limit: intIn(args.limit, 0, limits.maxReportRows, 20),
+              buckets: intIn(args.buckets, 1, 24, 10),
+              maxChars: limits.maxReportChars,
+            },
+          ),
+          filter: stream.filter,
+        };
+      }
+      case "pcap_sequence_check": {
+        const seq = str(args.sequence).trim();
+        if (!seq) {
+          return {
+            text: "Give the field that numbers the messages (sequence), e.g. gtp.seq_number.",
+          };
+        }
+        const keys = (
+          Array.isArray(args.streams_by) ? args.streams_by : str(args.streams_by).split(",")
+        )
+          .map((k) => (typeof k === "string" ? k.trim() : ""))
+          .filter(Boolean);
+        const bits = args.wrap_bits === undefined ? 0 : Number(args.wrap_bits);
+        if (!(WRAP_BITS as readonly number[]).includes(bits)) {
+          return { text: `wrap_bits must be one of ${WRAP_BITS.join(", ")}.` };
+        }
+        const filter = str(args.filter).trim();
+        const error = await filterError(backend, filter);
+        if (error) {
+          return { text: `Invalid display filter \`${filter}\`: ${error}` };
+        }
+        const { types } = await backend.request<{ types: Record<string, { type?: string }> }>(
+          "field_types",
+          { names: [seq, ...keys] },
+        );
+        // The numbers are the field's values: a text field's (ftp.request.arg) are packet contents.
+        const seqType = types[seq]?.type ?? "";
+        if (seqType && !consent.packetData && !numericType(seqType)) {
+          return {
+            text: `${seq} is a ${seqType} field: its values are packet contents, which the user hasn't allowed (${SETTING_OF.packetData}). Name a numeric sequence field, e.g. gtp.seq_number or rtp.seq.`,
+            refused: "packetData",
+          };
+        }
+        const table = await backend.request<SequenceTable>(
+          "stats",
+          {
+            kind: "sequences",
+            key: keys,
+            seq,
+            wrap: bits ? 2 ** bits : 0,
+            reorder: intIn(args.restart_drop, 1, 2 ** 32, 1000),
+            filter,
+          },
+          { timeoutMs: 0 },
+        );
+        return {
+          ...sequenceReport(
+            table,
+            { seq, keys, wrapBits: bits, filter },
+            {
+              showKeys: consent.packetData || keys.every((k) => numericType(types[k]?.type ?? "")),
+              limit: intIn(args.limit, 1, limits.maxReportRows, 20),
+              problems: 10,
+              maxChars: limits.maxReportChars,
+            },
+          ),
+          filter: filter || undefined,
+        };
+      }
+      case "pcap_export_objects": {
+        const protocol = str(args.protocol).toLowerCase();
+        if (protocol && !(OBJECT_PROTOCOLS as readonly string[]).includes(protocol)) {
+          return { text: `protocol must be one of ${OBJECT_PROTOCOLS.join(", ")}.` };
+        }
+        const { objects } = await backend.request<{ objects: ExportedObject[] }>(
+          "export_objects",
+          {},
+          { timeoutMs: 0 },
+        );
+        return objectsReport(objects, {
+          protocol,
+          limit: intIn(args.limit, 1, limits.maxReportRows, 20),
+          packetData: consent.packetData,
+          maxChars: limits.maxReportChars,
+        });
+      }
+      case "pcap_credentials": {
+        const filter = str(args.filter).trim();
+        const error = await filterError(backend, filter);
+        if (error) {
+          return { text: `Invalid display filter \`${filter}\`: ${error}` };
+        }
+        const table = await backend.request<CredentialsTable>(
+          "stats",
+          { kind: "credentials", filter },
+          { timeoutMs: 0 },
+        );
+        return credentialsReport(table, {
+          filter,
+          limit: intIn(args.limit, 1, limits.maxReportRows, 20),
+          packetData: consent.packetData,
+          maxChars: limits.maxReportChars,
+        });
       }
     }
   } catch (err) {

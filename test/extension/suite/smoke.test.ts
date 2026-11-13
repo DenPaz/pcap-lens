@@ -880,6 +880,10 @@ suite("PCAP Lens smoke test", () => {
         await text("pcap_overview", { capture: "http.pcap" }),
         /^Capture overview: 11 packets/m,
       );
+      // VoIP calls of a named capture: the call list, DTMF digits hidden without packet data.
+      const calls = await text("pcap_voip_calls", { capture: "voip-calls.pcap", call: 0 });
+      assert.match(calls, /^Call 0 \(SIP\): /m);
+      assert.match(calls, /DTMF digits are hidden/);
       // Outside the workspace, the viewer and Recent Captures: refused.
       const outside = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "pcap-outside-")), "x.pcap");
       fs.copyFileSync(path.join(FIXTURES, "http.pcap"), outside);

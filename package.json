@@ -2618,6 +2618,210 @@
         }
       },
       {
+        "name": "pcap_voip_calls",
+        "displayName": "VoIP Calls",
+        "toolReferenceName": "pcapVoipCalls",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "SIP, H.323, MGCP and IAX2 calls with their state, timings, MOS and problems, or one call's message flow and media (PCAP Lens)",
+        "modelDescription": "The open capture's VoIP calls (SIP, H.323, MGCP, IAX2): each call's parties, state, final response, setup and talk time, MOS (ITU-T E-model) and the problems the viewer detected (no RTP, one-way audio, codec mismatch, SSRC change, silences), plus media streams without a call and SIP registrations. With `call` (a call number from the list): its message flow, its media streams with loss, jitter and RTCP, its problems and DTMF. DTMF digits only with packet data allowed.",
+        "tags": [
+          "pcap",
+          "wireshark"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
+            "call": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "A call number from the list."
+            },
+            "heuristic_rtp": {
+              "type": "boolean",
+              "description": "Also find RTP that no signalling set up (slower; off by default)."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 25
+            }
+          }
+        }
+      },
+      {
+        "name": "pcap_rtp_stream",
+        "displayName": "RTP Stream Analysis",
+        "toolReferenceName": "pcapRtpStream",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Loss, jitter and late packets of one RTP stream, with a timeline (PCAP Lens)",
+        "modelDescription": "Analysis of one RTP (or IAX2 voice) stream of the open capture, by its stream number from pcap_voip_calls: packets expected and lost, sequence errors, jitter, delta and skew, each lost, late or changed packet, and a timeline of packets, loss, jitter and delta.",
+        "tags": [
+          "pcap",
+          "wireshark"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
+            "stream": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "A stream number from pcap_voip_calls."
+            },
+            "heuristic_rtp": {
+              "type": "boolean",
+              "description": "Also find RTP that no signalling set up (slower; off by default)."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 25,
+              "description": "Problem packets listed (default 20)."
+            },
+            "buckets": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 24,
+              "description": "Timeline intervals (default 10)."
+            }
+          },
+          "required": [
+            "stream"
+          ]
+        }
+      },
+      {
+        "name": "pcap_sequence_check",
+        "displayName": "Sequence Check",
+        "toolReferenceName": "pcapSequenceCheck",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Missing, duplicated and reordered sequence numbers per stream, e.g. per GTP tunnel (PCAP Lens)",
+        "modelDescription": "Check a sequence-number field per stream in the open capture: missing, duplicated, late (reordered) and restarted numbers, each with its packet. For example sequence gtp.seq_number per gtp.teid (GTP-U tunnels), or any protocol's counter per its connection or interception. Without packet data, the sequence field must be numeric and text key fields are numbered instead of shown.",
+        "tags": [
+          "pcap",
+          "wireshark"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
+            "sequence": {
+              "type": "string",
+              "description": "The field that numbers the messages, e.g. gtp.seq_number."
+            },
+            "streams_by": {
+              "type": "string",
+              "description": "Comma-separated fields whose values make a stream, e.g. gtp.teid (empty: one stream)."
+            },
+            "wrap_bits": {
+              "type": "integer",
+              "enum": [
+                0,
+                8,
+                16,
+                24,
+                32
+              ],
+              "description": "The counter's width when it wraps (0: it doesn't)."
+            },
+            "restart_drop": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "A drop of more than this many numbers starts a new run (default 1000)."
+            },
+            "filter": {
+              "type": "string",
+              "description": "Optional Wireshark display filter."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 25
+            }
+          },
+          "required": [
+            "sequence"
+          ]
+        }
+      },
+      {
+        "name": "pcap_export_objects",
+        "displayName": "Exported Files",
+        "toolReferenceName": "pcapExportObjects",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Files carried over HTTP, SMB, TFTP, IMF, DICOM and FTP-DATA, by protocol (PCAP Lens)",
+        "modelDescription": "The files the open capture carries (Wireshark's Export Objects: HTTP, SMB, TFTP, IMF, DICOM, FTP-DATA): counts and bytes per protocol, and each file's size, content type, host and packet. File names only with packet data allowed. The files themselves are never sent.",
+        "tags": [
+          "pcap",
+          "wireshark"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
+            "protocol": {
+              "type": "string",
+              "enum": [
+                "http",
+                "smb",
+                "tftp",
+                "imf",
+                "dicom",
+                "ftp-data"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 25
+            }
+          }
+        }
+      },
+      {
+        "name": "pcap_credentials",
+        "displayName": "Clear-Text Credentials",
+        "toolReferenceName": "pcapCredentials",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Clear-text logins (HTTP basic, FTP, POP, IMAP…) and their packets (PCAP Lens)",
+        "modelDescription": "Clear-text logins tshark finds in the open capture (HTTP basic auth, FTP, POP, IMAP, SMTP, Telnet…): the protocol and packet of each, by protocol. User names only with packet data allowed; passwords are never shown.",
+        "tags": [
+          "pcap",
+          "wireshark"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "capture": {
+              "type": "string",
+              "description": "Optional: the path of the capture file to read (one the user attached or named), when it isn't the one open in PCAP Lens."
+            },
+            "filter": {
+              "type": "string",
+              "description": "Optional Wireshark display filter."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 25
+            }
+          }
+        }
+      },
+      {
         "name": "pcap_apply_filter",
         "displayName": "Apply Display Filter",
         "toolReferenceName": "pcapApplyFilter",

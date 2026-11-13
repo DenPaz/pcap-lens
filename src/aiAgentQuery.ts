@@ -30,6 +30,7 @@ export type AgentAsk =
   | { kind: "triage"; capture: string; question?: string }
   | { kind: "compare"; capture: string; other: string; baseline: "other" | "open" }
   | { kind: "stream"; capture: string; stream: number; question?: string }
+  | { kind: "call"; capture: string; call: number; heuristic?: boolean; question?: string }
   | { kind: "expert"; capture: string; rows: readonly ExpertRow[]; question?: string }
   | { kind: "packets"; capture: string; frames: readonly number[]; question?: string };
 
@@ -58,6 +59,8 @@ export function agentQuery(ask: AgentAsk): string {
     }
     case "stream":
       return `${oneLine(ask.question) || "Is anything wrong with this TCP connection, and why?"} TCP stream ${ask.stream} of the capture ${cap}: use #pcapTcpStream.`;
+    case "call":
+      return `${oneLine(ask.question) || "Explain this call: did it work, and how was its audio?"} Call ${ask.call} of the capture ${cap}: use #pcapVoipCalls with call ${ask.call}${ask.heuristic ? " and heuristic_rtp: true" : ""}, then #pcapRtpStream for a stream with problems.`;
     case "expert": {
       const rows = ask.rows.slice(0, AGENT_QUERY_LIMITS.expertRows);
       if (!rows.length) {

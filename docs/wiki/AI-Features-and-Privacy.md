@@ -35,6 +35,9 @@ the file in words doesn't.
 | `pcap_overview`                                               | Totals, busiest interval, top addresses, protocols, services, HTTP, DNS, TLS                          | `allowCaptureStatistics` |
 | `pcap_count`, `pcap_stats`, `pcap_capture_info`               | Counts for a filter; conversations, endpoints, hierarchy, expert, I/O; properties                     | `allowCaptureStatistics` |
 | `pcap_tcp_stream`, `pcap_compare`                             | One connection's health; changes against a baseline capture                                           | `allowCaptureStatistics` |
+| `pcap_voip_calls`, `pcap_rtp_stream`                          | Calls with state, timings, MOS and problems, or one call's flow; a stream's loss and jitter over time | `allowCaptureStatistics` |
+| `pcap_sequence_check`                                         | Missing, duplicated, late and restarted sequence numbers per stream (e.g. per GTP tunnel)             | `allowCaptureStatistics` |
+| `pcap_export_objects`, `pcap_credentials`                     | Files carried (sizes, types, packets) and clear-text logins (protocols, packets)                      | `allowCaptureStatistics` |
 | `pcap_list_packets`, `pcap_sessions`, `pcap_packet_details`   | Packet rows (20), HTTP/DNS/TLS sessions (30), dissection trees (4, no bytes)                          | `allowPacketData`        |
 | `pcap_field_search`, `pcap_apply_filter`, `pcap_go_to_packet` | Field names; acting on the viewer after you confirm                                                   | nothing                  |
 
@@ -63,6 +66,8 @@ no chat participants.
 | Filter, capture filter and Lua help                            | Your description, the current filter, protocol and field names                                     | `ai.enabled`             |
 | Triage, summary, compare, `/anomaly`                           | Capture properties, counts, top conversations and endpoints, expert entries (capped)               | `allowCaptureStatistics` |
 | Tools: count, stats, triage, overview, TCP stream, compare     | Filters and counts, statistics tables (25 rows), overview top 10s, a stream's health, a comparison | `allowCaptureStatistics` |
+| Tools: VoIP calls, RTP stream, sequence check, files, logins   | Calls and streams (25), loss and jitter, sequence problems, file sizes and types, login packets    | `allowCaptureStatistics` |
+| In those: DTMF digits, file names, user names, text key values | Only with packet data allowed; passwords never                                                     | `allowPacketData`        |
 | Explain packets; tools: list packets, sessions, packet details | Up to 8 packets' rows and trees (tools: 20 rows, 30 sessions, 4 trees, no bytes)                   | `allowPacketData`        |
 | Packet bytes in explanations                                   | Up to 256 bytes per packet                                                                         | `allowPacketBytes`       |
 

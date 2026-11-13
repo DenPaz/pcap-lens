@@ -17,8 +17,10 @@ import {
 import {
   compareReport,
   packetDetailsReport,
+  rtpPoints,
   sessionProblem,
   triageReport,
+  withoutDigits,
 } from "../../../src/aiToolReports";
 import { BackendClient } from "../../../src/backendClient";
 import { FIXTURES, HAVE_TSHARK, makeClient, startIsolated } from "./backendTesting";
@@ -47,6 +49,81 @@ suite("AI report tools", () => {
       assert.equal((await runTool(name, {}, silent, NONE)).refused, "statistics", name);
     }
     assert.deepEqual(silent.asked, [], "nothing was asked of the backend");
+  });
+
+  test("the VoIP, RTP, sequence, export objects and credentials tools need statistics", async () => {
+    for (const name of [
+      "pcap_voip_calls",
+      "pcap_rtp_stream",
+      "pcap_sequence_check",
+      "pcap_export_objects",
+      "pcap_credentials",
+    ]) {
+      assert.equal((await runTool(name, { stream: 0 }, silent, NONE)).refused, "statistics", name);
+    }
+    for (const [name, args, words] of [
+      ["pcap_voip_calls", { call: "x" }, /call must be a call number/],
+      ["pcap_rtp_stream", {}, /Give the stream number/],
+      ["pcap_sequence_check", {}, /Give the field that numbers the messages/],
+      [
+        "pcap_sequence_check",
+        { sequence: "gtp.seq_number", wrap_bits: 12 },
+        /wrap_bits must be one of 0, 8, 16, 24, 32/,
+      ],
+      ["pcap_export_objects", { protocol: "nfs" }, /protocol must be one of http, smb/],
+    ] as const) {
+      assert.match((await runTool(name, args, silent, ALL)).text, words, name);
+    }
+    assert.deepEqual(silent.asked, [], "nothing was asked of the backend");
+  });
+
+  test("DTMF digits come out of IAX2 and MGCP message names", () => {
+    assert.equal(withoutDigits("DTMF 7"), "DTMF (digit hidden)");
+    assert.equal(withoutDigits("NTFY D/2,D/0"), "NTFY 2 DTMF digits hidden");
+    assert.equal(withoutDigits("NTFY L/hd,D/5"), "NTFY L/hd, 1 DTMF digit hidden");
+    assert.equal(withoutDigits("INVITE (SDP)"), "INVITE (SDP)");
+    assert.equal(withoutDigits("CRCX aaln/1@gw1"), "CRCX aaln/1@gw1", "an endpoint isn't a digit");
+  });
+
+  test("RTP loss is the numbers that never came, across the 16-bit wrap too", () => {
+    const fields = ["frame", "time", "seq", "delta", "jitter", "skew", "marker", "status", "gap"];
+    const point = (frame: number, seq: number, status = 0, gap = 0) => [
+      frame,
+      frame / 50,
+      seq,
+      20,
+      0,
+      0,
+      0,
+      status,
+      gap,
+    ];
+    // 1, 3, 2, 4: a gap at 3, then 2 late: nothing lost.
+    const reordered = rtpPoints(
+      fields,
+      [point(1, 1), point(2, 3, 1, 1), point(3, 2, 2), point(4, 4)],
+      2,
+    );
+    assert.deepEqual(reordered.problems, [{ packet: 3, seq: 2, problem: "out of order" }]);
+    assert.equal(
+      reordered.timeline.reduce((n, b) => n + b.lost, 0),
+      0,
+    );
+    // 65534, then 1 skips 65535 and 0; 0 comes later.
+    const wrapped = rtpPoints(
+      fields,
+      [point(1, 65534), point(2, 1, 1, 2), point(3, 0, 2), point(4, 2)],
+      1,
+    );
+    assert.deepEqual(wrapped.problems[0], {
+      packet: 2,
+      seq: 1,
+      problem: "lost",
+      lostBefore: 1,
+      arrivedLater: 1,
+    });
+    assert.equal(wrapped.timeline[0].lost, 1);
+    assert.deepEqual(rtpPoints(["frame"], [[1]], 2), { problems: [], timeline: [] });
   });
 
   test("arguments are checked before the backend is asked", async () => {
@@ -281,6 +358,164 @@ suite("AI report tools on the real backend", function () {
       assert.match(details.text, /No such packet: 999\.$/);
       assert.equal(details.text.match(/^## Packet/gm)?.length, 1, "each packet once");
       assert.ok(details.names?.some((n) => n.name === "www.example.com"));
+    },
+  );
+
+  (HAVE_TSHARK ? test : test.skip)(
+    "VoIP calls, one call, an RTP stream; DTMF digits only with packet data",
+    async () => {
+      const calls = await open("voip-calls.pcap");
+      const list = await runTool("pcap_voip_calls", {}, calls, STATS_ONLY);
+      assert.match(
+        list.text,
+        /^VoIP calls: 5 \(Completed 3, Cancelled 1, Rejected 1\), 2 with problems; 4 media streams\.$/m,
+      );
+      assert.match(
+        list.text,
+        /^1 \| SIP \| frank@10\.0\.1\.3 \| erin@10\.0\.1\.2 \| Completed \| 200 OK \| .* \| one-way, codec, ssrc, gap \| /m,
+      );
+      assert.match(
+        list.text,
+        /^- frank@example\.test from 10\.0\.1\.3 to 10\.0\.1\.100: Failed \(403 Forbidden\)/m,
+      );
+      assert.ok(
+        list.names?.some((n) => n.name === "dave@10.0.1.1"),
+        "the parties get stand-ins",
+      );
+      const hidden = await runTool("pcap_voip_calls", { call: 0 }, calls, STATS_ONLY);
+      assert.match(hidden.text, /^Call 0 \(SIP\): dave@10\.0\.1\.1 → erin@10\.0\.1\.2\.$/m);
+      assert.match(hidden.text, /^85 \| 2\.3 \| 10\.0\.1\.2 \| 10\.0\.1\.1 \| INFO$/m);
+      assert.match(
+        hidden.text,
+        /^- stream 3: 10\.0\.1\.1:30000 → 10\.0\.1\.2:32000, SSRC 0x55555555, .*, sent by the caller$/m,
+      );
+      assert.match(
+        hidden.text,
+        /^DTMF: a digit \(RFC 4733, packet 46\), a digit \(SIP INFO, packet 85\)/m,
+      );
+      assert.match(hidden.text, /DTMF digits are hidden: .*pcapViewer\.ai\.allowPacketData/);
+      const shown = await runTool("pcap_voip_calls", { call: 0 }, calls, ALL);
+      assert.match(
+        shown.text,
+        /^DTMF: "4" \(RFC 4733, packet 46\), "7" \(SIP INFO, packet 85\), "#"/m,
+      );
+      assert.doesNotMatch(shown.text, /are hidden/);
+      assert.match(
+        (await runTool("pcap_voip_calls", { call: 9 }, calls, ALL)).text,
+        /^No call 9: the capture has calls 0 to 4\.$/,
+      );
+
+      const other = await open("voip-other.pcap");
+      const iax = await runTool("pcap_voip_calls", { call: 3 }, other, STATS_ONLY);
+      assert.match(iax.text, /^Call 3 \(IAX2\): /);
+      assert.match(iax.text, /\| DTMF \(digit hidden\)$/m, "IAX2's DTMF message without its digit");
+      assert.doesNotMatch(iax.text, /DTMF 7/);
+
+      const rtp = await open("voip.pcap");
+      const stream = await runTool("pcap_rtp_stream", { stream: 0, buckets: 4 }, rtp, STATS_ONLY);
+      assert.match(stream.text, /^Stream 0 \(call 0\):/);
+      assert.match(stream.text, /^Analysis: 49 packets of 50 expected, 1 lost \(2%\)/m);
+      assert.match(stream.text, /^- packet 48 \(seq 1021\): lost, 1 lost before it$/m);
+      const rows = stream.text.split("Timeline")[1].trim().split("\n").slice(1);
+      assert.equal(rows.length, 4);
+      assert.equal(
+        rows.reduce((n, r) => n + Number(r.split(" | ")[3]), 0),
+        1,
+        "adds up to the loss",
+      );
+      assert.match(stream.filter ?? "", /^rtp\.ssrc == 0x11111111 && /);
+      assert.match(
+        (await runTool("pcap_rtp_stream", { stream: 9 }, rtp, ALL)).text,
+        /^No stream 9: pcap_voip_calls lists streams 0 to \d+\.$/,
+      );
+    },
+  );
+
+  (HAVE_TSHARK ? test : test.skip)(
+    "the sequence check, export objects and credentials; contents only with packet data",
+    async () => {
+      const seq = await open("sequences.pcap");
+      const tunnels = await runTool(
+        "pcap_sequence_check",
+        { sequence: "gtp.seq_number", streams_by: "gtp.teid", wrap_bits: 16 },
+        seq,
+        STATS_ONLY,
+      );
+      assert.match(
+        tunnels.text,
+        /^Sequence check of gtp\.seq_number per gtp\.teid, a 16-bit counter: streams 4, withProblems 2,/,
+      );
+      assert.match(
+        tunnels.text,
+        /^1 \| 0x00000200 \| 9 \| 1 \| 10 \| 2 \| 1 \| 1 \| 0 \| .* \| gtp\.teid == 0x00000200 && gtp\.seq_number$/m,
+      );
+      assert.match(tunnels.text, /^ {2}- gap: Missing 4–5 \(2\) \(packet 14\)$/m);
+      assert.match(
+        tunnels.text,
+        /^4 \| 0x00000300 \| 6 \| 65533 \| 2 \| 0 \|/m,
+        "the wrap is no gap",
+      );
+      // A text key (an address here; a LIID in a delivery): numbered streams, no filters.
+      const byAddress = await runTool(
+        "pcap_sequence_check",
+        { sequence: "gtp.seq_number", streams_by: "ip.src" },
+        seq,
+        STATS_ONLY,
+      );
+      assert.match(byAddress.text, /key values are text fields/);
+      assert.doesNotMatch(byAddress.text, /ip\.src ==|10\.\d+\.\d+\.\d+/);
+      assert.match(
+        (
+          await runTool(
+            "pcap_sequence_check",
+            { sequence: "gtp.seq_number", streams_by: ["ip.src"] },
+            seq,
+            ALL,
+          )
+        ).text,
+        /^stream \| ip\.src \| messages/m,
+        "shown with packet data",
+      );
+      // The sequence field's values come back as numbers: a text field is packet contents.
+      const text = await runTool(
+        "pcap_sequence_check",
+        { sequence: "ftp.request.arg" },
+        seq,
+        STATS_ONLY,
+      );
+      assert.equal(text.refused, "packetData");
+      assert.match(text.text, /^ftp\.request\.arg is a FT_STRING field: .*allowPacketData/);
+
+      const objects = await open("objects.pcap");
+      const files = await runTool("pcap_export_objects", {}, objects, STATS_ONLY);
+      assert.match(
+        files.text,
+        /^Files the capture carries \(Export Objects\): http 5 \(1\.7 kB\), tftp 1 \(612 B\), imf 1 \(107 B\)\.$/m,
+      );
+      assert.match(
+        files.text,
+        /^- http, 776 B, image\/png, from example\.com, packet 6 \(frame\.number == 6\)$/m,
+      );
+      assert.doesNotMatch(files.text, /logo\.png/, "no file names without packet data");
+      const named = await runTool("pcap_export_objects", { protocol: "http" }, objects, ALL);
+      assert.match(named.text, /^- http logo\.png, 776 B/m);
+      assert.doesNotMatch(named.text, /tftp,/, "only the protocol asked for");
+
+      const creds = await open("credentials.pcap");
+      const logins = await runTool("pcap_credentials", {}, creds, STATS_ONLY);
+      assert.match(
+        logins.text,
+        /^Clear-text credentials tshark found: HTTP basic auth 1, FTP 1, POP3 1, IMAP 1\.$/m,
+      );
+      assert.match(
+        logins.text,
+        /^- FTP, packet 20 \(user name in packet 16\) — frame\.number == 20$/m,
+      );
+      assert.doesNotMatch(logins.text, /alice|bob|carol/);
+      assert.match(
+        (await runTool("pcap_credentials", {}, creds, ALL)).text,
+        /^- FTP user bob, packet 20/m,
+      );
     },
   );
 

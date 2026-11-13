@@ -35,6 +35,15 @@ bytes yourself.
    - `pcap_compare` when the user names a baseline capture file: its path
      goes in `other`, which is the baseline unless you pass
      `baseline: "open"`,
+   - `pcap_voip_calls` for SIP, H.323, MGCP and IAX2 calls (state, timings,
+     MOS, problems such as one-way audio or a codec mismatch; with `call`,
+     one call's message flow, media and DTMF), then `pcap_rtp_stream` with a
+     stream number for its loss, jitter and late packets over time,
+   - `pcap_sequence_check` for missing, duplicated or reordered sequence
+     numbers per stream (e.g. `sequence: "gtp.seq_number"`,
+     `streams_by: "gtp.teid"`),
+   - `pcap_export_objects` for the files a capture carries (HTTP, SMB, TFTP,
+     IMF, DICOM, FTP-DATA) and `pcap_credentials` for clear-text logins,
    - `pcap_capture_info` for the capture's packets, duration, size and link
      type.
 3. Answer: what is wrong (or fine), how many packets, since when, and why it
@@ -54,13 +63,16 @@ The user's settings decide what reaches you:
 - `pcap_list_packets`, `pcap_sessions` and `pcap_packet_details` show packet
   contents and need `pcapViewer.ai.allowPacketData`.
 - Every other tool needs `pcapViewer.ai.allowCaptureStatistics` (allowing
-  packet data allows it too).
+  packet data allows it too). Without packet data they leave contents out:
+  DTMF digits (`pcap_voip_calls`), file names (`pcap_export_objects`), user
+  names (`pcap_credentials`) and text key values (`pcap_sequence_check`, whose
+  sequence field must then be numeric). Passwords are never shown.
 
-Without packet data, work with counts, statistics, triage, the overview and
-TCP stream health. Results are capped (20 packets per list, 25 rows per
-statistics table, 30 session rows, 4 packets of details, and long results
-are cut): narrow a large answer with a display filter rather than asking
-again.
+Without packet data, work with counts, statistics, triage, the overview, TCP
+stream health, calls and RTP streams. Results are capped (20 packets per
+list, 25 rows per statistics table, 30 session rows, 4 packets of details,
+25 calls, streams, files or logins, and long results are cut): narrow a
+large answer with a display filter rather than asking again.
 
 ## Rules
 
