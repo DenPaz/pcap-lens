@@ -818,11 +818,25 @@ def _rtp_points(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """An RTP stream analysis' points (voip.POINT_FIELDS) as its problem
     packets and a timeline of ``buckets`` equal intervals: packets, packets
-    lost, the largest jitter and gap between packets in each."""
+    lost (numbers that never arrived, so the timeline adds up to the
+    summary's loss), the largest jitter and gap between packets in each."""
     at = {name: i for i, name in enumerate(fields)}
     if not points or not {"frame", "time", "seq", "status"} <= at.keys():
         return [], []
     problems: list[dict[str, Any]] = []
+    # The analysis marks a gap when a later number comes first; a packet in it
+    # may still arrive (reordered, "out_of_order"), so a gap's loss is the
+    # numbers that never came (Codex review: 1, 3, 2, 4 counted one lost).
+    # Points hold RTP's 16-bit numbers: unwrapped here like the analysis'.
+    extended: list[int] = []
+    for p in points:
+        seq = int(p[at["seq"]] or 0) & 0xFFFF
+        if extended:
+            step = (seq - extended[-1]) & 0xFFFF
+            extended.append(extended[-1] + (step - 0x10000 if step >= 0x8000 else step))
+        else:
+            extended.append(seq)
+    arrived = set(extended)
     duration = max(float(points[-1][at["time"]]), 0.0)
     width = duration / buckets if duration > 0 else 0.0
     count = buckets if width else 1
@@ -837,10 +851,11 @@ def _rtp_points(
         }
         for i in range(count)
     ]
-    for p in points:
+    for p, ext in zip(points, extended, strict=True):
         status = int(p[at["status"]] or 0)
-        gap = int(p[at["gap"]] or 0) if "gap" in at else 0
-        if status in _RTP_PROBLEMS:
+        skipped = int(p[at["gap"]] or 0) if "gap" in at else 0
+        gap = sum(1 for n in range(ext - skipped, ext) if n not in arrived)
+        if status in _RTP_PROBLEMS and not (skipped and not gap):
             problem: dict[str, Any] = {
                 "packet": p[at["frame"]],
                 "seq": p[at["seq"]],
@@ -848,6 +863,8 @@ def _rtp_points(
             }
             if gap:
                 problem["lostBefore"] = gap
+            if skipped > gap:
+                problem["arrivedLater"] = skipped - gap
             problems.append(problem)
         time = max(float(p[at["time"]]), 0.0)
         cell = timeline[min(int(time / width), count - 1) if width else 0]
@@ -1864,6 +1881,17 @@ class Toolbox:
         per_stream = _int(args, "problems", 10, 0, MAX_SEQUENCE_PROBLEMS)
         flt = _str(args, "filter")
         service = self.captures.get(path, ctx)
+        types = service.field_types({"names": [seq, *keys]}, ctx)["types"]
+        # The numbers are the field's values: a text field's (ftp.request.arg)
+        # would come back as first/last numbers, so only numbers without packet
+        # data (Codex review). An unknown field is the check's own error.
+        seq_type = types.get(seq, {}).get("type", "")
+        if seq_type and not self.config.allow_packet_data and not _numeric(seq_type):
+            raise ToolFailureError(
+                f"{seq} is a {seq_type} field: its values are packet contents the user has not "
+                f"allowed this server to share ({_CONTENTS_REFUSED}). Name a numeric sequence "
+                "field, e.g. gtp.seq_number or rtp.seq"
+            )
         table = service.stats(
             {
                 "kind": "sequences",
@@ -1875,7 +1903,6 @@ class Toolbox:
             },
             ctx,
         )
-        types = service.field_types({"names": keys}, ctx)["types"] if keys else {}
         show_keys = self.config.allow_packet_data or all(
             _numeric(types.get(k, {}).get("type", "")) for k in keys
         )

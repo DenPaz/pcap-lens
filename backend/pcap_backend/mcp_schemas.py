@@ -553,6 +553,9 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
                         "seq": INT,
                         "problem": _about("lost, out_of_order or payload_changed", STR),
                         "lostBefore": _about("Packets missing before this one", INT),
+                        "arrivedLater": _about(
+                            "Packets skipped before this one that came later (reordered)", INT
+                        ),
                     },
                     ("packet", "seq", "problem"),
                 )

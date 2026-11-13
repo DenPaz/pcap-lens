@@ -486,6 +486,17 @@ def test_sequence_check(client_for: Any) -> None:
         streams_by=["ip.src"],
     )  # fmt: skip
     assert "keyValues" not in shown and "ip.src" in shown["streams"][0]["key"]
+    # The sequence field's values come back as numbers: a text field's are
+    # packet contents (a password in ftp.request.arg; Codex review).
+    text, failed = c.call(
+        "sequence_check", capture="sequences.pcap", sequence="ftp.request.arg",
+        filter='ftp.request.command == "PASS"',
+    )  # fmt: skip
+    assert failed and "FT_STRING field" in text and "numeric sequence field" in text
+    allowed, failed = client_for(allow_packet_data=True).call(
+        "sequence_check", capture="sequences.pcap", sequence="ftp.request.arg",
+    )  # fmt: skip
+    assert not failed and allowed["summary"]["streams"] == 0
     for bad, words in (
         ({"sequence": ""}, "sequence"),
         ({"sequence": "gtp.seq_number", "wrap_bits": 12}, "wrap_bits"),
@@ -493,6 +504,27 @@ def test_sequence_check(client_for: Any) -> None:
     ):
         text, failed = c.call("sequence_check", capture="sequences.pcap", **bad)
         assert failed and words in text, (bad, text)
+
+
+def test_rtp_points_count_only_numbers_that_never_came() -> None:
+    fields = ["frame", "time", "seq", "delta", "jitter", "skew", "marker", "status", "gap"]
+
+    def point(frame: int, seq: int, status: int = 0, gap: int = 0) -> list[Any]:
+        return [frame, frame / 50, seq, 20.0, 0.0, 0.0, 0, status, gap]
+
+    # 1, 3, 2, 4: the analysis marks a gap at 3 and 2 as late; nothing is lost
+    # (Codex review: the timeline counted one).
+    reordered = [point(1, 1), point(2, 3, 1, 1), point(3, 2, 2), point(4, 4)]
+    problems, timeline = mcp._rtp_points(fields, reordered, 2)
+    assert problems == [{"packet": 3, "seq": 2, "problem": "out_of_order"}]
+    assert sum(t["lost"] for t in timeline) == 0
+    # Across the 16-bit wrap: 65534 then 1 skips 65535 and 0; 0 comes later.
+    wrapped = [point(1, 65534), point(2, 1, 1, 2), point(3, 0, 2), point(4, 2)]
+    problems, timeline = mcp._rtp_points(fields, wrapped, 1)
+    assert problems[0] == {
+        "packet": 2, "seq": 1, "problem": "lost", "lostBefore": 1, "arrivedLater": 1,
+    }  # fmt: skip
+    assert problems[1]["problem"] == "out_of_order" and timeline[0]["lost"] == 1
 
 
 def test_sequence_streams_of_the_panel_table() -> None:
