@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.35.0 — 2026-11-13
+
 ### Added
 
 - Copilot tools for the PCAP Lens agent: VoIP calls (`#pcapVoipCalls`: each
