@@ -7,6 +7,14 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- Statistics tables have a _Filter rows_ box (Ctrl+F): it narrows a table,
+  a session table of 50,000 rows too, to the rows holding every word typed,
+  without running tshark again; in a tree a match keeps its parents [ec47aa9]
+
+[ec47aa9]: https://github.com/DenPaz/pcap-lens/commit/ec47aa9
+
 ## 0.35.1 — 2026-11-14
 
 ### Fixed
