@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.36.0 — 2026-11-14
+
 ### Added
 
 - Statistics tables have a _Filter rows_ box (Ctrl+F): it narrows a table,
