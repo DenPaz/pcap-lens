@@ -658,13 +658,22 @@ def test_replay_stop(
     params = {"speed": 0.02, "targets": {HI2: {"ip": "127.0.0.1", "port": hi2.port}}}
     out: dict[str, Any] = {}
     worker = threading.Thread(target=lambda: out.update(opened.replay(params, ctx)))
+    started = time.monotonic()
     worker.start()
-    time.sleep(0.5)
+    # Wait for the first connection, not a fixed time: the replay first runs a
+    # tshark pass over the capture, which took over 0.5 s on macOS CI.
+    deadline = started + 20
+    while not hi2.received and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert hi2.received, "the replay opened no connection"
     with pytest.raises(InvalidParamsError, match="already running"):
         opened.replay(params, ctx)
+    stopped_at = time.monotonic() - started
     assert opened.replay_stop({}, ctx) == {"stopped": True}
     worker.join(10)
-    assert out["stopped"] is True and out["seconds"] < 5  # (15 s at that speed)
+    assert not worker.is_alive()
+    # Stopped soon after Stop (the whole replay takes 15 s at that speed).
+    assert out["stopped"] is True and out["seconds"] < stopped_at + 3
     assert out["targets"][0]["opened"] >= 1
 
 
