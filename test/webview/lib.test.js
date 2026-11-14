@@ -1139,6 +1139,20 @@ suite("webview lib: follow stream and statistics helpers", () => {
     assert.equal(lib.prettyBody("text", "plain"), null);
   });
 
+  test("activityBars and activityLabel draw and describe a row's activity", () => {
+    assert.deepEqual(lib.activityBars([0, 5, 10, 0], 40, 10), [
+      { x: 10, y: 5, w: 9, h: 5 },
+      { x: 20, y: 0, w: 9, h: 10 },
+    ]);
+    assert.deepEqual(lib.activityBars([1000, 1], 4, 10)[1], { x: 2, y: 9, w: 2, h: 1 }, "≥ 1 px");
+    assert.deepEqual(lib.activityBars([0, 0], 10, 10), []);
+    assert.deepEqual(lib.activityBars([], 10, 10), []);
+    assert.equal(
+      lib.activityLabel([0, 2048, 512, 0], 0.1),
+      "Busiest 0.1–0.2 s (2.0 KB); traffic in 2 of 4 intervals of 0.1 s",
+    );
+  });
+
   test("searchRows keeps rows holding every word; in a tree, parents and children too", () => {
     const flat = [
       { cells: ["10.0.0.1:5000", "93.184.216.34:443", 1234] },

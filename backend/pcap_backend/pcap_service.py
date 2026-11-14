@@ -93,6 +93,7 @@ def rpc_methods(service: PcapService) -> dict[str, Callable[[dict[str, Any], Req
         "stats": service.stats,
         "http_body": service.http_body,
         "http_exchange": service.http_exchange,
+        "stats_activity": service.stats_activity,
         "overview": service.overview,
         "check_dissectors": service.check_dissectors,
         "decode_as_options": service.decode_as_options,

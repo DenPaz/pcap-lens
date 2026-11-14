@@ -2360,6 +2360,51 @@
   }
 
   /**
+   * A row's activity chart (bytes per interval, activity.py) as bars in a
+   * `width` × `height` box, the tallest filling it, any traffic at least
+   * 1 px high: [{x, y, w, h}] for the intervals with traffic.
+   * @param {number[]} values @param {number} width @param {number} height
+   */
+  function activityBars(values, width, height) {
+    const max = Math.max(0, ...values);
+    if (!values.length || !max) {
+      return [];
+    }
+    const step = width / values.length;
+    const w = Math.max(1, step - (step > 3 ? 1 : 0));
+    /** @type {{x: number, y: number, w: number, h: number}[]} */
+    const bars = [];
+    values.forEach((v, i) => {
+      if (v > 0) {
+        const h = Math.max(1, (v / max) * height);
+        bars.push({ x: i * step, y: height - h, w, h });
+      }
+    });
+    return bars;
+  }
+
+  /**
+   * What a row's activity chart shows, in words (its accessible name):
+   * "Busiest 0.5–0.6 s (14.6 KB); traffic in 11 of 18 intervals of 0.1 s".
+   * @param {number[]} values @param {number} interval (seconds)
+   */
+  function activityLabel(values, interval) {
+    let peak = 0;
+    values.forEach((v, i) => {
+      if (v > values[peak]) {
+        peak = i;
+      }
+    });
+    const active = values.filter((v) => v > 0).length;
+    /** @param {number} t */
+    const at = (t) => String(Number(t.toFixed(3)));
+    return (
+      `Busiest ${at(peak * interval)}–${at((peak + 1) * interval)} s (${formatBytes(values[peak] ?? 0)}); ` +
+      `traffic in ${active} of ${values.length} intervals of ${formatInterval(interval)}`
+    );
+  }
+
+  /**
    * The rows a statistics table's text filter keeps: those whose cells (as
    * shown, `formatCell`) hold every word of `text`, case-insensitively, in
    * their order. In a tree (rows with `depth`), a match keeps its parents,
@@ -4153,6 +4198,8 @@
     columnChars,
     filterButtonTitle,
     searchRows,
+    activityBars,
+    activityLabel,
     bodyKind,
     charsetOf,
     decodeBody,

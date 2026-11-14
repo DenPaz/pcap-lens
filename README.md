@@ -117,9 +117,10 @@ words, instantly.
   rates, packets over time, top addresses, protocols, TCP services, and HTTP,
   DNS and TLS breakdowns. Each row applies its filter, and each card opens
   the full report.
-- **General**: conversations, endpoints (with a GeoIP world map when MaxMind
-  databases are set), protocol hierarchy, expert information, capture
-  properties, flow graph.
+- **General**: conversations and endpoints (each row with a small chart of
+  its traffic over time, and a GeoIP world map when MaxMind databases are
+  set), protocol hierarchy, expert information, capture properties, flow
+  graph.
 - **I/O graphs**: up to eight graphs of packets, bytes or a field's
   SUM/MAX/AVG…, lines or bars, linear or log scale.
 - **Sessions**: **HTTP Requests** (each request with its status, size and

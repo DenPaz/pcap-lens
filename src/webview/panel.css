@@ -125,6 +125,17 @@ table.stats td.wrap {
   white-space: normal;
 }
 
+table.stats td.spark {
+  padding-top: 0;
+  padding-bottom: 0;
+  vertical-align: middle;
+  line-height: 0;
+}
+
+table.stats td.spark rect {
+  fill: var(--vscode-charts-blue, #1a85ff);
+}
+
 #stats-search {
   width: 16em;
   min-width: 8em;

@@ -928,6 +928,27 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   to get frame numbers. Rows are matched by regex because multi-word groups
   ("Response code") overflow tshark's fixed-width column. The display-filter
   limit uses each tap's own filter argument (`conv,tcp,<filter>` etc.).
+- **Activity charts** (`activity.py`, `stats_activity {kind, type,
+filter}`; conversations and endpoints): each row's bytes over time as a
+  small SVG bar chart in an _Activity_ column (`sparkCell`,
+  `lib.activityBars`, `lib.activityLabel` as the chart's name: its busiest
+  interval). A fields pass over every packet (`activity.FIELDS`: time,
+  length, eth/ip/ipv6 addresses, tcp/udp ports, aggregator `\x1e`) costs
+  several times the report (200k packets: 0.7 s → 5.6 s), so `stats` only
+  answers the report and keeps its table on the `_Open` (`f.reports`, LRU 4,
+  by kind, type and counted filter); StatsPanel then asks `stats_activity`
+  (one at a time, cancelled by a newer query) and posts `activity {id,
+activity, rows}`, which the webview merges row for row into the table of
+  that query (`state.resultId`). `activity.Grid` keeps one interval for
+  every key (`overview`'s steps, merging all keys' buckets when it grows),
+  `packet_keys` maps a packet to rows (a sorted pair of ends, or each end;
+  a tunnel's headers each count, UDP/TCP ports with the IP header carrying
+  them, matched from the innermost), and `attach` charts the `MAX_ROWS`
+  (2,000) busiest rows: rows sharing ends (a reused TCP port, RTP's
+  directions, which tshark lists apart) take the buckets their own Rel
+  Start…end overlaps, and every chart is scaled to its row's bytes (an
+  ICMP error quoting a header counts in the pass, not in tshark's report).
+  A failed pass only leaves the charts out.
 - **Expert indicator** (`expert_summary`, `lib.expertStatus`,
   `status.js` `loadExpertSummary`): one `-q -z expert,comment` pass
   (`stats.parse_expert_counts`: the section headers' totals per severity),

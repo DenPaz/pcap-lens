@@ -91,6 +91,8 @@
     badField: null,
     /** The table's text filter (lib.searchRows): rows already loaded, no query. */
     search: "",
+    /** The query the table shown answers (its activity charts come after it). @type {number | null} */
+    resultId: null,
   };
 
   const app = /** @type {HTMLElement} */ (document.getElementById("app"));
@@ -610,7 +612,20 @@
         state.type = msg.table.type || state.type;
         buildToolbar();
       }
+      state.resultId = msg.id;
       render();
+    } else if (msg.type === "activity" && msg.id === state.resultId && state.table) {
+      // Conversations' and endpoints' activity over time, after their rows
+      // (the same table, row for row).
+      if (msg.activity && Array.isArray(msg.rows) && msg.rows.length === state.table.rows.length) {
+        state.table.activity = msg.activity;
+        state.table.rows.forEach((/** @type {any} */ row, /** @type {number} */ i) => {
+          if (Array.isArray(msg.rows[i])) {
+            row.activity = msg.rows[i];
+          }
+        });
+        renderTable();
+      }
     } else if (msg.type === "error" && msg.id === state.pending) {
       state.pending = null;
       status.textContent = "";
@@ -783,6 +798,13 @@
       }
       headRow.append(th);
     });
+    // Conversations and endpoints: each row's activity over time (activity.py).
+    const activity = t.activity && (t.kind === "conversations" || t.kind === "endpoints");
+    if (activity) {
+      headRow.append(
+        h("th", { scope: "col", class: "spark", title: activityTitle(t.activity) }, ["Activity"]),
+      );
+    }
     const body = h("tbody");
     const rows = shownRows();
     const virtual = rows.length > lib.VIRTUAL_TABLE_ROWS;
@@ -809,6 +831,9 @@
         }
         tr.append(td);
       });
+      if (activity) {
+        tr.append(sparkCell(row.activity, t.activity.interval));
+      }
       rowOf.set(tr, row);
       if (row === state.selected) {
         tr.classList.add("selected");
@@ -848,6 +873,11 @@
         }
         cols.append(col);
       });
+      if (activity) {
+        const col = h("col");
+        col.style.width = `${SPARK_WIDTH + 2 * 8}px`;
+        cols.append(col);
+      }
       table.append(cols);
       // Never narrower than every column needs, the flexible one at least
       // FLEX_MIN_CH: when the sized columns fill the panel, the table
@@ -856,7 +886,9 @@
         (sum, width, j) => sum + (j === flexible ? Math.min(width, FLEX_MIN_CH) : width),
         0,
       );
-      table.style.minWidth = `calc(${need}ch + ${chars.length * 2 * 8}px)`;
+      table.style.minWidth = `calc(${need}ch + ${chars.length * 2 * 8}px${
+        activity ? ` + ${SPARK_WIDTH + 2 * 8}px` : ""
+      })`;
       table.setAttribute("aria-rowcount", String(rows.length + 1));
       headRow.setAttribute("aria-rowindex", "1");
     }
@@ -877,12 +909,46 @@
       rows,
       body,
       rowElement,
-      columns: shown.length,
+      columns: shown.length + (activity ? 1 : 0),
       rowHeight: 0,
       start: -1,
       end: -1,
     };
     drawWindow();
+  }
+
+  /** The activity chart's size (px). */
+  const SPARK_WIDTH = 96;
+  const SPARK_HEIGHT = 16;
+
+  /** The Activity column's tooltip: what a chart covers. @param {{interval: number, buckets: number}} a */
+  function activityTitle(a) {
+    return `Bytes over time: the capture in ${a.buckets} intervals of ${lib.formatInterval(a.interval)}, each row on its own scale`;
+  }
+
+  /**
+   * A row's activity chart (bars, its busiest interval in words as its
+   * name); an empty cell for a row without one.
+   * @param {number[] | undefined} values @param {number} interval
+   */
+  function sparkCell(values, interval) {
+    const td = h("td", { class: "spark" });
+    if (!values) {
+      return td;
+    }
+    const svg = s("svg", {
+      width: SPARK_WIDTH,
+      height: SPARK_HEIGHT,
+      viewBox: `0 0 ${SPARK_WIDTH} ${SPARK_HEIGHT}`,
+      role: "img",
+      "aria-label": lib.activityLabel(values, interval),
+    });
+    for (const bar of lib.activityBars(values, SPARK_WIDTH, SPARK_HEIGHT)) {
+      svg.append(s("rect", { x: bar.x, y: bar.y, width: bar.w, height: bar.h }));
+    }
+    svg.append(s("title", {}, lib.activityLabel(values, interval)));
+    td.append(svg);
+    return td;
   }
 
   /**

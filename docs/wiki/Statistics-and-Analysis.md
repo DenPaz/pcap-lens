@@ -26,7 +26,12 @@ applies its filter, and every card opens its full report.
 
 - **Capture File Properties**: packets, times, size, link type, format.
 - **Protocol Hierarchy**, **Conversations** and **Endpoints** (Ethernet,
-  IPv4, IPv6, TCP, UDP). With MaxMind databases
+  IPv4, IPv6, TCP, UDP). Each conversation and endpoint gets an
+  **Activity** chart: its bytes over the capture, in intervals shared by
+  every row (each row on its own scale; hover one for its busiest
+  interval), so bursts, steady streams and late starts stand out. The
+  charts come a moment after the rows: they need one more pass over the
+  capture. With MaxMind databases
   (`pcapViewer.geoip.databaseFolders`) the endpoints get country, city and
   AS columns and a world map.
 - **Expert Information**: problems tshark found, by severity, each with its

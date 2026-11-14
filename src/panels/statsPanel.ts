@@ -347,6 +347,9 @@ export class StatsPanel {
       const table = await pending.promise;
       this.lastOutcome = { ok: true };
       this.post({ type: "result", id, table });
+      if (this.kind === "conversations" || this.kind === "endpoints") {
+        void this.activity(id, { kind: this.kind, type: params.type, filter });
+      }
     } catch (err) {
       const e = err instanceof RpcError ? err : new RpcError(String(err), ErrorCodes.InternalError);
       if (!e.cancelled) {
@@ -369,8 +372,48 @@ export class StatsPanel {
     }
   }
 
+  /** The activity charts' request in flight (one at a time: a newer query's replaces it). */
+  private activityRequest: number | undefined;
+  /** The latest charts posted (the smoke test reads them). */
+  lastActivity: { activity: unknown; rows: unknown[] } | undefined;
+
+  /**
+   * Conversations' and endpoints' activity over time, asked after their
+   * table (a pass over every packet: several times the report's cost) and
+   * posted as `activity` for query `id`. A failure only leaves the charts
+   * out.
+   */
+  private async activity(
+    id: number,
+    params: { kind: string; type?: string; filter: string },
+  ): Promise<void> {
+    const client = this.session.backend;
+    if (!client?.running) {
+      return;
+    }
+    if (this.activityRequest !== undefined) {
+      client.cancel(this.activityRequest);
+    }
+    const pending = client.send("stats_activity", params, { timeoutMs: 0 });
+    this.activityRequest = pending.id;
+    try {
+      const charts = (await pending.promise) as { activity: unknown; rows: unknown[] };
+      this.lastActivity = charts;
+      this.post({ type: "activity", id, ...charts });
+    } catch {
+      // (Cancelled by a newer query, or tshark refused: the table stays as it is.)
+    } finally {
+      if (this.activityRequest === pending.id) {
+        this.activityRequest = undefined;
+      }
+    }
+  }
+
   private dispose(): void {
     StatsPanel.open.delete(this.key);
+    if (this.activityRequest !== undefined) {
+      this.session.backend?.cancel(this.activityRequest);
+    }
     for (const backendId of this.inflight.values()) {
       this.session.backend?.cancel(backendId);
     }

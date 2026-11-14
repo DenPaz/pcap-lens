@@ -226,6 +226,12 @@ suite("PCAP Lens smoke test", () => {
     const stats = await waitFor(() =>
       api.panels.StatsPanel.all.find((p) => p.kind === "conversations" && p.session === session),
     );
+    // Its rows' activity over time comes after the table (stats_activity).
+    const charts = await waitFor(() => stats.lastActivity);
+    assert.ok(
+      charts.rows.length >= 1 && charts.rows.every((r) => Array.isArray(r)),
+      "every conversation of http.pcap gets a chart",
+    );
     // The sequence check with fields from a command: its panel opens on this capture.
     session.reveal();
     await vscode.commands.executeCommand("pcapViewer.statistics.sequences", {

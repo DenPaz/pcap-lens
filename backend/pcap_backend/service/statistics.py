@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from typing import Any
 
-from pcap_backend import overview, sequence, sessions, stats, triage
+from pcap_backend import activity, overview, sequence, sessions, stats, triage
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, param
 from pcap_backend.stats import IoSeries, Table
 from pcap_backend.tshark import StreamResult, ToolError, broke, failed, run, stream_lines
@@ -79,7 +79,8 @@ class StatisticsMixin(DissectionMixin):
         ctx.progress({"phase": "stats", "fraction": None})
         match kind:
             case "conversations" | "endpoints":
-                table = self._conversations(f, kind, param(params, "type", str, "tcp"), suffix, ctx)
+                typ = param(params, "type", str, "tcp")
+                table = self._conversations(f, kind, typ, counted, ctx)
             case "phs":
                 table = stats.parse_protocol_hierarchy(self._tap(f, f"io,phs{suffix}", ctx))
             case "io":
@@ -118,20 +119,59 @@ class StatisticsMixin(DissectionMixin):
         return result
 
     def _conversations(
-        self, f: _Open, kind: str, typ: str, suffix: str, ctx: RequestContext
+        self, f: _Open, kind: str, typ: str, counted: str, ctx: RequestContext
     ) -> Table:
         """Conversations or endpoints of one address type (IP endpoints with
-        their GeoIP locations)."""
+        their GeoIP locations), with each row's activity over time
+        (activity.py: a fields pass run beside the report)."""
         if typ not in stats.CONV_TYPES:
             raise InvalidParamsError(f"type must be one of {', '.join(stats.CONV_TYPES)}")
         tap = "conv" if kind == "conversations" else "endpoints"
-        text = self._tap(f, f"{tap},{typ}{suffix}", ctx)
+        text = self._tap(f, f"{tap},{typ}{',' + counted if counted else ''}", ctx)
         parse = stats.parse_conversations if kind == "conversations" else stats.parse_endpoints
         table = parse(text, typ)
         table.extra["type"] = typ
+        f.reports.put((kind, typ, counted), table)
         if kind == "endpoints" and typ in ("ip", "ipv6"):
             self._add_geoip(f, table)
         return table
+
+    def stats_activity(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """The activity over time of a conversations or endpoints table's rows
+        (activity.py), asked after the table (``stats`` with the same
+        ``kind``, ``type`` and ``filter``): a fields pass over every packet
+        costs several times the report, so the panel shows the rows first.
+        ``{activity: {interval, buckets} | None, rows: [values | None]}`` in
+        the table's row order; cached with the table."""
+        kind = param(params, "kind", str)
+        if kind not in ("conversations", "endpoints"):
+            raise InvalidParamsError("kind must be conversations or endpoints")
+        typ = param(params, "type", str, "tcp")
+        flt = param(params, "filter", str, "").strip()
+        f = self._require_file()
+        counted = self._without_ignored(flt)
+        table = f.reports.get((kind, typ, counted))
+        if table is None:
+            if flt:
+                error = f.tshark.validate_filter(flt, ctx.token)
+                if error:
+                    raise FilterError(error, {"expr": flt})
+            table = self._conversations(f, kind, typ, counted, ctx)
+        if "activity" not in table.extra:
+            ctx.progress({"phase": "activity", "fraction": None})
+            args = [*(["-Y", counted] if counted else []), *_fields_args(activity.FIELDS)]
+            args += ["-E", f"aggregator={activity.AGGREGATOR}"]
+            result = StreamResult()
+            lines = stream_lines(f.tshark.argv(*args, capture=str(f.path)), result, ctx.token)
+            grid = activity.collect((raw.decode("utf-8", "replace") for raw in lines), typ, kind)
+            if broke(result.returncode, result.stderr, bool(grid.data)):
+                raise f.tshark.error(result.stderr, result.returncode, "tshark failed")
+            activity.attach(table, typ, grid)
+            table.extra.setdefault("activity", None)
+        return {
+            "activity": table.extra["activity"],
+            "rows": [row.get("activity") for row in table.rows],
+        }
 
     def _add_geoip(self, f: _Open, table: Table) -> None:
         """Country, city and AS columns for IP endpoints, from the MaxMind

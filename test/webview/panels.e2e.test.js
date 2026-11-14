@@ -119,7 +119,19 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
           series: msg.params.series,
         };
         backend.request("stats", params, { timeoutMs: 0 }).then(
-          (table) => post({ type: "result", id: msg.id, table }),
+          async (table) => {
+            await post({ type: "result", id: msg.id, table });
+            // (StatsPanel asks for the rows' activity after the table.)
+            if (kind === "conversations" || kind === "endpoints") {
+              const { type, filter } = params;
+              const charts = await backend.request(
+                "stats_activity",
+                { kind, type, filter },
+                { timeoutMs: 0 },
+              );
+              await post({ type: "activity", id: msg.id, ...charts });
+            }
+          },
           (err) =>
             post({
               type: "error",
@@ -246,6 +258,17 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
 
     await page.selectOption("select[aria-label='Address type']", "udp");
     await waitRows(page, 4);
+    // Each row's activity over time, named by its busiest interval (after the rows).
+    await page.waitForSelector("table.stats th.spark");
+    assert.equal(await page.textContent("table.stats th.spark"), "Activity");
+    const sparks = await page.$$eval("table.stats tbody td.spark svg", (svgs) =>
+      svgs.map((svg) => [svg.getAttribute("aria-label"), svg.querySelectorAll("rect").length]),
+    );
+    assert.equal(sparks.length, 4);
+    for (const [label, bars] of sparks) {
+      assert.match(label, /^Busiest [\d.]+–[\d.]+ s \(.+\); traffic in \d+ of \d+ intervals of /);
+      assert.ok(bars >= 1);
+    }
     await page.click("th:has-text('Packets A → B')"); // numeric columns sort descending first
     const sorted = (await rows(page)).map((r) => r[4]);
     assert.deepEqual(
