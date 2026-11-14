@@ -200,8 +200,22 @@ export function shellQuote(arg: string, windows: boolean): string {
   if (!windows) {
     return `'${arg.replace(/'/g, "'\\''")}'`;
   }
-  const escaped = arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1");
-  return `"${escaped}"`;
+  // One pass, counting backslashes (the regexes /(\\*)"/g and /(\\+)$/
+  // rescanned a long run of backslashes from each of its positions: CodeQL's
+  // polynomial regular expression alert).
+  let escaped = "";
+  let backslashes = 0;
+  for (const c of arg) {
+    if (c === "\\") {
+      backslashes++;
+      continue;
+    }
+    // Backslashes before a quote are doubled, the quote escaped.
+    escaped += c === '"' ? "\\".repeat(2 * backslashes) + '\\"' : "\\".repeat(backslashes) + c;
+    backslashes = 0;
+  }
+  // And doubled before the closing quote.
+  return `"${escaped}${"\\".repeat(2 * backslashes)}"`;
 }
 
 /**
