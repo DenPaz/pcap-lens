@@ -7,6 +7,14 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- Building a filter from a long value made of colons (Apply as Filter, a
+  packet-list cell) no longer takes quadratic time (CodeQL's polynomial
+  regular expression alert) [8d59984]
+
+[8d59984]: https://github.com/DenPaz/pcap-lens/commit/8d59984
+
 ## 0.35.0 — 2026-11-13
 
 ### Added
