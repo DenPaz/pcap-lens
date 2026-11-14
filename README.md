@@ -109,21 +109,29 @@ dissector you pick).
 ### Statistics and streams
 
 Each report opens beside the capture, can be limited to the current filter,
-and its rows apply or prepare a filter, go to a packet or copy.
+and its rows apply or prepare a filter, go to a packet or copy. Type in
+_Filter rows_ (or press Ctrl+F) to narrow a table to the rows holding your
+words, instantly.
 
 - **Capture Overview**: the capture at a glance, on one page: totals and
   rates, packets over time, top addresses, protocols, TCP services, and HTTP,
   DNS and TLS breakdowns. Each row applies its filter, and each card opens
   the full report.
-- **General**: conversations, endpoints (with a GeoIP world map when MaxMind
-  databases are set), protocol hierarchy, expert information, capture
-  properties, flow graph.
+- **General**: conversations and endpoints (each row with a small chart of
+  its traffic over time; TCP and UDP conversations can be grouped by their
+  two hosts; a GeoIP world map when MaxMind databases are set), protocol
+  hierarchy, expert information, capture properties, flow
+  graph.
 - **I/O graphs**: up to eight graphs of packets, bytes or a field's
   SUM/MAX/AVG…, lines or bars, linear or log scale.
-- **Sessions**: **HTTP Requests** (each request with its status, size,
-  response time and a button to view the response body), **DNS Queries**
+- **Sessions**: **HTTP Requests** (each request with its status, size and
+  response time; _Show Request and Response_ puts both side by side: their
+  headers and bodies, JSON, XML, HTML and forms pretty-printed, images
+  shown), **DNS Queries**
   (answers, result and latency) and **TLS Servers** (SNI, versions, cipher
-  suites, ALPN, connections and failed handshakes).
+  suites, ALPN, connections, failed handshakes, and the server's certificate:
+  its name, issuer and expiry, flagged when it had expired, was self-signed
+  or wasn't for the name the client asked for).
 - **Sequence Check**: name the fields that identify a stream (a LIID and
   CIN, a GTP tunnel, your Lua dissector's fields) and the one that numbers
   its messages; each stream's missing numbers, duplicates, late messages and

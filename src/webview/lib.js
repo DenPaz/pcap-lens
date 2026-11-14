@@ -1964,6 +1964,654 @@
     return widths.map((w) => Math.min(w, max));
   }
 
+  // ------------------------------------------------------------ HTTP bodies
+
+  /** Bodies longer than this (characters) are shown as plain text, not pretty-printed. */
+  const PRETTY_MAX = 1_000_000;
+  /**
+   * Pretty-printed text longer than this (characters) falls back to plain
+   * text: indentation grows with nesting, so a 20 kB body of 10,000 nested
+   * arrays printed 200 million characters (Codex review).
+   */
+  const PRETTY_OUTPUT_MAX = 4_000_000;
+
+  /** A body too deep to pretty-print (prettyJson, prettyMarkup return null). */
+  class PrettyTooLarge extends Error {}
+
+  /**
+   * `push` that counts what it appended against PRETTY_OUTPUT_MAX.
+   * @param {Segments} out @param {{size: number}} budget
+   */
+  function counted(out, budget) {
+    return (/** @type {string} */ text, /** @type {string} */ cls) => {
+      budget.size += text.length;
+      if (budget.size > PRETTY_OUTPUT_MAX) {
+        throw new PrettyTooLarge();
+      }
+      push(out, text, cls);
+    };
+  }
+  /** HTML elements that have no end tag (they don't nest). */
+  const VOID_ELEMENTS = new Set([
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
+    "source", "track", "wbr",
+  ]); // prettier-ignore
+
+  /**
+   * A Content-Type's media type, lower-cased, without its parameters.
+   * @param {string} contentType
+   */
+  function mediaType(contentType) {
+    return contentType.split(";", 1)[0].trim().toLowerCase();
+  }
+
+  /**
+   * The charset a Content-Type names (TextDecoder's label), else "utf-8".
+   * @param {string} contentType
+   */
+  function charsetOf(contentType) {
+    for (const part of contentType.split(";").slice(1)) {
+      const [key, value] = part.split("=", 2).map((t) => t.trim());
+      if (key.toLowerCase() === "charset" && value) {
+        const label = value.replace(/^["']|["']$/g, "");
+        try {
+          new TextDecoder(label);
+          return label;
+        } catch {
+          return "utf-8";
+        }
+      }
+    }
+    return "utf-8";
+  }
+
+  /**
+   * How an HTTP body is best shown: "image" (its bytes are one: imageMime),
+   * "json", "xml", "html", "form" (application/x-www-form-urlencoded), "text"
+   * (a text type, or bytes that decode as UTF-8 without control characters)
+   * or "binary"; an empty body is "empty".
+   * @param {string} contentType @param {Uint8Array} bytes
+   * @returns {"empty"|"image"|"json"|"xml"|"html"|"form"|"text"|"binary"}
+   */
+  function bodyKind(contentType, bytes) {
+    if (!bytes.length) {
+      return "empty";
+    }
+    const type = mediaType(contentType);
+    if (imageMime(bytes)) {
+      return "image";
+    }
+    if (type === "application/json" || type.endsWith("+json") || type.endsWith("/json")) {
+      return "json";
+    }
+    if (type === "text/html" || type === "application/xhtml+xml") {
+      return "html";
+    }
+    if (type.endsWith("/xml") || type.endsWith("+xml")) {
+      return "xml";
+    }
+    if (type === "application/x-www-form-urlencoded") {
+      return "form";
+    }
+    if (type.startsWith("text/") || type.endsWith("javascript") || type.endsWith("ecmascript")) {
+      return "text";
+    }
+    // Untyped (or a generic type): JSON or text when the bytes say so.
+    let text;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, 65536));
+    } catch {
+      return "binary";
+    }
+    // (Control characters other than tab, line feed and carriage return: binary.)
+    for (let k = 0; k < text.length; k++) {
+      const code = text.charCodeAt(k);
+      if ((code < 0x20 && code !== 9 && code !== 10 && code !== 13) || code === 0x7f) {
+        return "binary";
+      }
+    }
+    const start = text.trimStart()[0];
+    if (
+      (start === "{" || start === "[") &&
+      bytes.length <= PRETTY_MAX &&
+      prettyJson(decodeBody(bytes, ""))
+    ) {
+      return "json";
+    }
+    return "text";
+  }
+
+  /**
+   * A body's text by its Content-Type's charset (malformed bytes as U+FFFD).
+   * @param {Uint8Array} bytes @param {string} contentType
+   */
+  function decodeBody(bytes, contentType) {
+    return new TextDecoder(charsetOf(contentType)).decode(bytes);
+  }
+
+  /**
+   * Pieces of text with the class that colours them ("" for none).
+   * @typedef {[string, string][]} Segments
+   */
+
+  /** Appends `text` with `cls`, joining it to the last piece when they match. @param {Segments} out @param {string} text @param {string} cls */
+  function push(out, text, cls) {
+    const last = out[out.length - 1];
+    if (last && last[1] === cls) {
+      last[0] += text;
+    } else if (text) {
+      out.push([text, cls]);
+    }
+  }
+
+  /**
+   * JSON indented by two spaces, as coloured pieces (tok-key, tok-string,
+   * tok-number, tok-literal), or null when `text` isn't JSON or is longer
+   * than PRETTY_MAX. The text's own tokens are kept (no parse and print:
+   * 12345678901234567890 and "é" stay as written).
+   * @param {string} text @returns {Segments | null}
+   */
+  function prettyJson(text) {
+    if (text.length > PRETTY_MAX) {
+      return null;
+    }
+    try {
+      JSON.parse(text);
+    } catch {
+      return null;
+    }
+    /** @type {Segments} */
+    const out = [];
+    const put = counted(out, { size: 0 });
+    let depth = 0;
+    const newline = () => put("\n" + "  ".repeat(depth), "");
+    let i = 0;
+    try {
+      jsonTokens();
+    } catch (err) {
+      if (err instanceof PrettyTooLarge) {
+        return null;
+      }
+      throw err;
+    }
+    return out;
+
+    function jsonTokens() {
+      while (i < text.length) {
+        const c = text[i];
+        if (c === " " || c === "\t" || c === "\n" || c === "\r") {
+          i++;
+        } else if (c === '"') {
+          let j = i + 1;
+          while (j < text.length && text[j] !== '"') {
+            j += text[j] === "\\" ? 2 : 1;
+          }
+          const token = text.slice(i, j + 1);
+          let k = j + 1;
+          while (k < text.length && " \t\r\n".includes(text[k])) {
+            k++;
+          }
+          put(token, text[k] === ":" ? "tok-key" : "tok-string");
+          i = j + 1;
+        } else if (c === "{" || c === "[") {
+          // An empty object or array stays on its line.
+          let k = i + 1;
+          while (k < text.length && " \t\r\n".includes(text[k])) {
+            k++;
+          }
+          if (text[k] === (c === "{" ? "}" : "]")) {
+            put(c + text[k], "");
+            i = k + 1;
+          } else {
+            put(c, "");
+            depth++;
+            newline();
+            i++;
+          }
+        } else if (c === "}" || c === "]") {
+          depth--;
+          newline();
+          put(c, "");
+          i++;
+        } else if (c === ",") {
+          put(",", "");
+          newline();
+          i++;
+        } else if (c === ":") {
+          put(": ", "");
+          i++;
+        } else {
+          let j = i;
+          while (j < text.length && !" \t\r\n,:]}".includes(text[j])) {
+            j++;
+          }
+          const token = text.slice(i, j);
+          put(token, /^[-\d]/.test(token) ? "tok-number" : "tok-literal");
+          i = j;
+        }
+      }
+    }
+  }
+
+  /**
+   * XML or HTML with one element, text or comment a line, indented by its
+   * nesting, as coloured pieces (tok-tag, tok-attr, tok-string,
+   * tok-comment); null past PRETTY_MAX. A forgiving scanner, not a parser:
+   * HTML's void elements don't nest, a script's or style's content is kept
+   * as written, and an unclosed tag ends the text.
+   * @param {string} text @param {boolean} html @returns {Segments | null}
+   */
+  function prettyMarkup(text, html) {
+    if (text.length > PRETTY_MAX) {
+      return null;
+    }
+    /** @type {Segments} */
+    const out = [];
+    const put = counted(out, { size: 0 });
+    let depth = 0;
+    let first = true;
+    /** The text lower-cased, once (a page can hold thousands of scripts). @type {string | null} */
+    let lowerText = null;
+    const lowered = () => (lowerText ??= text.toLowerCase());
+    const line = () => {
+      if (!first) {
+        put("\n", "");
+      }
+      first = false;
+      put("  ".repeat(Math.max(0, depth)), "");
+    };
+    try {
+      markupTokens();
+    } catch (err) {
+      if (err instanceof PrettyTooLarge) {
+        return null;
+      }
+      throw err;
+    }
+    return out;
+
+    function markupTokens() {
+      let i = 0;
+      while (i < text.length) {
+        if (text[i] !== "<") {
+          let j = text.indexOf("<", i);
+          if (j < 0) {
+            j = text.length;
+          }
+          const content = text.slice(i, j).trim();
+          if (content) {
+            line();
+            put(content.replace(/\s*\n\s*/g, " "), "");
+          }
+          i = j;
+          continue;
+        }
+        // Comments, CDATA, declarations and processing instructions: as written.
+        const special = [
+          ["<!--", "-->", "tok-comment"],
+          ["<![CDATA[", "]]>", ""],
+          ["<?", "?>", "tok-tag"],
+          ["<!", ">", "tok-tag"],
+        ].find(([open]) => text.startsWith(open, i));
+        if (special) {
+          const end = text.indexOf(special[1], i + special[0].length);
+          const stop = end < 0 ? text.length : end + special[1].length;
+          line();
+          put(text.slice(i, stop), special[2]);
+          i = stop;
+          continue;
+        }
+        // A tag: up to the ">" outside quotes.
+        let j = i + 1;
+        /** @type {string | null} */
+        let quote = null;
+        while (j < text.length && (quote || text[j] !== ">")) {
+          if (quote) {
+            if (text[j] === quote) {
+              quote = null;
+            }
+          } else if (text[j] === '"' || text[j] === "'") {
+            quote = text[j];
+          }
+          j++;
+        }
+        const tag = text.slice(i + 1, j); // (without < and >)
+        const closing = tag.startsWith("/");
+        const selfClosing = tag.endsWith("/");
+        const body = tag.slice(closing ? 1 : 0, selfClosing ? -1 : undefined);
+        let n = 0;
+        while (n < body.length && !/[\s/>]/.test(body[n])) {
+          n++;
+        }
+        const name = body.slice(0, n);
+        const lower = name.toLowerCase();
+        if (closing) {
+          depth--;
+        }
+        line();
+        put((closing ? "</" : "<") + name, "tok-tag");
+        markupAttributes(put, body.slice(n));
+        put((selfClosing ? "/" : "") + (j < text.length ? ">" : ""), "tok-tag");
+        i = Math.min(j + 1, text.length);
+        if (!closing && !selfClosing && !(html && VOID_ELEMENTS.has(lower))) {
+          depth++;
+          if (html && (lower === "script" || lower === "style")) {
+            // Raw text up to its end tag, as written.
+            const end = lowered().indexOf(`</${lower}`, i);
+            const stop = end < 0 ? text.length : end;
+            const raw = text.slice(i, stop).trim();
+            if (raw) {
+              line();
+              put(raw, "");
+            }
+            i = stop;
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * A tag's attributes: names (tok-attr), "=", values (tok-string).
+   * @param {(text: string, cls: string) => void} put @param {string} text
+   */
+  function markupAttributes(put, text) {
+    let i = 0;
+    while (i < text.length) {
+      if (/\s/.test(text[i])) {
+        put(" ", "");
+        while (i < text.length && /\s/.test(text[i])) {
+          i++;
+        }
+        continue;
+      }
+      let j = i;
+      while (j < text.length && !/[\s=]/.test(text[j])) {
+        j++;
+      }
+      put(text.slice(i, j), "tok-attr");
+      i = j;
+      if (text[i] === "=") {
+        put("=", "");
+        i++;
+        const q = text[i];
+        let end;
+        if (q === '"' || q === "'") {
+          end = text.indexOf(q, i + 1);
+          end = end < 0 ? text.length : end + 1;
+        } else {
+          end = i;
+          while (end < text.length && !/\s/.test(text[end])) {
+            end++;
+          }
+        }
+        put(text.slice(i, end), "tok-string");
+        i = end;
+      }
+    }
+  }
+
+  /**
+   * application/x-www-form-urlencoded as one "name = value" line a pair,
+   * percent-decoded ("+" is a space); null past PRETTY_MAX.
+   * @param {string} text @returns {Segments | null}
+   */
+  function prettyForm(text) {
+    if (text.length > PRETTY_MAX) {
+      return null;
+    }
+    /** @param {string} t */
+    const decode = (t) => {
+      try {
+        return decodeURIComponent(t.replace(/\+/g, " "));
+      } catch {
+        return t;
+      }
+    };
+    /** @type {Segments} */
+    const out = [];
+    text
+      .trim()
+      .split("&")
+      .filter(Boolean)
+      .forEach((pair, i) => {
+        const at = pair.indexOf("=");
+        push(out, i ? "\n" : "", "");
+        push(out, decode(at < 0 ? pair : pair.slice(0, at)), "tok-key");
+        if (at >= 0) {
+          push(out, " = ", "");
+          push(out, decode(pair.slice(at + 1)), "tok-string");
+        }
+      });
+    return out;
+  }
+
+  /**
+   * A body's pretty form by its kind (bodyKind), or null when there is none
+   * (plain text, binary, too long, not what its type says).
+   * @param {string} kind @param {string} text @returns {Segments | null}
+   */
+  function prettyBody(kind, text) {
+    switch (kind) {
+      case "json":
+        return prettyJson(text);
+      case "xml":
+        return prettyMarkup(text, false);
+      case "html":
+        return prettyMarkup(text, true);
+      case "form":
+        return prettyForm(text);
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * The address of a conversation end: "10.0.0.1:443" → "10.0.0.1",
+   * "[2001:db8::1]:443" and "2001:db8::1:443" (as tshark writes IPv6 ends)
+   * → "2001:db8::1".
+   * @param {string} end
+   */
+  function endAddress(end) {
+    if (end.startsWith("[")) {
+      return end.slice(1, end.indexOf("]"));
+    }
+    const at = end.lastIndexOf(":");
+    return at > 0 && /^\d+$/.test(end.slice(at + 1)) ? end.slice(0, at) : end;
+  }
+
+  /**
+   * TCP or UDP conversations grouped by their two hosts (Wireshark has no
+   * such view; vs-shark's TCP tab has): a row per pair of addresses, its
+   * cells the pair's totals (each connection turned to the pair's A → B,
+   * the earliest start, the span to the last end, the summed activity), its
+   * filter the pair's traffic of that transport; then its connections as
+   * rows at depth 1. Groups keep the order of their first connection.
+   * Parents carry `group` (their key) and `count`, children `parent`.
+   * @param {{columns: {id: string}[], rows: any[]}} table
+   * @param {"tcp" | "udp"} transport
+   * @returns {any[]}
+   */
+  function groupConversations(table, transport) {
+    const at = Object.fromEntries(table.columns.map((c, i) => [c.id, i]));
+    /** @type {Map<string, {a: string, b: string, rows: any[]}>} */
+    const groups = new Map();
+    for (const row of table.rows) {
+      const a = endAddress(String(row.cells[at.a]));
+      const b = endAddress(String(row.cells[at.b]));
+      const [x, y] = a <= b ? [a, b] : [b, a];
+      const key = `${x}\u0000${y}`;
+      if (!groups.has(key)) {
+        groups.set(key, { a, b, rows: [] });
+      }
+      /** @type {any} */ (groups.get(key)).rows.push(row);
+    }
+    /** @type {any[]} */
+    const out = [];
+    for (const [key, g] of groups) {
+      const sum = (/** @type {string} */ id) =>
+        g.rows.reduce((n, r) => n + (r.cells[at[id]] || 0), 0);
+      // A connection listed B → A counts its "A → B" in the pair's "B → A".
+      const turned = (/** @type {string} */ ab, /** @type {string} */ ba) =>
+        g.rows.reduce(
+          (n, r) => n + (r.cells[at[endAddress(String(r.cells[at.a])) === g.a ? ab : ba]] || 0),
+          0,
+        );
+      // (Loops, not Math.min(...rows): a pair can have 150,000 connections,
+      // past the arguments a call takes.)
+      let start = Infinity;
+      let end = -Infinity;
+      for (const r of g.rows) {
+        const from = Number(r.cells[at.start]) || 0;
+        start = Math.min(start, from);
+        end = Math.max(end, from + (Number(r.cells[at.duration]) || 0));
+      }
+      const cells = table.columns.map(() => /** @type {unknown} */ (""));
+      cells[at.a] = g.a;
+      cells[at.b] = g.b;
+      cells[at.packets] = sum("packets");
+      cells[at.bytes] = sum("bytes");
+      cells[at.packets_ab] = turned("packets_ab", "packets_ba");
+      cells[at.bytes_ab] = turned("bytes_ab", "bytes_ba");
+      cells[at.packets_ba] = turned("packets_ba", "packets_ab");
+      cells[at.bytes_ba] = turned("bytes_ba", "bytes_ab");
+      cells[at.start] = Number(start.toFixed(6));
+      cells[at.duration] = Number((end - start).toFixed(6));
+      const ip = (/** @type {string} */ address) => (address.includes(":") ? "ipv6" : "ip");
+      // (A host talking to itself: both ends that host, not any of its traffic.)
+      const filter =
+        g.a === g.b
+          ? `${ip(g.a)}.src == ${g.a} && ${ip(g.a)}.dst == ${g.a} && ${transport}`
+          : `${ip(g.a)}.addr == ${g.a} && ${ip(g.b)}.addr == ${g.b} && ${transport}`;
+      /** @type {any} */
+      const parent = { cells, filter, group: key, count: g.rows.length };
+      const charts = g.rows.map((r) => r.activity);
+      if (charts.every((c) => Array.isArray(c) && c.length === charts[0].length)) {
+        parent.activity = charts[0].map((/** @type {number} */ _v, /** @type {number} */ i) =>
+          charts.reduce((n, c) => n + c[i], 0),
+        );
+      }
+      out.push(parent);
+      for (const r of g.rows) {
+        out.push({ ...r, depth: 1, parent: key });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * groupConversations' rows sorted by one column: the groups by their
+   * totals, each group's connections under it by theirs.
+   * @param {any[]} rows @param {number} col @param {boolean} desc
+   */
+  function sortGrouped(rows, col, desc) {
+    /** @type {{parent: any, children: any[]}[]} */
+    const groups = [];
+    for (const row of rows) {
+      if (row.group !== undefined) {
+        groups.push({ parent: row, children: [] });
+      } else if (groups.length) {
+        groups[groups.length - 1].children.push(row);
+      }
+    }
+    const parents = sortRows(
+      groups.map((g) => g.parent),
+      col,
+      desc,
+    );
+    const byParent = new Map(groups.map((g) => [g.parent, g.children]));
+    return parents.flatMap((p) => [p, ...sortRows(byParent.get(p) ?? [], col, desc)]);
+  }
+
+  /**
+   * A row's activity chart (bytes per interval, activity.py) as bars in a
+   * `width` × `height` box, the tallest filling it, any traffic at least
+   * 1 px high: [{x, y, w, h}] for the intervals with traffic.
+   * @param {number[]} values @param {number} width @param {number} height
+   */
+  function activityBars(values, width, height) {
+    const max = Math.max(0, ...values);
+    if (!values.length || !max) {
+      return [];
+    }
+    const step = width / values.length;
+    const w = Math.max(1, step - (step > 3 ? 1 : 0));
+    /** @type {{x: number, y: number, w: number, h: number}[]} */
+    const bars = [];
+    values.forEach((v, i) => {
+      if (v > 0) {
+        const h = Math.max(1, (v / max) * height);
+        bars.push({ x: i * step, y: height - h, w, h });
+      }
+    });
+    return bars;
+  }
+
+  /**
+   * What a row's activity chart shows, in words (its accessible name):
+   * "Busiest 0.5–0.6 s (14.6 KB); traffic in 11 of 18 intervals of 0.1 s".
+   * @param {number[]} values @param {number} interval (seconds)
+   */
+  function activityLabel(values, interval) {
+    let peak = 0;
+    values.forEach((v, i) => {
+      if (v > values[peak]) {
+        peak = i;
+      }
+    });
+    const active = values.filter((v) => v > 0).length;
+    /** @param {number} t */
+    const at = (t) => String(Number(t.toFixed(3)));
+    return (
+      `Busiest ${at(peak * interval)}–${at((peak + 1) * interval)} s (${formatBytes(values[peak] ?? 0)}); ` +
+      `traffic in ${active} of ${values.length} intervals of ${formatInterval(interval)}`
+    );
+  }
+
+  /**
+   * The rows a statistics table's text filter keeps: those whose cells (as
+   * shown, `formatCell`) hold every word of `text`, case-insensitively, in
+   * their order. In a tree (rows with `depth`), a match keeps its parents,
+   * so it is shown where it belongs, and its own children. Empty text keeps
+   * every row.
+   * @template {{cells: unknown[], depth?: number}} R
+   * @param {R[]} rows @param {string} text @returns {R[]}
+   */
+  function searchRows(rows, text) {
+    const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) {
+      return rows;
+    }
+    /** @param {R} row */
+    const matches = (row) => {
+      const shown = row.cells.map(formatCell).join("\n").toLowerCase();
+      return words.every((w) => shown.includes(w));
+    };
+    const keep = new Uint8Array(rows.length);
+    /** Indexes of the current row's parents, outermost first. @type {number[]} */
+    const parents = [];
+    /** A matching row whose children are being kept (its depth), else -1. */
+    let under = -1;
+    rows.forEach((row, i) => {
+      const depth = row.depth ?? 0;
+      while (parents.length && (rows[parents[parents.length - 1]].depth ?? 0) >= depth) {
+        parents.pop();
+      }
+      if (under >= 0 && depth <= under) {
+        under = -1;
+      }
+      if (under >= 0) {
+        keep[i] = 1;
+      } else if (matches(row)) {
+        keep[i] = 1;
+        parents.forEach((p) => (keep[p] = 1));
+        under = depth;
+      }
+      parents.push(i);
+    });
+    return rows.filter((_row, i) => keep[i]);
+  }
+
   /**
    * Stable sort of table rows by one column (numbers numerically, text case-insensitively).
    * @param {{cells: unknown[]}[]} rows @param {number} col @param {boolean} desc
@@ -2350,6 +2998,9 @@
     }
     if (s.failed) {
       parts.push(`${s.failed.toLocaleString("en-US")} failed`);
+    }
+    if (s.certificateProblems) {
+      parts.push(`${count(s.certificateProblems, "server", "servers")} with a certificate problem`);
     }
     return parts.join(" · ");
   }
@@ -3713,6 +4364,19 @@
     tableWindow,
     columnChars,
     filterButtonTitle,
+    searchRows,
+    endAddress,
+    groupConversations,
+    sortGrouped,
+    activityBars,
+    activityLabel,
+    bodyKind,
+    charsetOf,
+    decodeBody,
+    prettyBody,
+    prettyJson,
+    prettyMarkup,
+    prettyForm,
     sortRows,
     tableToCsv,
     hexRowParts,

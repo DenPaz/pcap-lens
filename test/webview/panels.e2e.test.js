@@ -119,7 +119,19 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
           series: msg.params.series,
         };
         backend.request("stats", params, { timeoutMs: 0 }).then(
-          (table) => post({ type: "result", id: msg.id, table }),
+          async (table) => {
+            await post({ type: "result", id: msg.id, table });
+            // (StatsPanel asks for the rows' activity after the table.)
+            if (kind === "conversations" || kind === "endpoints") {
+              const { type, filter } = params;
+              const charts = await backend.request(
+                "stats_activity",
+                { kind, type, filter },
+                { timeoutMs: 0 },
+              );
+              await post({ type: "activity", id: msg.id, ...charts });
+            }
+          },
           (err) =>
             post({
               type: "error",
@@ -246,6 +258,17 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
 
     await page.selectOption("select[aria-label='Address type']", "udp");
     await waitRows(page, 4);
+    // Each row's activity over time, named by its busiest interval (after the rows).
+    await page.waitForSelector("table.stats th.spark");
+    assert.equal(await page.textContent("table.stats th.spark"), "Activity");
+    const sparks = await page.$$eval("table.stats tbody td.spark svg", (svgs) =>
+      svgs.map((svg) => [svg.getAttribute("aria-label"), svg.querySelectorAll("rect").length]),
+    );
+    assert.equal(sparks.length, 4);
+    for (const [label, bars] of sparks) {
+      assert.match(label, /^Busiest [\d.]+–[\d.]+ s \(.+\); traffic in \d+ of \d+ intervals of /);
+      assert.ok(bars >= 1);
+    }
     await page.click("th:has-text('Packets A → B')"); // numeric columns sort descending first
     const sorted = (await rows(page)).map((r) => r[4]);
     assert.deepEqual(
@@ -282,6 +305,108 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       "Address A,Address B,Packets,Bytes,Packets A → B,Bytes A → B,Packets B → A,Bytes B → A,Rel Start,Duration",
     );
     assert.equal(csv.length, 5);
+
+    // The text filter: rows holding every word, in any column, no query.
+    const queries = log.filter((m) => m.type === "query").length;
+    await page.fill("#stats-search", "10.0.0.2 9999");
+    await page.waitForFunction(() => document.querySelectorAll("table.stats tbody tr").length < 4);
+    const kept = await rows(page);
+    assert.ok(kept.length >= 1, "the conversation with 10.0.0.2:9999 stays");
+    assert.ok(kept.every((r) => r.join(" ").includes("10.0.0.2:9999")));
+    assert.match(
+      await page.textContent(".status"),
+      new RegExp(`${kept.length} shown \\(filter “10\\.0\\.0\\.2 9999”\\)`),
+    );
+    assert.equal(log.filter((m) => m.type === "query").length, queries, "no new query");
+    await page.click("button:has-text('Copy as CSV')");
+    assert.equal(
+      log
+        .findLast((m) => m.type === "copy")
+        .text.trim()
+        .split("\n").length,
+      kept.length + 1,
+    );
+    await page.fill("#stats-search", "no-such-host");
+    await page.waitForSelector("tr.no-match");
+    assert.equal(await page.textContent("tr.no-match"), "No row holds “no-such-host”.");
+    await page.press("#stats-search", "Escape");
+    await waitRows(page, 4);
+    assert.equal(await page.inputValue("#stats-search"), "");
+  });
+
+  test("conversations grouped by hosts: pairs with totals, open, filter, sort and search", async () => {
+    const sessions = await startBackend(deps);
+    try {
+      await sessions.request(
+        "open",
+        { path: path.join(FIXTURES, "sessions.pcap") },
+        { timeoutMs: 0 },
+      );
+      const { page, log } = await openStats("conversations", "", false, undefined, {
+        backend: sessions,
+      });
+      await waitRows(page, 6); // (TCP: six connections)
+      assert.ok(await page.isVisible("#stats-group"), "offered for TCP");
+      await page.check("#stats-group");
+      await waitRows(page, 5); // (five pairs of hosts, closed)
+      assert.match(await page.textContent(".status"), / · 5 pairs of hosts$/);
+      const toggle = page.locator("table.stats tbody tr button.group-toggle", {
+        hasText: "2",
+      });
+      assert.equal(await toggle.count(), 1, "one pair has two connections");
+      assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+      assert.equal(
+        await toggle.getAttribute("aria-label"),
+        "Show the 2 connections between these hosts",
+      );
+      const row = page.locator("table.stats tbody tr", {
+        has: page.locator("button.group-toggle", { hasText: "2" }),
+      });
+      const cells = await row.locator("td").allTextContents();
+      // (The first cell starts with its button: the number of connections.)
+      assert.deepEqual(cells.slice(0, 2), ["2192.168.1.10", "198.51.100.20"]);
+      await toggle.click();
+      await waitRows(page, 7);
+      assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+      assert.equal(
+        await page.evaluate(() => document.activeElement?.classList.contains("group-toggle")),
+        true,
+        "the focus stays on the button",
+      );
+      const children = (await rows(page)).filter((r) => r[1] === "198.51.100.20:443");
+      assert.equal(children.length, 2);
+      assert.equal(
+        Number(cells[2]),
+        children.reduce((n, r) => n + Number(r[2]), 0),
+        "the pair's packets are its connections'",
+      );
+      // The pair's filter: both hosts, that transport.
+      await row.click();
+      await page.click("button:has-text('Apply as Filter')");
+      assert.equal(
+        log.findLast((m) => m.type === "filter").expr,
+        "ip.addr == 192.168.1.10 && ip.addr == 198.51.100.20 && tcp",
+      );
+      // Sorting keeps each connection under its pair.
+      await page.click("th:has-text('Packets A → B')");
+      const order = (await rows(page)).map((r) => r[1]);
+      const at = order.indexOf("198.51.100.20");
+      assert.deepEqual(order.slice(at, at + 3), [
+        "198.51.100.20",
+        "198.51.100.20:443",
+        "198.51.100.20:443",
+      ]);
+      // Searching opens the groups it matches in.
+      await page.fill("#stats-search", "203.0.113.5");
+      await page.press("#stats-search", "Enter");
+      await waitRows(page, 2);
+      assert.deepEqual(
+        (await rows(page)).map((r) => r[1]),
+        ["203.0.113.5", "203.0.113.5:443"],
+      );
+    } finally {
+      await sessions.dispose();
+    }
   });
 
   /** Pick a path through a page's context menus (menus.js): every label but the last opens a submenu. */
@@ -357,7 +482,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     const { page } = await openStats("conversations", "http");
     await waitRows(page, 1);
     assert.equal((await rows(page))[0][2], "11");
-    await page.check("input[type=checkbox]");
+    await page.check("#stats-limit");
     await page.waitForFunction(
       () => document.querySelector("table.stats tbody tr td:nth-child(3)")?.textContent === "2",
     );
@@ -378,6 +503,18 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     const names = (await rows(page)).map((r) => r[0]);
     const eth = names.indexOf("eth");
     assert.deepEqual(names.slice(eth, eth + 3), ["eth", "arp", "ip"]);
+    // Filtering a tree keeps a match's parents (and its children).
+    await page.fill("#stats-search", "dns");
+    await page.press("#stats-search", "Enter");
+    await page.waitForFunction(() => document.querySelectorAll("table.stats tbody tr").length < 11);
+    const kept = (await rows(page)).map((r) => r[0]);
+    assert.ok(kept.includes("dns"));
+    assert.deepEqual(
+      kept.slice(kept.indexOf("eth"), kept.indexOf("dns") + 1),
+      ["eth", "ip", "udp", "dns"],
+      "dns under its parents",
+    );
+    assert.ok(!kept.includes("arp"));
   });
 
   test("IO graph: line chart with crosshair tooltip, keyboard and metric switch", async () => {
@@ -1790,6 +1927,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         "Apply as Filter",
         "Prepare as Filter",
         "Go to Packet 8",
+        "Show Request and Response",
         "Show Response Body",
         "Show Request in New Window",
         "Show Response in New Window",
@@ -1807,6 +1945,101 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       await page.click("table.stats tbody tr >> nth=4");
       assert.ok(await page.isDisabled("button:has-text('Show Response Body')"));
 
+      // Show Request and Response: the row's packets and which message of
+      // each (the pipelined second request and its answer share packets).
+      await page.click("table.stats tbody tr >> nth=6");
+      await page.click("#show-exchange");
+      assert.deepEqual(
+        log.findLast((m) => m.type === "httpExchange"),
+        {
+          type: "httpExchange",
+          request: 59,
+          requestIndex: 1,
+          response: 61,
+          responseIndex: 1,
+          label: "GET pipe.example.com/b.txt",
+        },
+      );
+      await page.click("table.stats tbody tr >> nth=2");
+      await page.click("#show-exchange");
+      const post = log.findLast((m) => m.type === "httpExchange");
+      assert.deepEqual([post.request, post.response], [12, 14]);
+      // The HTTP Exchange panel, with the backend's answer (a stand-in for HttpPanel).
+      const exchange = await openGraphPanel("http.js", async (msg, reply) => {
+        if (msg.type === "ready") {
+          const { request, requestIndex, response, responseIndex, label } = post;
+          const answer = await sessions.request(
+            "http_exchange",
+            { request, requestIndex, response, responseIndex },
+            { timeoutMs: 0 },
+          );
+          await reply({ type: "show", label, ...answer });
+        }
+      });
+      const xp = exchange.page;
+      await xp.waitForSelector(".http-side >> nth=1");
+      assert.equal(
+        await xp.textContent(".panel-title"),
+        "HTTP Exchange: POST www.example.com/api/items",
+      );
+      assert.deepEqual(await xp.$$eval(".http-line", (els) => els.map((e) => e.textContent)), [
+        "POST /api/items HTTP/1.1",
+        "HTTP/1.1 500 Internal Server Error",
+      ]);
+      const requestHeaders = await xp.$$eval(
+        ".http-side:first-of-type .http-headers tbody tr",
+        (trs) => trs.map((tr) => [...tr.children].map((td) => td.textContent)),
+      );
+      assert.ok(requestHeaders.some(([n, v]) => n === "Host" && v === "www.example.com"));
+      // The response's JSON body, pretty-printed: keys and strings coloured, as text.
+      const code = ".http-side:last-of-type .http-code";
+      assert.equal(await xp.textContent(code), '{\n  "error": "boom"\n}');
+      assert.deepEqual(
+        await xp.$$eval(`${code} span`, (els) => els.map((e) => [e.className, e.textContent])),
+        [
+          ["tok-key", '"error"'],
+          ["tok-string", '"boom"'],
+        ],
+      );
+      assert.equal(
+        await xp.inputValue(".http-side:last-of-type select"),
+        "pretty",
+        "a JSON body starts pretty",
+      );
+      await xp.selectOption(".http-side:last-of-type select", "text");
+      assert.equal(await xp.textContent(code), '{"error":"boom"}');
+      await xp.selectOption(".http-side:last-of-type select", "hexdump");
+      assert.match(await xp.textContent(code), /^00000000 {2}7b 22 65 72/);
+      await xp.click(".http-side:last-of-type .http-body button:has-text('Copy')");
+      assert.match(exchange.log.findLast((m) => m.type === "copy").text, /^00000000 {2}7b 22/);
+      await xp.click(".http-side:last-of-type button:has-text('Save…')");
+      const save = exchange.log.findLast((m) => m.type === "save");
+      assert.equal(save.which, "response");
+      assert.equal(Buffer.from(save.base64, "base64").toString(), '{"error":"boom"}');
+      await xp.click(".http-side:last-of-type button:has-text('Show Packet Bytes')");
+      assert.deepEqual(exchange.log.at(-1), { type: "bytes", which: "response" });
+      await xp.click(".http-side:last-of-type h2 button");
+      assert.deepEqual(exchange.log.at(-1), { type: "goto", frame: 14 });
+      // An image body is shown as one; an unanswered request says so.
+      await exchange.post({
+        type: "show",
+        label: "GET www.example.com/logo.png",
+        ...(await sessions.request(
+          "http_exchange",
+          { request: 8, response: 10 },
+          { timeoutMs: 0 },
+        )),
+      });
+      await xp.waitForSelector(".http-side:last-of-type img.http-image");
+      assert.match(await xp.getAttribute("img.http-image", "src"), /^data:image\/png;base64,iVBOR/);
+      await exchange.post({
+        type: "show",
+        label: "GET api.example.net/slow",
+        ...(await sessions.request("http_exchange", { request: 26 }, { timeoutMs: 0 })),
+      });
+      await xp.waitForSelector("text=Nothing in the capture answers this request.");
+      assert.match(await xp.textContent(".status"), /no response in the capture/);
+
       const dns = await open("dns_queries", "DNS Queries");
       await waitRows(dns.page, 5);
       assert.equal(
@@ -1817,9 +2050,16 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       await waitRows(tls.page, 2);
       assert.equal(
         await tls.page.textContent(".status"),
-        "2 servers · 3 connections · 1 handshake without a server hello",
+        "2 servers · 3 connections · 1 handshake without a server hello · 1 server with a certificate problem",
       );
       assert.equal((await rows(tls.page))[0][1], "api.example.com");
+      // Its certificate (TLS 1.2 sends it in the clear): expired when captured.
+      assert.deepEqual((await rows(tls.page))[0].slice(9), [
+        "api.example.com",
+        "PCAP Lens Test CA",
+        "2021-01-01",
+        "Expired 2021-01-01",
+      ]);
     } finally {
       await sessions.dispose();
     }
@@ -1911,6 +2151,19 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       .text.trim()
       .split("\n");
     assert.equal(csv.length, n + 1);
+    // Ctrl+F goes to the text filter; a filter over every row, not the drawn ones.
+    await page.click("table.stats tbody tr:not(.spacer) >> nth=0");
+    await page.keyboard.press("Control+f");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "stats-search");
+    await page.keyboard.type("host4999.");
+    await page.waitForFunction(() => !document.querySelector("table.stats.virtual"));
+    assert.deepEqual(
+      await page.$$eval("table.stats tbody tr", (trs) =>
+        trs.map((tr) => tr.children[1].textContent),
+      ),
+      ["host4999.example.com"],
+    );
+    assert.match(await page.textContent(".status"), / · 1 shown \(filter “host4999\.”\)$/);
   });
 
   test("sequence check: name the fields, Check, streams with their problems, a refused field", async () => {
@@ -2061,7 +2314,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       );
       assert.deepEqual(tiles.slice(0, 3), [
         ["Packets", "62"],
-        ["Bytes", "5.0 KB"],
+        ["Bytes", "5.5 KB"],
         ["Duration", "3.03 s"],
       ]);
       assert.ok(tiles.some(([label]) => label === "Format"));
@@ -2076,7 +2329,8 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         apply: true,
       });
       await page.selectOption("select[aria-label='Count']", "bytes");
-      assert.match(await page.textContent("#overview-peak"), /^Busiest: 647 B from 3 s$/);
+      // (2 s: the TLS 1.2 handshake with its certificate.)
+      assert.match(await page.textContent("#overview-peak"), /^Busiest: 1016 B from 2 s$/);
       // A row applies its filter; right-click offers the other choices.
       const dns = page.locator("section", { has: page.locator("h2", { hasText: /^DNS$/ }) });
       await dns.locator(".overview-item", { hasText: "NXDomain" }).click();

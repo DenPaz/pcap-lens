@@ -239,7 +239,7 @@ export const PCAP_TOOLS: readonly ToolSpec[] = [
   {
     name: "pcap_sessions",
     description:
-      "The open capture's HTTP requests (with their responses, status and response time), DNS queries (result, answers, latency) or TLS servers (versions, cipher suites, handshakes without a ServerHello), one row each with a display filter. only_problems keeps HTTP errors and unanswered requests, failed or unanswered DNS queries, TLS servers with failed handshakes.",
+      "The open capture's HTTP requests (with their responses, status and response time), DNS queries (result, answers, latency) or TLS servers (versions, cipher suites, handshakes without a ServerHello, and the certificate: name, issuer, expiry, a check for expired, self-signed or not for the server name), one row each with a display filter. only_problems keeps HTTP errors and unanswered requests, failed or unanswered DNS queries, TLS servers with failed handshakes or certificates.",
     inputSchema: {
       type: "object",
       properties: {

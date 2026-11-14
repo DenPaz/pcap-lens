@@ -265,10 +265,11 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   by the editor and the panels), `styles.css` (the viewer), `panel.css`.
 - `src/panels/` statistics, follow-stream, coloring-rules, export-objects,
   flow-graph, TCP-graph, VoIP, compare-packets, packet-bytes, packet window,
-  replay and overview webview panels (`panelHtml.ts` builds their CSP'd HTML);
-  their UIs are `src/webview/stats.js`, `follow.js`, `coloring.js`,
-  `objects.js`, `flowgraph.js`, `tcpgraph.js`, `voip.js`, `compare.js`,
-  `bytes.js`, `packet.js`, `replay.js` and `overview.js` with `panel.css`.
+  replay, overview and HTTP exchange webview panels (`panelHtml.ts` builds
+  their CSP'd HTML); their UIs are `src/webview/stats.js`, `follow.js`,
+  `coloring.js`, `objects.js`, `flowgraph.js`, `tcpgraph.js`, `voip.js`,
+  `compare.js`, `bytes.js`, `packet.js`, `replay.js`, `overview.js` and
+  `http.js` with `panel.css`.
 - `backend/pcap_backend/` Python package run as `python -m pcap_backend`
   with `PYTHONPATH=backend`. `server.py` (JSON-RPC), `pcap_service.py`
   (`PcapService`, assembled from the `service/` mixins, `rpc_methods`, and
@@ -913,7 +914,12 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   (`drawWindow` on the page's scroll, `lib.tableWindow`; spacer rows stand
   for the rest; `aria-rowcount`/`aria-rowindex`; fixed column widths from
   `lib.columnChars`, the cells being monospaced, the widest text column
-  taking what is left). Sizes like "12 kB" are
+  taking what is left). _Filter rows_ (`#stats-search`, Ctrl/Cmd+F, Esc
+  clears; not for io or properties) narrows the rows already loaded with
+  `lib.searchRows` (every word in the cells as shown; in a tree a match
+  keeps its parents and its children), debounced, after sorting; the status
+  says how many are shown, Copy as CSV copies them, and a selection it hides
+  is dropped. Sizes like "12 kB" are
   converted with SI units. tshark 4.6 adds a top-level `frame` row to the
   protocol hierarchy (eth at depth 1, dns at 4; 4.2: 0 and 3), so tests check
   parent rows ("dns one level below udp") and totals, never absolute depths.
@@ -922,6 +928,42 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   to get frame numbers. Rows are matched by regex because multi-word groups
   ("Response code") overflow tshark's fixed-width column. The display-filter
   limit uses each tap's own filter argument (`conv,tcp,<filter>` etc.).
+- **Group by hosts** (TCP/UDP conversations, `#stats-group`;
+  `lib.groupConversations`, `sortGrouped`, `endAddress`): the webview
+  groups the rows it has by their two addresses (no query): a parent row per
+  pair with summed cells (each connection's A → B counted in the pair's
+  direction), the earliest start, the span to the last end, the summed
+  activity when every child has a chart, `filter` the pair's addresses and
+  the transport, `group`/`count`; its connections follow at depth 1 with
+  `parent`. Memoized per table (`groupedCache`, so the selected row stays
+  the same object; cleared when the charts arrive). Groups start closed
+  (`state.expanded`); a parent's first cell starts with a toggle button
+  (chevron, count, `aria-expanded`, a label naming the connections), and
+  `renderTable` puts the focus back on it after any redraw (the charts
+  arriving redrew it under a test). Searching shows every match with its
+  pair; sorting sorts parents, then each group's children. The limit
+  checkbox is `#stats-limit` (tests picked the first checkbox).
+- **Activity charts** (`activity.py`, `stats_activity {kind, type,
+filter}`; conversations and endpoints): each row's bytes over time as a
+  small SVG bar chart in an _Activity_ column (`sparkCell`,
+  `lib.activityBars`, `lib.activityLabel` as the chart's name: its busiest
+  interval). A fields pass over every packet (`activity.FIELDS`: time,
+  length, eth/ip/ipv6 addresses, tcp/udp ports, aggregator `\x1e`) costs
+  several times the report (200k packets: 0.7 s → 5.6 s), so `stats` only
+  answers the report and keeps its table on the `_Open` (`f.reports`, LRU 4,
+  by kind, type and counted filter); StatsPanel then asks `stats_activity`
+  (one at a time, cancelled by a newer query) and posts `activity {id,
+activity, rows}`, which the webview merges row for row into the table of
+  that query (`state.resultId`). `activity.Grid` keeps one interval for
+  every key (`overview`'s steps, merging all keys' buckets when it grows),
+  `packet_keys` maps a packet to rows (a sorted pair of ends, or each end;
+  a tunnel's headers each count, UDP/TCP ports with the IP header carrying
+  them, matched from the innermost), and `attach` charts the `MAX_ROWS`
+  (2,000) busiest rows: rows sharing ends (a reused TCP port, RTP's
+  directions, which tshark lists apart) take the buckets their own Rel
+  Start…end overlaps, and every chart is scaled to its row's bytes (an
+  ICMP error quoting a header counts in the pass, not in tshark's report).
+  A failed pass only leaves the charts out.
 - **Expert indicator** (`expert_summary`, `lib.expertStatus`,
   `status.js` `loadExpertSummary`): one `-q -z expert,comment` pass
   (`stats.parse_expert_counts`: the section headers' totals per severity),
@@ -1851,10 +1893,50 @@ in {…}` / `tcp.stream in {…}` / `quic.connection.number in {…}` with
 http.file_data`: the decoded body, de-chunked and decompressed, at most
   `MAX_BODY_BYTES`) and shows it in Show Packet Bytes (text, image, hex…);
   the row menu also opens the request or response in a new window.
+  **HTTP Exchange** (`panels/httpPanel.ts`, `http.js`; the rows' _Show
+  Request and Response_ button and menu entry, and the registered, not
+  contributed, `pcapViewer.httpExchange {request, requestIndex, response,
+responseIndex, label}` the smoke test calls): rows carry `requestIndex`
+  and `responseIndex` (which HTTP message of their packet: pipelining), and
+  `http_exchange` runs one `-c max -Y "frame.number == a || … == b" -T
+pdml` pass (`_bounded_pdml`) read by `sessions.http_messages`: each `http`
+  proto is a message (its first unnamed field the first line, the hidden
+  `http.request.line`/`http.response.line` fields the headers, which the
+  detail tree drops; `http.file_data`'s colon-hex `show` the decoded body,
+  at most `MAX_BODY_BYTES`; `decoded` when tshark de-chunked or
+  decompressed it), picked by kind and index. The panel shows both sides
+  (first line, a link to its packet, headers, Copy Headers) and each body
+  as `lib.bodyKind` says (Content-Type, else its bytes: image, json, xml,
+  html, form, text, binary) in `decodeBody`'s charset: Pretty
+  (`lib.prettyBody`: `prettyJson` re-indents the text's own tokens after a
+  JSON.parse check, so big numbers stay as written; `prettyMarkup` a
+  forgiving one-pass scanner, HTML's void elements and script/style kept;
+  `prettyForm`; all `indexOf` scans, no backtracking regexes, null past
+  `PRETTY_MAX` 1 MB) as `[text, class]` segments appended as text spans,
+  Text, Hex dump or Image (a data: URL), at most 2M characters drawn; Copy,
+  Save… (the bytes) and Show Packet Bytes (`bytes` → BytesPanel). Token
+  colours are the theme's debugger/outline ones with Light Modern
+  fallbacks (axe checks the unthemed test page).
+  **Certificates** (TLS Servers' Certificate, Issuer, Expires and
+  Certificate Check columns): the TLS pass also reads Certificate messages
+  (`tls.handshake.type == 11`, `tls.handshake.certificate` (the chain as
+  hex, the server's own first) and `frame.time_epoch`), and `x509.py` (a
+  stdlib DER reader; malformed input is None, never an exception) gives
+  each connection's first leaf its subject and issuer CN/O, validity and
+  SAN DNS names (tshark's fields can't keep subject and issuer apart, and
+  PDML of every certificate packet would be huge). A row shows its first
+  certificate ("+N more" when its connections sent others) and the
+  problems of any: expired or not yet valid when sent, self-signed, not
+  covering the SNI (`covers`: SAN, else CN, `*.` for one label); "Encrypted
+  (TLS 1.3)" when no certificate was readable but a TLS 1.3 handshake was
+  answered. The summary counts `certificateProblems`; the MCP server's and
+  Copilot's `only_problems` keep those rows, and Copilot's stand-ins
+  replace the certificate's name too.
   `sessions.pcap` (generate.py `sessions_packets`) has five HTTP requests
   (a PNG, a 500, a 404 on port 8080, one unanswered) and two pipelined
   ones at the end (frames 59 and 61), five DNS queries (an
-  MX, an NXDOMAIN, one unanswered) and three TLS connections (TLS 1.2 and
+  MX, an NXDOMAIN, one unanswered) and three TLS connections (TLS 1.2, with
+  `SESSIONS_CERT`, a synthetic leaf from a test CA that expired in 2021, and
   1.3 to one SNI with ALPN h2, one without a ServerHello).
 - **Sequence check** (`sequence.py`, `stats {kind: "sequences", key, seq,
 wrap, reorder}`, `src/sequenceModel.ts`; `pcapViewer.statistics.sequences`,

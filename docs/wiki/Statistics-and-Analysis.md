@@ -6,6 +6,12 @@ and leaves out ignored packets. Its rows apply or prepare a filter, go to a
 packet or copy; right-click a row for the full menu. The statistics are in
 the editor title's chart menu and in **☰ › Statistics**.
 
+**Filter rows** (Ctrl+F, ⌘F on macOS) narrows a table to the rows holding
+every word you type, in any column, without running tshark again: a host
+name in HTTP Requests, an address in Conversations. In a tree (Protocol
+Hierarchy, HTTP, DNS) a match keeps its parent rows and its own children.
+Esc clears it; _Copy as CSV_ copies the rows shown.
+
 ![The protocol hierarchy of the sample capture](https://raw.githubusercontent.com/DenPaz/pcap-lens/main/media/screenshots/statistics.png)
 
 ## Capture Overview
@@ -20,7 +26,17 @@ applies its filter, and every card opens its full report.
 
 - **Capture File Properties**: packets, times, size, link type, format.
 - **Protocol Hierarchy**, **Conversations** and **Endpoints** (Ethernet,
-  IPv4, IPv6, TCP, UDP). With MaxMind databases
+  IPv4, IPv6, TCP, UDP). Each conversation and endpoint gets an
+  **Activity** chart: its bytes over the capture, in intervals shared by
+  every row (each row on its own scale; hover one for its busiest
+  interval), so bursts, steady streams and late starts stand out. The
+  charts come a moment after the rows: they need one more pass over the
+  capture. **Group by hosts** (TCP and UDP conversations) puts one row per
+  pair of hosts: its totals (each connection's directions turned to the
+  pair's), first start, span and activity, and a filter for the pair's
+  traffic; its button shows how many connections it holds and opens them
+  beneath it. Sorting sorts the pairs and the connections within each;
+  _Filter rows_ opens the pairs it matches. With MaxMind databases
   (`pcapViewer.geoip.databaseFolders`) the endpoints get country, city and
   AS columns and a world map.
 - **Expert Information**: problems tshark found, by severity, each with its
@@ -32,11 +48,21 @@ applies its filter, and every card opens its full report.
 ## Sessions
 
 - **HTTP Requests**: each request with its response status, content type,
-  size and response time (or _No response_); _Show Response Body_ decodes the
-  body (de-chunked, decompressed).
+  size and response time (or _No response_). _Show Request and Response_
+  opens the exchange: both first lines and headers, and both bodies as
+  tshark decodes them (de-chunked, decompressed), shown pretty-printed (JSON,
+  XML, HTML, form fields), as text, a hex dump or an image, with Copy, Save…
+  and _Show Packet Bytes_ for other decodings. Pipelined requests each show
+  their own response. _Show Response Body_ opens just the response's body
+  in Show Packet Bytes.
 - **DNS Queries**: name, type, result, answers and latency.
 - **TLS Servers**: server name, connections, handshakes that got no
-  ServerHello, the versions, cipher suites and ALPN the server chose.
+  ServerHello, the versions, cipher suites and ALPN the server chose, and
+  its certificate: name, issuer and expiry, with a **Certificate Check**
+  that says when it had expired (or wasn't valid yet) at the moment it was
+  sent, was self-signed, or wasn't for the server name the client asked for
+  (wildcards count for one label). TLS 1.3 encrypts the certificate, so its
+  connections say _Encrypted (TLS 1.3)_ unless a key log decrypts them.
 
 ## Sequence Check
 

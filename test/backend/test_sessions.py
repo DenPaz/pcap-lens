@@ -149,8 +149,22 @@ def test_a_session_table_cut_short_by_a_failure_is_an_error(
 def test_tls_servers(service: PcapService) -> None:
     _open(service, "sessions.pcap")
     table = _table(service, "tls_servers")
-    assert table["summary"] == {"servers": 2, "connections": 3, "unanswered": 1}
+    assert table["summary"] == {
+        "servers": 2,
+        "connections": 3,
+        "unanswered": 1,
+        "certificateProblems": 1,
+    }
     first = table["rows"][0]
+    # The TLS 1.2 connection's certificate (generate.SESSIONS_CERT): expired
+    # when it was sent; TLS 1.3's is encrypted, the unanswered one sent none.
+    assert [_cell(table, first, c) for c in ("Certificate", "Issuer", "Expires")] == [
+        "api.example.com",
+        "PCAP Lens Test CA",
+        "2021-01-01",
+    ]
+    assert _cell(table, first, "Certificate Check") == "Expired 2021-01-01"
+    assert _cell(table, table["rows"][1], "Certificate Check") == ""
     assert _cell(table, first, "Cipher Suites") == (
         "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_AES_128_GCM_SHA256"
     )
@@ -191,6 +205,75 @@ def test_http_body(service: PcapService) -> None:
     assert service.http_body({"frame": 4}, RequestContext())["size"] == 0, "a GET has no body"
     with pytest.raises(InvalidParamsError, match="no packet 999"):
         service.http_body({"frame": 999}, RequestContext())
+
+
+@pytest.mark.tshark
+def test_http_exchange(service: PcapService) -> None:
+    """A request and its response: first line, headers and decoded body
+    each, the message of its packet that the row names (pipelining)."""
+    _open(service, "sessions.pcap")
+    rows = _table(service, "http_requests")["rows"]
+    post = next(r for r in rows if r["frame"] == 12)
+    x = service.http_exchange(
+        {"request": post["frame"], "response": post["response"]}, RequestContext()
+    )
+    assert x["request"]["kind"] == "request" and x["request"]["line"].startswith("POST ")
+    assert ["Host", "www.example.com"] in x["request"]["headers"]
+    assert x["response"]["frame"] == 14 and x["response"]["line"].startswith("HTTP/1.1 500")
+    assert bytes.fromhex(x["response"]["body"]) == b'{"error":"boom"}'
+    assert x["response"]["bodySize"] == 16 and x["response"]["truncated"] is False
+    # Two pipelined requests share packet 59, their responses packet 61.
+    b = next(r for r in rows if r["label"].endswith("/b.txt"))
+    assert (b["frame"], b["requestIndex"], b["response"], b["responseIndex"]) == (59, 1, 61, 1)
+    x = service.http_exchange(
+        {
+            "request": 59,
+            "requestIndex": b["requestIndex"],
+            "response": 61,
+            "responseIndex": b["responseIndex"],
+        },
+        RequestContext(),
+    )
+    assert x["request"]["line"] == "GET /b.txt HTTP/1.1"
+    assert x["response"]["line"] == "HTTP/1.1 404 Not Found"
+    first = service.http_exchange({"request": 59, "response": 61}, RequestContext())
+    assert first["request"]["line"] == "GET /a.txt HTTP/1.1"
+    assert first["response"]["line"].startswith("HTTP/1.1 200")
+    # Unanswered: no response.
+    assert service.http_exchange({"request": 26}, RequestContext())["response"] is None
+    with pytest.raises(InvalidParamsError, match="no packet 999"):
+        service.http_exchange({"request": 4, "response": 999}, RequestContext())
+    with pytest.raises(InvalidParamsError, match="'response' must be"):
+        service.http_exchange({"request": 4, "response": "6"}, RequestContext())
+
+
+@pytest.mark.tshark
+def test_http_exchange_decoded_bodies(service: PcapService) -> None:
+    """objects.pcap: a gzip + chunked response comes back as its text, marked
+    decoded; a POST's own body is the request's."""
+    _open(service, "objects.pcap")
+    x = service.http_exchange({"request": 8, "response": 10}, RequestContext())
+    assert x["response"]["decoded"] is True
+    assert ["Content-Encoding", "gzip"] in x["response"]["headers"]
+    assert bytes.fromhex(x["response"]["body"]).startswith(b"report line 0\n")
+    post = service.http_exchange({"request": 12, "response": 14}, RequestContext())
+    assert bytes.fromhex(post["request"]["body"]) == b'{"name": "pcap-viewer", "size": 3}'
+    assert post["request"]["decoded"] is False
+    assert post["response"]["body"] == "" and post["response"]["line"].endswith("204 No Content")
+
+
+def test_http_messages_keep_at_most_max_body() -> None:
+    pdml = (
+        b'<pdml><packet><proto name="frame"><field name="frame.number" show="3"/></proto>'
+        b'<proto name="http"><field name="" show="HTTP/1.1 200 OK\\r\\n">'
+        b'<field name="http.response.code" show="200"/></field>'
+        b'<field name="http.response.line" show="Content-Type: text/plain&#10;"/>'
+        b'<field name="http.file_data" size="4" show="61:62:63:64"/></proto></packet></pdml>'
+    )
+    [message] = sessions.http_messages(pdml, 2)[3]
+    assert message["kind"] == "response" and message["line"] == "HTTP/1.1 200 OK"
+    assert message["headers"] == [["Content-Type", "text/plain"]]
+    assert (message["body"], message["bodySize"], message["truncated"]) == ("6162", 4, True)
 
 
 @pytest.mark.tshark

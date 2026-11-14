@@ -7,7 +7,7 @@
     "color": "#0b3a73",
     "theme": "dark"
   },
-  "version": "0.35.1",
+  "version": "0.36.0",
   "publisher": "denpaz",
   "license": "MIT",
   "repository": {
@@ -2477,7 +2477,7 @@
         "toolReferenceName": "pcapSessions",
         "canBeReferencedInPrompt": true,
         "userDescription": "HTTP requests, DNS queries or TLS servers of the open capture, optionally only the failed ones (PCAP Lens)",
-        "modelDescription": "The open capture's HTTP requests (with their responses, status and response time), DNS queries (result, answers, latency) or TLS servers (versions, cipher suites, handshakes without a ServerHello), one row each with a display filter. only_problems keeps HTTP errors and unanswered requests, failed or unanswered DNS queries, TLS servers with failed handshakes.",
+        "modelDescription": "The open capture's HTTP requests (with their responses, status and response time), DNS queries (result, answers, latency) or TLS servers (versions, cipher suites, handshakes without a ServerHello, and the certificate: name, issuer, expiry, a check for expired, self-signed or not for the server name), one row each with a display filter. only_problems keeps HTTP errors and unanswered requests, failed or unanswered DNS queries, TLS servers with failed handshakes or certificates.",
         "tags": [
           "pcap",
           "wireshark"

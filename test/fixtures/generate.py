@@ -16,6 +16,7 @@ library, so their bytes never depend on a Wireshark version.
 from __future__ import annotations
 
 import argparse
+import base64
 import gzip
 import random
 import shutil
@@ -1298,6 +1299,29 @@ def _server_hello(cipher: int, alpn: bytes, tls13: bool) -> bytes:
     return _tls_handshake(2, body)
 
 
+# A synthetic server certificate (made once with openssl, ECDSA P-256):
+# subject CN=api.example.com, O=Example API; issuer CN=PCAP Lens Test CA,
+# O=PCAP Lens; valid 2020-01-01 to 2021-01-01 (expired when the capture was
+# made); SAN api.example.com and www.api.example.com.
+SESSIONS_CERT = base64.b64decode(
+    "MIIBzTCCAXSgAwIBAgICEAEwCgYIKoZIzj0EAwIwMDEaMBgGA1UEAwwRUENBUCBMZW5zIFRlc3Qg"
+    "Q0ExEjAQBgNVBAoMCVBDQVAgTGVuczAeFw0yMDAxMDEwMDAwMDBaFw0yMTAxMDEwMDAwMDBaMDAx"
+    "GDAWBgNVBAMMD2FwaS5leGFtcGxlLmNvbTEUMBIGA1UECgwLRXhhbXBsZSBBUEkwWTATBgcqhkjO"
+    "PQIBBggqhkjOPQMBBwNCAATD6W8FyV+j4hY7BUfbrVxx/wcZ9lhc0aBZD7tbdR8rSykMhSE7ejIx"
+    "2PF/neeYM43cGebz+MgFjLqYN6D1jjd6o34wfDAvBgNVHREEKDAmgg9hcGkuZXhhbXBsZS5jb22C"
+    "E3d3dy5hcGkuZXhhbXBsZS5jb20wCQYDVR0TBAIwADAdBgNVHQ4EFgQUhehnmKb0DUNbEB6SKQw3"
+    "OP0dO54wHwYDVR0jBBgwFoAUXC4eXAm8yIeGfLpx1jbtV683vCwwCgYIKoZIzj0EAwIDRwAwRAIg"
+    "WXu/z+EpXR5DsyA996sQZnUEIW+kK4N/cKiqVWec3IwCIEgnDGGu2B/zevEszkQ6cAws/N/JX9FO"
+    "IxiQP1PO6+ZG"
+)
+
+
+def _certificate(*certs: bytes) -> bytes:
+    """A TLS 1.2 Certificate handshake message holding ``certs``."""
+    chain = b"".join(struct.pack("!I", len(c))[1:] + c for c in certs)
+    return _tls_handshake(11, struct.pack("!I", len(chain))[1:] + chain)
+
+
 def sessions_packets() -> list[Packet]:
     """HTTP: a keep-alive connection to www.example.com (GET /index.html 200
     after 30 ms, GET /logo.png 200 image/png after 12 ms, POST /api/items 500
@@ -1306,7 +1330,8 @@ def sessions_packets() -> list[Packet]:
     CNAME and an address, 12 ms), www AAAA (8 ms), example.com MX (15 ms),
     missing.example.com NXDOMAIN (20 ms) and lost.example.com, unanswered.
     TLS: two connections to 198.51.100.20:443 for api.example.com (TLS 1.2
-    with ECDHE-RSA-AES128-GCM-SHA256, then TLS 1.3 with TLS_AES_128_GCM_SHA256,
+    with ECDHE-RSA-AES128-GCM-SHA256 and an expired certificate (SESSIONS_CERT),
+    then TLS 1.3 with TLS_AES_128_GCM_SHA256,
     both choosing h2) and one to 203.0.113.5:443 for cdn.example.net that
     gets no ServerHello. Last, pipelined HTTP to pipe.example.com: two GETs
     in one segment, answered by two responses in one segment."""
@@ -1393,7 +1418,11 @@ def sessions_packets() -> list[Packet]:
         step(s, at, s.handshake)
         step(s, at + 0.01, s.client_send, _client_hello(sni, [b"h2", b"http/1.1"], tls13))
         if cipher is not None:
-            step(s, at + 0.04, s.server_send, _server_hello(cipher, b"h2", tls13))
+            # (TLS 1.2's certificate is in the clear, in the ServerHello's segment.)
+            flight = _server_hello(cipher, b"h2", tls13)
+            if not tls13:
+                flight += _certificate(SESSIONS_CERT)
+            step(s, at + 0.04, s.server_send, flight)
     pipe = _TcpSession(SESSIONS_CLIENT, "192.0.2.81", 51102, 80)
     step(pipe, 3.0, pipe.handshake)
     two = http_request("GET", "/a.txt", "pipe.example.com") + http_request(

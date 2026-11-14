@@ -226,6 +226,12 @@ suite("PCAP Lens smoke test", () => {
     const stats = await waitFor(() =>
       api.panels.StatsPanel.all.find((p) => p.kind === "conversations" && p.session === session),
     );
+    // Its rows' activity over time comes after the table (stats_activity).
+    const charts = await waitFor(() => stats.lastActivity);
+    assert.ok(
+      charts.rows.length >= 1 && charts.rows.every((r) => Array.isArray(r)),
+      "every conversation of http.pcap gets a chart",
+    );
     // The sequence check with fields from a command: its panel opens on this capture.
     session.reveal();
     await vscode.commands.executeCommand("pcapViewer.statistics.sequences", {
@@ -247,6 +253,21 @@ suite("PCAP Lens smoke test", () => {
       objects.map((o) => [o.name, o.frame]),
       [["index.html", 7]],
     );
+
+    // HTTP Exchange: the request and its response, headers and bodies.
+    session.reveal();
+    await vscode.commands.executeCommand("pcapViewer.httpExchange", {
+      request: 4,
+      response: 7,
+      label: "GET /index.html",
+    });
+    const http = await waitFor(
+      () => api.panels.HttpPanel.all.find((p) => p.session === session)?.exchange,
+    );
+    assert.equal(http.request?.line, "GET /index.html HTTP/1.1");
+    assert.match(http.response?.line ?? "", /^HTTP\/1\.1 200/);
+    assert.ok((http.response?.bodySize ?? 0) > 0, "the page's body");
+    api.panels.HttpPanel.all.find((p) => p.session === session)?.panel.dispose();
 
     // Replay to Service: the recorded server end, replayed into a local server.
     session.reveal();

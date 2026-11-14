@@ -89,7 +89,32 @@
     sequence: { key: /** @type {string[]} */ ([]), seq: "", wrap: 0, reorder: 1000 },
     /** The field the last sequence check refused. @type {string | null} */
     badField: null,
+    /** The table's text filter (lib.searchRows): rows already loaded, no query. */
+    search: "",
+    /** The query the table shown answers (its activity charts come after it). @type {number | null} */
+    resultId: null,
+    /** TCP/UDP conversations grouped by their two hosts (lib.groupConversations). */
+    grouped: false,
+    /** The groups shown open (their keys). @type {Set<string>} */
+    expanded: new Set(),
   };
+
+  /** The grouped rows of the table shown (kept, so a selected row stays the same object). */
+  let groupedCache = {
+    table: /** @type {any} */ (null),
+    type: "",
+    rows: /** @type {any[]} */ ([]),
+  };
+
+  /** Conversations of TCP or UDP, grouped by hosts. */
+  function grouping() {
+    return (
+      state.grouped &&
+      state.kind === "conversations" &&
+      (state.type === "tcp" || state.type === "udp") &&
+      !!state.table
+    );
+  }
 
   const app = /** @type {HTMLElement} */ (document.getElementById("app"));
 
@@ -117,6 +142,61 @@
   const legend = h("ul", { class: "io-legend hidden", "aria-label": "Legend" });
   const mapBox = h("div", { class: "geo-map hidden" });
   const tableBox = h("div");
+  const searchInput = /** @type {HTMLInputElement} */ (
+    h("input", {
+      id: "stats-search",
+      type: "search",
+      placeholder: "Filter rows",
+      "aria-label": "Filter rows (every word, in any column)",
+      spellcheck: "false",
+    })
+  );
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let searchTimer;
+  searchInput.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => setSearch(searchInput.value), 150);
+  });
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && searchInput.value) {
+      e.preventDefault();
+      e.stopPropagation();
+      searchInput.value = "";
+      clearTimeout(searchTimer);
+      setSearch("");
+    } else if (e.key === "Enter") {
+      clearTimeout(searchTimer);
+      setSearch(searchInput.value);
+    }
+  });
+  // Ctrl/Cmd+F: the table's filter (the webview's own find is not offered).
+  document.addEventListener("keydown", (e) => {
+    if (
+      (e.ctrlKey || e.metaKey) &&
+      !e.altKey &&
+      e.key.toLowerCase() === "f" &&
+      searchInput.isConnected
+    ) {
+      e.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+    }
+  });
+
+  /** Applies the text filter: redraws the table, drops a selection it hides. @param {string} text */
+  function setSearch(text) {
+    if (text === state.search) {
+      return;
+    }
+    state.search = text;
+    if (!state.table) {
+      return;
+    }
+    if (state.selected && !shownRows().includes(state.selected)) {
+      state.selected = null;
+    }
+    render();
+  }
   app.append(
     title,
     toolbar,
@@ -154,6 +234,12 @@
     title: "Show the response's body (text, image or hex) in Show Packet Bytes",
   });
   bodyBtn.addEventListener("click", () => state.selected && showBody(state.selected));
+  const exchangeBtn = iconButton("arrow-swap", "Show Request and Response", {
+    class: "secondary",
+    id: "show-exchange",
+    title: "Show the request and its response: headers and bodies, pretty-printed",
+  });
+  exchangeBtn.addEventListener("click", () => state.selected && showExchange(state.selected));
   askBtn.addEventListener("click", () => askCopilot());
   applyBtn.addEventListener("click", () => rowFilter(true));
   prepareBtn.addEventListener("click", () => rowFilter(false));
@@ -167,7 +253,7 @@
         type: "copy",
         text: lib.tableToCsv(
           shown.map((i) => state.table.columns[i]),
-          sortedRows().map((/** @type {any} */ r) => ({ cells: shown.map((i) => r.cells[i]) })),
+          shownRows().map((/** @type {any} */ r) => ({ cells: shown.map((i) => r.cells[i]) })),
         ),
       });
     }
@@ -227,6 +313,11 @@
       entries.push({ label: "Ask Copilot About This Entry…", icon: "sparkle", action: askCopilot });
     }
     if (state.kind === "http_requests") {
+      entries.push({
+        label: "Show Request and Response",
+        icon: "arrow-swap",
+        action: () => showExchange(row),
+      });
       if (row.response) {
         entries.push({
           label: "Show Response Body",
@@ -282,9 +373,29 @@
       }
       select.addEventListener("change", () => {
         state.type = /** @type {HTMLSelectElement} */ (select).value;
+        buildToolbar();
         query();
       });
       toolbar.append(h("label", {}, ["Type ", select]));
+      if (state.kind === "conversations" && (state.type === "tcp" || state.type === "udp")) {
+        const box = /** @type {HTMLInputElement} */ (
+          h("input", { type: "checkbox", id: "stats-group" })
+        );
+        box.checked = state.grouped;
+        box.addEventListener("change", () => {
+          state.grouped = box.checked;
+          state.selected = null;
+          if (state.table) {
+            render();
+          }
+        });
+        toolbar.append(
+          h("label", { title: "One row per pair of hosts, its connections under it" }, [
+            box,
+            "Group by hosts",
+          ]),
+        );
+      }
     }
     if (["http", "srt", "ipv4", "ipv6"].includes(state.kind)) {
       toolbar.append(typeSelect());
@@ -316,7 +427,9 @@
       renderSeriesEditor();
     }
     if (state.kind !== "properties") {
-      const box = /** @type {HTMLInputElement} */ (h("input", { type: "checkbox" }));
+      const box = /** @type {HTMLInputElement} */ (
+        h("input", { type: "checkbox", id: "stats-limit" })
+      );
       box.checked = state.limit;
       box.disabled = !state.filter;
       box.addEventListener("change", () => {
@@ -333,6 +446,10 @@
       }
       toolbar.append(label);
     }
+    if (state.kind !== "properties" && state.kind !== "io") {
+      searchInput.value = state.search;
+      toolbar.append(searchInput);
+    }
     const refresh = iconButton("refresh", "Refresh", { class: "secondary" });
     refresh.addEventListener("click", () => query());
     toolbar.append(h("span", { class: "spacer" }), refresh);
@@ -340,7 +457,7 @@
       ...(state.kind === "expert"
         ? [gotoBtn, applyBtn, prepareBtn, ...(state.ai ? [askBtn] : [])]
         : state.kind === "http_requests"
-          ? [applyBtn, prepareBtn, gotoBtn, bodyBtn]
+          ? [applyBtn, prepareBtn, gotoBtn, exchangeBtn, bodyBtn]
           : state.kind === "srt" ||
               state.kind === "credentials" ||
               state.kind === "sequences" ||
@@ -538,7 +655,21 @@
         state.type = msg.table.type || state.type;
         buildToolbar();
       }
+      state.resultId = msg.id;
       render();
+    } else if (msg.type === "activity" && msg.id === state.resultId && state.table) {
+      // Conversations' and endpoints' activity over time, after their rows
+      // (the same table, row for row).
+      if (msg.activity && Array.isArray(msg.rows) && msg.rows.length === state.table.rows.length) {
+        state.table.activity = msg.activity;
+        groupedCache.table = null;
+        state.table.rows.forEach((/** @type {any} */ row, /** @type {number} */ i) => {
+          if (Array.isArray(msg.rows[i])) {
+            row.activity = msg.rows[i];
+          }
+        });
+        renderTable();
+      }
     } else if (msg.type === "error" && msg.id === state.pending) {
       state.pending = null;
       status.textContent = "";
@@ -564,6 +695,39 @@
     return lib.sortRows(rows, state.sort.col, state.sort.desc);
   }
 
+  /**
+   * The rows drawn: sorted, grouped by hosts when asked (a closed group's
+   * connections left out), then the text filter's (which opens the groups
+   * it matches in).
+   */
+  function shownRows() {
+    if (!grouping()) {
+      const rows = sortedRows();
+      return searchable() ? lib.searchRows(rows, state.search) : rows;
+    }
+    if (groupedCache.table !== state.table || groupedCache.type !== state.type) {
+      groupedCache = {
+        table: state.table,
+        type: state.type,
+        rows: lib.groupConversations(state.table, state.type),
+      };
+    }
+    const rows = state.sort
+      ? lib.sortGrouped(groupedCache.rows, state.sort.col, state.sort.desc)
+      : groupedCache.rows;
+    if (searchable()) {
+      return lib.searchRows(rows, state.search);
+    }
+    return rows.filter(
+      (/** @type {any} */ r) => r.parent === undefined || state.expanded.has(r.parent),
+    );
+  }
+
+  /** The text filter applies (not to the I/O graph's intervals or the properties). */
+  function searchable() {
+    return !!state.search.trim() && state.kind !== "io" && state.kind !== "properties";
+  }
+
   // ------------------------------------------------------------------ table
 
   function render() {
@@ -586,6 +750,18 @@
                       : ""
                   }`
                 : `${n.toLocaleString()} ${n === 1 ? "row" : "rows"}${scope}`;
+    if (grouping()) {
+      const pairs = new Set(
+        t.rows.map((/** @type {any} */ r) =>
+          [lib.endAddress(String(r.cells[0])), lib.endAddress(String(r.cells[1]))].sort().join(" "),
+        ),
+      ).size;
+      status.textContent += ` · ${pairs.toLocaleString()} ${pairs === 1 ? "pair" : "pairs"} of hosts`;
+    }
+    if (searchable()) {
+      const shown = shownRows().length;
+      status.textContent += ` · ${shown.toLocaleString()} shown (filter “${state.search.trim()}”)`;
+    }
     chartBox.classList.toggle("hidden", t.kind !== "io");
     legend.classList.toggle("hidden", t.kind !== "io");
     if (t.kind === "io") {
@@ -667,6 +843,25 @@
   }
 
   function renderTable() {
+    // A group's button keeps the focus when the table is drawn again (opening
+    // it, the activity charts arriving).
+    const focusedGroup = document.activeElement
+      ? toggleGroup.get(document.activeElement)
+      : undefined;
+    try {
+      drawTable();
+    } finally {
+      if (focusedGroup !== undefined) {
+        for (const b of tableBox.querySelectorAll("button.group-toggle")) {
+          if (toggleGroup.get(b) === focusedGroup) {
+            /** @type {HTMLElement} */ (b).focus();
+          }
+        }
+      }
+    }
+  }
+
+  function drawTable() {
     const t = state.table;
     const shown = shownColumns();
     const headRow = h("tr");
@@ -696,8 +891,15 @@
       }
       headRow.append(th);
     });
+    // Conversations and endpoints: each row's activity over time (activity.py).
+    const activity = t.activity && (t.kind === "conversations" || t.kind === "endpoints");
+    if (activity) {
+      headRow.append(
+        h("th", { scope: "col", class: "spark", title: activityTitle(t.activity) }, ["Activity"]),
+      );
+    }
     const body = h("tbody");
-    const rows = sortedRows();
+    const rows = shownRows();
     const virtual = rows.length > lib.VIRTUAL_TABLE_ROWS;
     /** One <tr> for row `index` of `rows`. @param {any} row @param {number} index */
     const rowElement = (row, index) => {
@@ -712,16 +914,22 @@
         if (i === 0 && row.depth) {
           td.style.paddingLeft = `${8 + row.depth * 16}px`;
         }
+        if (i === 0 && row.group !== undefined) {
+          td.append(groupToggle(row));
+        }
         if (t.kind === "expert" && col.id === "severity") {
           td.append(h("span", { class: `sev sev-${String(value)}` }, [String(value)]));
         } else {
-          td.textContent = lib.formatCell(value);
+          td.append(lib.formatCell(value));
         }
         if (t.kind === "expert" && col.id === "summary") {
           td.classList.add("wrap");
         }
         tr.append(td);
       });
+      if (activity) {
+        tr.append(sparkCell(row.activity, t.activity.interval));
+      }
       rowOf.set(tr, row);
       if (row === state.selected) {
         tr.classList.add("selected");
@@ -761,6 +969,11 @@
         }
         cols.append(col);
       });
+      if (activity) {
+        const col = h("col");
+        col.style.width = `${SPARK_WIDTH + 2 * 8}px`;
+        cols.append(col);
+      }
       table.append(cols);
       // Never narrower than every column needs, the flexible one at least
       // FLEX_MIN_CH: when the sized columns fill the panel, the table
@@ -769,7 +982,9 @@
         (sum, width, j) => sum + (j === flexible ? Math.min(width, FLEX_MIN_CH) : width),
         0,
       );
-      table.style.minWidth = `calc(${need}ch + ${chars.length * 2 * 8}px)`;
+      table.style.minWidth = `calc(${need}ch + ${chars.length * 2 * 8}px${
+        activity ? ` + ${SPARK_WIDTH + 2 * 8}px` : ""
+      })`;
       table.setAttribute("aria-rowcount", String(rows.length + 1));
       headRow.setAttribute("aria-rowindex", "1");
     }
@@ -778,18 +993,95 @@
     if (!virtual) {
       virtualTable = null;
       rows.forEach((row, index) => body.append(rowElement(row, index)));
+      if (!rows.length && searchable()) {
+        const td = h("td", { colspan: String(shown.length), class: "empty" }, [
+          `No row holds “${state.search.trim()}”.`,
+        ]);
+        body.append(h("tr", { class: "no-match" }, [td]));
+      }
       return;
     }
     virtualTable = {
       rows,
       body,
       rowElement,
-      columns: shown.length,
+      columns: shown.length + (activity ? 1 : 0),
       rowHeight: 0,
       start: -1,
       end: -1,
     };
     drawWindow();
+  }
+
+  /**
+   * A host pair's open/close button: a chevron and its number of
+   * connections (searching opens every group it matches in).
+   * @param {any} row
+   */
+  function groupToggle(row) {
+    const open = searchable() || state.expanded.has(row.group);
+    const button = h(
+      "button",
+      {
+        type: "button",
+        class: "icon group-toggle",
+        "aria-expanded": String(open),
+        "aria-label": `${open ? "Hide" : "Show"} the ${row.count} ${
+          row.count === 1 ? "connection" : "connections"
+        } between these hosts`,
+        title: `${row.count} ${row.count === 1 ? "connection" : "connections"}`,
+      },
+      [icon(open ? "chevron-down" : "chevron-right"), String(row.count)],
+    );
+    button.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (state.expanded.has(row.group)) {
+        state.expanded.delete(row.group);
+      } else {
+        state.expanded.add(row.group);
+      }
+      button.focus(); // (renderTable keeps the focus on this group's new button)
+      renderTable();
+    });
+    toggleGroup.set(button, row.group);
+    return button;
+  }
+
+  /** Each group toggle's group key. @type {WeakMap<Element, string>} */
+  const toggleGroup = new WeakMap();
+
+  /** The activity chart's size (px). */
+  const SPARK_WIDTH = 96;
+  const SPARK_HEIGHT = 16;
+
+  /** The Activity column's tooltip: what a chart covers. @param {{interval: number, buckets: number}} a */
+  function activityTitle(a) {
+    return `Bytes over time: the capture in ${a.buckets} intervals of ${lib.formatInterval(a.interval)}, each row on its own scale`;
+  }
+
+  /**
+   * A row's activity chart (bars, its busiest interval in words as its
+   * name); an empty cell for a row without one.
+   * @param {number[] | undefined} values @param {number} interval
+   */
+  function sparkCell(values, interval) {
+    const td = h("td", { class: "spark" });
+    if (!values) {
+      return td;
+    }
+    const svg = s("svg", {
+      width: SPARK_WIDTH,
+      height: SPARK_HEIGHT,
+      viewBox: `0 0 ${SPARK_WIDTH} ${SPARK_HEIGHT}`,
+      role: "img",
+      "aria-label": lib.activityLabel(values, interval),
+    });
+    for (const bar of lib.activityBars(values, SPARK_WIDTH, SPARK_HEIGHT)) {
+      svg.append(s("rect", { x: bar.x, y: bar.y, width: bar.w, height: bar.h }));
+    }
+    svg.append(s("title", {}, lib.activityLabel(values, interval)));
+    td.append(svg);
+    return td;
   }
 
   /**
@@ -862,6 +1154,7 @@
     prepareBtn.toggleAttribute("disabled", !row || !row.filter);
     gotoBtn.toggleAttribute("disabled", !row || !row.frame);
     bodyBtn.toggleAttribute("disabled", !row || !row.response);
+    exchangeBtn.toggleAttribute("disabled", !row || !row.frame);
     copyBtn.toggleAttribute("disabled", !state.table);
     if (state.kind === "expert" && row && !row.filter) {
       // Expert rows filter on the message text.
@@ -913,6 +1206,20 @@
   }
 
   /** An HTTP row's response body, in Show Packet Bytes. @param {any} row */
+  /** An HTTP Requests row's request and response, in the HTTP Exchange panel. @param {any} row */
+  function showExchange(row) {
+    if (row && row.frame) {
+      vscode.postMessage({
+        type: "httpExchange",
+        request: row.frame,
+        requestIndex: row.requestIndex ?? 0,
+        response: row.response ?? null,
+        responseIndex: row.responseIndex ?? 0,
+        label: row.label,
+      });
+    }
+  }
+
   function showBody(row) {
     if (row && row.response) {
       vscode.postMessage({ type: "httpBody", frame: row.response, label: row.label });

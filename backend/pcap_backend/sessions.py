@@ -26,11 +26,14 @@ below are the common ones (others show as numbers).
 
 from __future__ import annotations
 
+import time
+import xml.etree.ElementTree as ET
 from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import x509
 from .navigation import frame_ranges
 from .stats import Table, _address_filter, _col
 
@@ -65,7 +68,10 @@ _DNS_ANSWERS = (
     ("dns.srv.target", "SRV"),
 )
 
-TLS_FILTER = "tls.handshake.type == 1 || tls.handshake.type == 2 || tls.handshake.type == 8"
+TLS_FILTER = (
+    "tls.handshake.type == 1 || tls.handshake.type == 2 || tls.handshake.type == 8"
+    " || tls.handshake.type == 11"
+)
 TLS_FIELDS = (
     "frame.number", "tcp.stream", "quic.connection.number",
     "ip.src", "ipv6.src", "ip.dst", "ipv6.dst",
@@ -73,6 +79,8 @@ TLS_FIELDS = (
     "tls.handshake.type", "tls.handshake.extensions_server_name",
     "tls.handshake.extensions_alpn_str", "tls.handshake.version",
     "tls.handshake.extensions.supported_version", "tls.handshake.ciphersuite",
+    # (Last: a Certificate message's chain, the server's own first, as hex.)
+    "frame.time_epoch", "tls.handshake.certificate",
 )  # fmt: skip
 
 DNS_TYPES = {
@@ -268,6 +276,7 @@ def http_requests(lines: Iterable[str], limit: int | None = None) -> Table:
                 continue
             target.update(
                 response=frame,
+                responseIndex=i,
                 final=final,
                 status=code,
                 phrase=_nth(c["http.response.phrase"], i, len(codes)),
@@ -325,12 +334,90 @@ def _http_table(requests: list[dict[str, Any]]) -> Table:
                 "filter": _frames_filter(frames),
                 "frame": r["frame"],
                 "response": response,
+                # (Which HTTP message of its packet: pipelined ones share one.)
+                "requestIndex": r["index"],
+                "responseIndex": r.get("responseIndex", 0),
                 "contentType": r.get("contentType", ""),
                 "label": f"{r['method']} {r['host']}{r['uri']}",
             }
         )
     table.extra["summary"] = {"requests": len(requests), "unanswered": len(requests) - answered}
     return table
+
+
+# ------------------------------------------------------------ HTTP exchange
+
+# tshark writes a message's first line and header lines with "\r\n" spelled
+# out (show="GET / HTTP/1.1\r\n"), the hidden *.line fields with a real line
+# break.
+_LINE_END = "\\r\\n"
+
+
+def _line(text: str) -> str:
+    text = text.rstrip("\r\n")
+    return text.removesuffix(_LINE_END)
+
+
+def http_messages(pdml: bytes, max_body: int) -> dict[int, list[dict[str, Any]]]:
+    """The HTTP/1.x messages of each packet in tshark's PDML, in order (a
+    packet can hold several: pipelining): ``{kind: request|response, line,
+    headers: [[name, value]], body: hex, bodySize, truncated, decoded}``.
+    The body is ``http.file_data``, which tshark de-chunks and decompresses;
+    ``decoded`` says it did (Content-Encoding or chunks), at most
+    ``max_body`` bytes of it are kept."""
+    root = ET.fromstring(pdml)  # noqa: S314 (tshark's own PDML)
+    out: dict[int, list[dict[str, Any]]] = {}
+    for packet in root.iter("packet"):
+        frame = next(
+            (
+                int(f.get("show", "0"))
+                for f in packet.iter("field")
+                if f.get("name") == "frame.number"
+            ),
+            0,
+        )
+        out[frame] = [
+            _http_message(p, max_body) for p in packet.findall("proto") if p.get("name") == "http"
+        ]
+    return out
+
+
+def _http_message(proto: ET.Element, max_body: int) -> dict[str, Any]:
+    children = [c for c in proto if c.tag == "field"]
+    first = next((c for c in children if not c.get("name") and _line(c.get("show", ""))), None)
+    request = any(c.get("name") == "http.request" for c in children) or (
+        first is not None and any(f.get("name") == "http.request.method" for f in first)
+    )
+    headers: list[list[str]] = []
+    for c in children:
+        if c.get("name") in ("http.request.line", "http.response.line"):
+            name, _, value = _line(c.get("show", "")).partition(":")
+            headers.append([name.strip(), value.strip()])
+    body = b""
+    size = 0
+    for f in proto.iter("field"):
+        if f.get("name") == "http.file_data":
+            size = int(f.get("size") or 0)
+            shown = (f.get("show") or "").replace(":", "")
+            try:
+                body = bytes.fromhex(shown[: max_body * 2])
+            except ValueError:  # (not bytes: a tshark that shows it as text)
+                body = (f.get("show") or "").encode("utf-8", "replace")[:max_body]
+            break
+    decoded = any(
+        c.get("show", "").startswith(("Content-encoded entity body", "HTTP chunked response"))
+        for c in children
+        if not c.get("name")
+    )
+    return {
+        "kind": "request" if request else "response",
+        "line": _line(first.get("show", "")) if first is not None else "",
+        "headers": headers,
+        "body": body.hex(),
+        "bodySize": size,
+        "truncated": size > max_body,
+        "decoded": decoded,
+    }
 
 
 # ---------------------------------------------------------------------- DNS
@@ -452,6 +539,12 @@ class _Connection:
     version: str = ""
     cipher: str = ""
     alpn: str = ""
+    # The server's certificate (TLS 1.2 and earlier send it in the clear),
+    # its DER bytes and when it was sent (epoch seconds).
+    cert: x509.Certificate | None = None
+    cert_der: bytes = b""
+    cert_time: float = 0.0
+    cert_frame: int = 0
 
 
 @dataclass(slots=True)
@@ -504,6 +597,13 @@ def tls_servers(lines: Iterable[str]) -> Table:
         if kinds & {2, 8} and not conn.alpn:
             # (TLS 1.3 sends it in the EncryptedExtensions, after the ServerHello)
             conn.alpn = _first(c["tls.handshake.extensions_alpn_str"])
+        if 11 in kinds and conn.cert is None:
+            der = _hex_bytes(_first(c["tls.handshake.certificate"]))
+            conn.cert = x509.parse_certificate(der) if der else None
+            if conn.cert is not None:
+                conn.cert_der = der
+                conn.cert_time = _float(c["frame.time_epoch"]) or 0.0
+                conn.cert_frame = frame
     servers: dict[tuple[str, str, str, str], _Server] = {}
     for conn in sorted(conns.values(), key=lambda c: c.first):
         group = (conn.server, conn.port, conn.transport, conn.sni)
@@ -521,8 +621,13 @@ def tls_servers(lines: Iterable[str]) -> Table:
             _col("ciphers", "Cipher Suites"),
             _col("alpn", "ALPN"),
             _col("clients", "Clients", True),
+            _col("certificate", "Certificate"),
+            _col("issuer", "Issuer"),
+            _col("expires", "Expires"),
+            _col("check", "Certificate Check"),
         ],
     )
+    problems = 0
     for s in servers.values():
         cs = s.connections
         answered = [c for c in cs if c.answered]
@@ -544,14 +649,74 @@ def tls_servers(lines: Iterable[str]) -> Table:
                     _joined(c.cipher for c in answered),
                     _joined(c.alpn for c in answered),
                     len({c.client for c in cs}),
+                    *_certificate_cells(s, answered),
                 ],
                 "filter": flt,
                 "frame": cs[0].first,
             }
         )
+        problems += bool(_certificate_problems(s))
     table.extra["summary"] = {
         "servers": len(servers),
         "connections": len(conns),
         "unanswered": sum(1 for c in conns.values() if not c.answered),
+        "certificateProblems": problems,
     }
     return table
+
+
+def _hex_bytes(text: str) -> bytes:
+    """tshark's hex for a bytes field (with or without colons), or b""."""
+    try:
+        return bytes.fromhex(text.replace(":", ""))
+    except ValueError:
+        return b""
+
+
+def _name_of(name: dict[str, str]) -> str:
+    return name.get("cn") or name.get("o") or ""
+
+
+def _date(epoch: float) -> str:
+    return time.strftime("%Y-%m-%d", time.gmtime(epoch))
+
+
+def _certificate_problems(server: _Server) -> list[str]:
+    """What is wrong with the server's certificates when they were sent:
+    expired, not yet valid, self-signed, not for the name the client asked
+    for (SNI). Each problem once, whatever the connection."""
+    found: list[str] = []
+    for conn in server.connections:
+        cert = conn.cert
+        if cert is None:
+            continue
+        when = conn.cert_time
+        if when and when > cert.not_after:
+            found.append(f"Expired {_date(cert.not_after)}")
+        if when and when < cert.not_before:
+            found.append(f"Not valid before {_date(cert.not_before)}")
+        if cert.self_signed:
+            found.append("Self-signed")
+        if server.sni and not cert.covers(server.sni):
+            found.append(f"Not for {server.sni}")
+    return list(dict.fromkeys(found))
+
+
+def _certificate_cells(server: _Server, answered: list[_Connection]) -> list[str]:
+    """Certificate, Issuer, Expires and Certificate Check of a server row:
+    its first certificate seen (and how many different ones it sent)."""
+    with_cert = [c for c in server.connections if c.cert is not None]
+    if not with_cert:
+        # TLS 1.3 encrypts the certificate; no ServerHello: nothing was sent.
+        tls13 = any(c.version == "TLS 1.3" for c in answered)
+        return ["", "", "", "Encrypted (TLS 1.3)" if tls13 else ""]
+    first = with_cert[0].cert
+    assert first is not None
+    distinct = len({c.cert_der for c in with_cert})
+    name = _name_of(first.subject) + (f" (+{distinct - 1} more)" if distinct > 1 else "")
+    return [
+        name,
+        _name_of(first.issuer),
+        _date(first.not_after),
+        "; ".join(_certificate_problems(server)) or "OK",
+    ]

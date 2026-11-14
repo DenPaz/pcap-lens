@@ -533,14 +533,20 @@ def _without_digits(label: str) -> str:
 def _session_problem(kind: str, cell: Callable[[str], Any]) -> bool:
     """Whether a session row is one only_problems keeps: an HTTP error or a
     request without a response, a DNS query that failed or went unanswered,
-    a TLS server with handshakes that got no ServerHello."""
+    a TLS server with handshakes that got no ServerHello or a certificate
+    that failed its check (expired, self-signed, not for the SNI…)."""
     if kind == "http":
         status = cell("status")
         return not isinstance(status, int) or status >= 400
     if kind == "dns":
         return bool(cell("rcode") != "NoError")
     unanswered = cell("unanswered")
-    return isinstance(unanswered, int) and unanswered > 0
+    return (isinstance(unanswered, int) and unanswered > 0) or _certificate_failed(cell("check"))
+
+
+def _certificate_failed(check: Any) -> bool:
+    """TLS Servers' Certificate Check names a problem (not OK, not encrypted, not none)."""
+    return isinstance(check, str) and check not in ("", "OK", "Encrypted (TLS 1.3)")
 
 
 def tcp_facts(points: list[list[Any]], fields: list[str], endpoints: list[str]) -> dict[str, Any]:
@@ -1022,10 +1028,12 @@ class Toolbox:
                 "One row per HTTP request (method, host, path, status, content type, size, "
                 "response time; 'No response' when none came), per DNS query (name, type, result, "
                 "answers, response time) or per TLS server (server name, connections, handshakes "
-                "without a ServerHello, versions, cipher suites and ALPN it chose), with a summary "
-                "and each row's display filter. 'only_problems' keeps HTTP errors (4xx, 5xx) and "
-                "unanswered requests, failed or unanswered DNS queries, TLS servers with "
-                "unanswered handshakes. Use it for slow or failing requests and lookups.",
+                "without a ServerHello, versions, cipher suites and ALPN it chose, and its "
+                "certificate's name, issuer, expiry and check: expired, self-signed, not for the "
+                "server name; TLS 1.3 encrypts it), with a summary and each row's display filter. "
+                "'only_problems' keeps HTTP errors (4xx, 5xx) and unanswered requests, failed or "
+                "unanswered DNS queries, TLS servers with unanswered handshakes or a certificate "
+                "that failed its check. Use it for slow or failing requests and lookups.",
                 _schema(
                     {
                         "capture": _CAPTURE,

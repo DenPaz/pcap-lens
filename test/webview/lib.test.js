@@ -629,6 +629,10 @@ suite("webview lib: bytes", () => {
       lib.sessionSummary("tls_servers", { servers: 1, connections: 1, unanswered: 1 }),
       "1 server · 1 connection · 1 handshake without a server hello",
     );
+    assert.equal(
+      lib.sessionSummary("tls_servers", { servers: 3, connections: 5, certificateProblems: 2 }),
+      "3 servers · 5 connections · 2 servers with a certificate problem",
+    );
     assert.deepEqual(lib.SESSION_KINDS, ["http_requests", "dns_queries", "tls_servers"]);
   });
 
@@ -1039,6 +1043,219 @@ suite("webview lib: follow stream and statistics helpers", () => {
         .slice(1, 3),
       ["x10", "x9"],
     ); // ties keep order
+  });
+
+  test("HTTP bodies: kind and charset by Content-Type, else by their bytes", () => {
+    const enc = (/** @type {string} */ t) => new TextEncoder().encode(t);
+    assert.equal(lib.bodyKind("application/json", enc("{}")), "json");
+    assert.equal(lib.bodyKind("application/problem+json; charset=utf-8", enc("{}")), "json");
+    assert.equal(lib.bodyKind("text/html; charset=utf-8", enc("<p>")), "html");
+    assert.equal(lib.bodyKind("application/soap+xml", enc("<a/>")), "xml");
+    assert.equal(lib.bodyKind("application/x-www-form-urlencoded", enc("a=1")), "form");
+    assert.equal(lib.bodyKind("text/plain", enc("hi")), "text");
+    assert.equal(lib.bodyKind("application/javascript", enc("x()")), "text");
+    assert.equal(lib.bodyKind("text/plain", new Uint8Array()), "empty");
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
+    assert.equal(lib.bodyKind("application/octet-stream", png), "image", "by its bytes");
+    // Untyped: JSON or text when the bytes say so, else binary.
+    assert.equal(lib.bodyKind("", enc(' {"a": [1]}')), "json");
+    assert.equal(lib.bodyKind("", enc("{not json")), "text");
+    assert.equal(lib.bodyKind("application/octet-stream", new Uint8Array([1, 2, 3])), "binary");
+    assert.equal(lib.bodyKind("", new Uint8Array([0xff, 0xfe])), "binary", "not UTF-8");
+    assert.equal(lib.charsetOf('text/plain; charset="ISO-8859-1"'), "ISO-8859-1");
+    assert.equal(lib.charsetOf("text/plain; charset=no-such-charset"), "utf-8");
+    assert.equal(lib.charsetOf("text/plain"), "utf-8");
+    assert.equal(lib.decodeBody(new Uint8Array([0xe9]), "text/plain; charset=iso-8859-1"), "é");
+  });
+
+  test("prettyJson indents and colours JSON as written; anything else is null", () => {
+    const show = (/** @type {[string, string][] | null} */ segs) =>
+      segs && segs.map(([t, c]) => (c ? `<${c.slice(4)}>${t}` : t)).join("");
+    assert.equal(
+      show(lib.prettyJson('{"a":[1,{}],"b":{"c":"x,y:z","n":12345678901234567890,"t":null}}')),
+      [
+        "{",
+        '  <key>"a": [',
+        "    <number>1,",
+        "    {}",
+        "  ],",
+        '  <key>"b": {',
+        '    <key>"c": <string>"x,y:z",',
+        '    <key>"n": <number>12345678901234567890,',
+        '    <key>"t": <literal>null',
+        "  }",
+        "}",
+      ].join("\n"),
+    );
+    assert.equal(show(lib.prettyJson('"\\"quoted\\""')), '<string>"\\"quoted\\""');
+    assert.equal(lib.prettyJson("{oops}"), null);
+    assert.equal(lib.prettyJson(`[${"1,".repeat(600000)}1]`), null, "past PRETTY_MAX");
+    // 20 kB of nesting would print 200 million characters of indentation.
+    assert.equal(lib.prettyJson("[".repeat(10000) + "]".repeat(10000)), null, "output budget");
+  });
+
+  test("prettyMarkup puts XML and HTML one element a line, by nesting", () => {
+    const show = (/** @type {[string, string][] | null} */ segs) =>
+      segs && segs.map(([t, c]) => (c ? `<${c.slice(4)}>${t}` : t)).join("");
+    assert.equal(
+      show(lib.prettyMarkup('<?xml version="1.0"?><r a="1>2"><!-- c --><i/>text</r>', false)),
+      [
+        '<tag><?xml version="1.0"?>',
+        '<tag><r <attr>a=<string>"1>2"<tag>>',
+        "  <comment><!-- c -->",
+        "  <tag><i/>",
+        "  text",
+        "<tag></r>",
+      ].join("\n"),
+    );
+    // HTML: void elements don't nest, a script's content stays as written.
+    const html = lib.prettyMarkup("<p>a<br>b<img src=x></p><script>if (a<b) go();</script>", true);
+    assert.deepEqual(show(html).split("\n"), [
+      "<tag><p>",
+      "  a",
+      "  <tag><br>",
+      "  b",
+      "  <tag><img <attr>src=<string>x<tag>>",
+      "<tag></p>",
+      "<tag><script>",
+      "  if (a<b) go();",
+      "<tag></script>",
+    ]);
+    // An unclosed tag or comment ends the text instead of looping.
+    assert.equal(show(lib.prettyMarkup("<a href='x", false)), "<tag><a <attr>href=<string>'x");
+    assert.equal(show(lib.prettyMarkup("<!-- open", false)), "<comment><!-- open");
+    assert.equal(lib.prettyMarkup("<a>".repeat(10000), false), null, "output budget");
+  });
+
+  test("prettyForm lists a form's fields, decoded", () => {
+    assert.deepEqual(lib.prettyForm("user=ann+lee&note=caf%C3%A9&bad=%E0%A4&flag"), [
+      ["user", "tok-key"],
+      [" = ", ""],
+      ["ann lee", "tok-string"],
+      ["\n", ""],
+      ["note", "tok-key"],
+      [" = ", ""],
+      ["café", "tok-string"],
+      ["\n", ""],
+      ["bad", "tok-key"],
+      [" = ", ""],
+      ["%E0%A4", "tok-string"],
+      ["\n", ""],
+      ["flag", "tok-key"],
+    ]);
+    assert.equal(lib.prettyBody("text", "plain"), null);
+  });
+
+  test("groupConversations: a row per pair of hosts, totals turned to the pair, its connections under it", () => {
+    assert.equal(lib.endAddress("10.0.0.1:443"), "10.0.0.1");
+    assert.equal(lib.endAddress("2001:db8::1:443"), "2001:db8::1");
+    assert.equal(lib.endAddress("[2001:db8::1]:443"), "2001:db8::1");
+    assert.equal(lib.endAddress("10.0.0.1"), "10.0.0.1");
+    const ids = [
+      "a",
+      "b",
+      "packets",
+      "bytes",
+      "packets_ab",
+      "bytes_ab",
+      "packets_ba",
+      "bytes_ba",
+      "start",
+      "duration",
+    ];
+    const table = {
+      columns: ids.map((id) => ({ id })),
+      rows: [
+        { cells: ["10.0.0.1:5000", "10.0.0.2:80", 5, 500, 3, 300, 2, 200, 1, 2], activity: [1, 2] },
+        { cells: ["10.0.0.3:5001", "10.0.0.4:443", 1, 60, 1, 60, 0, 0, 0.5, 0], activity: [0, 60] },
+        // (Listed the other way round: its A → B is the pair's B → A.)
+        { cells: ["10.0.0.2:80", "10.0.0.1:5002", 4, 400, 1, 100, 3, 300, 4, 1], activity: [0, 4] },
+      ],
+    };
+    const rows = lib.groupConversations(table, "tcp");
+    assert.equal(rows.length, 5);
+    const [pair, first, second, other] = rows;
+    assert.deepEqual(pair.cells, ["10.0.0.1", "10.0.0.2", 9, 900, 6, 600, 3, 300, 1, 4]);
+    assert.equal(pair.filter, "ip.addr == 10.0.0.1 && ip.addr == 10.0.0.2 && tcp");
+    assert.equal(pair.count, 2);
+    assert.deepEqual(pair.activity, [1, 6]);
+    assert.deepEqual([first.depth, first.parent, second.parent], [1, pair.group, pair.group]);
+    assert.equal(first.cells, table.rows[0].cells, "the connection rows as they were");
+    assert.equal(other.count, 1);
+    assert.equal(
+      lib.groupConversations(
+        {
+          columns: table.columns,
+          rows: [{ cells: ["2001:db8::1:1", "2001:db8::1:2", 1, 1, 1, 1, 0, 0, 0, 0] }],
+        },
+        "udp",
+      )[0].filter,
+      "ipv6.src == 2001:db8::1 && ipv6.dst == 2001:db8::1 && udp",
+      "a host talking to itself: both ends that host, not all of its traffic",
+    );
+    // One pair with 150,000 connections (a scan): no spreading rows into a call.
+    const many = Array.from({ length: 150000 }, (_, i) => ({
+      cells: [`10.0.0.1:${i}`, "10.0.0.2:80", 1, 1, 1, 1, 0, 0, i / 1000, 0.001],
+    }));
+    const big = lib.groupConversations({ columns: table.columns, rows: many }, "tcp");
+    assert.equal(big.length, 150001);
+    assert.equal(big[0].count, 150000);
+    assert.deepEqual([big[0].cells[8], Math.round(big[0].cells[9])], [0, 150], "start, span");
+    // Sorted: the groups by their totals, connections under their group.
+    const sorted = lib.sortGrouped(rows, 2, true);
+    assert.deepEqual(
+      sorted.map((r) => (r.group !== undefined ? `pair ${r.cells[2]}` : `conn ${r.cells[2]}`)),
+      ["pair 9", "conn 5", "conn 4", "pair 1", "conn 1"],
+    );
+  });
+
+  test("activityBars and activityLabel draw and describe a row's activity", () => {
+    assert.deepEqual(lib.activityBars([0, 5, 10, 0], 40, 10), [
+      { x: 10, y: 5, w: 9, h: 5 },
+      { x: 20, y: 0, w: 9, h: 10 },
+    ]);
+    assert.deepEqual(lib.activityBars([1000, 1], 4, 10)[1], { x: 2, y: 9, w: 2, h: 1 }, "≥ 1 px");
+    assert.deepEqual(lib.activityBars([0, 0], 10, 10), []);
+    assert.deepEqual(lib.activityBars([], 10, 10), []);
+    assert.equal(
+      lib.activityLabel([0, 2048, 512, 0], 0.1),
+      "Busiest 0.1–0.2 s (2.0 KB); traffic in 2 of 4 intervals of 0.1 s",
+    );
+  });
+
+  test("searchRows keeps rows holding every word; in a tree, parents and children too", () => {
+    const flat = [
+      { cells: ["10.0.0.1:5000", "93.184.216.34:443", 1234] },
+      { cells: ["10.0.0.2:5001", "93.184.216.34:80", 12] },
+    ];
+    assert.deepEqual(lib.searchRows(flat, ""), flat);
+    assert.deepEqual(lib.searchRows(flat, "  "), flat);
+    assert.deepEqual(lib.searchRows(flat, "93.184 :443"), [flat[0]], "every word, any column");
+    assert.deepEqual(lib.searchRows(flat, "1,234"), [flat[0]], "numbers as shown");
+    assert.deepEqual(lib.searchRows(flat, "10.0.0.1 :80"), [], "words in one row");
+    const tree = [
+      { cells: ["eth"], depth: 0 },
+      { cells: ["arp"], depth: 1 },
+      { cells: ["ip"], depth: 1 },
+      { cells: ["udp"], depth: 2 },
+      { cells: ["DNS"], depth: 3 },
+      { cells: ["data"], depth: 4 },
+      { cells: ["tcp"], depth: 2 },
+      { cells: ["http"], depth: 3 },
+    ];
+    const names = (/** @type {any[]} */ rows) => rows.map((r) => r.cells[0]);
+    assert.deepEqual(names(lib.searchRows(tree, "dns")), ["eth", "ip", "udp", "DNS", "data"]);
+    assert.deepEqual(names(lib.searchRows(tree, "ip")), [
+      "eth",
+      "ip",
+      "udp",
+      "DNS",
+      "data",
+      "tcp",
+      "http",
+    ]);
+    assert.deepEqual(names(lib.searchRows(tree, "http")), ["eth", "ip", "tcp", "http"]);
+    assert.deepEqual(names(lib.searchRows(tree, "arp")), ["eth", "arp"]);
   });
 
   test("tableToCsv quotes where needed", () => {

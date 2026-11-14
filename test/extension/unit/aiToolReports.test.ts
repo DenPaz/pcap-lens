@@ -337,7 +337,7 @@ suite("AI report tools on the real backend", function () {
     async () => {
       const backend = await open("sessions.pcap");
       const overview = await runTool("pcap_overview", {}, backend, ALL);
-      assert.match(overview.text, /^Capture overview: 62 packets, 5\.2 kB over 3 s\./);
+      assert.match(overview.text, /^Capture overview: 62 packets, 5\.6 kB over 3 s\./);
       assert.match(overview.text, /^HTTP: 7 requests, 6 responses$/m);
       assert.match(
         overview.text,
@@ -375,7 +375,14 @@ suite("AI report tools on the real backend", function () {
         ALL,
       );
       assert.match(tls.text, /^203\.0\.113\.5:443 \| cdn\.example\.net \| TCP \| 1 \| 1 \|/m);
-      assert.deepEqual(tls.names, [{ name: "cdn.example.net" }]);
+      assert.match(
+        tls.text,
+        /\| api\.example\.com \| PCAP Lens Test CA \| 2021-01-01 \| Expired 2021-01-01 \|/,
+      );
+      assert.deepEqual((tls.names ?? []).map((n) => n.name).sort(), [
+        "api.example.com",
+        "cdn.example.net",
+      ]);
 
       const stream = await runTool("pcap_tcp_stream", { packet: 4 }, backend, ALL);
       assert.equal(stream.filter, "tcp.stream == 0");

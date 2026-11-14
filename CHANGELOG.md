@@ -7,6 +7,33 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.36.0 — 2026-11-14
+
+### Added
+
+- Statistics tables have a _Filter rows_ box (Ctrl+F): it narrows a table,
+  a session table of 50,000 rows too, to the rows holding every word typed,
+  without running tshark again; in a tree a match keeps its parents [ec47aa9]
+- HTTP Requests: _Show Request and Response_ shows both side by side, their
+  headers and bodies (request bodies too), JSON, XML, HTML and forms
+  pretty-printed and coloured, images shown; pipelined requests each get
+  their own answer [6c4373f]
+- Conversations and Endpoints: an _Activity_ column charts each row's bytes
+  over the capture (bursts, steady streams, late starts); the charts come a
+  moment after the rows, from one more pass [16c5eed]
+- TLS Servers shows each server's certificate (name, issuer, expiry) and
+  checks it: expired or not yet valid when sent, self-signed, or not for the
+  name the client asked for; _only problems_ in the AI tools keeps those
+  servers too [4a24e68]
+- Conversations: _Group by hosts_ puts TCP and UDP connections under one row
+  per pair of hosts, with the pair's totals, activity and filter [4954d96]
+
+[4954d96]: https://github.com/DenPaz/pcap-lens/commit/4954d96
+[4a24e68]: https://github.com/DenPaz/pcap-lens/commit/4a24e68
+[16c5eed]: https://github.com/DenPaz/pcap-lens/commit/16c5eed
+[6c4373f]: https://github.com/DenPaz/pcap-lens/commit/6c4373f
+[ec47aa9]: https://github.com/DenPaz/pcap-lens/commit/ec47aa9
+
 ## 0.35.1 — 2026-11-14
 
 ### Fixed
