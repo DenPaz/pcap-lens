@@ -68,6 +68,22 @@ suite("mcpConfig", () => {
     // The C runtime's rules: backslashes double only before a quote.
     assert.equal(shellQuote("C:\\My Dir\\", true), '"C:\\My Dir\\\\"');
     assert.equal(shellQuote('say \\"hi"', true), '"say \\\\\\"hi\\""');
+    assert.equal(shellQuote('a\\\\"b\\ c\\\\', true), '"a\\\\\\\\\\"b\\ c\\\\\\\\"');
+    // The same quoting as the regexes it replaced, on every short string of
+    // these characters…
+    const before = (arg: string): string =>
+      `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1")}"`;
+    const strings = (n: number): string[] =>
+      n === 0 ? [""] : strings(n - 1).flatMap((p) => ["\\", '"', "a", " "].map((c) => p + c));
+    for (let n = 1; n <= 6; n++) {
+      for (const arg of strings(n).filter((a) => !/^[\w@%+=:,./\\-]+$/.test(a))) {
+        assert.equal(shellQuote(arg, true), before(arg), JSON.stringify(arg));
+      }
+    }
+    // …in linear time: a long run of backslashes took quadratic time.
+    const started = Date.now();
+    assert.equal(shellQuote(" " + "\\".repeat(100000) + "x", true).length, 100004);
+    assert.ok(Date.now() - started < 500, "linear time");
     assert.equal(
       claudeCodeCommand(LAUNCH, false),
       "claude mcp add pcap-lens --scope user --env PYTHONPATH=/home/ann/.config/Code/User/globalStorage/denpaz.pcap-viewer/mcp/backend " +
