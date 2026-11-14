@@ -913,7 +913,12 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   (`drawWindow` on the page's scroll, `lib.tableWindow`; spacer rows stand
   for the rest; `aria-rowcount`/`aria-rowindex`; fixed column widths from
   `lib.columnChars`, the cells being monospaced, the widest text column
-  taking what is left). Sizes like "12 kB" are
+  taking what is left). _Filter rows_ (`#stats-search`, Ctrl/Cmd+F, Esc
+  clears; not for io or properties) narrows the rows already loaded with
+  `lib.searchRows` (every word in the cells as shown; in a tree a match
+  keeps its parents and its children), debounced, after sorting; the status
+  says how many are shown, Copy as CSV copies them, and a selection it hides
+  is dropped. Sizes like "12 kB" are
   converted with SI units. tshark 4.6 adds a top-level `frame` row to the
   protocol hierarchy (eth at depth 1, dns at 4; 4.2: 0 and 3), so tests check
   parent rows ("dns one level below udp") and totals, never absolute depths.

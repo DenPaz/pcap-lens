@@ -6,6 +6,12 @@ and leaves out ignored packets. Its rows apply or prepare a filter, go to a
 packet or copy; right-click a row for the full menu. The statistics are in
 the editor title's chart menu and in **☰ › Statistics**.
 
+**Filter rows** (Ctrl+F, ⌘F on macOS) narrows a table to the rows holding
+every word you type, in any column, without running tshark again: a host
+name in HTTP Requests, an address in Conversations. In a tree (Protocol
+Hierarchy, HTTP, DNS) a match keeps its parent rows and its own children.
+Esc clears it; _Copy as CSV_ copies the rows shown.
+
 ![The protocol hierarchy of the sample capture](https://raw.githubusercontent.com/DenPaz/pcap-lens/main/media/screenshots/statistics.png)
 
 ## Capture Overview

@@ -125,6 +125,16 @@ table.stats td.wrap {
   white-space: normal;
 }
 
+#stats-search {
+  width: 16em;
+  min-width: 8em;
+}
+
+table.stats tr.no-match td {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
 /* A long table drawn a window at a time (stats.js drawWindow): fixed column
    widths from its widest cells, one line per row, spacer rows standing for
    the rest. */

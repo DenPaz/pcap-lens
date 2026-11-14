@@ -282,6 +282,33 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       "Address A,Address B,Packets,Bytes,Packets A → B,Bytes A → B,Packets B → A,Bytes B → A,Rel Start,Duration",
     );
     assert.equal(csv.length, 5);
+
+    // The text filter: rows holding every word, in any column, no query.
+    const queries = log.filter((m) => m.type === "query").length;
+    await page.fill("#stats-search", "10.0.0.2 9999");
+    await page.waitForFunction(() => document.querySelectorAll("table.stats tbody tr").length < 4);
+    const kept = await rows(page);
+    assert.ok(kept.length >= 1, "the conversation with 10.0.0.2:9999 stays");
+    assert.ok(kept.every((r) => r.join(" ").includes("10.0.0.2:9999")));
+    assert.match(
+      await page.textContent(".status"),
+      new RegExp(`${kept.length} shown \\(filter “10\\.0\\.0\\.2 9999”\\)`),
+    );
+    assert.equal(log.filter((m) => m.type === "query").length, queries, "no new query");
+    await page.click("button:has-text('Copy as CSV')");
+    assert.equal(
+      log
+        .findLast((m) => m.type === "copy")
+        .text.trim()
+        .split("\n").length,
+      kept.length + 1,
+    );
+    await page.fill("#stats-search", "no-such-host");
+    await page.waitForSelector("tr.no-match");
+    assert.equal(await page.textContent("tr.no-match"), "No row holds “no-such-host”.");
+    await page.press("#stats-search", "Escape");
+    await waitRows(page, 4);
+    assert.equal(await page.inputValue("#stats-search"), "");
   });
 
   /** Pick a path through a page's context menus (menus.js): every label but the last opens a submenu. */
@@ -378,6 +405,18 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     const names = (await rows(page)).map((r) => r[0]);
     const eth = names.indexOf("eth");
     assert.deepEqual(names.slice(eth, eth + 3), ["eth", "arp", "ip"]);
+    // Filtering a tree keeps a match's parents (and its children).
+    await page.fill("#stats-search", "dns");
+    await page.press("#stats-search", "Enter");
+    await page.waitForFunction(() => document.querySelectorAll("table.stats tbody tr").length < 11);
+    const kept = (await rows(page)).map((r) => r[0]);
+    assert.ok(kept.includes("dns"));
+    assert.deepEqual(
+      kept.slice(kept.indexOf("eth"), kept.indexOf("dns") + 1),
+      ["eth", "ip", "udp", "dns"],
+      "dns under its parents",
+    );
+    assert.ok(!kept.includes("arp"));
   });
 
   test("IO graph: line chart with crosshair tooltip, keyboard and metric switch", async () => {
@@ -1911,6 +1950,19 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       .text.trim()
       .split("\n");
     assert.equal(csv.length, n + 1);
+    // Ctrl+F goes to the text filter; a filter over every row, not the drawn ones.
+    await page.click("table.stats tbody tr:not(.spacer) >> nth=0");
+    await page.keyboard.press("Control+f");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "stats-search");
+    await page.keyboard.type("host4999.");
+    await page.waitForFunction(() => !document.querySelector("table.stats.virtual"));
+    assert.deepEqual(
+      await page.$$eval("table.stats tbody tr", (trs) =>
+        trs.map((tr) => tr.children[1].textContent),
+      ),
+      ["host4999.example.com"],
+    );
+    assert.match(await page.textContent(".status"), / · 1 shown \(filter “host4999\.”\)$/);
   });
 
   test("sequence check: name the fields, Check, streams with their problems, a refused field", async () => {

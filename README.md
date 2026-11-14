@@ -109,7 +109,9 @@ dissector you pick).
 ### Statistics and streams
 
 Each report opens beside the capture, can be limited to the current filter,
-and its rows apply or prepare a filter, go to a packet or copy.
+and its rows apply or prepare a filter, go to a packet or copy. Type in
+_Filter rows_ (or press Ctrl+F) to narrow a table to the rows holding your
+words, instantly.
 
 - **Capture Overview**: the capture at a glance, on one page: totals and
   rates, packets over time, top addresses, protocols, TCP services, and HTTP,

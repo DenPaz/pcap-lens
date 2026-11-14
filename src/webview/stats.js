@@ -89,6 +89,8 @@
     sequence: { key: /** @type {string[]} */ ([]), seq: "", wrap: 0, reorder: 1000 },
     /** The field the last sequence check refused. @type {string | null} */
     badField: null,
+    /** The table's text filter (lib.searchRows): rows already loaded, no query. */
+    search: "",
   };
 
   const app = /** @type {HTMLElement} */ (document.getElementById("app"));
@@ -117,6 +119,61 @@
   const legend = h("ul", { class: "io-legend hidden", "aria-label": "Legend" });
   const mapBox = h("div", { class: "geo-map hidden" });
   const tableBox = h("div");
+  const searchInput = /** @type {HTMLInputElement} */ (
+    h("input", {
+      id: "stats-search",
+      type: "search",
+      placeholder: "Filter rows",
+      "aria-label": "Filter rows (every word, in any column)",
+      spellcheck: "false",
+    })
+  );
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let searchTimer;
+  searchInput.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => setSearch(searchInput.value), 150);
+  });
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && searchInput.value) {
+      e.preventDefault();
+      e.stopPropagation();
+      searchInput.value = "";
+      clearTimeout(searchTimer);
+      setSearch("");
+    } else if (e.key === "Enter") {
+      clearTimeout(searchTimer);
+      setSearch(searchInput.value);
+    }
+  });
+  // Ctrl/Cmd+F: the table's filter (the webview's own find is not offered).
+  document.addEventListener("keydown", (e) => {
+    if (
+      (e.ctrlKey || e.metaKey) &&
+      !e.altKey &&
+      e.key.toLowerCase() === "f" &&
+      searchInput.isConnected
+    ) {
+      e.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+    }
+  });
+
+  /** Applies the text filter: redraws the table, drops a selection it hides. @param {string} text */
+  function setSearch(text) {
+    if (text === state.search) {
+      return;
+    }
+    state.search = text;
+    if (!state.table) {
+      return;
+    }
+    if (state.selected && !shownRows().includes(state.selected)) {
+      state.selected = null;
+    }
+    render();
+  }
   app.append(
     title,
     toolbar,
@@ -167,7 +224,7 @@
         type: "copy",
         text: lib.tableToCsv(
           shown.map((i) => state.table.columns[i]),
-          sortedRows().map((/** @type {any} */ r) => ({ cells: shown.map((i) => r.cells[i]) })),
+          shownRows().map((/** @type {any} */ r) => ({ cells: shown.map((i) => r.cells[i]) })),
         ),
       });
     }
@@ -332,6 +389,10 @@
         label.append(" ", h("code", {}, [state.filter]));
       }
       toolbar.append(label);
+    }
+    if (state.kind !== "properties" && state.kind !== "io") {
+      searchInput.value = state.search;
+      toolbar.append(searchInput);
     }
     const refresh = iconButton("refresh", "Refresh", { class: "secondary" });
     refresh.addEventListener("click", () => query());
@@ -564,6 +625,17 @@
     return lib.sortRows(rows, state.sort.col, state.sort.desc);
   }
 
+  /** The rows drawn: sorted, then the text filter's (all of them without one). */
+  function shownRows() {
+    const rows = sortedRows();
+    return searchable() ? lib.searchRows(rows, state.search) : rows;
+  }
+
+  /** The text filter applies (not to the I/O graph's intervals or the properties). */
+  function searchable() {
+    return !!state.search.trim() && state.kind !== "io" && state.kind !== "properties";
+  }
+
   // ------------------------------------------------------------------ table
 
   function render() {
@@ -586,6 +658,10 @@
                       : ""
                   }`
                 : `${n.toLocaleString()} ${n === 1 ? "row" : "rows"}${scope}`;
+    if (searchable()) {
+      const shown = shownRows().length;
+      status.textContent += ` · ${shown.toLocaleString()} shown (filter “${state.search.trim()}”)`;
+    }
     chartBox.classList.toggle("hidden", t.kind !== "io");
     legend.classList.toggle("hidden", t.kind !== "io");
     if (t.kind === "io") {
@@ -697,7 +773,7 @@
       headRow.append(th);
     });
     const body = h("tbody");
-    const rows = sortedRows();
+    const rows = shownRows();
     const virtual = rows.length > lib.VIRTUAL_TABLE_ROWS;
     /** One <tr> for row `index` of `rows`. @param {any} row @param {number} index */
     const rowElement = (row, index) => {
@@ -778,6 +854,12 @@
     if (!virtual) {
       virtualTable = null;
       rows.forEach((row, index) => body.append(rowElement(row, index)));
+      if (!rows.length && searchable()) {
+        const td = h("td", { colspan: String(shown.length), class: "empty" }, [
+          `No row holds “${state.search.trim()}”.`,
+        ]);
+        body.append(h("tr", { class: "no-match" }, [td]));
+      }
       return;
     }
     virtualTable = {

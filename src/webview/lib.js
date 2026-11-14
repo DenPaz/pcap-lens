@@ -1965,6 +1965,50 @@
   }
 
   /**
+   * The rows a statistics table's text filter keeps: those whose cells (as
+   * shown, `formatCell`) hold every word of `text`, case-insensitively, in
+   * their order. In a tree (rows with `depth`), a match keeps its parents,
+   * so it is shown where it belongs, and its own children. Empty text keeps
+   * every row.
+   * @template {{cells: unknown[], depth?: number}} R
+   * @param {R[]} rows @param {string} text @returns {R[]}
+   */
+  function searchRows(rows, text) {
+    const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) {
+      return rows;
+    }
+    /** @param {R} row */
+    const matches = (row) => {
+      const shown = row.cells.map(formatCell).join("\n").toLowerCase();
+      return words.every((w) => shown.includes(w));
+    };
+    const keep = new Uint8Array(rows.length);
+    /** Indexes of the current row's parents, outermost first. @type {number[]} */
+    const parents = [];
+    /** A matching row whose children are being kept (its depth), else -1. */
+    let under = -1;
+    rows.forEach((row, i) => {
+      const depth = row.depth ?? 0;
+      while (parents.length && (rows[parents[parents.length - 1]].depth ?? 0) >= depth) {
+        parents.pop();
+      }
+      if (under >= 0 && depth <= under) {
+        under = -1;
+      }
+      if (under >= 0) {
+        keep[i] = 1;
+      } else if (matches(row)) {
+        keep[i] = 1;
+        parents.forEach((p) => (keep[p] = 1));
+        under = depth;
+      }
+      parents.push(i);
+    });
+    return rows.filter((_row, i) => keep[i]);
+  }
+
+  /**
    * Stable sort of table rows by one column (numbers numerically, text case-insensitively).
    * @param {{cells: unknown[]}[]} rows @param {number} col @param {boolean} desc
    */
@@ -3713,6 +3757,7 @@
     tableWindow,
     columnChars,
     filterButtonTitle,
+    searchRows,
     sortRows,
     tableToCsv,
     hexRowParts,

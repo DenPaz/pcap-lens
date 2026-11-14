@@ -1041,6 +1041,41 @@ suite("webview lib: follow stream and statistics helpers", () => {
     ); // ties keep order
   });
 
+  test("searchRows keeps rows holding every word; in a tree, parents and children too", () => {
+    const flat = [
+      { cells: ["10.0.0.1:5000", "93.184.216.34:443", 1234] },
+      { cells: ["10.0.0.2:5001", "93.184.216.34:80", 12] },
+    ];
+    assert.deepEqual(lib.searchRows(flat, ""), flat);
+    assert.deepEqual(lib.searchRows(flat, "  "), flat);
+    assert.deepEqual(lib.searchRows(flat, "93.184 :443"), [flat[0]], "every word, any column");
+    assert.deepEqual(lib.searchRows(flat, "1,234"), [flat[0]], "numbers as shown");
+    assert.deepEqual(lib.searchRows(flat, "10.0.0.1 :80"), [], "words in one row");
+    const tree = [
+      { cells: ["eth"], depth: 0 },
+      { cells: ["arp"], depth: 1 },
+      { cells: ["ip"], depth: 1 },
+      { cells: ["udp"], depth: 2 },
+      { cells: ["DNS"], depth: 3 },
+      { cells: ["data"], depth: 4 },
+      { cells: ["tcp"], depth: 2 },
+      { cells: ["http"], depth: 3 },
+    ];
+    const names = (/** @type {any[]} */ rows) => rows.map((r) => r.cells[0]);
+    assert.deepEqual(names(lib.searchRows(tree, "dns")), ["eth", "ip", "udp", "DNS", "data"]);
+    assert.deepEqual(names(lib.searchRows(tree, "ip")), [
+      "eth",
+      "ip",
+      "udp",
+      "DNS",
+      "data",
+      "tcp",
+      "http",
+    ]);
+    assert.deepEqual(names(lib.searchRows(tree, "http")), ["eth", "ip", "tcp", "http"]);
+    assert.deepEqual(names(lib.searchRows(tree, "arp")), ["eth", "arp"]);
+  });
+
   test("tableToCsv quotes where needed", () => {
     assert.equal(
       lib.tableToCsv(
