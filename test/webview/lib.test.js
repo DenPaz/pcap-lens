@@ -1484,6 +1484,11 @@ suite("webview lib: navigation and customisation", () => {
     assert.equal(lib.cellFilter(col("number"), "4"), "frame.number == 4");
     assert.equal(lib.cellFilter(col("time"), "0.001000"), null);
     assert.equal(lib.cellFilter(col("info"), "GET /"), null);
+    assert.equal(lib.cellFilter(col("source"), "::ffff:192.0.2.1"), "ipv6.src == ::ffff:192.0.2.1");
+    // A long run of colons used to take quadratic time (2 s for 100,000).
+    const started = Date.now();
+    assert.equal(lib.cellFilter(col("source"), ":".repeat(100000) + "x"), null);
+    assert.ok(Date.now() - started < 500, "linear time");
     assert.equal(
       lib.cellFilter(col("custom:http.host", { field: "http.host", custom: true }), "example.com"),
       'http.host == "example.com"',

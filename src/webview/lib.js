@@ -189,7 +189,11 @@
   const NUMBER_RE = /^-?\d+(\.\d+)?$/;
   const HEX_RE = /^0x[0-9a-fA-F]+$/;
   const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/;
-  const IPV6_RE = /^[0-9a-fA-F:]*:[0-9a-fA-F:.]*$/;
+  // Hex digits up to the first colon, then hex, colons and dots (an IPv4
+  // tail). The first part can't hold a colon, so there is one way to match:
+  // /^[0-9a-fA-F:]*:…/ tried every colon as the split, quadratic on a long
+  // run of colons (CodeQL's polynomial regular expression alert).
+  const IPV6_RE = /^[0-9a-fA-F]*:[0-9a-fA-F:.]*$/;
   const MAC_RE = /^[0-9a-fA-F]{2}([:\-.][0-9a-fA-F]{2}){2,}$/;
 
   /** Quote a string for a Wireshark display filter. @param {string} s */
