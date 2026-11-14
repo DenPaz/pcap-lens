@@ -1143,6 +1143,61 @@ suite("webview lib: follow stream and statistics helpers", () => {
     assert.equal(lib.prettyBody("text", "plain"), null);
   });
 
+  test("groupConversations: a row per pair of hosts, totals turned to the pair, its connections under it", () => {
+    assert.equal(lib.endAddress("10.0.0.1:443"), "10.0.0.1");
+    assert.equal(lib.endAddress("2001:db8::1:443"), "2001:db8::1");
+    assert.equal(lib.endAddress("[2001:db8::1]:443"), "2001:db8::1");
+    assert.equal(lib.endAddress("10.0.0.1"), "10.0.0.1");
+    const ids = [
+      "a",
+      "b",
+      "packets",
+      "bytes",
+      "packets_ab",
+      "bytes_ab",
+      "packets_ba",
+      "bytes_ba",
+      "start",
+      "duration",
+    ];
+    const table = {
+      columns: ids.map((id) => ({ id })),
+      rows: [
+        { cells: ["10.0.0.1:5000", "10.0.0.2:80", 5, 500, 3, 300, 2, 200, 1, 2], activity: [1, 2] },
+        { cells: ["10.0.0.3:5001", "10.0.0.4:443", 1, 60, 1, 60, 0, 0, 0.5, 0], activity: [0, 60] },
+        // (Listed the other way round: its A → B is the pair's B → A.)
+        { cells: ["10.0.0.2:80", "10.0.0.1:5002", 4, 400, 1, 100, 3, 300, 4, 1], activity: [0, 4] },
+      ],
+    };
+    const rows = lib.groupConversations(table, "tcp");
+    assert.equal(rows.length, 5);
+    const [pair, first, second, other] = rows;
+    assert.deepEqual(pair.cells, ["10.0.0.1", "10.0.0.2", 9, 900, 6, 600, 3, 300, 1, 4]);
+    assert.equal(pair.filter, "ip.addr == 10.0.0.1 && ip.addr == 10.0.0.2 && tcp");
+    assert.equal(pair.count, 2);
+    assert.deepEqual(pair.activity, [1, 6]);
+    assert.deepEqual([first.depth, first.parent, second.parent], [1, pair.group, pair.group]);
+    assert.equal(first.cells, table.rows[0].cells, "the connection rows as they were");
+    assert.equal(other.count, 1);
+    assert.equal(
+      lib.groupConversations(
+        {
+          columns: table.columns,
+          rows: [{ cells: ["2001:db8::1:1", "2001:db8::1:2", 1, 1, 1, 1, 0, 0, 0, 0] }],
+        },
+        "udp",
+      )[0].filter,
+      "ipv6.addr == 2001:db8::1 && udp",
+      "a host talking to itself",
+    );
+    // Sorted: the groups by their totals, connections under their group.
+    const sorted = lib.sortGrouped(rows, 2, true);
+    assert.deepEqual(
+      sorted.map((r) => (r.group !== undefined ? `pair ${r.cells[2]}` : `conn ${r.cells[2]}`)),
+      ["pair 9", "conn 5", "conn 4", "pair 1", "conn 1"],
+    );
+  });
+
   test("activityBars and activityLabel draw and describe a row's activity", () => {
     assert.deepEqual(lib.activityBars([0, 5, 10, 0], 40, 10), [
       { x: 10, y: 5, w: 9, h: 5 },

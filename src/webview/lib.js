@@ -2360,6 +2360,117 @@
   }
 
   /**
+   * The address of a conversation end: "10.0.0.1:443" → "10.0.0.1",
+   * "[2001:db8::1]:443" and "2001:db8::1:443" (as tshark writes IPv6 ends)
+   * → "2001:db8::1".
+   * @param {string} end
+   */
+  function endAddress(end) {
+    if (end.startsWith("[")) {
+      return end.slice(1, end.indexOf("]"));
+    }
+    const at = end.lastIndexOf(":");
+    return at > 0 && /^\d+$/.test(end.slice(at + 1)) ? end.slice(0, at) : end;
+  }
+
+  /**
+   * TCP or UDP conversations grouped by their two hosts (Wireshark has no
+   * such view; vs-shark's TCP tab has): a row per pair of addresses, its
+   * cells the pair's totals (each connection turned to the pair's A → B,
+   * the earliest start, the span to the last end, the summed activity), its
+   * filter the pair's traffic of that transport; then its connections as
+   * rows at depth 1. Groups keep the order of their first connection.
+   * Parents carry `group` (their key) and `count`, children `parent`.
+   * @param {{columns: {id: string}[], rows: any[]}} table
+   * @param {"tcp" | "udp"} transport
+   * @returns {any[]}
+   */
+  function groupConversations(table, transport) {
+    const at = Object.fromEntries(table.columns.map((c, i) => [c.id, i]));
+    /** @type {Map<string, {a: string, b: string, rows: any[]}>} */
+    const groups = new Map();
+    for (const row of table.rows) {
+      const a = endAddress(String(row.cells[at.a]));
+      const b = endAddress(String(row.cells[at.b]));
+      const [x, y] = a <= b ? [a, b] : [b, a];
+      const key = `${x}\u0000${y}`;
+      if (!groups.has(key)) {
+        groups.set(key, { a, b, rows: [] });
+      }
+      /** @type {any} */ (groups.get(key)).rows.push(row);
+    }
+    /** @type {any[]} */
+    const out = [];
+    for (const [key, g] of groups) {
+      const sum = (/** @type {string} */ id) =>
+        g.rows.reduce((n, r) => n + (r.cells[at[id]] || 0), 0);
+      // A connection listed B → A counts its "A → B" in the pair's "B → A".
+      const turned = (/** @type {string} */ ab, /** @type {string} */ ba) =>
+        g.rows.reduce(
+          (n, r) => n + (r.cells[at[endAddress(String(r.cells[at.a])) === g.a ? ab : ba]] || 0),
+          0,
+        );
+      const start = Math.min(...g.rows.map((r) => Number(r.cells[at.start]) || 0));
+      const end = Math.max(
+        ...g.rows.map(
+          (r) => (Number(r.cells[at.start]) || 0) + (Number(r.cells[at.duration]) || 0),
+        ),
+      );
+      const cells = table.columns.map(() => /** @type {unknown} */ (""));
+      cells[at.a] = g.a;
+      cells[at.b] = g.b;
+      cells[at.packets] = sum("packets");
+      cells[at.bytes] = sum("bytes");
+      cells[at.packets_ab] = turned("packets_ab", "packets_ba");
+      cells[at.bytes_ab] = turned("bytes_ab", "bytes_ba");
+      cells[at.packets_ba] = turned("packets_ba", "packets_ab");
+      cells[at.bytes_ba] = turned("bytes_ba", "bytes_ab");
+      cells[at.start] = Number(start.toFixed(6));
+      cells[at.duration] = Number((end - start).toFixed(6));
+      const field = (/** @type {string} */ address) =>
+        address.includes(":") ? "ipv6.addr" : "ip.addr";
+      const filter =
+        g.a === g.b
+          ? `${field(g.a)} == ${g.a} && ${transport}`
+          : `${field(g.a)} == ${g.a} && ${field(g.b)} == ${g.b} && ${transport}`;
+      /** @type {any} */
+      const parent = { cells, filter, group: key, count: g.rows.length };
+      const charts = g.rows.map((r) => r.activity);
+      if (charts.every((c) => Array.isArray(c) && c.length === charts[0].length)) {
+        parent.activity = charts[0].map((/** @type {number} */ _v, /** @type {number} */ i) =>
+          charts.reduce((n, c) => n + c[i], 0),
+        );
+      }
+      out.push(parent, ...g.rows.map((r) => ({ ...r, depth: 1, parent: key })));
+    }
+    return out;
+  }
+
+  /**
+   * groupConversations' rows sorted by one column: the groups by their
+   * totals, each group's connections under it by theirs.
+   * @param {any[]} rows @param {number} col @param {boolean} desc
+   */
+  function sortGrouped(rows, col, desc) {
+    /** @type {{parent: any, children: any[]}[]} */
+    const groups = [];
+    for (const row of rows) {
+      if (row.group !== undefined) {
+        groups.push({ parent: row, children: [] });
+      } else if (groups.length) {
+        groups[groups.length - 1].children.push(row);
+      }
+    }
+    const parents = sortRows(
+      groups.map((g) => g.parent),
+      col,
+      desc,
+    );
+    const byParent = new Map(groups.map((g) => [g.parent, g.children]));
+    return parents.flatMap((p) => [p, ...sortRows(byParent.get(p) ?? [], col, desc)]);
+  }
+
+  /**
    * A row's activity chart (bytes per interval, activity.py) as bars in a
    * `width` × `height` box, the tallest filling it, any traffic at least
    * 1 px high: [{x, y, w, h}] for the intervals with traffic.
@@ -4201,6 +4312,9 @@
     columnChars,
     filterButtonTitle,
     searchRows,
+    endAddress,
+    groupConversations,
+    sortGrouped,
     activityBars,
     activityLabel,
     bodyKind,

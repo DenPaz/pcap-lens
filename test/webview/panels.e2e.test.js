@@ -334,6 +334,81 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     assert.equal(await page.inputValue("#stats-search"), "");
   });
 
+  test("conversations grouped by hosts: pairs with totals, open, filter, sort and search", async () => {
+    const sessions = await startBackend(deps);
+    try {
+      await sessions.request(
+        "open",
+        { path: path.join(FIXTURES, "sessions.pcap") },
+        { timeoutMs: 0 },
+      );
+      const { page, log } = await openStats("conversations", "", false, undefined, {
+        backend: sessions,
+      });
+      await waitRows(page, 6); // (TCP: six connections)
+      assert.ok(await page.isVisible("#stats-group"), "offered for TCP");
+      await page.check("#stats-group");
+      await waitRows(page, 5); // (five pairs of hosts, closed)
+      assert.match(await page.textContent(".status"), / · 5 pairs of hosts$/);
+      const toggle = page.locator("table.stats tbody tr button.group-toggle", {
+        hasText: "2",
+      });
+      assert.equal(await toggle.count(), 1, "one pair has two connections");
+      assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+      assert.equal(
+        await toggle.getAttribute("aria-label"),
+        "Show the 2 connections between these hosts",
+      );
+      const row = page.locator("table.stats tbody tr", {
+        has: page.locator("button.group-toggle", { hasText: "2" }),
+      });
+      const cells = await row.locator("td").allTextContents();
+      // (The first cell starts with its button: the number of connections.)
+      assert.deepEqual(cells.slice(0, 2), ["2192.168.1.10", "198.51.100.20"]);
+      await toggle.click();
+      await waitRows(page, 7);
+      assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+      assert.equal(
+        await page.evaluate(() => document.activeElement?.classList.contains("group-toggle")),
+        true,
+        "the focus stays on the button",
+      );
+      const children = (await rows(page)).filter((r) => r[1] === "198.51.100.20:443");
+      assert.equal(children.length, 2);
+      assert.equal(
+        Number(cells[2]),
+        children.reduce((n, r) => n + Number(r[2]), 0),
+        "the pair's packets are its connections'",
+      );
+      // The pair's filter: both hosts, that transport.
+      await row.click();
+      await page.click("button:has-text('Apply as Filter')");
+      assert.equal(
+        log.findLast((m) => m.type === "filter").expr,
+        "ip.addr == 192.168.1.10 && ip.addr == 198.51.100.20 && tcp",
+      );
+      // Sorting keeps each connection under its pair.
+      await page.click("th:has-text('Packets A → B')");
+      const order = (await rows(page)).map((r) => r[1]);
+      const at = order.indexOf("198.51.100.20");
+      assert.deepEqual(order.slice(at, at + 3), [
+        "198.51.100.20",
+        "198.51.100.20:443",
+        "198.51.100.20:443",
+      ]);
+      // Searching opens the groups it matches in.
+      await page.fill("#stats-search", "203.0.113.5");
+      await page.press("#stats-search", "Enter");
+      await waitRows(page, 2);
+      assert.deepEqual(
+        (await rows(page)).map((r) => r[1]),
+        ["203.0.113.5", "203.0.113.5:443"],
+      );
+    } finally {
+      await sessions.dispose();
+    }
+  });
+
   /** Pick a path through a page's context menus (menus.js): every label but the last opens a submenu. */
   async function pickMenu(page, ...path) {
     for (const label of path) {
@@ -407,7 +482,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     const { page } = await openStats("conversations", "http");
     await waitRows(page, 1);
     assert.equal((await rows(page))[0][2], "11");
-    await page.check("input[type=checkbox]");
+    await page.check("#stats-limit");
     await page.waitForFunction(
       () => document.querySelector("table.stats tbody tr td:nth-child(3)")?.textContent === "2",
     );
@@ -2239,7 +2314,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       );
       assert.deepEqual(tiles.slice(0, 3), [
         ["Packets", "62"],
-        ["Bytes", "5.0 KB"],
+        ["Bytes", "5.5 KB"],
         ["Duration", "3.03 s"],
       ]);
       assert.ok(tiles.some(([label]) => label === "Format"));
@@ -2254,7 +2329,8 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         apply: true,
       });
       await page.selectOption("select[aria-label='Count']", "bytes");
-      assert.match(await page.textContent("#overview-peak"), /^Busiest: 647 B from 3 s$/);
+      // (2 s: the TLS 1.2 handshake with its certificate.)
+      assert.match(await page.textContent("#overview-peak"), /^Busiest: 1016 B from 2 s$/);
       // A row applies its filter; right-click offers the other choices.
       const dns = page.locator("section", { has: page.locator("h2", { hasText: /^DNS$/ }) });
       await dns.locator(".overview-item", { hasText: "NXDomain" }).click();

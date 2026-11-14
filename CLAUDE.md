@@ -928,6 +928,21 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   to get frame numbers. Rows are matched by regex because multi-word groups
   ("Response code") overflow tshark's fixed-width column. The display-filter
   limit uses each tap's own filter argument (`conv,tcp,<filter>` etc.).
+- **Group by hosts** (TCP/UDP conversations, `#stats-group`;
+  `lib.groupConversations`, `sortGrouped`, `endAddress`): the webview
+  groups the rows it has by their two addresses (no query): a parent row per
+  pair with summed cells (each connection's A → B counted in the pair's
+  direction), the earliest start, the span to the last end, the summed
+  activity when every child has a chart, `filter` the pair's addresses and
+  the transport, `group`/`count`; its connections follow at depth 1 with
+  `parent`. Memoized per table (`groupedCache`, so the selected row stays
+  the same object; cleared when the charts arrive). Groups start closed
+  (`state.expanded`); a parent's first cell starts with a toggle button
+  (chevron, count, `aria-expanded`, a label naming the connections), and
+  `renderTable` puts the focus back on it after any redraw (the charts
+  arriving redrew it under a test). Searching shows every match with its
+  pair; sorting sorts parents, then each group's children. The limit
+  checkbox is `#stats-limit` (tests picked the first checkbox).
 - **Activity charts** (`activity.py`, `stats_activity {kind, type,
 filter}`; conversations and endpoints): each row's bytes over time as a
   small SVG bar chart in an _Activity_ column (`sparkCell`,

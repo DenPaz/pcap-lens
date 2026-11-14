@@ -93,7 +93,28 @@
     search: "",
     /** The query the table shown answers (its activity charts come after it). @type {number | null} */
     resultId: null,
+    /** TCP/UDP conversations grouped by their two hosts (lib.groupConversations). */
+    grouped: false,
+    /** The groups shown open (their keys). @type {Set<string>} */
+    expanded: new Set(),
   };
+
+  /** The grouped rows of the table shown (kept, so a selected row stays the same object). */
+  let groupedCache = {
+    table: /** @type {any} */ (null),
+    type: "",
+    rows: /** @type {any[]} */ ([]),
+  };
+
+  /** Conversations of TCP or UDP, grouped by hosts. */
+  function grouping() {
+    return (
+      state.grouped &&
+      state.kind === "conversations" &&
+      (state.type === "tcp" || state.type === "udp") &&
+      !!state.table
+    );
+  }
 
   const app = /** @type {HTMLElement} */ (document.getElementById("app"));
 
@@ -352,9 +373,29 @@
       }
       select.addEventListener("change", () => {
         state.type = /** @type {HTMLSelectElement} */ (select).value;
+        buildToolbar();
         query();
       });
       toolbar.append(h("label", {}, ["Type ", select]));
+      if (state.kind === "conversations" && (state.type === "tcp" || state.type === "udp")) {
+        const box = /** @type {HTMLInputElement} */ (
+          h("input", { type: "checkbox", id: "stats-group" })
+        );
+        box.checked = state.grouped;
+        box.addEventListener("change", () => {
+          state.grouped = box.checked;
+          state.selected = null;
+          if (state.table) {
+            render();
+          }
+        });
+        toolbar.append(
+          h("label", { title: "One row per pair of hosts, its connections under it" }, [
+            box,
+            "Group by hosts",
+          ]),
+        );
+      }
     }
     if (["http", "srt", "ipv4", "ipv6"].includes(state.kind)) {
       toolbar.append(typeSelect());
@@ -386,7 +427,9 @@
       renderSeriesEditor();
     }
     if (state.kind !== "properties") {
-      const box = /** @type {HTMLInputElement} */ (h("input", { type: "checkbox" }));
+      const box = /** @type {HTMLInputElement} */ (
+        h("input", { type: "checkbox", id: "stats-limit" })
+      );
       box.checked = state.limit;
       box.disabled = !state.filter;
       box.addEventListener("change", () => {
@@ -619,6 +662,7 @@
       // (the same table, row for row).
       if (msg.activity && Array.isArray(msg.rows) && msg.rows.length === state.table.rows.length) {
         state.table.activity = msg.activity;
+        groupedCache.table = null;
         state.table.rows.forEach((/** @type {any} */ row, /** @type {number} */ i) => {
           if (Array.isArray(msg.rows[i])) {
             row.activity = msg.rows[i];
@@ -651,10 +695,32 @@
     return lib.sortRows(rows, state.sort.col, state.sort.desc);
   }
 
-  /** The rows drawn: sorted, then the text filter's (all of them without one). */
+  /**
+   * The rows drawn: sorted, grouped by hosts when asked (a closed group's
+   * connections left out), then the text filter's (which opens the groups
+   * it matches in).
+   */
   function shownRows() {
-    const rows = sortedRows();
-    return searchable() ? lib.searchRows(rows, state.search) : rows;
+    if (!grouping()) {
+      const rows = sortedRows();
+      return searchable() ? lib.searchRows(rows, state.search) : rows;
+    }
+    if (groupedCache.table !== state.table || groupedCache.type !== state.type) {
+      groupedCache = {
+        table: state.table,
+        type: state.type,
+        rows: lib.groupConversations(state.table, state.type),
+      };
+    }
+    const rows = state.sort
+      ? lib.sortGrouped(groupedCache.rows, state.sort.col, state.sort.desc)
+      : groupedCache.rows;
+    if (searchable()) {
+      return lib.searchRows(rows, state.search);
+    }
+    return rows.filter(
+      (/** @type {any} */ r) => r.parent === undefined || state.expanded.has(r.parent),
+    );
   }
 
   /** The text filter applies (not to the I/O graph's intervals or the properties). */
@@ -684,6 +750,14 @@
                       : ""
                   }`
                 : `${n.toLocaleString()} ${n === 1 ? "row" : "rows"}${scope}`;
+    if (grouping()) {
+      const pairs = new Set(
+        t.rows.map((/** @type {any} */ r) =>
+          [lib.endAddress(String(r.cells[0])), lib.endAddress(String(r.cells[1]))].sort().join(" "),
+        ),
+      ).size;
+      status.textContent += ` · ${pairs.toLocaleString()} ${pairs === 1 ? "pair" : "pairs"} of hosts`;
+    }
     if (searchable()) {
       const shown = shownRows().length;
       status.textContent += ` · ${shown.toLocaleString()} shown (filter “${state.search.trim()}”)`;
@@ -769,6 +843,25 @@
   }
 
   function renderTable() {
+    // A group's button keeps the focus when the table is drawn again (opening
+    // it, the activity charts arriving).
+    const focusedGroup = document.activeElement
+      ? toggleGroup.get(document.activeElement)
+      : undefined;
+    try {
+      drawTable();
+    } finally {
+      if (focusedGroup !== undefined) {
+        for (const b of tableBox.querySelectorAll("button.group-toggle")) {
+          if (toggleGroup.get(b) === focusedGroup) {
+            /** @type {HTMLElement} */ (b).focus();
+          }
+        }
+      }
+    }
+  }
+
+  function drawTable() {
     const t = state.table;
     const shown = shownColumns();
     const headRow = h("tr");
@@ -821,10 +914,13 @@
         if (i === 0 && row.depth) {
           td.style.paddingLeft = `${8 + row.depth * 16}px`;
         }
+        if (i === 0 && row.group !== undefined) {
+          td.append(groupToggle(row));
+        }
         if (t.kind === "expert" && col.id === "severity") {
           td.append(h("span", { class: `sev sev-${String(value)}` }, [String(value)]));
         } else {
-          td.textContent = lib.formatCell(value);
+          td.append(lib.formatCell(value));
         }
         if (t.kind === "expert" && col.id === "summary") {
           td.classList.add("wrap");
@@ -916,6 +1012,43 @@
     };
     drawWindow();
   }
+
+  /**
+   * A host pair's open/close button: a chevron and its number of
+   * connections (searching opens every group it matches in).
+   * @param {any} row
+   */
+  function groupToggle(row) {
+    const open = searchable() || state.expanded.has(row.group);
+    const button = h(
+      "button",
+      {
+        type: "button",
+        class: "icon group-toggle",
+        "aria-expanded": String(open),
+        "aria-label": `${open ? "Hide" : "Show"} the ${row.count} ${
+          row.count === 1 ? "connection" : "connections"
+        } between these hosts`,
+        title: `${row.count} ${row.count === 1 ? "connection" : "connections"}`,
+      },
+      [icon(open ? "chevron-down" : "chevron-right"), String(row.count)],
+    );
+    button.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (state.expanded.has(row.group)) {
+        state.expanded.delete(row.group);
+      } else {
+        state.expanded.add(row.group);
+      }
+      button.focus(); // (renderTable keeps the focus on this group's new button)
+      renderTable();
+    });
+    toggleGroup.set(button, row.group);
+    return button;
+  }
+
+  /** Each group toggle's group key. @type {WeakMap<Element, string>} */
+  const toggleGroup = new WeakMap();
 
   /** The activity chart's size (px). */
   const SPARK_WIDTH = 96;

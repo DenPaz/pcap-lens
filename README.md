@@ -118,8 +118,9 @@ words, instantly.
   DNS and TLS breakdowns. Each row applies its filter, and each card opens
   the full report.
 - **General**: conversations and endpoints (each row with a small chart of
-  its traffic over time, and a GeoIP world map when MaxMind databases are
-  set), protocol hierarchy, expert information, capture properties, flow
+  its traffic over time; TCP and UDP conversations can be grouped by their
+  two hosts; a GeoIP world map when MaxMind databases are set), protocol
+  hierarchy, expert information, capture properties, flow
   graph.
 - **I/O graphs**: up to eight graphs of packets, bytes or a field's
   SUM/MAX/AVG…, lines or bars, linear or log scale.

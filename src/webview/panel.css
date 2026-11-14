@@ -136,6 +136,12 @@ table.stats td.spark rect {
   fill: var(--vscode-charts-blue, #1a85ff);
 }
 
+table.stats button.group-toggle {
+  margin-right: var(--space-2);
+  padding: 0 var(--space-2) 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
 #stats-search {
   width: 16em;
   min-width: 8em;

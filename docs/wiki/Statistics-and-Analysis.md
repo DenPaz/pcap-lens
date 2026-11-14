@@ -31,7 +31,12 @@ applies its filter, and every card opens its full report.
   every row (each row on its own scale; hover one for its busiest
   interval), so bursts, steady streams and late starts stand out. The
   charts come a moment after the rows: they need one more pass over the
-  capture. With MaxMind databases
+  capture. **Group by hosts** (TCP and UDP conversations) puts one row per
+  pair of hosts: its totals (each connection's directions turned to the
+  pair's), first start, span and activity, and a filter for the pair's
+  traffic; its button shows how many connections it holds and opens them
+  beneath it. Sorting sorts the pairs and the connections within each;
+  _Filter rows_ opens the pairs it matches. With MaxMind databases
   (`pcapViewer.geoip.databaseFolders`) the endpoints get country, city and
   AS columns and a world map.
 - **Expert Information**: problems tshark found, by severity, each with its
