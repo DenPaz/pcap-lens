@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { FOLLOW_COMMANDS, FOLLOW_LABELS, FollowPanel, FollowProto } from "../panels/followPanel";
 import { FlowGraphPanel } from "../panels/flowGraphPanel";
+import { HttpPanel, httpExchangeAsk } from "../panels/httpPanel";
 import { ObjectsPanel } from "../panels/objectsPanel";
 import { OverviewPanel } from "../panels/overviewPanel";
 import { PacketPanel } from "../panels/packetPanel";
@@ -106,6 +107,22 @@ export function registerAnalysisCommands(
         return undefined;
       }
       return TcpGraphPanel.show(context, session, target);
+    }),
+    // (Registered, not contributed: HTTP Requests' rows open it with their
+    // packets; the smoke test calls it with one.)
+    vscode.commands.registerCommand("pcapViewer.httpExchange", (args?: unknown) => {
+      const session = requireSession(provider);
+      const ask = httpExchangeAsk(args);
+      if (!session) {
+        return undefined;
+      }
+      if (!ask) {
+        void vscode.window.showInformationMessage(
+          "Pick a request in HTTP Requests (PCAP Statistics) to show it with its response.",
+        );
+        return undefined;
+      }
+      return HttpPanel.show(context, session, ask);
     }),
     vscode.commands.registerCommand(
       "pcapViewer.comparePackets",

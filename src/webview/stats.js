@@ -211,6 +211,12 @@
     title: "Show the response's body (text, image or hex) in Show Packet Bytes",
   });
   bodyBtn.addEventListener("click", () => state.selected && showBody(state.selected));
+  const exchangeBtn = iconButton("arrow-swap", "Show Request and Response", {
+    class: "secondary",
+    id: "show-exchange",
+    title: "Show the request and its response: headers and bodies, pretty-printed",
+  });
+  exchangeBtn.addEventListener("click", () => state.selected && showExchange(state.selected));
   askBtn.addEventListener("click", () => askCopilot());
   applyBtn.addEventListener("click", () => rowFilter(true));
   prepareBtn.addEventListener("click", () => rowFilter(false));
@@ -284,6 +290,11 @@
       entries.push({ label: "Ask Copilot About This Entry…", icon: "sparkle", action: askCopilot });
     }
     if (state.kind === "http_requests") {
+      entries.push({
+        label: "Show Request and Response",
+        icon: "arrow-swap",
+        action: () => showExchange(row),
+      });
       if (row.response) {
         entries.push({
           label: "Show Response Body",
@@ -401,7 +412,7 @@
       ...(state.kind === "expert"
         ? [gotoBtn, applyBtn, prepareBtn, ...(state.ai ? [askBtn] : [])]
         : state.kind === "http_requests"
-          ? [applyBtn, prepareBtn, gotoBtn, bodyBtn]
+          ? [applyBtn, prepareBtn, gotoBtn, exchangeBtn, bodyBtn]
           : state.kind === "srt" ||
               state.kind === "credentials" ||
               state.kind === "sequences" ||
@@ -944,6 +955,7 @@
     prepareBtn.toggleAttribute("disabled", !row || !row.filter);
     gotoBtn.toggleAttribute("disabled", !row || !row.frame);
     bodyBtn.toggleAttribute("disabled", !row || !row.response);
+    exchangeBtn.toggleAttribute("disabled", !row || !row.frame);
     copyBtn.toggleAttribute("disabled", !state.table);
     if (state.kind === "expert" && row && !row.filter) {
       // Expert rows filter on the message text.
@@ -995,6 +1007,20 @@
   }
 
   /** An HTTP row's response body, in Show Packet Bytes. @param {any} row */
+  /** An HTTP Requests row's request and response, in the HTTP Exchange panel. @param {any} row */
+  function showExchange(row) {
+    if (row && row.frame) {
+      vscode.postMessage({
+        type: "httpExchange",
+        request: row.frame,
+        requestIndex: row.requestIndex ?? 0,
+        response: row.response ?? null,
+        responseIndex: row.responseIndex ?? 0,
+        label: row.label,
+      });
+    }
+  }
+
   function showBody(row) {
     if (row && row.response) {
       vscode.postMessage({ type: "httpBody", frame: row.response, label: row.label });

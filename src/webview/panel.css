@@ -1372,3 +1372,90 @@ button.overview-item[aria-disabled="true"] {
 :is(.vscode-high-contrast, .vscode-high-contrast-light) .overview-meter {
   border: 1px solid var(--hc-border);
 }
+
+/* ------------------------------------------------------------ HTTP exchange */
+
+.http-sides {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(28em, 1fr));
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.http-side {
+  min-width: 0;
+}
+
+.http-side h2 {
+  font-size: var(--text-lg);
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+.http-side h3 {
+  font-size: 1em;
+  margin: var(--space-5) 0 var(--space-2);
+}
+
+.http-side .empty,
+.http-headers td.empty {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
+.http-line,
+.http-code {
+  font-family: var(--mono);
+  font-size: var(--mono-size);
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.1));
+  border-radius: var(--radius);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.http-code {
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.http-headers td:first-child {
+  font-weight: 600;
+}
+
+.http-body .facts {
+  color: var(--vscode-descriptionForeground);
+}
+
+.http-image {
+  max-width: 100%;
+  border: 1px solid var(--border);
+}
+
+/* The debugger's and outline's token colours (as the viewer's filter bar);
+   every theme defines them, the fallbacks are Light Modern's. */
+.http-code .tok-key {
+  color: var(--vscode-symbolIcon-fieldForeground, #0451a5);
+}
+
+.http-code .tok-string {
+  color: var(--vscode-debugTokenExpression-string, #a31515);
+}
+
+.http-code .tok-number,
+.http-code .tok-literal {
+  color: var(--vscode-debugTokenExpression-number, #098658);
+}
+
+.http-code .tok-tag {
+  color: var(--vscode-symbolIcon-classForeground, #800000);
+}
+
+.http-code .tok-attr {
+  color: var(--vscode-symbolIcon-fieldForeground, #0451a5);
+}
+
+.http-code .tok-comment {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}

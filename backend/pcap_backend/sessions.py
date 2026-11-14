@@ -26,6 +26,7 @@ below are the common ones (others show as numbers).
 
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
 from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -268,6 +269,7 @@ def http_requests(lines: Iterable[str], limit: int | None = None) -> Table:
                 continue
             target.update(
                 response=frame,
+                responseIndex=i,
                 final=final,
                 status=code,
                 phrase=_nth(c["http.response.phrase"], i, len(codes)),
@@ -325,12 +327,90 @@ def _http_table(requests: list[dict[str, Any]]) -> Table:
                 "filter": _frames_filter(frames),
                 "frame": r["frame"],
                 "response": response,
+                # (Which HTTP message of its packet: pipelined ones share one.)
+                "requestIndex": r["index"],
+                "responseIndex": r.get("responseIndex", 0),
                 "contentType": r.get("contentType", ""),
                 "label": f"{r['method']} {r['host']}{r['uri']}",
             }
         )
     table.extra["summary"] = {"requests": len(requests), "unanswered": len(requests) - answered}
     return table
+
+
+# ------------------------------------------------------------ HTTP exchange
+
+# tshark writes a message's first line and header lines with "\r\n" spelled
+# out (show="GET / HTTP/1.1\r\n"), the hidden *.line fields with a real line
+# break.
+_LINE_END = "\\r\\n"
+
+
+def _line(text: str) -> str:
+    text = text.rstrip("\r\n")
+    return text.removesuffix(_LINE_END)
+
+
+def http_messages(pdml: bytes, max_body: int) -> dict[int, list[dict[str, Any]]]:
+    """The HTTP/1.x messages of each packet in tshark's PDML, in order (a
+    packet can hold several: pipelining): ``{kind: request|response, line,
+    headers: [[name, value]], body: hex, bodySize, truncated, decoded}``.
+    The body is ``http.file_data``, which tshark de-chunks and decompresses;
+    ``decoded`` says it did (Content-Encoding or chunks), at most
+    ``max_body`` bytes of it are kept."""
+    root = ET.fromstring(pdml)  # noqa: S314 (tshark's own PDML)
+    out: dict[int, list[dict[str, Any]]] = {}
+    for packet in root.iter("packet"):
+        frame = next(
+            (
+                int(f.get("show", "0"))
+                for f in packet.iter("field")
+                if f.get("name") == "frame.number"
+            ),
+            0,
+        )
+        out[frame] = [
+            _http_message(p, max_body) for p in packet.findall("proto") if p.get("name") == "http"
+        ]
+    return out
+
+
+def _http_message(proto: ET.Element, max_body: int) -> dict[str, Any]:
+    children = [c for c in proto if c.tag == "field"]
+    first = next((c for c in children if not c.get("name") and _line(c.get("show", ""))), None)
+    request = any(c.get("name") == "http.request" for c in children) or (
+        first is not None and any(f.get("name") == "http.request.method" for f in first)
+    )
+    headers: list[list[str]] = []
+    for c in children:
+        if c.get("name") in ("http.request.line", "http.response.line"):
+            name, _, value = _line(c.get("show", "")).partition(":")
+            headers.append([name.strip(), value.strip()])
+    body = b""
+    size = 0
+    for f in proto.iter("field"):
+        if f.get("name") == "http.file_data":
+            size = int(f.get("size") or 0)
+            shown = (f.get("show") or "").replace(":", "")
+            try:
+                body = bytes.fromhex(shown[: max_body * 2])
+            except ValueError:  # (not bytes: a tshark that shows it as text)
+                body = (f.get("show") or "").encode("utf-8", "replace")[:max_body]
+            break
+    decoded = any(
+        c.get("show", "").startswith(("Content-encoded entity body", "HTTP chunked response"))
+        for c in children
+        if not c.get("name")
+    )
+    return {
+        "kind": "request" if request else "response",
+        "line": _line(first.get("show", "")) if first is not None else "",
+        "headers": headers,
+        "body": body.hex(),
+        "bodySize": size,
+        "truncated": size > max_body,
+        "decoded": decoded,
+    }
 
 
 # ---------------------------------------------------------------------- DNS

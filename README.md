@@ -122,8 +122,10 @@ words, instantly.
   properties, flow graph.
 - **I/O graphs**: up to eight graphs of packets, bytes or a field's
   SUM/MAX/AVG…, lines or bars, linear or log scale.
-- **Sessions**: **HTTP Requests** (each request with its status, size,
-  response time and a button to view the response body), **DNS Queries**
+- **Sessions**: **HTTP Requests** (each request with its status, size and
+  response time; _Show Request and Response_ puts both side by side: their
+  headers and bodies, JSON, XML, HTML and forms pretty-printed, images
+  shown), **DNS Queries**
   (answers, result and latency) and **TLS Servers** (SNI, versions, cipher
   suites, ALPN, connections and failed handshakes).
 - **Sequence Check**: name the fields that identify a stream (a LIID and

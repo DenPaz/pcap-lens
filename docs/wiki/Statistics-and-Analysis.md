@@ -38,8 +38,13 @@ applies its filter, and every card opens its full report.
 ## Sessions
 
 - **HTTP Requests**: each request with its response status, content type,
-  size and response time (or _No response_); _Show Response Body_ decodes the
-  body (de-chunked, decompressed).
+  size and response time (or _No response_). _Show Request and Response_
+  opens the exchange: both first lines and headers, and both bodies as
+  tshark decodes them (de-chunked, decompressed), shown pretty-printed (JSON,
+  XML, HTML, form fields), as text, a hex dump or an image, with Copy, Save…
+  and _Show Packet Bytes_ for other decodings. Pipelined requests each show
+  their own response. _Show Response Body_ opens just the response's body
+  in Show Packet Bytes.
 - **DNS Queries**: name, type, result, answers and latency.
 - **TLS Servers**: server name, connections, handshakes that got no
   ServerHello, the versions, cipher suites and ALPN the server chose.

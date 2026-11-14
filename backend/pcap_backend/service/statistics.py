@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from typing import Any
 
@@ -10,6 +11,7 @@ from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContex
 from pcap_backend.stats import IoSeries, Table
 from pcap_backend.tshark import StreamResult, ToolError, broke, failed, run, stream_lines
 
+from .detail import _bounded_pdml
 from .dissection import DissectionMixin
 from .helpers import _fields_args
 from .state import _FIELD_NAME_RE, _Open
@@ -554,6 +556,46 @@ class StatisticsMixin(DissectionMixin):
             "hex": hex_[: MAX_BODY_BYTES * 2],
             "size": size,
             "truncated": size > MAX_BODY_BYTES,
+        }
+
+    def http_exchange(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
+        """One HTTP request and its response, as HTTP Requests' row names them:
+        ``request`` (packet) and ``requestIndex`` (which HTTP message of it:
+        pipelined requests share a packet), ``response``/``responseIndex``
+        when it was answered. ``{request, response}``, each ``{frame, kind,
+        line, headers, body (hex), bodySize, truncated, decoded}`` (see
+        sessions.http_messages) or None. One PDML pass up to the later packet."""
+        request = param(params, "request", int)
+        response = params.get("response")
+        if response is not None and not isinstance(response, int):
+            raise InvalidParamsError("'response' must be a packet number")
+        f = self._require_file()
+        frames = [request] + ([response] if response is not None else [])
+        for n in frames:
+            if not 1 <= n <= f.info.frames:
+                raise InvalidParamsError(f"no packet {n}")
+        select = " || ".join(f"frame.number == {n}" for n in frames)
+        argv = f.tshark.argv(
+            "-c", str(max(frames)), "-Y", select, "-T", "pdml", capture=str(f.path)
+        )  # fmt: skip
+        res = _bounded_pdml(argv, max(frames), ctx)
+        if broke(res.returncode, res.stderr, bool(res.stdout.strip())):
+            raise f.tshark.error(res.stderr, res.returncode, "tshark failed")
+        try:
+            messages = sessions.http_messages(res.stdout, MAX_BODY_BYTES)
+        except ET.ParseError as exc:
+            raise ToolError(f"tshark's PDML couldn't be read: {exc}", res.stderr) from exc
+
+        def pick(frame: int | None, index: Any, kind: str) -> dict[str, Any] | None:
+            if frame is None:
+                return None
+            ofkind = [m for m in messages.get(frame, []) if m["kind"] == kind]
+            i = index if isinstance(index, int) and 0 <= index < len(ofkind) else 0
+            return {"frame": frame, **ofkind[i]} if ofkind else None
+
+        return {
+            "request": pick(request, params.get("requestIndex"), "request"),
+            "response": pick(response, params.get("responseIndex"), "response"),
         }
 
     def _tap(self, f: _Open, spec: str, ctx: RequestContext, extra: Sequence[str] = ()) -> str:

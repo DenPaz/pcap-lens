@@ -1829,6 +1829,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         "Apply as Filter",
         "Prepare as Filter",
         "Go to Packet 8",
+        "Show Request and Response",
         "Show Response Body",
         "Show Request in New Window",
         "Show Response in New Window",
@@ -1845,6 +1846,101 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       // A request without a response has no body to show.
       await page.click("table.stats tbody tr >> nth=4");
       assert.ok(await page.isDisabled("button:has-text('Show Response Body')"));
+
+      // Show Request and Response: the row's packets and which message of
+      // each (the pipelined second request and its answer share packets).
+      await page.click("table.stats tbody tr >> nth=6");
+      await page.click("#show-exchange");
+      assert.deepEqual(
+        log.findLast((m) => m.type === "httpExchange"),
+        {
+          type: "httpExchange",
+          request: 59,
+          requestIndex: 1,
+          response: 61,
+          responseIndex: 1,
+          label: "GET pipe.example.com/b.txt",
+        },
+      );
+      await page.click("table.stats tbody tr >> nth=2");
+      await page.click("#show-exchange");
+      const post = log.findLast((m) => m.type === "httpExchange");
+      assert.deepEqual([post.request, post.response], [12, 14]);
+      // The HTTP Exchange panel, with the backend's answer (a stand-in for HttpPanel).
+      const exchange = await openGraphPanel("http.js", async (msg, reply) => {
+        if (msg.type === "ready") {
+          const { request, requestIndex, response, responseIndex, label } = post;
+          const answer = await sessions.request(
+            "http_exchange",
+            { request, requestIndex, response, responseIndex },
+            { timeoutMs: 0 },
+          );
+          await reply({ type: "show", label, ...answer });
+        }
+      });
+      const xp = exchange.page;
+      await xp.waitForSelector(".http-side >> nth=1");
+      assert.equal(
+        await xp.textContent(".panel-title"),
+        "HTTP Exchange: POST www.example.com/api/items",
+      );
+      assert.deepEqual(await xp.$$eval(".http-line", (els) => els.map((e) => e.textContent)), [
+        "POST /api/items HTTP/1.1",
+        "HTTP/1.1 500 Internal Server Error",
+      ]);
+      const requestHeaders = await xp.$$eval(
+        ".http-side:first-of-type .http-headers tbody tr",
+        (trs) => trs.map((tr) => [...tr.children].map((td) => td.textContent)),
+      );
+      assert.ok(requestHeaders.some(([n, v]) => n === "Host" && v === "www.example.com"));
+      // The response's JSON body, pretty-printed: keys and strings coloured, as text.
+      const code = ".http-side:last-of-type .http-code";
+      assert.equal(await xp.textContent(code), '{\n  "error": "boom"\n}');
+      assert.deepEqual(
+        await xp.$$eval(`${code} span`, (els) => els.map((e) => [e.className, e.textContent])),
+        [
+          ["tok-key", '"error"'],
+          ["tok-string", '"boom"'],
+        ],
+      );
+      assert.equal(
+        await xp.inputValue(".http-side:last-of-type select"),
+        "pretty",
+        "a JSON body starts pretty",
+      );
+      await xp.selectOption(".http-side:last-of-type select", "text");
+      assert.equal(await xp.textContent(code), '{"error":"boom"}');
+      await xp.selectOption(".http-side:last-of-type select", "hexdump");
+      assert.match(await xp.textContent(code), /^00000000 {2}7b 22 65 72/);
+      await xp.click(".http-side:last-of-type .http-body button:has-text('Copy')");
+      assert.match(exchange.log.findLast((m) => m.type === "copy").text, /^00000000 {2}7b 22/);
+      await xp.click(".http-side:last-of-type button:has-text('Save…')");
+      const save = exchange.log.findLast((m) => m.type === "save");
+      assert.equal(save.which, "response");
+      assert.equal(Buffer.from(save.base64, "base64").toString(), '{"error":"boom"}');
+      await xp.click(".http-side:last-of-type button:has-text('Show Packet Bytes')");
+      assert.deepEqual(exchange.log.at(-1), { type: "bytes", which: "response" });
+      await xp.click(".http-side:last-of-type h2 button");
+      assert.deepEqual(exchange.log.at(-1), { type: "goto", frame: 14 });
+      // An image body is shown as one; an unanswered request says so.
+      await exchange.post({
+        type: "show",
+        label: "GET www.example.com/logo.png",
+        ...(await sessions.request(
+          "http_exchange",
+          { request: 8, response: 10 },
+          { timeoutMs: 0 },
+        )),
+      });
+      await xp.waitForSelector(".http-side:last-of-type img.http-image");
+      assert.match(await xp.getAttribute("img.http-image", "src"), /^data:image\/png;base64,iVBOR/);
+      await exchange.post({
+        type: "show",
+        label: "GET api.example.net/slow",
+        ...(await sessions.request("http_exchange", { request: 26 }, { timeoutMs: 0 })),
+      });
+      await xp.waitForSelector("text=Nothing in the capture answers this request.");
+      assert.match(await xp.textContent(".status"), /no response in the capture/);
 
       const dns = await open("dns_queries", "DNS Queries");
       await waitRows(dns.page, 5);

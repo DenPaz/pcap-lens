@@ -4,6 +4,7 @@ import { ErrorCodes, RpcError } from "../backendClient";
 import { ANOMALY_LIMITS, ExpertRow } from "../aiAnomaly";
 import { type PcapEditorSession, describeError } from "../pcapEditor";
 import { BytesPanel } from "./bytesPanel";
+import { HttpPanel, httpExchangeAsk } from "./httpPanel";
 import { PacketPanel } from "./packetPanel";
 import { panelHtml, webviewRoot } from "./panelHtml";
 import { panelColumn, placePanel } from "./placement";
@@ -99,6 +100,8 @@ type FromPanel =
   | { type: "askCopilot"; rows: unknown[] }
   /** An HTTP Requests row's response body, in Show Packet Bytes. */
   | { type: "httpBody"; frame: number; label: string }
+  /** An HTTP Requests row's request and response, in the HTTP Exchange panel. */
+  | { type: "httpExchange"; [key: string]: unknown }
   /** A request or response in Show Packet in New Window. */
   | { type: "packetWindow"; frame: number };
 
@@ -264,6 +267,13 @@ export class StatsPanel {
         return;
       case "httpBody":
         return this.showBody(msg.frame, msg.label);
+      case "httpExchange": {
+        const ask = httpExchangeAsk(msg);
+        if (ask) {
+          HttpPanel.show(this.context, this.session, ask);
+        }
+        return;
+      }
       case "packetWindow":
         if (Number.isInteger(msg.frame) && msg.frame > 0) {
           PacketPanel.show(this.context, this.session, { kind: "packet", frame: msg.frame });

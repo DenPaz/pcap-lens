@@ -49,6 +49,7 @@ import { PcapEditorProvider } from "./pcapEditor";
 import { ComparePanel } from "./panels/comparePanel";
 import { FlowGraphPanel } from "./panels/flowGraphPanel";
 import { FollowPanel } from "./panels/followPanel";
+import { HttpPanel } from "./panels/httpPanel";
 import { ObjectsPanel } from "./panels/objectsPanel";
 import { OverviewPanel } from "./panels/overviewPanel";
 import { ReplayPanel } from "./panels/replayPanel";
@@ -79,6 +80,7 @@ const PANELS = {
   ComparePanel,
   FlowGraphPanel,
   FollowPanel,
+  HttpPanel,
   ObjectsPanel,
   OverviewPanel,
   PacketPanel,

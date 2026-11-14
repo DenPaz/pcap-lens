@@ -1041,6 +1041,104 @@ suite("webview lib: follow stream and statistics helpers", () => {
     ); // ties keep order
   });
 
+  test("HTTP bodies: kind and charset by Content-Type, else by their bytes", () => {
+    const enc = (/** @type {string} */ t) => new TextEncoder().encode(t);
+    assert.equal(lib.bodyKind("application/json", enc("{}")), "json");
+    assert.equal(lib.bodyKind("application/problem+json; charset=utf-8", enc("{}")), "json");
+    assert.equal(lib.bodyKind("text/html; charset=utf-8", enc("<p>")), "html");
+    assert.equal(lib.bodyKind("application/soap+xml", enc("<a/>")), "xml");
+    assert.equal(lib.bodyKind("application/x-www-form-urlencoded", enc("a=1")), "form");
+    assert.equal(lib.bodyKind("text/plain", enc("hi")), "text");
+    assert.equal(lib.bodyKind("application/javascript", enc("x()")), "text");
+    assert.equal(lib.bodyKind("text/plain", new Uint8Array()), "empty");
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
+    assert.equal(lib.bodyKind("application/octet-stream", png), "image", "by its bytes");
+    // Untyped: JSON or text when the bytes say so, else binary.
+    assert.equal(lib.bodyKind("", enc(' {"a": [1]}')), "json");
+    assert.equal(lib.bodyKind("", enc("{not json")), "text");
+    assert.equal(lib.bodyKind("application/octet-stream", new Uint8Array([1, 2, 3])), "binary");
+    assert.equal(lib.bodyKind("", new Uint8Array([0xff, 0xfe])), "binary", "not UTF-8");
+    assert.equal(lib.charsetOf('text/plain; charset="ISO-8859-1"'), "ISO-8859-1");
+    assert.equal(lib.charsetOf("text/plain; charset=no-such-charset"), "utf-8");
+    assert.equal(lib.charsetOf("text/plain"), "utf-8");
+    assert.equal(lib.decodeBody(new Uint8Array([0xe9]), "text/plain; charset=iso-8859-1"), "é");
+  });
+
+  test("prettyJson indents and colours JSON as written; anything else is null", () => {
+    const show = (/** @type {[string, string][] | null} */ segs) =>
+      segs && segs.map(([t, c]) => (c ? `<${c.slice(4)}>${t}` : t)).join("");
+    assert.equal(
+      show(lib.prettyJson('{"a":[1,{}],"b":{"c":"x,y:z","n":12345678901234567890,"t":null}}')),
+      [
+        "{",
+        '  <key>"a": [',
+        "    <number>1,",
+        "    {}",
+        "  ],",
+        '  <key>"b": {',
+        '    <key>"c": <string>"x,y:z",',
+        '    <key>"n": <number>12345678901234567890,',
+        '    <key>"t": <literal>null',
+        "  }",
+        "}",
+      ].join("\n"),
+    );
+    assert.equal(show(lib.prettyJson('"\\"quoted\\""')), '<string>"\\"quoted\\""');
+    assert.equal(lib.prettyJson("{oops}"), null);
+    assert.equal(lib.prettyJson(`[${"1,".repeat(600000)}1]`), null, "past PRETTY_MAX");
+  });
+
+  test("prettyMarkup puts XML and HTML one element a line, by nesting", () => {
+    const show = (/** @type {[string, string][] | null} */ segs) =>
+      segs && segs.map(([t, c]) => (c ? `<${c.slice(4)}>${t}` : t)).join("");
+    assert.equal(
+      show(lib.prettyMarkup('<?xml version="1.0"?><r a="1>2"><!-- c --><i/>text</r>', false)),
+      [
+        '<tag><?xml version="1.0"?>',
+        '<tag><r <attr>a=<string>"1>2"<tag>>',
+        "  <comment><!-- c -->",
+        "  <tag><i/>",
+        "  text",
+        "<tag></r>",
+      ].join("\n"),
+    );
+    // HTML: void elements don't nest, a script's content stays as written.
+    const html = lib.prettyMarkup("<p>a<br>b<img src=x></p><script>if (a<b) go();</script>", true);
+    assert.deepEqual(show(html).split("\n"), [
+      "<tag><p>",
+      "  a",
+      "  <tag><br>",
+      "  b",
+      "  <tag><img <attr>src=<string>x<tag>>",
+      "<tag></p>",
+      "<tag><script>",
+      "  if (a<b) go();",
+      "<tag></script>",
+    ]);
+    // An unclosed tag or comment ends the text instead of looping.
+    assert.equal(show(lib.prettyMarkup("<a href='x", false)), "<tag><a <attr>href=<string>'x");
+    assert.equal(show(lib.prettyMarkup("<!-- open", false)), "<comment><!-- open");
+  });
+
+  test("prettyForm lists a form's fields, decoded", () => {
+    assert.deepEqual(lib.prettyForm("user=ann+lee&note=caf%C3%A9&bad=%E0%A4&flag"), [
+      ["user", "tok-key"],
+      [" = ", ""],
+      ["ann lee", "tok-string"],
+      ["\n", ""],
+      ["note", "tok-key"],
+      [" = ", ""],
+      ["café", "tok-string"],
+      ["\n", ""],
+      ["bad", "tok-key"],
+      [" = ", ""],
+      ["%E0%A4", "tok-string"],
+      ["\n", ""],
+      ["flag", "tok-key"],
+    ]);
+    assert.equal(lib.prettyBody("text", "plain"), null);
+  });
+
   test("searchRows keeps rows holding every word; in a tree, parents and children too", () => {
     const flat = [
       { cells: ["10.0.0.1:5000", "93.184.216.34:443", 1234] },

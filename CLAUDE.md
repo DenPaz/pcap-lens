@@ -265,10 +265,11 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   by the editor and the panels), `styles.css` (the viewer), `panel.css`.
 - `src/panels/` statistics, follow-stream, coloring-rules, export-objects,
   flow-graph, TCP-graph, VoIP, compare-packets, packet-bytes, packet window,
-  replay and overview webview panels (`panelHtml.ts` builds their CSP'd HTML);
-  their UIs are `src/webview/stats.js`, `follow.js`, `coloring.js`,
-  `objects.js`, `flowgraph.js`, `tcpgraph.js`, `voip.js`, `compare.js`,
-  `bytes.js`, `packet.js`, `replay.js` and `overview.js` with `panel.css`.
+  replay, overview and HTTP exchange webview panels (`panelHtml.ts` builds
+  their CSP'd HTML); their UIs are `src/webview/stats.js`, `follow.js`,
+  `coloring.js`, `objects.js`, `flowgraph.js`, `tcpgraph.js`, `voip.js`,
+  `compare.js`, `bytes.js`, `packet.js`, `replay.js`, `overview.js` and
+  `http.js` with `panel.css`.
 - `backend/pcap_backend/` Python package run as `python -m pcap_backend`
   with `PYTHONPATH=backend`. `server.py` (JSON-RPC), `pcap_service.py`
   (`PcapService`, assembled from the `service/` mixins, `rpc_methods`, and
@@ -1856,6 +1857,30 @@ in {…}` / `tcp.stream in {…}` / `quic.connection.number in {…}` with
 http.file_data`: the decoded body, de-chunked and decompressed, at most
   `MAX_BODY_BYTES`) and shows it in Show Packet Bytes (text, image, hex…);
   the row menu also opens the request or response in a new window.
+  **HTTP Exchange** (`panels/httpPanel.ts`, `http.js`; the rows' _Show
+  Request and Response_ button and menu entry, and the registered, not
+  contributed, `pcapViewer.httpExchange {request, requestIndex, response,
+responseIndex, label}` the smoke test calls): rows carry `requestIndex`
+  and `responseIndex` (which HTTP message of their packet: pipelining), and
+  `http_exchange` runs one `-c max -Y "frame.number == a || … == b" -T
+pdml` pass (`_bounded_pdml`) read by `sessions.http_messages`: each `http`
+  proto is a message (its first unnamed field the first line, the hidden
+  `http.request.line`/`http.response.line` fields the headers, which the
+  detail tree drops; `http.file_data`'s colon-hex `show` the decoded body,
+  at most `MAX_BODY_BYTES`; `decoded` when tshark de-chunked or
+  decompressed it), picked by kind and index. The panel shows both sides
+  (first line, a link to its packet, headers, Copy Headers) and each body
+  as `lib.bodyKind` says (Content-Type, else its bytes: image, json, xml,
+  html, form, text, binary) in `decodeBody`'s charset: Pretty
+  (`lib.prettyBody`: `prettyJson` re-indents the text's own tokens after a
+  JSON.parse check, so big numbers stay as written; `prettyMarkup` a
+  forgiving one-pass scanner, HTML's void elements and script/style kept;
+  `prettyForm`; all `indexOf` scans, no backtracking regexes, null past
+  `PRETTY_MAX` 1 MB) as `[text, class]` segments appended as text spans,
+  Text, Hex dump or Image (a data: URL), at most 2M characters drawn; Copy,
+  Save… (the bytes) and Show Packet Bytes (`bytes` → BytesPanel). Token
+  colours are the theme's debugger/outline ones with Light Modern
+  fallbacks (axe checks the unthemed test page).
   `sessions.pcap` (generate.py `sessions_packets`) has five HTTP requests
   (a PNG, a 500, a 404 on port 8080, one unanswered) and two pipelined
   ones at the end (frames 59 and 61), five DNS queries (an
