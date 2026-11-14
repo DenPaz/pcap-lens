@@ -9,10 +9,12 @@ commit) that made it. The format follows
 
 ### Fixed
 
+- _Copy MCP Server Configuration_ quotes a Windows argument with a long run
+  of backslashes in linear time, not quadratic (CodeQL alert #37) [529828e]
 - Building a filter from a long value made of colons (Apply as Filter, a
-  packet-list cell) no longer takes quadratic time (CodeQL's polynomial
-  regular expression alert) [8d59984]
+  packet-list cell) no longer takes quadratic time either [8d59984]
 
+[529828e]: https://github.com/DenPaz/pcap-lens/commit/529828e
 [8d59984]: https://github.com/DenPaz/pcap-lens/commit/8d59984
 
 ## 0.35.0 — 2026-11-13
