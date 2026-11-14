@@ -1090,6 +1090,8 @@ suite("webview lib: follow stream and statistics helpers", () => {
     assert.equal(show(lib.prettyJson('"\\"quoted\\""')), '<string>"\\"quoted\\""');
     assert.equal(lib.prettyJson("{oops}"), null);
     assert.equal(lib.prettyJson(`[${"1,".repeat(600000)}1]`), null, "past PRETTY_MAX");
+    // 20 kB of nesting would print 200 million characters of indentation.
+    assert.equal(lib.prettyJson("[".repeat(10000) + "]".repeat(10000)), null, "output budget");
   });
 
   test("prettyMarkup puts XML and HTML one element a line, by nesting", () => {
@@ -1122,6 +1124,7 @@ suite("webview lib: follow stream and statistics helpers", () => {
     // An unclosed tag or comment ends the text instead of looping.
     assert.equal(show(lib.prettyMarkup("<a href='x", false)), "<tag><a <attr>href=<string>'x");
     assert.equal(show(lib.prettyMarkup("<!-- open", false)), "<comment><!-- open");
+    assert.equal(lib.prettyMarkup("<a>".repeat(10000), false), null, "output budget");
   });
 
   test("prettyForm lists a form's fields, decoded", () => {
@@ -1187,9 +1190,17 @@ suite("webview lib: follow stream and statistics helpers", () => {
         },
         "udp",
       )[0].filter,
-      "ipv6.addr == 2001:db8::1 && udp",
-      "a host talking to itself",
+      "ipv6.src == 2001:db8::1 && ipv6.dst == 2001:db8::1 && udp",
+      "a host talking to itself: both ends that host, not all of its traffic",
     );
+    // One pair with 150,000 connections (a scan): no spreading rows into a call.
+    const many = Array.from({ length: 150000 }, (_, i) => ({
+      cells: [`10.0.0.1:${i}`, "10.0.0.2:80", 1, 1, 1, 1, 0, 0, i / 1000, 0.001],
+    }));
+    const big = lib.groupConversations({ columns: table.columns, rows: many }, "tcp");
+    assert.equal(big.length, 150001);
+    assert.equal(big[0].count, 150000);
+    assert.deepEqual([big[0].cells[8], Math.round(big[0].cells[9])], [0, 150], "start, span");
     // Sorted: the groups by their totals, connections under their group.
     const sorted = lib.sortGrouped(rows, 2, true);
     assert.deepEqual(

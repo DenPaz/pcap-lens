@@ -1968,6 +1968,29 @@
 
   /** Bodies longer than this (characters) are shown as plain text, not pretty-printed. */
   const PRETTY_MAX = 1_000_000;
+  /**
+   * Pretty-printed text longer than this (characters) falls back to plain
+   * text: indentation grows with nesting, so a 20 kB body of 10,000 nested
+   * arrays printed 200 million characters (Codex review).
+   */
+  const PRETTY_OUTPUT_MAX = 4_000_000;
+
+  /** A body too deep to pretty-print (prettyJson, prettyMarkup return null). */
+  class PrettyTooLarge extends Error {}
+
+  /**
+   * `push` that counts what it appended against PRETTY_OUTPUT_MAX.
+   * @param {Segments} out @param {{size: number}} budget
+   */
+  function counted(out, budget) {
+    return (/** @type {string} */ text, /** @type {string} */ cls) => {
+      budget.size += text.length;
+      if (budget.size > PRETTY_OUTPUT_MAX) {
+        throw new PrettyTooLarge();
+      }
+      push(out, text, cls);
+    };
+  }
   /** HTML elements that have no end tag (they don't nest). */
   const VOID_ELEMENTS = new Set([
     "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
@@ -2099,63 +2122,75 @@
     }
     /** @type {Segments} */
     const out = [];
+    const put = counted(out, { size: 0 });
     let depth = 0;
-    const newline = () => push(out, "\n" + "  ".repeat(depth), "");
+    const newline = () => put("\n" + "  ".repeat(depth), "");
     let i = 0;
-    while (i < text.length) {
-      const c = text[i];
-      if (c === " " || c === "\t" || c === "\n" || c === "\r") {
-        i++;
-      } else if (c === '"') {
-        let j = i + 1;
-        while (j < text.length && text[j] !== '"') {
-          j += text[j] === "\\" ? 2 : 1;
-        }
-        const token = text.slice(i, j + 1);
-        let k = j + 1;
-        while (k < text.length && " \t\r\n".includes(text[k])) {
-          k++;
-        }
-        push(out, token, text[k] === ":" ? "tok-key" : "tok-string");
-        i = j + 1;
-      } else if (c === "{" || c === "[") {
-        // An empty object or array stays on its line.
-        let k = i + 1;
-        while (k < text.length && " \t\r\n".includes(text[k])) {
-          k++;
-        }
-        if (text[k] === (c === "{" ? "}" : "]")) {
-          push(out, c + text[k], "");
-          i = k + 1;
-        } else {
-          push(out, c, "");
-          depth++;
-          newline();
-          i++;
-        }
-      } else if (c === "}" || c === "]") {
-        depth--;
-        newline();
-        push(out, c, "");
-        i++;
-      } else if (c === ",") {
-        push(out, ",", "");
-        newline();
-        i++;
-      } else if (c === ":") {
-        push(out, ": ", "");
-        i++;
-      } else {
-        let j = i;
-        while (j < text.length && !" \t\r\n,:]}".includes(text[j])) {
-          j++;
-        }
-        const token = text.slice(i, j);
-        push(out, token, /^[-\d]/.test(token) ? "tok-number" : "tok-literal");
-        i = j;
+    try {
+      jsonTokens();
+    } catch (err) {
+      if (err instanceof PrettyTooLarge) {
+        return null;
       }
+      throw err;
     }
     return out;
+
+    function jsonTokens() {
+      while (i < text.length) {
+        const c = text[i];
+        if (c === " " || c === "\t" || c === "\n" || c === "\r") {
+          i++;
+        } else if (c === '"') {
+          let j = i + 1;
+          while (j < text.length && text[j] !== '"') {
+            j += text[j] === "\\" ? 2 : 1;
+          }
+          const token = text.slice(i, j + 1);
+          let k = j + 1;
+          while (k < text.length && " \t\r\n".includes(text[k])) {
+            k++;
+          }
+          put(token, text[k] === ":" ? "tok-key" : "tok-string");
+          i = j + 1;
+        } else if (c === "{" || c === "[") {
+          // An empty object or array stays on its line.
+          let k = i + 1;
+          while (k < text.length && " \t\r\n".includes(text[k])) {
+            k++;
+          }
+          if (text[k] === (c === "{" ? "}" : "]")) {
+            put(c + text[k], "");
+            i = k + 1;
+          } else {
+            put(c, "");
+            depth++;
+            newline();
+            i++;
+          }
+        } else if (c === "}" || c === "]") {
+          depth--;
+          newline();
+          put(c, "");
+          i++;
+        } else if (c === ",") {
+          put(",", "");
+          newline();
+          i++;
+        } else if (c === ":") {
+          put(": ", "");
+          i++;
+        } else {
+          let j = i;
+          while (j < text.length && !" \t\r\n,:]}".includes(text[j])) {
+            j++;
+          }
+          const token = text.slice(i, j);
+          put(token, /^[-\d]/.test(token) ? "tok-number" : "tok-literal");
+          i = j;
+        }
+      }
+    }
   }
 
   /**
@@ -2172,6 +2207,7 @@
     }
     /** @type {Segments} */
     const out = [];
+    const put = counted(out, { size: 0 });
     let depth = 0;
     let first = true;
     /** The text lower-cased, once (a page can hold thousands of scripts). @type {string | null} */
@@ -2179,100 +2215,111 @@
     const lowered = () => (lowerText ??= text.toLowerCase());
     const line = () => {
       if (!first) {
-        push(out, "\n", "");
+        put("\n", "");
       }
       first = false;
-      push(out, "  ".repeat(Math.max(0, depth)), "");
+      put("  ".repeat(Math.max(0, depth)), "");
     };
-    let i = 0;
-    while (i < text.length) {
-      if (text[i] !== "<") {
-        let j = text.indexOf("<", i);
-        if (j < 0) {
-          j = text.length;
-        }
-        const content = text.slice(i, j).trim();
-        if (content) {
-          line();
-          push(out, content.replace(/\s*\n\s*/g, " "), "");
-        }
-        i = j;
-        continue;
+    try {
+      markupTokens();
+    } catch (err) {
+      if (err instanceof PrettyTooLarge) {
+        return null;
       }
-      // Comments, CDATA, declarations and processing instructions: as written.
-      const special = [
-        ["<!--", "-->", "tok-comment"],
-        ["<![CDATA[", "]]>", ""],
-        ["<?", "?>", "tok-tag"],
-        ["<!", ">", "tok-tag"],
-      ].find(([open]) => text.startsWith(open, i));
-      if (special) {
-        const end = text.indexOf(special[1], i + special[0].length);
-        const stop = end < 0 ? text.length : end + special[1].length;
-        line();
-        push(out, text.slice(i, stop), special[2]);
-        i = stop;
-        continue;
-      }
-      // A tag: up to the ">" outside quotes.
-      let j = i + 1;
-      /** @type {string | null} */
-      let quote = null;
-      while (j < text.length && (quote || text[j] !== ">")) {
-        if (quote) {
-          if (text[j] === quote) {
-            quote = null;
+      throw err;
+    }
+    return out;
+
+    function markupTokens() {
+      let i = 0;
+      while (i < text.length) {
+        if (text[i] !== "<") {
+          let j = text.indexOf("<", i);
+          if (j < 0) {
+            j = text.length;
           }
-        } else if (text[j] === '"' || text[j] === "'") {
-          quote = text[j];
-        }
-        j++;
-      }
-      const tag = text.slice(i + 1, j); // (without < and >)
-      const closing = tag.startsWith("/");
-      const selfClosing = tag.endsWith("/");
-      const body = tag.slice(closing ? 1 : 0, selfClosing ? -1 : undefined);
-      let n = 0;
-      while (n < body.length && !/[\s/>]/.test(body[n])) {
-        n++;
-      }
-      const name = body.slice(0, n);
-      const lower = name.toLowerCase();
-      if (closing) {
-        depth--;
-      }
-      line();
-      push(out, (closing ? "</" : "<") + name, "tok-tag");
-      markupAttributes(out, body.slice(n));
-      push(out, (selfClosing ? "/" : "") + (j < text.length ? ">" : ""), "tok-tag");
-      i = Math.min(j + 1, text.length);
-      if (!closing && !selfClosing && !(html && VOID_ELEMENTS.has(lower))) {
-        depth++;
-        if (html && (lower === "script" || lower === "style")) {
-          // Raw text up to its end tag, as written.
-          const end = lowered().indexOf(`</${lower}`, i);
-          const stop = end < 0 ? text.length : end;
-          const raw = text.slice(i, stop).trim();
-          if (raw) {
+          const content = text.slice(i, j).trim();
+          if (content) {
             line();
-            push(out, raw, "");
+            put(content.replace(/\s*\n\s*/g, " "), "");
           }
+          i = j;
+          continue;
+        }
+        // Comments, CDATA, declarations and processing instructions: as written.
+        const special = [
+          ["<!--", "-->", "tok-comment"],
+          ["<![CDATA[", "]]>", ""],
+          ["<?", "?>", "tok-tag"],
+          ["<!", ">", "tok-tag"],
+        ].find(([open]) => text.startsWith(open, i));
+        if (special) {
+          const end = text.indexOf(special[1], i + special[0].length);
+          const stop = end < 0 ? text.length : end + special[1].length;
+          line();
+          put(text.slice(i, stop), special[2]);
           i = stop;
+          continue;
+        }
+        // A tag: up to the ">" outside quotes.
+        let j = i + 1;
+        /** @type {string | null} */
+        let quote = null;
+        while (j < text.length && (quote || text[j] !== ">")) {
+          if (quote) {
+            if (text[j] === quote) {
+              quote = null;
+            }
+          } else if (text[j] === '"' || text[j] === "'") {
+            quote = text[j];
+          }
+          j++;
+        }
+        const tag = text.slice(i + 1, j); // (without < and >)
+        const closing = tag.startsWith("/");
+        const selfClosing = tag.endsWith("/");
+        const body = tag.slice(closing ? 1 : 0, selfClosing ? -1 : undefined);
+        let n = 0;
+        while (n < body.length && !/[\s/>]/.test(body[n])) {
+          n++;
+        }
+        const name = body.slice(0, n);
+        const lower = name.toLowerCase();
+        if (closing) {
+          depth--;
+        }
+        line();
+        put((closing ? "</" : "<") + name, "tok-tag");
+        markupAttributes(put, body.slice(n));
+        put((selfClosing ? "/" : "") + (j < text.length ? ">" : ""), "tok-tag");
+        i = Math.min(j + 1, text.length);
+        if (!closing && !selfClosing && !(html && VOID_ELEMENTS.has(lower))) {
+          depth++;
+          if (html && (lower === "script" || lower === "style")) {
+            // Raw text up to its end tag, as written.
+            const end = lowered().indexOf(`</${lower}`, i);
+            const stop = end < 0 ? text.length : end;
+            const raw = text.slice(i, stop).trim();
+            if (raw) {
+              line();
+              put(raw, "");
+            }
+            i = stop;
+          }
         }
       }
     }
-    return out;
   }
 
   /**
    * A tag's attributes: names (tok-attr), "=", values (tok-string).
-   * @param {Segments} out @param {string} text
+   * @param {(text: string, cls: string) => void} put @param {string} text
    */
-  function markupAttributes(out, text) {
+  function markupAttributes(put, text) {
     let i = 0;
     while (i < text.length) {
       if (/\s/.test(text[i])) {
-        push(out, " ", "");
+        put(" ", "");
         while (i < text.length && /\s/.test(text[i])) {
           i++;
         }
@@ -2282,10 +2329,10 @@
       while (j < text.length && !/[\s=]/.test(text[j])) {
         j++;
       }
-      push(out, text.slice(i, j), "tok-attr");
+      put(text.slice(i, j), "tok-attr");
       i = j;
       if (text[i] === "=") {
-        push(out, "=", "");
+        put("=", "");
         i++;
         const q = text[i];
         let end;
@@ -2298,7 +2345,7 @@
             end++;
           }
         }
-        push(out, text.slice(i, end), "tok-string");
+        put(text.slice(i, end), "tok-string");
         i = end;
       }
     }
@@ -2410,12 +2457,15 @@
           (n, r) => n + (r.cells[at[endAddress(String(r.cells[at.a])) === g.a ? ab : ba]] || 0),
           0,
         );
-      const start = Math.min(...g.rows.map((r) => Number(r.cells[at.start]) || 0));
-      const end = Math.max(
-        ...g.rows.map(
-          (r) => (Number(r.cells[at.start]) || 0) + (Number(r.cells[at.duration]) || 0),
-        ),
-      );
+      // (Loops, not Math.min(...rows): a pair can have 150,000 connections,
+      // past the arguments a call takes.)
+      let start = Infinity;
+      let end = -Infinity;
+      for (const r of g.rows) {
+        const from = Number(r.cells[at.start]) || 0;
+        start = Math.min(start, from);
+        end = Math.max(end, from + (Number(r.cells[at.duration]) || 0));
+      }
       const cells = table.columns.map(() => /** @type {unknown} */ (""));
       cells[at.a] = g.a;
       cells[at.b] = g.b;
@@ -2427,12 +2477,12 @@
       cells[at.bytes_ba] = turned("bytes_ba", "bytes_ab");
       cells[at.start] = Number(start.toFixed(6));
       cells[at.duration] = Number((end - start).toFixed(6));
-      const field = (/** @type {string} */ address) =>
-        address.includes(":") ? "ipv6.addr" : "ip.addr";
+      const ip = (/** @type {string} */ address) => (address.includes(":") ? "ipv6" : "ip");
+      // (A host talking to itself: both ends that host, not any of its traffic.)
       const filter =
         g.a === g.b
-          ? `${field(g.a)} == ${g.a} && ${transport}`
-          : `${field(g.a)} == ${g.a} && ${field(g.b)} == ${g.b} && ${transport}`;
+          ? `${ip(g.a)}.src == ${g.a} && ${ip(g.a)}.dst == ${g.a} && ${transport}`
+          : `${ip(g.a)}.addr == ${g.a} && ${ip(g.b)}.addr == ${g.b} && ${transport}`;
       /** @type {any} */
       const parent = { cells, filter, group: key, count: g.rows.length };
       const charts = g.rows.map((r) => r.activity);
@@ -2441,7 +2491,10 @@
           charts.reduce((n, c) => n + c[i], 0),
         );
       }
-      out.push(parent, ...g.rows.map((r) => ({ ...r, depth: 1, parent: key })));
+      out.push(parent);
+      for (const r of g.rows) {
+        out.push({ ...r, depth: 1, parent: key });
+      }
     }
     return out;
   }
