@@ -16,7 +16,11 @@ commit) that made it. The format follows
   headers and bodies (request bodies too), JSON, XML, HTML and forms
   pretty-printed and coloured, images shown; pipelined requests each get
   their own answer [6c4373f]
+- Conversations and Endpoints: an _Activity_ column charts each row's bytes
+  over the capture (bursts, steady streams, late starts); the charts come a
+  moment after the rows, from one more pass [16c5eed]
 
+[16c5eed]: https://github.com/DenPaz/pcap-lens/commit/16c5eed
 [6c4373f]: https://github.com/DenPaz/pcap-lens/commit/6c4373f
 [ec47aa9]: https://github.com/DenPaz/pcap-lens/commit/ec47aa9
 
