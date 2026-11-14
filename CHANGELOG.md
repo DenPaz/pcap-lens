@@ -12,7 +12,12 @@ commit) that made it. The format follows
 - Statistics tables have a _Filter rows_ box (Ctrl+F): it narrows a table,
   a session table of 50,000 rows too, to the rows holding every word typed,
   without running tshark again; in a tree a match keeps its parents [ec47aa9]
+- HTTP Requests: _Show Request and Response_ shows both side by side, their
+  headers and bodies (request bodies too), JSON, XML, HTML and forms
+  pretty-printed and coloured, images shown; pipelined requests each get
+  their own answer [6c4373f]
 
+[6c4373f]: https://github.com/DenPaz/pcap-lens/commit/6c4373f
 [ec47aa9]: https://github.com/DenPaz/pcap-lens/commit/ec47aa9
 
 ## 0.35.1 — 2026-11-14
