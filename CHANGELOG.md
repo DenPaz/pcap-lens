@@ -23,7 +23,10 @@ commit) that made it. The format follows
   checks it: expired or not yet valid when sent, self-signed, or not for the
   name the client asked for; _only problems_ in the AI tools keeps those
   servers too [4a24e68]
+- Conversations: _Group by hosts_ puts TCP and UDP connections under one row
+  per pair of hosts, with the pair's totals, activity and filter [4954d96]
 
+[4954d96]: https://github.com/DenPaz/pcap-lens/commit/4954d96
 [4a24e68]: https://github.com/DenPaz/pcap-lens/commit/4a24e68
 [16c5eed]: https://github.com/DenPaz/pcap-lens/commit/16c5eed
 [6c4373f]: https://github.com/DenPaz/pcap-lens/commit/6c4373f
