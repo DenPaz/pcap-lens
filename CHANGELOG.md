@@ -19,7 +19,12 @@ commit) that made it. The format follows
 - Conversations and Endpoints: an _Activity_ column charts each row's bytes
   over the capture (bursts, steady streams, late starts); the charts come a
   moment after the rows, from one more pass [16c5eed]
+- TLS Servers shows each server's certificate (name, issuer, expiry) and
+  checks it: expired or not yet valid when sent, self-signed, or not for the
+  name the client asked for; _only problems_ in the AI tools keeps those
+  servers too [4a24e68]
 
+[4a24e68]: https://github.com/DenPaz/pcap-lens/commit/4a24e68
 [16c5eed]: https://github.com/DenPaz/pcap-lens/commit/16c5eed
 [6c4373f]: https://github.com/DenPaz/pcap-lens/commit/6c4373f
 [ec47aa9]: https://github.com/DenPaz/pcap-lens/commit/ec47aa9
