@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.35.1 — 2026-11-14
+
 ### Fixed
 
 - _Copy MCP Server Configuration_ quotes a Windows argument with a long run
