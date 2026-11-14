@@ -1975,9 +1975,16 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       await waitRows(tls.page, 2);
       assert.equal(
         await tls.page.textContent(".status"),
-        "2 servers · 3 connections · 1 handshake without a server hello",
+        "2 servers · 3 connections · 1 handshake without a server hello · 1 server with a certificate problem",
       );
       assert.equal((await rows(tls.page))[0][1], "api.example.com");
+      // Its certificate (TLS 1.2 sends it in the clear): expired when captured.
+      assert.deepEqual((await rows(tls.page))[0].slice(9), [
+        "api.example.com",
+        "PCAP Lens Test CA",
+        "2021-01-01",
+        "Expired 2021-01-01",
+      ]);
     } finally {
       await sessions.dispose();
     }

@@ -26,12 +26,14 @@ below are the common ones (others show as numbers).
 
 from __future__ import annotations
 
+import time
 import xml.etree.ElementTree as ET
 from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import x509
 from .navigation import frame_ranges
 from .stats import Table, _address_filter, _col
 
@@ -66,7 +68,10 @@ _DNS_ANSWERS = (
     ("dns.srv.target", "SRV"),
 )
 
-TLS_FILTER = "tls.handshake.type == 1 || tls.handshake.type == 2 || tls.handshake.type == 8"
+TLS_FILTER = (
+    "tls.handshake.type == 1 || tls.handshake.type == 2 || tls.handshake.type == 8"
+    " || tls.handshake.type == 11"
+)
 TLS_FIELDS = (
     "frame.number", "tcp.stream", "quic.connection.number",
     "ip.src", "ipv6.src", "ip.dst", "ipv6.dst",
@@ -74,6 +79,8 @@ TLS_FIELDS = (
     "tls.handshake.type", "tls.handshake.extensions_server_name",
     "tls.handshake.extensions_alpn_str", "tls.handshake.version",
     "tls.handshake.extensions.supported_version", "tls.handshake.ciphersuite",
+    # (Last: a Certificate message's chain, the server's own first, as hex.)
+    "frame.time_epoch", "tls.handshake.certificate",
 )  # fmt: skip
 
 DNS_TYPES = {
@@ -532,6 +539,12 @@ class _Connection:
     version: str = ""
     cipher: str = ""
     alpn: str = ""
+    # The server's certificate (TLS 1.2 and earlier send it in the clear),
+    # its DER bytes and when it was sent (epoch seconds).
+    cert: x509.Certificate | None = None
+    cert_der: bytes = b""
+    cert_time: float = 0.0
+    cert_frame: int = 0
 
 
 @dataclass(slots=True)
@@ -584,6 +597,13 @@ def tls_servers(lines: Iterable[str]) -> Table:
         if kinds & {2, 8} and not conn.alpn:
             # (TLS 1.3 sends it in the EncryptedExtensions, after the ServerHello)
             conn.alpn = _first(c["tls.handshake.extensions_alpn_str"])
+        if 11 in kinds and conn.cert is None:
+            der = _hex_bytes(_first(c["tls.handshake.certificate"]))
+            conn.cert = x509.parse_certificate(der) if der else None
+            if conn.cert is not None:
+                conn.cert_der = der
+                conn.cert_time = _float(c["frame.time_epoch"]) or 0.0
+                conn.cert_frame = frame
     servers: dict[tuple[str, str, str, str], _Server] = {}
     for conn in sorted(conns.values(), key=lambda c: c.first):
         group = (conn.server, conn.port, conn.transport, conn.sni)
@@ -601,8 +621,13 @@ def tls_servers(lines: Iterable[str]) -> Table:
             _col("ciphers", "Cipher Suites"),
             _col("alpn", "ALPN"),
             _col("clients", "Clients", True),
+            _col("certificate", "Certificate"),
+            _col("issuer", "Issuer"),
+            _col("expires", "Expires"),
+            _col("check", "Certificate Check"),
         ],
     )
+    problems = 0
     for s in servers.values():
         cs = s.connections
         answered = [c for c in cs if c.answered]
@@ -624,14 +649,74 @@ def tls_servers(lines: Iterable[str]) -> Table:
                     _joined(c.cipher for c in answered),
                     _joined(c.alpn for c in answered),
                     len({c.client for c in cs}),
+                    *_certificate_cells(s, answered),
                 ],
                 "filter": flt,
                 "frame": cs[0].first,
             }
         )
+        problems += bool(_certificate_problems(s))
     table.extra["summary"] = {
         "servers": len(servers),
         "connections": len(conns),
         "unanswered": sum(1 for c in conns.values() if not c.answered),
+        "certificateProblems": problems,
     }
     return table
+
+
+def _hex_bytes(text: str) -> bytes:
+    """tshark's hex for a bytes field (with or without colons), or b""."""
+    try:
+        return bytes.fromhex(text.replace(":", ""))
+    except ValueError:
+        return b""
+
+
+def _name_of(name: dict[str, str]) -> str:
+    return name.get("cn") or name.get("o") or ""
+
+
+def _date(epoch: float) -> str:
+    return time.strftime("%Y-%m-%d", time.gmtime(epoch))
+
+
+def _certificate_problems(server: _Server) -> list[str]:
+    """What is wrong with the server's certificates when they were sent:
+    expired, not yet valid, self-signed, not for the name the client asked
+    for (SNI). Each problem once, whatever the connection."""
+    found: list[str] = []
+    for conn in server.connections:
+        cert = conn.cert
+        if cert is None:
+            continue
+        when = conn.cert_time
+        if when and when > cert.not_after:
+            found.append(f"Expired {_date(cert.not_after)}")
+        if when and when < cert.not_before:
+            found.append(f"Not valid before {_date(cert.not_before)}")
+        if cert.self_signed:
+            found.append("Self-signed")
+        if server.sni and not cert.covers(server.sni):
+            found.append(f"Not for {server.sni}")
+    return list(dict.fromkeys(found))
+
+
+def _certificate_cells(server: _Server, answered: list[_Connection]) -> list[str]:
+    """Certificate, Issuer, Expires and Certificate Check of a server row:
+    its first certificate seen (and how many different ones it sent)."""
+    with_cert = [c for c in server.connections if c.cert is not None]
+    if not with_cert:
+        # TLS 1.3 encrypts the certificate; no ServerHello: nothing was sent.
+        tls13 = any(c.version == "TLS 1.3" for c in answered)
+        return ["", "", "", "Encrypted (TLS 1.3)" if tls13 else ""]
+    first = with_cert[0].cert
+    assert first is not None
+    distinct = len({c.cert_der for c in with_cert})
+    name = _name_of(first.subject) + (f" (+{distinct - 1} more)" if distinct > 1 else "")
+    return [
+        name,
+        _name_of(first.issuer),
+        _date(first.not_after),
+        "; ".join(_certificate_problems(server)) or "OK",
+    ]

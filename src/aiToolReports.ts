@@ -253,7 +253,7 @@ export interface SessionTable {
   more?: number;
 }
 
-/** Whether a row is a problem: an HTTP error or no response, a failed or unanswered DNS query, a TLS server with handshakes that got no ServerHello (the MCP server's rule). */
+/** Whether a row is a problem: an HTTP error or no response, a failed or unanswered DNS query, a TLS server with handshakes that got no ServerHello or a certificate that failed its check (the MCP server's rule). */
 export function sessionProblem(kind: SessionKind, cell: (id: string) => unknown): boolean {
   if (kind === "http") {
     const status = cell("status");
@@ -263,11 +263,19 @@ export function sessionProblem(kind: SessionKind, cell: (id: string) => unknown)
     return cell("rcode") !== "NoError";
   }
   const unanswered = cell("unanswered");
-  return typeof unanswered === "number" && unanswered > 0;
+  const check = cell("check");
+  return (
+    (typeof unanswered === "number" && unanswered > 0) ||
+    (typeof check === "string" && !["", "OK", "Encrypted (TLS 1.3)"].includes(check))
+  );
 }
 
-/** Host names in a session table: HTTP hosts, DNS names, TLS server names. */
-const NAME_COLUMNS: Record<SessionKind, string> = { http: "host", dns: "name", tls: "sni" };
+/** Host names in a session table: HTTP hosts, DNS names, TLS server names and their certificates' names. */
+const NAME_COLUMNS: Record<SessionKind, string[]> = {
+  http: ["host"],
+  dns: ["name"],
+  tls: ["sni", "certificate"],
+};
 
 /** The table's rows (only the problems, when asked), at most `limit`, each with its filter. */
 export function sessionReport(
@@ -301,15 +309,16 @@ export function sessionReport(
         ].join(" | "),
       ),
   ];
-  const nameColumn = ids.indexOf(NAME_COLUMNS[kind]);
-  const names =
-    nameColumn < 0
-      ? []
-      : rows
-          .slice(0, opts.limit)
-          .map((r) => r.cells[nameColumn])
-          .filter((n): n is string => typeof n === "string" && n !== "")
-          .map((name) => ({ name }));
+  const nameColumns = NAME_COLUMNS[kind].map((id) => ids.indexOf(id)).filter((i) => i >= 0);
+  // (A certificate's cell may say "+N more" after its name: the name alone.)
+  const seen = new Set<string>();
+  const names = rows
+    .slice(0, opts.limit)
+    .flatMap((r) => nameColumns.map((i) => r.cells[i]))
+    .filter((n): n is string => typeof n === "string" && n !== "")
+    .map((n) => n.replace(/ \(\+\d+ more\)$/, ""))
+    .filter((n) => !seen.has(n) && Boolean(seen.add(n)))
+    .map((name) => ({ name }));
   return { text: cut(lines.join("\n"), opts.maxChars), names };
 }
 

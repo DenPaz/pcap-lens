@@ -128,7 +128,9 @@ words, instantly.
   headers and bodies, JSON, XML, HTML and forms pretty-printed, images
   shown), **DNS Queries**
   (answers, result and latency) and **TLS Servers** (SNI, versions, cipher
-  suites, ALPN, connections and failed handshakes).
+  suites, ALPN, connections, failed handshakes, and the server's certificate:
+  its name, issuer and expiry, flagged when it had expired, was self-signed
+  or wasn't for the name the client asked for).
 - **Sequence Check**: name the fields that identify a stream (a LIID and
   CIN, a GTP tunnel, your Lua dissector's fields) and the one that numbers
   its messages; each stream's missing numbers, duplicates, late messages and

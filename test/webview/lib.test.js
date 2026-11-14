@@ -629,6 +629,10 @@ suite("webview lib: bytes", () => {
       lib.sessionSummary("tls_servers", { servers: 1, connections: 1, unanswered: 1 }),
       "1 server · 1 connection · 1 handshake without a server hello",
     );
+    assert.equal(
+      lib.sessionSummary("tls_servers", { servers: 3, connections: 5, certificateProblems: 2 }),
+      "3 servers · 5 connections · 2 servers with a certificate problem",
+    );
     assert.deepEqual(lib.SESSION_KINDS, ["http_requests", "dns_queries", "tls_servers"]);
   });
 

@@ -52,7 +52,12 @@ applies its filter, and every card opens its full report.
   in Show Packet Bytes.
 - **DNS Queries**: name, type, result, answers and latency.
 - **TLS Servers**: server name, connections, handshakes that got no
-  ServerHello, the versions, cipher suites and ALPN the server chose.
+  ServerHello, the versions, cipher suites and ALPN the server chose, and
+  its certificate: name, issuer and expiry, with a **Certificate Check**
+  that says when it had expired (or wasn't valid yet) at the moment it was
+  sent, was self-signed, or wasn't for the server name the client asked for
+  (wildcards count for one label). TLS 1.3 encrypts the certificate, so its
+  connections say _Encrypted (TLS 1.3)_ unless a key log decrypts them.
 
 ## Sequence Check
 

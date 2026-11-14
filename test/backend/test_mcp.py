@@ -266,7 +266,7 @@ def test_overview_and_sessions(client_for: Any) -> None:
     c = client_for()
     ov, failed = c.call("overview", capture="sessions.pcap", limit=2, buckets=6)
     assert not failed
-    assert (ov["packets"], ov["bytes"]) == (62, 5154)
+    assert (ov["packets"], ov["bytes"]) == (62, 5634)
     assert sum(ov["timeline"]["packets"]) == 62 and len(ov["timeline"]["packets"]) <= 6
     assert ov["timeline"]["busiest"]["packets"] == max(ov["timeline"]["packets"])
     addresses = ov["addresses"]
@@ -290,8 +290,10 @@ def test_overview_and_sessions(client_for: Any) -> None:
     dns, _ = c.call("sessions", capture="sessions.pcap", kind="dns", only_problems=True)
     assert [r["cells"][7] for r in dns["rows"]] == ["NXDomain", "No response"]
     tls, _ = c.call("sessions", capture="sessions.pcap", kind="tls", only_problems=True)
-    assert [r["cells"][1] for r in tls["rows"]] == ["cdn.example.net"]
-    assert tls["rows"][0]["filter"] == "tcp.stream in {4}"
+    # An expired certificate, and a handshake without a ServerHello.
+    assert [r["cells"][1] for r in tls["rows"]] == ["api.example.com", "cdn.example.net"]
+    assert tls["rows"][0]["cells"][12] == "Expired 2021-01-01"
+    assert tls["rows"][1]["filter"] == "tcp.stream in {4}"
     text, failed = c.call("sessions", capture="sessions.pcap", kind="smtp")
     assert failed and "kind" in text
     text, failed = c.call("sessions", capture="sessions.pcap", kind="dns", only_problems="yes")

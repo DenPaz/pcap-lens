@@ -2835,6 +2835,9 @@
     if (s.failed) {
       parts.push(`${s.failed.toLocaleString("en-US")} failed`);
     }
+    if (s.certificateProblems) {
+      parts.push(`${count(s.certificateProblems, "server", "servers")} with a certificate problem`);
+    }
     return parts.join(" · ");
   }
 

@@ -1902,10 +1902,26 @@ pdml` pass (`_bounded_pdml`) read by `sessions.http_messages`: each `http`
   Save… (the bytes) and Show Packet Bytes (`bytes` → BytesPanel). Token
   colours are the theme's debugger/outline ones with Light Modern
   fallbacks (axe checks the unthemed test page).
+  **Certificates** (TLS Servers' Certificate, Issuer, Expires and
+  Certificate Check columns): the TLS pass also reads Certificate messages
+  (`tls.handshake.type == 11`, `tls.handshake.certificate` (the chain as
+  hex, the server's own first) and `frame.time_epoch`), and `x509.py` (a
+  stdlib DER reader; malformed input is None, never an exception) gives
+  each connection's first leaf its subject and issuer CN/O, validity and
+  SAN DNS names (tshark's fields can't keep subject and issuer apart, and
+  PDML of every certificate packet would be huge). A row shows its first
+  certificate ("+N more" when its connections sent others) and the
+  problems of any: expired or not yet valid when sent, self-signed, not
+  covering the SNI (`covers`: SAN, else CN, `*.` for one label); "Encrypted
+  (TLS 1.3)" when no certificate was readable but a TLS 1.3 handshake was
+  answered. The summary counts `certificateProblems`; the MCP server's and
+  Copilot's `only_problems` keep those rows, and Copilot's stand-ins
+  replace the certificate's name too.
   `sessions.pcap` (generate.py `sessions_packets`) has five HTTP requests
   (a PNG, a 500, a 404 on port 8080, one unanswered) and two pipelined
   ones at the end (frames 59 and 61), five DNS queries (an
-  MX, an NXDOMAIN, one unanswered) and three TLS connections (TLS 1.2 and
+  MX, an NXDOMAIN, one unanswered) and three TLS connections (TLS 1.2, with
+  `SESSIONS_CERT`, a synthetic leaf from a test CA that expired in 2021, and
   1.3 to one SNI with ALPN h2, one without a ServerHello).
 - **Sequence check** (`sequence.py`, `stats {kind: "sequences", key, seq,
 wrap, reorder}`, `src/sequenceModel.ts`; `pcapViewer.statistics.sequences`,

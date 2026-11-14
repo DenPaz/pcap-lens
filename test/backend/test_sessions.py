@@ -149,8 +149,22 @@ def test_a_session_table_cut_short_by_a_failure_is_an_error(
 def test_tls_servers(service: PcapService) -> None:
     _open(service, "sessions.pcap")
     table = _table(service, "tls_servers")
-    assert table["summary"] == {"servers": 2, "connections": 3, "unanswered": 1}
+    assert table["summary"] == {
+        "servers": 2,
+        "connections": 3,
+        "unanswered": 1,
+        "certificateProblems": 1,
+    }
     first = table["rows"][0]
+    # The TLS 1.2 connection's certificate (generate.SESSIONS_CERT): expired
+    # when it was sent; TLS 1.3's is encrypted, the unanswered one sent none.
+    assert [_cell(table, first, c) for c in ("Certificate", "Issuer", "Expires")] == [
+        "api.example.com",
+        "PCAP Lens Test CA",
+        "2021-01-01",
+    ]
+    assert _cell(table, first, "Certificate Check") == "Expired 2021-01-01"
+    assert _cell(table, table["rows"][1], "Certificate Check") == ""
     assert _cell(table, first, "Cipher Suites") == (
         "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_AES_128_GCM_SHA256"
     )
