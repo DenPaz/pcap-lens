@@ -11,7 +11,9 @@ commit) that made it. The format follows
 
 - TLS Servers lists its certificate columns before the cipher suites, which
   now wrap, so a panel beside the capture shows the Certificate Check; Group
-  by hosts shows each pair's number of connections as a badge.
+  by hosts shows each pair's number of connections as a badge. [f54f78a]
+
+[f54f78a]: https://github.com/DenPaz/pcap-lens/commit/f54f78a
 
 ## 0.36.0 — 2026-11-14
 
