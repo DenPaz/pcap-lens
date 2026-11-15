@@ -2993,7 +2993,7 @@
     "worldmap": "node scripts/world-map.mjs"
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^1.6.0",
+    "@anthropic-ai/sdk": "^1.8.0",
     "@eslint/js": "^10.0.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.19.43",
@@ -3011,9 +3011,9 @@
     "mocha-smoke": "npm:mocha@^11.8.0",
     "playwright-core": "^1.65.0",
     "pngjs": "7.0.0",
-    "prettier": "^3.9.10",
+    "prettier": "^3.10.0",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.72.1",
+    "typescript-eslint": "^8.72.2",
     "world-atlas": "2.0.2"
   },
   "packageManager": "pnpm@12.16.1"
