@@ -7,6 +7,12 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Changed
+
+- TLS Servers lists its certificate columns before the cipher suites, which
+  now wrap, so a panel beside the capture shows the Certificate Check; Group
+  by hosts shows each pair's number of connections as a badge.
+
 ## 0.36.0 — 2026-11-14
 
 ### Added

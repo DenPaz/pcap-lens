@@ -292,7 +292,9 @@ def test_overview_and_sessions(client_for: Any) -> None:
     tls, _ = c.call("sessions", capture="sessions.pcap", kind="tls", only_problems=True)
     # An expired certificate, and a handshake without a ServerHello.
     assert [r["cells"][1] for r in tls["rows"]] == ["api.example.com", "cdn.example.net"]
-    assert tls["rows"][0]["cells"][12] == "Expired 2021-01-01"
+    assert tls["rows"][0]["cells"][tls["columns"].index("Certificate Check")] == (
+        "Expired 2021-01-01"
+    )
     assert tls["rows"][1]["filter"] == "tcp.stream in {4}"
     text, failed = c.call("sessions", capture="sessions.pcap", kind="smtp")
     assert failed and "kind" in text

@@ -7,8 +7,10 @@
  *
  *   node scripts/screenshots.js [--theme dark|light|hc] [--out <folder>]
  *
- * Writes viewer.png, diagram.png (the packet diagram), filter.png and
- * statistics.png. The default (dark) run also writes viewer-light.png and demo.gif (filtering
+ * Writes viewer.png, diagram.png (the packet diagram), filter.png,
+ * statistics.png, conversations.png (grouped by hosts, with activity charts;
+ * test/fixtures/office-after.pcap), http-exchange.png and tls-servers.png
+ * (test/fixtures/sessions.pcap). The default (dark) run also writes viewer-light.png and demo.gif (filtering
  * with autocomplete, then a packet's tree and bytes) for the README.
  * `--theme light` (Light Modern) and `--theme hc` (Dark High Contrast) render
  * every screenshot in that theme, for checking the styling.
@@ -34,6 +36,7 @@ function option(name, fallback) {
 
 const OUT = path.resolve(option("out", path.join(ROOT, "media", "screenshots")));
 const SAMPLE = path.join(ROOT, "media", "sample.pcapng");
+const FIXTURES = path.join(ROOT, "test", "fixtures");
 const VIEWPORT = { width: 1280, height: 760 };
 /** demo.gif: smaller, so it stays legible when the README scales it down. */
 const DEMO_VIEWPORT = { width: 1000, height: 600 };
@@ -111,6 +114,48 @@ async function recordDemo(browser, origin, client, rules) {
   await shot(3000);
   await page.close();
   return encodeGif(frames);
+}
+
+/**
+ * A panel page (src/webview/<script>) with `onMessage(msg, post)` standing in
+ * for its host, themed once its script ran.
+ */
+async function panelPage(browser, origin, script, viewport, onMessage) {
+  const page = await browser.newPage({ viewport });
+  // (answers can still arrive after the page closed)
+  const post = (m) => page.evaluate((x) => window.postMessage(x, "*"), m).catch(() => undefined);
+  await page.exposeFunction("__toHost", (raw) => onMessage(JSON.parse(raw), post));
+  await page.setContent(renderPanelHtml(origin, script), { waitUntil: "load" });
+  await applyTheme(page);
+  return page;
+}
+
+/** A backend with `capture` open (a fixture). */
+async function backendFor(deps, capture) {
+  const client = await startBackend(deps);
+  await client.request("open", { path: path.join(FIXTURES, capture) }, { timeoutMs: 0 });
+  return client;
+}
+
+/** The statistics panel's host (src/panels/statsPanel.ts) for one kind. */
+function statsHost(client, kind, title) {
+  return async (msg, post) => {
+    if (msg.type === "ready") {
+      await post({ type: "init", kind, title, filter: "" });
+    } else if (msg.type === "query") {
+      const params = { kind, type: msg.params.type, filter: "" };
+      const table = await client.request("stats", params, { timeoutMs: 0 });
+      await post({ type: "result", id: msg.id, table });
+      if (kind === "conversations" || kind === "endpoints") {
+        const charts = await client.request(
+          "stats_activity",
+          { kind, type: params.type, filter: "" },
+          { timeoutMs: 0 },
+        );
+        await post({ type: "activity", id: msg.id, ...charts });
+      }
+    }
+  };
 }
 
 /** Forward the webview's rpc messages to the backend (see src/pcapEditor.ts). */
@@ -252,6 +297,65 @@ async function main() {
     await page.waitForSelector("table.stats tbody tr");
     await page.screenshot({ path: path.join(OUT, "statistics.png") });
     await page.close();
+
+    // 3b. TCP conversations grouped by hosts, with their activity: a port scan's pair open.
+    const office = await backendFor(deps, "office-after.pcap");
+    try {
+      page = await panelPage(
+        browser,
+        origin,
+        "stats.js",
+        { width: 1280, height: 420 },
+        statsHost(office, "conversations", "Conversations"),
+      );
+      await page.waitForSelector("table.stats tbody td.spark svg");
+      await page.check("#stats-group");
+      await page.click("table.stats tbody tr:has-text('10.0.0.66') button.group-toggle");
+      await page.waitForSelector("table.stats tbody tr:has-text('10.0.0.80:22')");
+      await page.mouse.move(0, 0);
+      await page.screenshot({ path: path.join(OUT, "conversations.png") });
+      await page.close();
+    } finally {
+      await office.dispose();
+    }
+
+    // 3c. HTTP Exchange (a POST and its JSON error) and TLS Servers' certificates.
+    const sessions = await backendFor(deps, "sessions.pcap");
+    try {
+      page = await panelPage(
+        browser,
+        origin,
+        "http.js",
+        { width: 1100, height: 390 },
+        async (msg, post) => {
+          if (msg.type === "ready") {
+            const exchange = await sessions.request(
+              "http_exchange",
+              { request: 12, response: 14 },
+              { timeoutMs: 0 },
+            );
+            await post({ type: "show", label: "POST www.example.com/api/items", ...exchange });
+          }
+        },
+      );
+      await page.waitForSelector(".http-side:last-of-type .http-code");
+      await page.screenshot({ path: path.join(OUT, "http-exchange.png") });
+      await page.close();
+
+      page = await panelPage(
+        browser,
+        origin,
+        "stats.js",
+        { width: 1720, height: 240 }, // (wide: every column)
+        statsHost(sessions, "tls_servers", "TLS Servers"),
+      );
+      await page.waitForSelector("table.stats tbody tr:has-text('Expired')");
+      await page.click("table.stats tbody tr:has-text('Expired') td >> nth=1");
+      await page.screenshot({ path: path.join(OUT, "tls-servers.png") });
+      await page.close();
+    } finally {
+      await sessions.dispose();
+    }
 
     // 4. The viewer in a light theme (README).
     if (THEME === "dark") {

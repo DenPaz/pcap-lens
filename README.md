@@ -147,7 +147,9 @@ words, instantly.
   (loss, jitter, RTCP), MOS estimate, DTMF, media problems, and audio to play
   (stereo, with a waveform) or save (G.711, G.722, G.726, L16).
 
-![The protocol hierarchy of the sample capture](media/screenshots/statistics.png)
+![TCP conversations grouped by hosts, each row with a chart of its traffic over time; a port scan's pair opened to its five connections](media/screenshots/conversations.png)
+
+![An HTTP request and its response side by side: first lines, headers, and both JSON bodies pretty-printed](media/screenshots/http-exchange.png)
 
 ### Capture, edit, export
 

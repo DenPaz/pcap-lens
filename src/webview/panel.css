@@ -137,9 +137,26 @@ table.stats td.spark rect {
 }
 
 table.stats button.group-toggle {
+  /* (No taller than the row's text: the pair's row lines up with the others.) */
   margin-right: var(--space-2);
-  padding: 0 var(--space-2) 0 0;
+  padding: 0 var(--space-1) 0 0;
+  line-height: 1;
+  vertical-align: middle;
   font-variant-numeric: tabular-nums;
+}
+
+/* The number of connections, as VS Code's count badges. */
+table.stats .group-count {
+  display: inline-block;
+  min-width: 1.6em;
+  margin-left: var(--space-1);
+  padding: 0 var(--space-2);
+  border-radius: 1em;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  text-align: center;
+  color: var(--vscode-badge-foreground, #fff);
+  background: var(--vscode-badge-background, #616161);
 }
 
 #stats-search {
