@@ -14,7 +14,7 @@ commit) that made it. The format follows
   those packets' addresses with the connection's ports and skipped most
   segments as the other side's. Each packet is now replayed as its
   outermost TCP or UDP connection, the one on the wire; a tunnel (GTP,
-  VXLAN…) is replayed as its own datagrams.
+  VXLAN…) is replayed as its own datagrams. [5eb72be]
 
 ### Changed
 
@@ -23,6 +23,7 @@ commit) that made it. The format follows
   by hosts shows each pair's number of connections as a badge. [f54f78a]
 
 [f54f78a]: https://github.com/DenPaz/pcap-lens/commit/f54f78a
+[5eb72be]: https://github.com/DenPaz/pcap-lens/commit/5eb72be
 
 ## 0.36.0 — 2026-11-14
 
