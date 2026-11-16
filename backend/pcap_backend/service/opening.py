@@ -612,7 +612,7 @@ class OpeningMixin(CommentsMixin):
             options.geoip
             and options.names is not None
             and "g" not in options.names
-            and "g" in self._require_tshark().name_letters(ctx.token)
+            and self._require_tshark().geolocates(ctx.token)
         ):
             # GeoIP databases are set, so geolocate even with names off: ``-n``
             # (and ``-N`` without ``g``) turns tshark's ip.geoip.* fields off.

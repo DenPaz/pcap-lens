@@ -113,7 +113,8 @@ def test_tshark_geolocates_whatever_the_name_resolution(
     if any("GeoIP (MaxMind)" in w for w in info["warnings"]) or not _has_mmdbresolve():
         pytest.skip("this tshark has no MaxMind support or lookup helper")
     expr = 'ip.geoip.country == "United States"'
-    assert service.set_filter({"expr": expr}, ctx)["matchCount"] == 17
+    sent = service._require_tshark().options.names
+    assert service.set_filter({"expr": expr}, ctx)["matchCount"] == 17, f"-N {sent!r}"
 
 
 def test_a_table_this_tshark_lacks_is_named() -> None:

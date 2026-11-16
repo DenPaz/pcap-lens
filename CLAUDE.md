@@ -1447,8 +1447,8 @@ tls|ssh|wg}`) offers the TLS setting and the SSH/WireGuard keys. README:
   `-ASN`) too. `-n`, and `-N` without `g` (tshark 4.2+'s geolocation
   letter), turn tshark's MaxMind lookups off, and the viewer always sends
   its name switches, so `ip.geoip.*` stayed empty until `_known_switches`
-  added `g` when `geoip` is set (`Tshark.name_letters`: the letters tshark
-  lists for `-N ?`, once per tshark; the test opened without `names`, so
+  added `g` when `geoip` is set (`Tshark.geolocates`: tshark reads the
+  empty capture with `-N g`, once per tshark; the test opened without `names`, so
   only Linux CI's move to tshark 4.6 under AppArmor showed it). Ubuntu
   26.04's tshark profile doesn't let tshark run `mmdbresolve`: the hint's
   rules (and CI's) add `/usr/bin/mmdbresolve mrix,`. A tshark built without MaxMind support (a user's Mac) refuses
