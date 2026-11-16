@@ -12,9 +12,9 @@ commit) that made it. The format follows
 - With GeoIP databases set, tshark's `ip.geoip.*` fields and filters stayed
   empty in the viewer: its name resolution settings went to tshark as `-n`
   or `-N` without `g`, which turn MaxMind lookups off. The viewer now asks
-  for geolocation (`g`) when databases are set.
+  for geolocation (`g`) when databases are set. [0f955da]
 - On Ubuntu 26.04, tshark's AppArmor profile doesn't let it run its GeoIP
-  lookup helper: the permission hint (and the README) now name the rule.
+  lookup helper: the permission hint (and the README) now name the rule. [0f955da]
 
 - Replay to Service sent only part of a connection whose data a dissector
   decodes into IP packets (an interception delivery's records): it mixed
@@ -31,6 +31,7 @@ commit) that made it. The format follows
 
 [f54f78a]: https://github.com/DenPaz/pcap-lens/commit/f54f78a
 [5eb72be]: https://github.com/DenPaz/pcap-lens/commit/5eb72be
+[0f955da]: https://github.com/DenPaz/pcap-lens/commit/0f955da
 
 ## 0.36.0 — 2026-11-14
 
