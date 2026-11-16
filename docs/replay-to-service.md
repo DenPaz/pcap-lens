@@ -19,6 +19,11 @@ if the operator were sending it now.
 - **Operator side / client**: the end of a recorded TCP connection that opened
   it (sent the SYN), or, without a SYN in the capture, the end whose port is
   the higher one. For UDP, the sender of a flow's first datagram.
+- **Recorded connection**: each packet's outermost TCP or UDP header, with
+  the IP header carrying it: the connection on the wire. What it carries is
+  its data, even when a dissector decodes IP packets in it (HI3 records,
+  a tunnel such as GTP or VXLAN, whose datagrams are replayed as they are).
+  A header an ICMP error quotes isn't replayed.
 - **Recorded target**: a server end in the capture, `protocol + IP + port`
   (e.g. `tcp 10.20.0.5:11001`). One row of the replay form.
 - **Mapping**: recorded target → replay IP and port (e.g. `10.20.0.5:11001` →

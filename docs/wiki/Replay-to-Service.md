@@ -19,7 +19,10 @@ and doesn't reach containers in Docker Desktop.)
 
 The **client** of a connection is the end that sent the SYN (without one in
 the capture, the end with the higher port); for UDP, the first sender. Each
-server end is a **recorded target**, such as `tcp 10.20.0.5:11001`.
+server end is a **recorded target**, such as `tcp 10.20.0.5:11001`. A
+packet counts as its outermost TCP or UDP connection, the one on the wire:
+records that carry IP packets (HI3 content) are that connection's data, and a
+tunnel (GTP, VXLAN) is replayed as its own datagrams.
 
 ## The panel
 

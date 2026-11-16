@@ -7,6 +7,15 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- Replay to Service sent only part of a connection whose data a dissector
+  decodes into IP packets (an interception delivery's records): it mixed
+  those packets' addresses with the connection's ports and skipped most
+  segments as the other side's. Each packet is now replayed as its
+  outermost TCP or UDP connection, the one on the wire; a tunnel (GTP,
+  VXLAN…) is replayed as its own datagrams.
+
 ### Changed
 
 - TLS Servers lists its certificate columns before the cipher suites, which

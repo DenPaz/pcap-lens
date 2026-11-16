@@ -2626,8 +2626,17 @@ filter, frames}]}` (one retry when unreadable). `parseTriage`: unknown
   sequence numbers), and raw injection needs admin rights and doesn't reach
   Docker Desktop's VM; so one new connection per recorded connection,
   carrying the bytes its client sent. One tshark fields pass (`FIELDS`,
-  `-E occurrence=l`, `FILTER` leaves out ICMP-quoted headers) →
-  `parse_record` (booleans True/False or 1/0) → `Planner` (client = SYN
+  `-E occurrence=a`, `FILTER` = `tcp || udp`) → `parse_record` (booleans
+  True/False or 1/0; each packet is its **outermost** TCP or UDP header,
+  the first of tcp/udp/icmp/icmpv6 in `frame.protocols`, with the IP header
+  right before it (`_carrier`: IP in IP's inner one): the connection on the
+  wire, so a tunnel's datagrams go as they are and an ICMP error's quoted
+  header is left out. It took each field's last occurrence until a user's
+  HI3 delivery, whose records held IP packets a dissector decoded, replayed
+  a tenth of its media: the records' addresses with the delivery's ports
+  made most segments look like the server's; the test
+  `test_a_delivery_whose_records_are_decoded_still_replays_whole` builds
+  such a delivery with Wireshark's `5gli`) → `Planner` (client = SYN
   sender, the SYN-ACK's receiver, else the higher port; UDP: the first
   sender; TCP data deduplicated by `tcp.seq_raw` in 32-bit space:
   retransmissions skipped, overlaps trimmed; a segment after a gap is held

@@ -183,22 +183,25 @@ def test_segments_start_after_the_syn(
     # m3ua_coverage: the first data segment reuses the SYN's sequence number.
     # A receiver (and the replay planner) drops that byte; tshark 4.6's Follow
     # keeps it, so the segments must say what the replay should have sent.
+    tcp4, udp4 = "eth:ethertype:ip:tcp", "eth:ethertype:ip:udp"
     rows = [
-        # stream, ip.src, ipv6.src, srcport, seq_raw, payload, udp.payload, syn
-        ("0", "192.0.2.1", "", "40001", "1", "", "", "1"),
-        ("0", "192.0.2.1", "", "40001", "1", "01000301", "", "0"),
-        ("0", "192.0.2.1", "", "40001", "5", "aabb", "", "0"),
-        ("0", "192.0.2.2", "", "2905", "7", "", "", "True"),  # the SYN-ACK
-        ("0", "192.0.2.2", "", "2905", "8", "cc", "", "False"),
-        ("1", "192.0.2.3", "", "40002", "100", "dd", "", "0"),  # no SYN captured
-        ("", "", "", "", "", "", "ee", ""),
+        # protocols, stream, ip.src, ipv6.src, srcport, seq_raw, payload, udp.payload, syn
+        (tcp4, "0", "192.0.2.1", "", "40001", "1", "", "", "1"),
+        (tcp4, "0", "192.0.2.1", "", "40001", "1", "01000301", "", "0"),
+        (tcp4, "0", "192.0.2.1", "", "40001", "5", "aabb", "", "0"),
+        (tcp4, "0", "192.0.2.2", "", "2905", "7", "", "", "True"),  # the SYN-ACK
+        (tcp4, "0", "192.0.2.2", "", "2905", "8", "cc", "", "False"),
+        (tcp4, "1", "192.0.2.3", "", "40002", "100", "dd", "", "0"),  # no SYN captured
+        (udp4, "", "", "", "", "", "", "ee", ""),
+        # A tunnel's datagram holding a TCP segment: the replay sends the datagram.
+        (udp4 + ":gtp:ip:tcp", "2", "10.0.0.1", "", "40003", "9", "ff", "30ff", "0"),
     ]
     out = "".join("\t".join(r) + "\n" for r in rows)
     done = subprocess.CompletedProcess(["tshark"], 0, out, "")
     monkeypatch.setattr(harness.subprocess, "run", lambda *_a, **_k: done)
     tcp, udp = harness.segment_payloads(tmp_path / "x.pcap")
     assert tcp == [bytes.fromhex("000301aabb"), b"\xcc", b"\xdd"]
-    assert udp == [b"\xee"]
+    assert udp == [b"\xee", b"\x30\xff"]
 
 
 def test_overview_rows_against_their_filters(harness: ModuleType) -> None:

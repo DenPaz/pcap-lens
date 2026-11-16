@@ -1352,8 +1352,11 @@ def segment_payloads(path: Path) -> tuple[list[bytes], list[bytes]]:
         "-Y",
         f"(tcp.stream < {n} && (tcp.payload || tcp.flags.syn == 1)) || udp.stream < {n}",
     ]
-    args += ["-T", "fields", "-E", "occurrence=l"]
+    # Each packet's outermost TCP or UDP header (replay.parse_record): the first
+    # occurrences, and the protocol list to tell which comes first.
+    args += ["-T", "fields", "-E", "occurrence=f"]
     for name in (
+        "frame.protocols",
         "tcp.stream",
         "ip.src",
         "ipv6.src",
@@ -1374,13 +1377,15 @@ def segment_payloads(path: Path) -> tuple[list[bytes], list[bytes]]:
     starts: dict[tuple[str, ...], int] = {}  # the first SYN's sequence number + 1
     udp: list[bytes] = []
     for line in out.split("\n"):
-        cells = line.split("\t")
+        layers, *cells = line.split("\t")
         if len(cells) != 8:
             continue
-        # TCP first, as replay.parse_record: a UDP header inside a TCP
-        # payload (IKE over TCP in ipsec_tcp_coverage) is TCP data.
+        outer = next(
+            (p for p in layers.split(":") if p in ("tcp", "udp", "icmp", "icmpv6")),
+            "tcp" if cells[4] else "udp",
+        )
         with contextlib.suppress(ValueError):
-            if cells[4]:
+            if outer == "tcp" and cells[4]:
                 key = (cells[0], cells[1] or cells[2], cells[3])
                 seq = int(cells[4])
                 if cells[7] in ("1", "True", "true"):
@@ -1389,7 +1394,7 @@ def segment_payloads(path: Path) -> tuple[list[bytes], list[bytes]]:
                 if cells[5]:
                     side = sides.setdefault(key, {})
                     side.setdefault(seq, bytes.fromhex(cells[5].replace(":", "")))
-            elif cells[6]:
+            elif outer == "udp" and cells[6]:
                 udp.append(bytes.fromhex(cells[6].replace(":", "")))
     tcp = []
     for key, segments in sides.items():
@@ -1542,8 +1547,9 @@ def scope_copy(path: Path, work: Path) -> Path | None:
     return out if done.returncode == 0 and out.exists() else None
 
 
-# What a replay reads of a capture (replay.FILTER: no ICMP-quoted headers).
-REPLAYED = "(tcp || udp) && !icmp && !icmpv6"
+# What a replay reads of a capture (replay.FILTER; a header an ICMP error
+# quotes is left out later, by replay.parse_record).
+REPLAYED = "tcp || udp"
 
 
 def replayable(path: Path, flt: str) -> int | None:
