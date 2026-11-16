@@ -37,25 +37,119 @@ DNS = "udp 10.0.0.53:53"
 # -- the planner ------------------------------------------------------------------------
 
 
+def _line(protocols: str, *cells: str) -> str:
+    """A FIELDS line: the protocol list, then the other fields in order."""
+    rest = list(cells) + [""] * (len(replay.FIELDS) - 1 - len(cells))
+    return "\t".join([protocols, *rest])
+
+
+# FIELDS after frame.protocols, by name (each cell every occurrence, outermost first).
+_AT = {name: i for i, name in enumerate(replay.FIELDS[1:])}
+
+
+def _fields(protocols: str, **cells: str) -> str:
+    row = [""] * (len(replay.FIELDS) - 1)
+    for name, value in cells.items():
+        row[_AT[name.replace("__", ".")]] = value
+    return _line(protocols, *row)
+
+
 def test_parse_record() -> None:
     addresses = ["15", "0.05", "10.10.0.1", "", "10.20.0.5", "", "0", "40100", "11000"]
-    tcp = "\t".join([*addresses, "False", "True", "False", "False", "1000", "", "", "", "3082", ""])
+    tcp = _line(
+        "eth:ethertype:ip:tcp:data",
+        *addresses, "False", "True", "False", "False", "1000", "", "", "", "3082", "",
+    )  # fmt: skip
     assert replay.parse_record(tcp) == Record(
         15, 0.05, "tcp", 0, "10.10.0.1", 40100, "10.20.0.5", 11000, b"\x30\x82", ack=True, seq=1000
     )
-    udp = "16\t0.05\t\tfd00::1\t\tfd00::5\t\t\t\t\t\t\t\t\t1\t40200\t11002\t\t0102"
+    udp = _line(
+        "eth:ethertype:ipv6:udp:data",
+        "16", "0.05", "", "fd00::1", "", "fd00::5", "", "", "", "", "", "", "", "",
+        "1", "40200", "11002", "", "0102",
+    )  # fmt: skip
     rec = replay.parse_record(udp)
     assert rec is not None and (rec.proto, rec.src, rec.dst, rec.payload) == (
         "udp", "fd00::1", "fd00::5", b"\x01\x02",
     )  # fmt: skip
     assert replay.target_key("udp", rec.dst, rec.dport) == "udp [fd00::5]:11002"
     # tshark 4.6 prints booleans as 1/0.
-    syn = "1\t0\t10.0.0.1\t\t10.0.0.2\t\t0\t5000\t80\t1\t0\t0\t0\t7\t\t\t\t\t"
+    syn = _line(
+        "eth:ethertype:ip:tcp",
+        "1", "0", "10.0.0.1", "", "10.0.0.2", "", "0", "5000", "80", "1", "0", "0", "0", "7",
+    )  # fmt: skip
     assert replay.parse_record(syn) == Record(
         1, 0.0, "tcp", 0, "10.0.0.1", 5000, "10.0.0.2", 80, syn=True, seq=7
     )
-    assert replay.parse_record("4\t0.005\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t") is None  # ARP
+    assert replay.parse_record(_line("eth:ethertype:arp", "4", "0.005")) is None
     assert replay.parse_record("garbage") is None
+
+
+def test_parse_record_takes_the_outermost_transport_and_its_ip_header() -> None:
+    """The connection on the wire, whatever it carries (the partial replay of an
+    interception delivery whose records held IP packets: each field's last
+    occurrence mixed the records' addresses with the delivery's ports)."""
+    # A delivery's TCP segment holding two records, each an IPv4/UDP packet.
+    delivery = _fields(
+        "eth:ethertype:ip:tcp:5gli:ip:udp:data:ip:udp:data",
+        frame__number="7", frame__time_epoch="1.5",
+        ip__src="10.20.0.9,192.0.2.10,198.51.100.20", ip__dst="10.20.0.5,198.51.100.20,192.0.2.10",
+        tcp__stream="1", tcp__srcport="56807", tcp__dstport="9993", tcp__flags__ack="1",
+        tcp__seq_raw="7000000", tcp__payload="aabb",
+        udp__stream="0,1", udp__srcport="4000,4000", udp__dstport="5000,5000",
+        udp__payload="01,02",
+    )  # fmt: skip
+    assert replay.parse_record(delivery) == Record(
+        7, 1.5, "tcp", 1, "10.20.0.9", 56807, "10.20.0.5", 9993, b"\xaa\xbb", ack=True,
+        seq=7000000,
+    )  # fmt: skip
+    # GTP-U: the tunnel's own UDP datagram, not the TCP segment inside it.
+    gtp = _fields(
+        "eth:ethertype:ip:udp:gtp:ip:tcp:data",
+        frame__number="3", frame__time_epoch="2",
+        ip__src="10.0.0.1,10.45.0.2", ip__dst="10.0.0.2,203.0.113.7",
+        udp__stream="0", udp__srcport="2152", udp__dstport="2152", udp__payload="30ff",
+        tcp__stream="0", tcp__srcport="40000", tcp__dstport="443", tcp__payload="17",
+    )  # fmt: skip
+    rec = replay.parse_record(gtp)
+    assert rec is not None
+    assert (rec.proto, rec.src, rec.sport, rec.dst, rec.dport, rec.payload) == (
+        "udp", "10.0.0.1", 2152, "10.0.0.2", 2152, b"\x30\xff",
+    )  # fmt: skip
+    # IP in IP: the TCP header's own (inner) IP header carries it.
+    ipip = _fields(
+        "eth:ethertype:ip:ip:tcp",
+        frame__number="4", frame__time_epoch="2",
+        ip__src="10.0.0.1,172.16.0.1", ip__dst="10.0.0.2,172.16.0.2",
+        tcp__stream="0", tcp__srcport="5000", tcp__dstport="80", tcp__seq_raw="1",
+    )  # fmt: skip
+    rec = replay.parse_record(ipip)
+    assert rec is not None and (rec.src, rec.dst) == ("172.16.0.1", "172.16.0.2")
+    # IPv4 in IPv6: the IPv4 header.
+    four_in_six = _fields(
+        "eth:ethertype:ipv6:ip:udp:data",
+        frame__number="5", frame__time_epoch="2",
+        ipv6__src="2001:db8::1", ipv6__dst="2001:db8::2", ip__src="10.1.0.1", ip__dst="10.1.0.2",
+        udp__stream="0", udp__srcport="53000", udp__dstport="53", udp__payload="00",
+    )  # fmt: skip
+    rec = replay.parse_record(four_in_six)
+    assert rec is not None and (rec.src, rec.dst) == ("10.1.0.1", "10.1.0.2")
+    # An ICMP error quoting a UDP header: not traffic to replay.
+    quoted = _fields(
+        "eth:ethertype:ip:icmp:ip:udp",
+        frame__number="6", frame__time_epoch="2", ip__src="10.0.0.2,10.0.0.1",
+        ip__dst="10.0.0.1,10.0.0.2", udp__stream="0", udp__srcport="5000", udp__dstport="53",
+    )  # fmt: skip
+    assert replay.parse_record(quoted) is None
+    # But a delivery's record holding such an error is the delivery's data.
+    held = _fields(
+        "eth:ethertype:ip:tcp:5gli:ip:icmp:ip:udp",
+        frame__number="8", frame__time_epoch="2", ip__src="10.20.0.9,192.0.2.1,192.0.2.10",
+        ip__dst="10.20.0.5,192.0.2.10,192.0.2.1", tcp__stream="1", tcp__srcport="56807",
+        tcp__dstport="9993", tcp__seq_raw="5", tcp__payload="cc",
+    )  # fmt: skip
+    rec = replay.parse_record(held)
+    assert rec is not None and (rec.src, rec.sport, rec.payload) == ("10.20.0.9", 56807, b"\xcc")
 
 
 def _tcp(
@@ -1048,3 +1142,180 @@ def test_replay_until_stopped(
     assert opened.replay_stop({}, ctx) == {"stopped": True}
     worker.join(10)
     assert out["stopped"] is True and out["loops"] >= 2
+
+
+# -- a delivery whose records carry IP packets (partial replay of port 9993) ----------
+#
+# A user's capture: signalling to port 9992 with its handshake, and media to port
+# 9993 that starts mid-connection (no SYN, no FIN) from source port 56807, whose
+# records each carry an intercepted IPv4/UDP packet. Synthetic: X3-like PDUs
+# (3GPP TS 33.128's header, which Wireshark's 5gli dissector reads; payload
+# format 5 = IPv4 packet) around RTP-like datagrams in both directions.
+
+DELIVERY = "10.20.0.5"
+OPERATOR = "10.20.0.9"
+SIGNALLING = f"tcp {DELIVERY}:9992"
+MEDIA = f"tcp {DELIVERY}:9993"
+MEDIA_SOURCE_PORT = 56807
+
+
+def _x3(n: int) -> bytes:
+    """Media record ``n``: an X3 header and an IPv4/UDP packet, its direction alternating."""
+    from scapy import all as scapy  # noqa: PLC0415 - only these tests need scapy
+
+    a, b = ("192.0.2.10", "198.51.100.20") if n % 2 == 0 else ("198.51.100.20", "192.0.2.10")
+    rtp = b"\x80\x00" + n.to_bytes(2, "big") + (n * 160).to_bytes(4, "big") + bytes(4)
+    inner = bytes(
+        scapy.IP(src=a, dst=b) / scapy.UDP(sport=4000, dport=5000) / scapy.Raw(rtp + b"\xff" * 160)
+    )
+    # version, PDU type 2 (X3 xCC), header length, payload length, format 5
+    # (IPv4 packet), direction, XID, correlation ID.
+    header = (
+        (0).to_bytes(2, "big") + (2).to_bytes(2, "big") + (40).to_bytes(4, "big")
+        + len(inner).to_bytes(4, "big") + (5).to_bytes(2, "big") + (2 + n % 2).to_bytes(2, "big")
+        + bytes(16) + n.to_bytes(8, "big")
+    )  # fmt: skip
+    return header + inner
+
+
+SIGNALLING_MESSAGES = [b"\x30\x10" + bytes([i]) * 16 for i in range(12)]
+MEDIA_RECORDS = 120
+
+
+def _delivery_capture(path: Path) -> tuple[bytes, bytes]:
+    """Writes the capture; returns the signalling and media bytes the operator sent."""
+    from scapy.all import IP, TCP, Ether, Raw, wrpcap  # noqa: PLC0415
+
+    packets: list[Any] = []
+    t = 1_700_000_000.0
+
+    def add(src: tuple[str, int], dst: tuple[str, int], flags: str, seq: int, ack: int,
+            data: bytes = b"") -> None:  # fmt: skip
+        nonlocal t
+        p = (
+            Ether()
+            / IP(src=src[0], dst=dst[0])
+            / TCP(sport=src[1], dport=dst[1], flags=flags, seq=seq, ack=ack)
+        )
+        p = p / Raw(data) if data else p
+        p.time = t
+        packets.append(p)
+        t += 0.01
+
+    op, sig = (OPERATOR, 40001), (DELIVERY, 9992)
+    add(op, sig, "S", 100, 0)
+    add(sig, op, "SA", 900, 101)
+    add(op, sig, "A", 101, 901)
+    signalling = b"".join(SIGNALLING_MESSAGES)
+    seq = 101
+    for message in SIGNALLING_MESSAGES[:6]:
+        add(op, sig, "PA", seq, 901, message)
+        seq += len(message)
+        add(sig, op, "A", 901, seq)
+    # The media connection, already open when the capture started: records
+    # cut anywhere, several to a segment, each segment acknowledged.
+    media = b"".join(_x3(n) for n in range(MEDIA_RECORDS))
+    op3, med = (OPERATOR, MEDIA_SOURCE_PORT), (DELIVERY, 9993)
+    mseq = 7_000_000
+    for at in range(0, len(media), 1000):
+        chunk = media[at : at + 1000]
+        add(op3, med, "PA", mseq, 5000, chunk)
+        mseq += len(chunk)
+        add(med, op3, "A", 5000, mseq)
+    for message in SIGNALLING_MESSAGES[6:]:
+        add(op, sig, "PA", seq, 901, message)
+        seq += len(message)
+        add(sig, op, "A", 901, seq)
+    add(op, sig, "FA", seq, 901)
+    wrpcap(str(path), packets)
+    return signalling, media
+
+
+@pytest.fixture
+def delivery(tmp_path: Path) -> tuple[Path, bytes, bytes]:
+    path = tmp_path / "delivery.pcap"
+    return (path, *_delivery_capture(path))
+
+
+@pytest.mark.tshark
+def test_a_mid_connection_delivery_replays_whole_with_both_targets_on_one_port(
+    service: PcapService, ctx: RequestContext, delivery: tuple[Path, bytes, bytes]
+) -> None:
+    """Both recorded targets to one local port (the user's receiver takes 9992 and
+    9993 on 2325): every byte of each connection, the media one without a handshake."""
+    path, signalling, media = delivery
+    service.open({"path": str(path), "names": {}}, ctx)
+    listed = {t["key"]: t for t in service.replay_targets({}, ctx)["targets"]}
+    assert set(listed) == {SIGNALLING, MEDIA}
+    segments = -(-len(media) // 1000)
+    assert (listed[MEDIA]["packets"], listed[MEDIA]["bytes"]) == (segments, len(media))
+    assert (listed[MEDIA]["gaps"], listed[MEDIA]["retransmissions"]) == (0, 0)
+    assert (listed[SIGNALLING]["packets"], listed[SIGNALLING]["bytes"]) == (12, len(signalling))
+    receiver = Collector()
+    try:
+        both = {"ip": "127.0.0.1", "port": receiver.port}
+        result = service.replay({"speed": 0, "targets": {SIGNALLING: both, MEDIA: both}}, ctx)
+        _settle()
+        assert sorted(receiver.received) == sorted([signalling, media])
+    finally:
+        receiver.close()
+    stats = {t["key"]: t for t in result["targets"]}
+    assert (stats[MEDIA]["connections"], stats[MEDIA]["bytes"]) == (1, len(media))
+    assert (stats[SIGNALLING]["connections"], stats[SIGNALLING]["bytes"]) == (1, len(signalling))
+    assert not any(stats[k]["errors"] for k in stats)
+
+
+@pytest.mark.tshark
+def test_a_delivery_replays_only_the_chosen_scope_and_targets(
+    service: PcapService, ctx: RequestContext, delivery: tuple[Path, bytes, bytes]
+) -> None:
+    path, signalling, media = delivery
+    service.open({"path": str(path), "names": {}}, ctx)
+    scoped = service.replay_targets({"filter": "tcp.port == 9993"}, ctx)
+    assert [t["key"] for t in scoped["targets"]] == [MEDIA]
+    receiver = Collector()
+    try:
+        to = {"ip": "127.0.0.1", "port": receiver.port}
+        # Only the media's packets: the signalling target isn't one of them.
+        with pytest.raises(InvalidParamsError, match="not a recorded target"):
+            service.replay({"filter": "tcp.port == 9993", "targets": {SIGNALLING: to}}, ctx)
+        service.replay({"speed": 0, "filter": "tcp.port == 9993", "targets": {MEDIA: to}}, ctx)
+        _settle()
+        assert receiver.received == [media]
+        # All packets, the signalling target alone checked: nothing of the media goes.
+        service.replay({"speed": 0, "targets": {SIGNALLING: to}}, ctx)
+        _settle()
+        assert receiver.received == [media, signalling]
+    finally:
+        receiver.close()
+
+
+@pytest.mark.tshark
+def test_a_delivery_whose_records_are_decoded_still_replays_whole(
+    service: PcapService, ctx: RequestContext, delivery: tuple[Path, bytes, bytes]
+) -> None:
+    """As the user's receiver sees it: the same capture, opened with a dissector
+    that reads the media records (here Wireshark's X2/X3 one by Decode As:
+    ``5gli`` in tshark 4.2, ``li5g`` in 4.6, which refuses the old name; an
+    unknown rule is dropped with a warning, which left nothing decoded)."""
+    path, _, media = delivery
+    for name in ("li5g", "5gli"):
+        rule = f"tcp.port==9993,{name}"
+        info = service.open({"path": str(path), "names": {}, "decodeAs": [rule]}, ctx)
+        if not any(rule in w for w in info["warnings"]):
+            break
+    else:
+        pytest.skip("this tshark has no X2/X3 dissector")
+    decoded = service.count_matches({"filter": "ip.src == 192.0.2.10"}, ctx)
+    assert decoded["count"] > 0, "the records' packets are decoded"
+    listed = {t["key"]: t for t in service.replay_targets({}, ctx)["targets"]}
+    assert MEDIA in listed, f"the delivery's own address, not an intercepted one: {set(listed)}"
+    assert listed[MEDIA]["bytes"] == len(media)
+    receiver = Collector()
+    try:
+        to = {"ip": "127.0.0.1", "port": receiver.port}
+        service.replay({"speed": 0, "targets": {MEDIA: to}}, ctx)
+        _settle()
+        assert receiver.received == [media]
+    finally:
+        receiver.close()

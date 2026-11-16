@@ -147,7 +147,9 @@ words, instantly.
   (loss, jitter, RTCP), MOS estimate, DTMF, media problems, and audio to play
   (stereo, with a waveform) or save (G.711, G.722, G.726, L16).
 
-![The protocol hierarchy of the sample capture](media/screenshots/statistics.png)
+![TCP conversations grouped by hosts, each row with a chart of its traffic over time; a port scan's pair opened to its five connections](media/screenshots/conversations.png)
+
+![An HTTP request and its response side by side: first lines, headers, and both JSON bodies pretty-printed](media/screenshots/http-exchange.png)
 
 ### Capture, edit, export
 
@@ -340,6 +342,7 @@ and Lua dissectors come from user settings only.
 | "tshark was not found"                       | Install tshark or set `pcapViewer.tsharkPath`.                                                                                                               |
 | "You don't have permission to read the file" | Ubuntu's AppArmor profile for tshark: add `owner @{HOME}/** rw,` to `/etc/apparmor.d/local/tshark` and run `sudo apparmor_parser -r /etc/apparmor.d/tshark`. |
 | Stopping a filter is slow ("could not stop") | Same file: add `signal (receive) peer=unconfined,` and `signal (receive) peer=vscode,`.                                                                      |
+| `ip.geoip.*` filters match nothing on Ubuntu | Same file: add `/usr/bin/mmdbresolve mrix,` (tshark's GeoIP lookup helper).                                                                                  |
 | A Lua dissector or plugin isn't applied      | _PCAP: Show Log_; tshark ignores Lua and personal plugins as root; plugins must match your Wireshark version.                                                |
 | TLS stays encrypted                          | The key log must hold the capture's sessions (set `SSLKEYLOGFILE` before capturing).                                                                         |
 | Huge files open slowly                       | That is tshark's speed; `"pcapViewer.prefs": { "tcp.analyze_sequence_numbers": false }` helps.                                                               |

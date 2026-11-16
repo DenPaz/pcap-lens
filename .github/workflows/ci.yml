@@ -36,7 +36,7 @@ jobs:
           # apply the local rules the backend's hint suggests (sandbox.py), so it
           # reads the fixtures in the checkout and the tests can stop it.
           if [ -f /etc/apparmor.d/tshark ]; then
-            printf '%s\n' 'owner @{HOME}/** rw,' 'signal (receive) peer=unconfined,' | sudo tee -a /etc/apparmor.d/local/tshark
+            printf '%s\n' 'owner @{HOME}/** rw,' 'signal (receive) peer=unconfined,' '/usr/bin/mmdbresolve mrix,' | sudo tee -a /etc/apparmor.d/local/tshark
             sudo apparmor_parser -r /etc/apparmor.d/tshark
           fi
           # A locale with a decimal comma for test_locale.py.
@@ -123,7 +123,7 @@ jobs:
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y tshark
           if [ -f /etc/apparmor.d/tshark ]; then # see the Linux job
-            printf '%s\n' 'owner @{HOME}/** rw,' 'signal (receive) peer=unconfined,' | sudo tee -a /etc/apparmor.d/local/tshark
+            printf '%s\n' 'owner @{HOME}/** rw,' 'signal (receive) peer=unconfined,' '/usr/bin/mmdbresolve mrix,' | sudo tee -a /etc/apparmor.d/local/tshark
             sudo apparmor_parser -r /etc/apparmor.d/tshark
           fi
       - uses: actions/setup-python@v7
@@ -161,7 +161,7 @@ jobs:
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y tshark xvfb
           if [ -f /etc/apparmor.d/tshark ]; then # see the Linux job
-            printf '%s\n' 'owner @{HOME}/** rw,' 'signal (receive) peer=unconfined,' | sudo tee -a /etc/apparmor.d/local/tshark
+            printf '%s\n' 'owner @{HOME}/** rw,' 'signal (receive) peer=unconfined,' '/usr/bin/mmdbresolve mrix,' | sudo tee -a /etc/apparmor.d/local/tshark
             sudo apparmor_parser -r /etc/apparmor.d/tshark
           fi
       - uses: actions/setup-python@v7

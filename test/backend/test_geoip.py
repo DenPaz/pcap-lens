@@ -99,6 +99,24 @@ def test_endpoints_get_locations_and_tshark_the_fields(
     assert "geoip" not in service.stats({"kind": "endpoints", "type": "tcp"}, ctx)
 
 
+@pytest.mark.tshark
+@pytest.mark.parametrize("names", [{}, {"mac": True, "network": True}])
+def test_tshark_geolocates_whatever_the_name_resolution(
+    service: PcapService, ctx: RequestContext, names: dict[str, bool]
+) -> None:
+    """The viewer always sends its name resolution switches, and ``-n`` (or
+    ``-N`` without ``g``) turns tshark's MaxMind lookups off: with databases
+    set, ip.geoip.* worked only without name resolution settings."""
+    info = service.open(
+        {"path": str(FIXTURES / "mixed.pcapng"), "geoip": [str(GEOIP)], "names": names}, ctx
+    )
+    if any("GeoIP (MaxMind)" in w for w in info["warnings"]) or not _has_mmdbresolve():
+        pytest.skip("this tshark has no MaxMind support or lookup helper")
+    expr = 'ip.geoip.country == "United States"'
+    sent = service._require_tshark().options.names
+    assert service.set_filter({"expr": expr}, ctx)["matchCount"] == 17, f"-N {sent!r}"
+
+
 def test_a_table_this_tshark_lacks_is_named() -> None:
     # tshark 4.2 and a Mac's tshark without MaxMind support word it differently.
     for stderr in (

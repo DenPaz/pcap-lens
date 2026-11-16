@@ -2054,7 +2054,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       );
       assert.equal((await rows(tls.page))[0][1], "api.example.com");
       // Its certificate (TLS 1.2 sends it in the clear): expired when captured.
-      assert.deepEqual((await rows(tls.page))[0].slice(9), [
+      assert.deepEqual((await rows(tls.page))[0].slice(8, 12), [
         "api.example.com",
         "PCAP Lens Test CA",
         "2021-01-01",

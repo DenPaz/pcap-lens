@@ -45,10 +45,18 @@ from .cancellation import CancelledError, CancelToken
 
 IS_WINDOWS = sys.platform == "win32"
 
-# tshark's fields pass (`-E occurrence=l`: the innermost header of a tunnel).
-# ICMP errors quote a TCP/UDP header of another packet: not traffic to replay.
-FILTER = "(tcp || udp) && !icmp && !icmpv6"
+# tshark's fields pass, every occurrence of each field (`-E occurrence=a`,
+# outermost first, joined by AGGREGATOR). A packet is replayed as its
+# outermost TCP or UDP header, with the IP header carrying it: the connection
+# that was on the wire. Headers inside it (a tunnel's packets, the packets an
+# interception delivery's records carry, a header an ICMP error quotes) are
+# its payload. ``frame.protocols`` says which comes first and which IP header
+# carries it (taking each field's last occurrence instead mixed the
+# encapsulated packets' addresses with the delivery's ports).
+FILTER = "tcp || udp"
+AGGREGATOR = ","
 FIELDS = (
+    "frame.protocols",
     "frame.number",
     "frame.time_epoch",  # (absolute: captures merged by time line up)
     "ip.src",
@@ -118,25 +126,68 @@ def _flag(cell: str) -> bool:
     return cell in ("True", "1", "true")
 
 
+_TRANSPORTS = ("tcp", "udp", "icmp", "icmpv6")
+
+
+def _occurrence(cell: str, index: int) -> str:
+    """Occurrence ``index`` of an aggregated cell ("" when it has fewer)."""
+    parts = cell.split(AGGREGATOR) if cell else []
+    return parts[index] if index < len(parts) else ""
+
+
+def _first(cell: str) -> str:
+    """The outermost header's value of an aggregated cell."""
+    return _occurrence(cell, 0)
+
+
+def _carrier(
+    layers: list[str], at: int, src4: str, src6: str, dst4: str, dst6: str
+) -> tuple[str, str]:
+    """The source and destination of the IP header right before layer
+    ``at`` (IP in IP: the inner one); without one in the protocol list, the
+    first IPv4 (else IPv6) header's."""
+    for i in range(min(at, len(layers)) - 1, -1, -1):
+        if layers[i] in ("ip", "ipv6"):
+            n = layers[:i].count(layers[i])
+            src, dst = (src4, dst4) if layers[i] == "ip" else (src6, dst6)
+            count = len(src.split(AGGREGATOR)) if src else 0
+            n = min(n, count - 1) if count else 0  # (a malformed header added no fields)
+            return _occurrence(src, n), _occurrence(dst, n)
+    return _occurrence(src4, 0) or _occurrence(src6, 0), _occurrence(dst4, 0) or _occurrence(
+        dst6, 0
+    )
+
+
 def parse_record(line: str) -> Record | None:
-    """A ``FIELDS`` line, or None (not TCP/UDP over IP, or unreadable)."""
+    """A ``FIELDS`` line as its outermost TCP segment or UDP datagram, or
+    None (no TCP/UDP over IP, a header an ICMP error quotes, unreadable)."""
     cells = line.removesuffix("\r").split("\t")
-    if len(cells) < len(FIELDS) or not cells[0].isdigit():
+    if len(cells) < len(FIELDS) or not cells[1].isdigit():
         return None
-    (number, t, src4, src6, dst4, dst6, tstream, tsport, tdport, syn, ack, fin, rst, seq,
-     ustream, usport, udport, tpayload, upayload) = cells[: len(FIELDS)]  # fmt: skip
-    src, dst = src4 or src6, dst4 or dst6
+    (protocols, number, t, src4, src6, dst4, dst6, tstream, tsport, tdport, syn, ack, fin, rst,
+     seq, ustream, usport, udport, tpayload, upayload) = cells[: len(FIELDS)]  # fmt: skip
+    layers = protocols.split(":") if protocols else []
+    at = next((i for i, name in enumerate(layers) if name in _TRANSPORTS), None)
+    if at is None:  # (no protocol list: TCP first)
+        transport = "tcp" if tstream else "udp" if ustream else ""
+        at = len(layers)
+    else:
+        transport = layers[at]
+    src, dst = _carrier(layers, at, src4, src6, dst4, dst6)
+    first = _first
     try:
-        if tstream.isdigit() and tsport and tdport:
+        if transport == "tcp" and first(tstream).isdigit() and first(tsport) and first(tdport):
+            sequence = first(seq)
             return Record(
-                int(number), float(t), "tcp", int(tstream), src, int(tsport), dst, int(tdport),
-                bytes.fromhex(tpayload), _flag(syn), _flag(ack), _flag(fin), _flag(rst),
-                int(seq) if seq.isdigit() else None,
+                int(number), float(t), "tcp", int(first(tstream)), src, int(first(tsport)), dst,
+                int(first(tdport)), bytes.fromhex(first(tpayload)), _flag(first(syn)),
+                _flag(first(ack)), _flag(first(fin)), _flag(first(rst)),
+                int(sequence) if sequence.isdigit() else None,
             )  # fmt: skip
-        if ustream.isdigit() and usport and udport:
+        if transport == "udp" and first(ustream).isdigit() and first(usport) and first(udport):
             return Record(
-                int(number), float(t), "udp", int(ustream), src, int(usport), dst, int(udport),
-                bytes.fromhex(upayload),
+                int(number), float(t), "udp", int(first(ustream)), src, int(first(usport)), dst,
+                int(first(udport)), bytes.fromhex(first(upayload)),
             )  # fmt: skip
     except ValueError:
         return None

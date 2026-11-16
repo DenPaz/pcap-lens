@@ -7,6 +7,33 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.36.1 — 2026-11-16
+
+### Fixed
+
+- With GeoIP databases set, tshark's `ip.geoip.*` fields and filters stayed
+  empty in the viewer: its name resolution settings went to tshark as `-n`
+  or `-N` without `g`, which turn MaxMind lookups off. The viewer now asks
+  for geolocation (`g`) when databases are set. [0f955da]
+- On Ubuntu 26.04, tshark's AppArmor profile doesn't let it run its GeoIP
+  lookup helper: the permission hint (and the README) now name the rule. [0f955da]
+- Replay to Service sent only part of a connection whose data a dissector
+  decodes into IP packets (an interception delivery's records): it mixed
+  those packets' addresses with the connection's ports and skipped most
+  segments as the other side's. Each packet is now replayed as its
+  outermost TCP or UDP connection, the one on the wire; a tunnel (GTP,
+  VXLAN…) is replayed as its own datagrams. [5eb72be]
+
+### Changed
+
+- TLS Servers lists its certificate columns before the cipher suites, which
+  now wrap, so a panel beside the capture shows the Certificate Check; Group
+  by hosts shows each pair's number of connections as a badge. [f54f78a]
+
+[f54f78a]: https://github.com/DenPaz/pcap-lens/commit/f54f78a
+[5eb72be]: https://github.com/DenPaz/pcap-lens/commit/5eb72be
+[0f955da]: https://github.com/DenPaz/pcap-lens/commit/0f955da
+
 ## 0.36.0 — 2026-11-14
 
 ### Added

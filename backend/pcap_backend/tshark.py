@@ -734,6 +734,7 @@ EMPTY_CAPTURE = _EmptyCapture()
 
 _FOLDERS: dict[Path, str] = {}
 _DECIMAL_COMMA: dict[Path, bool] = {}
+_GEOLOCATES: dict[Path, bool] = {}
 _FOLDERS_LOCK = threading.Lock()
 
 
@@ -868,6 +869,19 @@ class Tshark:
         comma locale: io,stat's interval)."""
         text = f"{value:g}"
         return text.replace(".", ",") if self.decimal_comma(token) else text
+
+    def geolocates(self, token: CancelToken | None = None) -> bool:
+        """Whether this tshark takes ``-N g`` (MaxMind geolocation, which
+        ``-n`` turns off with the rest; 4.2 and later): it reads the empty
+        capture with it, once per tshark (an unknown letter is refused)."""
+        with _FOLDERS_LOCK:
+            cached = _GEOLOCATES.get(self.path)
+        if cached is None:
+            res = run([str(self.path), "-N", "g", "-r", str(EMPTY_CAPTURE.get())], token)
+            cached = res.returncode == 0
+            with _FOLDERS_LOCK:
+                _GEOLOCATES[self.path] = cached
+        return cached
 
     def version(self) -> str:
         res = run([str(self.path), "--version"])

@@ -361,6 +361,7 @@ def test_apparmor_hint_rules() -> None:
         "owner @{HOME}/** rw,",
         "signal (receive) peer=unconfined,",
         "signal (receive) peer=vscode,",
+        "/usr/bin/mmdbresolve mrix,",
     ):
         assert f"'{rule}'" in hint
     assert "printf '%s\\n' 'owner @{HOME}/** rw,' " in hint

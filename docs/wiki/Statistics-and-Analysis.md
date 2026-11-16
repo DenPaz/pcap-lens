@@ -45,6 +45,8 @@ applies its filter, and every card opens its full report.
   SUM/COUNT/MAX/MIN/AVG, as lines or bars, on a linear or log scale.
 - **Flow Graph**: the conversation between hosts as arrows over time.
 
+![TCP conversations grouped by hosts, each row with a chart of its traffic over time; a port scan's pair opened to its five connections](https://raw.githubusercontent.com/DenPaz/pcap-lens/main/media/screenshots/conversations.png)
+
 ## Sessions
 
 - **HTTP Requests**: each request with its response status, content type,
@@ -63,6 +65,10 @@ applies its filter, and every card opens its full report.
   sent, was self-signed, or wasn't for the server name the client asked for
   (wildcards count for one label). TLS 1.3 encrypts the certificate, so its
   connections say _Encrypted (TLS 1.3)_ unless a key log decrypts them.
+
+![An HTTP request and its response side by side: first lines, headers, and both JSON bodies pretty-printed](https://raw.githubusercontent.com/DenPaz/pcap-lens/main/media/screenshots/http-exchange.png)
+
+![TLS Servers: the server's certificate, its issuer and expiry, and a Certificate Check saying it had expired](https://raw.githubusercontent.com/DenPaz/pcap-lens/main/media/screenshots/tls-servers.png)
 
 ## Sequence Check
 

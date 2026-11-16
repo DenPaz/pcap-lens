@@ -922,7 +922,7 @@
         } else {
           td.append(lib.formatCell(value));
         }
-        if (t.kind === "expert" && col.id === "summary") {
+        if (WRAPPED[t.kind]?.includes(col.id)) {
           td.classList.add("wrap");
         }
         tr.append(td);
@@ -1031,7 +1031,10 @@
         } between these hosts`,
         title: `${row.count} ${row.count === 1 ? "connection" : "connections"}`,
       },
-      [icon(open ? "chevron-down" : "chevron-right"), String(row.count)],
+      [
+        icon(open ? "chevron-down" : "chevron-right"),
+        h("span", { class: "group-count" }, [String(row.count)]),
+      ],
     );
     button.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1051,6 +1054,16 @@
   const toggleGroup = new WeakMap();
 
   /** The activity chart's size (px). */
+  /**
+   * Text columns whose cells wrap (lists and messages), by table kind: TLS
+   * Servers' cipher suites made the table twice as wide as a panel.
+   * @type {Record<string, string[]>}
+   */
+  const WRAPPED = {
+    expert: ["summary"],
+    tls_servers: ["ciphers"],
+    dns_queries: ["answers"],
+  };
   const SPARK_WIDTH = 96;
   const SPARK_HEIGHT = 16;
 

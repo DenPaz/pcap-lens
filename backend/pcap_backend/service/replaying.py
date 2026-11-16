@@ -410,7 +410,8 @@ class ReplayMixin(ServiceBase):
         self, tshark: Tshark, path: Path, scope: str, token: CancelToken
     ) -> Iterator[engine.Record]:
         """The TCP segments and UDP datagrams of ``scope``, in capture order."""
-        args = ["-n", "-Y", scope, "-T", "fields", "-E", "occurrence=l"]
+        args = ["-n", "-Y", scope, "-T", "fields", "-E", "occurrence=a"]
+        args += ["-E", f"aggregator={engine.AGGREGATOR}"]
         for name in engine.FIELDS:
             args += ["-e", name]
         result = StreamResult()
