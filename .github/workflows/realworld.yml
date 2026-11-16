@@ -57,7 +57,7 @@ jobs:
           # Ubuntu 26.04 confines tshark with AppArmor: the local rules of the
           # backend's hint (sandbox.py), so it reads the captures under ~/.cache.
           if [ -f /etc/apparmor.d/tshark ]; then
-            printf '%s\n' 'owner @{HOME}/** rw,' 'signal (receive) peer=unconfined,' | sudo tee -a /etc/apparmor.d/local/tshark
+            printf '%s\n' 'owner @{HOME}/** rw,' 'signal (receive) peer=unconfined,' '/usr/bin/mmdbresolve mrix,' | sudo tee -a /etc/apparmor.d/local/tshark
             sudo apparmor_parser -r /etc/apparmor.d/tshark
           fi
       - name: Install Wireshark (macOS)

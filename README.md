@@ -342,6 +342,7 @@ and Lua dissectors come from user settings only.
 | "tshark was not found"                       | Install tshark or set `pcapViewer.tsharkPath`.                                                                                                               |
 | "You don't have permission to read the file" | Ubuntu's AppArmor profile for tshark: add `owner @{HOME}/** rw,` to `/etc/apparmor.d/local/tshark` and run `sudo apparmor_parser -r /etc/apparmor.d/tshark`. |
 | Stopping a filter is slow ("could not stop") | Same file: add `signal (receive) peer=unconfined,` and `signal (receive) peer=vscode,`.                                                                      |
+| `ip.geoip.*` filters match nothing on Ubuntu | Same file: add `/usr/bin/mmdbresolve mrix,` (tshark's GeoIP lookup helper).                                                                                  |
 | A Lua dissector or plugin isn't applied      | _PCAP: Show Log_; tshark ignores Lua and personal plugins as root; plugins must match your Wireshark version.                                                |
 | TLS stays encrypted                          | The key log must hold the capture's sessions (set `SSLKEYLOGFILE` before capturing).                                                                         |
 | Huge files open slowly                       | That is tshark's speed; `"pcapViewer.prefs": { "tcp.analyze_sequence_numbers": false }` helps.                                                               |

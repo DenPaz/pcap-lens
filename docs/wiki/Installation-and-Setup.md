@@ -76,6 +76,7 @@ says _"You don't have permission to read the file"_, add these lines to
 owner @{HOME}/** rw,
 signal (receive) peer=unconfined,
 signal (receive) peer=vscode,
+/usr/bin/mmdbresolve mrix,
 ```
 
 ```sh
@@ -83,7 +84,8 @@ sudo apparmor_parser -r /etc/apparmor.d/tshark
 ```
 
 The signal lines let PCAP Lens stop a tshark it no longer needs (for
-example when you cancel a filter). The Snap package of Wireshark has the
+example when you cancel a filter); the last one lets tshark run its GeoIP
+lookup helper, without which `ip.geoip.*` filters match nothing. The Snap package of Wireshark has the
 same kind of confinement: use your distribution's package instead.
 
 ## Settings

@@ -1295,9 +1295,19 @@ def test_a_delivery_whose_records_are_decoded_still_replays_whole(
     service: PcapService, ctx: RequestContext, delivery: tuple[Path, bytes, bytes]
 ) -> None:
     """As the user's receiver sees it: the same capture, opened with a dissector
-    that reads the media records (here Wireshark's 5gli, by Decode As)."""
+    that reads the media records (here Wireshark's X2/X3 one by Decode As:
+    ``5gli`` in tshark 4.2, ``li5g`` in 4.6, which refuses the old name; an
+    unknown rule is dropped with a warning, which left nothing decoded)."""
     path, _, media = delivery
-    service.open({"path": str(path), "names": {}, "decodeAs": ["tcp.port==9993,5gli"]}, ctx)
+    for name in ("li5g", "5gli"):
+        rule = f"tcp.port==9993,{name}"
+        info = service.open({"path": str(path), "names": {}, "decodeAs": [rule]}, ctx)
+        if not any(rule in w for w in info["warnings"]):
+            break
+    else:
+        pytest.skip("this tshark has no X2/X3 dissector")
+    decoded = service.count_matches({"filter": "ip.src == 192.0.2.10"}, ctx)
+    assert decoded["count"] > 0, "the records' packets are decoded"
     listed = {t["key"]: t for t in service.replay_targets({}, ctx)["targets"]}
     assert MEDIA in listed, f"the delivery's own address, not an intercepted one: {set(listed)}"
     assert listed[MEDIA]["bytes"] == len(media)

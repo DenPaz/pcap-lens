@@ -9,6 +9,7 @@ import tempfile
 from array import array
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import Future
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -607,6 +608,15 @@ class OpeningMixin(CommentsMixin):
                 break
             options, warning = options.without(refused)
             warnings.append(warning)
+        if (
+            options.geoip
+            and options.names is not None
+            and "g" not in options.names
+            and "g" in self._require_tshark().name_letters(ctx.token)
+        ):
+            # GeoIP databases are set, so geolocate even with names off: ``-n``
+            # (and ``-N`` without ``g``) turns tshark's ip.geoip.* fields off.
+            options = replace(options, names=options.names + "g")
         return options, warnings
 
     def _index_key(

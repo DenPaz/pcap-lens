@@ -734,6 +734,9 @@ EMPTY_CAPTURE = _EmptyCapture()
 
 _FOLDERS: dict[Path, str] = {}
 _DECIMAL_COMMA: dict[Path, bool] = {}
+_NAME_LETTERS: dict[Path, frozenset[str]] = {}
+# tshark's list of ``-N`` letters, printed for one it doesn't know.
+_NAME_LETTER_RE = re.compile(r"^\s*'(\w)' to enable", re.MULTILINE)
 _FOLDERS_LOCK = threading.Lock()
 
 
@@ -868,6 +871,19 @@ class Tshark:
         comma locale: io,stat's interval)."""
         text = f"{value:g}"
         return text.replace(".", ",") if self.decimal_comma(token) else text
+
+    def name_letters(self, token: CancelToken | None = None) -> frozenset[str]:
+        """The ``-N`` letters this tshark knows (asked once per tshark: an
+        unknown letter makes it list them). 4.2 and later have ``g``, MaxMind
+        geolocation, which ``-n`` turns off with the rest."""
+        with _FOLDERS_LOCK:
+            cached = _NAME_LETTERS.get(self.path)
+        if cached is None:
+            res = run([str(self.path), "-N", "?"], token)
+            cached = frozenset(_NAME_LETTER_RE.findall(res.stderr))
+            with _FOLDERS_LOCK:
+                _NAME_LETTERS[self.path] = cached
+        return cached
 
     def version(self) -> str:
         res = run([str(self.path), "--version"])

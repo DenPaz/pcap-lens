@@ -25,12 +25,15 @@ APPARMOR_RULES = (
     "owner @{HOME}/** rw,",
     "signal (receive) peer=unconfined,",
     "signal (receive) peer=vscode,",
+    # tshark looks up ip.geoip.* through its helper, which the profile
+    # doesn't let it run: without this, GeoIP filters match nothing.
+    "/usr/bin/mmdbresolve mrix,",
 )
 APPARMOR_HINT = (
     "tshark is confined by AppArmor (profile /etc/apparmor.d/tshark, shipped with Ubuntu's "
     "apparmor package). It only lets tshark read and write files in /tmp and Wireshark's own "
-    "folders, and doesn't let the extension stop a cancelled tshark. Allow both with local "
-    "rules, then reload the profile:\n"
+    "folders, doesn't let the extension stop a cancelled tshark, and doesn't let it run its "
+    "GeoIP lookup helper. Allow them with local rules, then reload the profile:\n"
     f"  printf '%s\\n' {' '.join(repr(r) for r in APPARMOR_RULES)} "
     "| sudo tee -a /etc/apparmor.d/local/tshark\n"
     "  sudo apparmor_parser -r /etc/apparmor.d/tshark\n"
