@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.36.1 — 2026-11-16
+
 ### Fixed
 
 - With GeoIP databases set, tshark's `ip.geoip.*` fields and filters stayed
@@ -15,7 +17,6 @@ commit) that made it. The format follows
   for geolocation (`g`) when databases are set. [0f955da]
 - On Ubuntu 26.04, tshark's AppArmor profile doesn't let it run its GeoIP
   lookup helper: the permission hint (and the README) now name the rule. [0f955da]
-
 - Replay to Service sent only part of a connection whose data a dissector
   decodes into IP packets (an interception delivery's records): it mixed
   those packets' addresses with the connection's ports and skipped most
