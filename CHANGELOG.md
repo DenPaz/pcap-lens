@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.36.2 — 2026-11-23
+
 ### Fixed
 
 - A file of several BER records (call records, say) opened as one packet
