@@ -25,10 +25,23 @@ from pcap_backend.index_cache import (
     index_key,
     rules_key,
 )
-from pcap_backend.protocol import InvalidParamsError, RequestContext, param, str_list
+from pcap_backend.protocol import (
+    InvalidParamsError,
+    RequestContext,
+    UnsupportedFormatError,
+    param,
+    str_list,
+)
 from pcap_backend.tshark import ConfigError, DissectionOptions, ToolError, Tshark, run
 
-from .helpers import _fields_args, _readable_capture, _rejected_fields, sniff_format
+from .helpers import (
+    _fields_args,
+    _readable_capture,
+    _rejected_fields,
+    ber_records_message,
+    records_read_as_one,
+    sniff_format,
+)
 from .indexing import (
     _attempt_store,
     _cache_from,
@@ -136,6 +149,20 @@ class OpeningMixin(CommentsMixin):
                 if self._opening is ctx.token:
                     self._opening = None
 
+    def _new_work_dir(self, path: Path, tshark: Tshark | None, ctx: RequestContext) -> Path:
+        """Close the open capture and make the next one's work folder; with
+        ``tshark``, first refuse a file of BER records that it would read as one
+        value (``records_read_as_one``): split_ber opens them as packets."""
+        with self._lock:
+            self._close_file()
+            self._work_dir = Path(tempfile.mkdtemp(prefix="pcapviewer-"))
+            work_dir = self._work_dir
+        if tshark is not None and (records := records_read_as_one(tshark, path, ctx.token)):
+            raise UnsupportedFormatError(
+                ber_records_message(path.name, records), {"path": str(path), "berRecords": records}
+            )
+        return work_dir
+
     def _open_now(
         self,
         params: dict[str, Any],
@@ -158,11 +185,7 @@ class OpeningMixin(CommentsMixin):
         inline = _inline_coloring(params.get("coloring"))
         command = capture_command(tshark.path, live[0]) if live is not None else []
 
-        with self._lock:
-            self._close_file()
-            self._work_dir = Path(tempfile.mkdtemp(prefix="pcapviewer-"))
-            work_dir = self._work_dir
-
+        work_dir = self._new_work_dir(path, tshark if live is None else None, ctx)
         info = CaptureInfo(path=str(path), size=path.stat().st_size if live is None else 0)
         info.warnings += options.check_scripts() + switch_warnings
         key = self._index_key(tshark, path, options, requested_columns, ctx) if cache else None

@@ -7,8 +7,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from pcap_backend import coloring
+from pcap_backend import ber, coloring
+from pcap_backend.cancellation import CancelToken
 from pcap_backend.protocol import InvalidParamsError
+from pcap_backend.tshark import Tshark, run
 
 from .state import MAX_SELECTION
 
@@ -34,6 +36,52 @@ def sniff_format(path: Path) -> str | None:
     if head in _PCAP_MAGICS:
         return "pcap"
     return "pcapng" if head == _PCAPNG_MAGIC else None
+
+
+def ber_records(path: Path, *, first_as_tshark: bool = False) -> int | None:
+    """How many BER values ``path`` holds back to back, when it holds more than
+    one and nothing else (``ber.count_records``), else None. With
+    ``first_as_tshark`` only when it isn't pcap/pcapng by magic and tshark's BER
+    reader would take the first value (``ber.tshark_takes_first``)."""
+    try:
+        if first_as_tshark:
+            with path.open("rb") as fh:
+                head = fh.read(2)
+            if sniff_format(path) is not None or not ber.tshark_takes_first(head):
+                return None
+        records = ber.count_records(path)
+    except OSError:
+        return None
+    return records if records and records > 1 else None
+
+
+# frame.encap_type of tshark's BER file type (WTAP_ENCAP_BER).
+BER_ENCAP = "90"
+
+
+def records_read_as_one(tshark: Tshark, path: Path, token: CancelToken | None) -> int | None:
+    """The records of a file of several BER values that this tshark reads as one
+    BER value, showing only the first (a Mac's Homebrew tshark 4.6.9 did; others
+    refuse the file). tshark says how it reads the file (its first packet's
+    encapsulation), since other formats may parse as BER values too: an ERF
+    capture has no magic, and its records can (Codex review). Only files that
+    pass ``ber_records(…, first_as_tshark=True)`` cost a tshark run."""
+    if not (records := ber_records(path, first_as_tshark=True)):
+        return None
+    argv = tshark.argv(
+        "-c", "1", "-T", "fields", "-e", "frame.encap_type", capture=str(path), dissect=False
+    )  # fmt: skip
+    res = run(argv, token)
+    read_as = res.stdout.decode("utf-8", "replace").strip()
+    return records if res.returncode == 0 and read_as == BER_ENCAP else None
+
+
+def ber_records_message(name: str, records: int) -> str:
+    more = "+" if records >= ber.MAX_RECORDS else ""
+    return (
+        f"{name} holds {records:,}{more} BER records one after another; "
+        "tshark reads a file of one BER value only"
+    )
 
 
 def _fields_args(fields: Sequence[str]) -> list[str]:

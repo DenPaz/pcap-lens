@@ -61,6 +61,24 @@ def _only_padding(fh: BinaryIO) -> bool:
     return True
 
 
+def tshark_takes_first(head: bytes) -> bool:
+    """Whether tshark's BER file reader would take a file starting with
+    ``head`` (its first identifier bytes) for one BER value: constructed, and a
+    universal SET or SEQUENCE or of the application or context class (wiretap's
+    ber_open). A PacketLogger log's zero bytes read as empty BER values too."""
+    if not head:
+        return False
+    ident = head[0]
+    cls, constructed, tag = ident >> 6, ident & 0x20, ident & 0x1F
+    if tag == 0x1F:
+        if len(head) < 2:
+            return False
+        tag = head[1]
+    if not constructed:
+        return False
+    return (cls == 0 and tag in (0x10, 0x11)) or (cls in (1, 2) and tag < 0xFF)
+
+
 class NotRecordsError(ValueError):
     """The file isn't BER values back to back (``offset``: where that shows)."""
 

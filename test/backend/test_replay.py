@@ -704,9 +704,18 @@ def test_replay_keeps_the_recorded_timing(
     # (0.22 s for a first, cold run on Windows CI, then less). Each event is
     # paced from the first, which can go out late (its connect, and Windows'
     # 15.6 ms timer ticks) while the last is on time: 40 ms of slack (Windows
-    # CI measured 0.0786 s for the 0.1 s at twice the speed).
-    normal, twice = spread(1), spread(2)
+    # CI measured 0.0786 s for the 0.1 s at twice the speed). A delay only ever
+    # lengthens the spread (the replay reads tshark's output as it plays, and
+    # the service's thread stamps what it reads), never shortens it below the
+    # pacing: a busy Windows runner once measured 0.169 s at twice the speed
+    # (0.36.2 PR), so that one is the best of up to three replays.
+    normal = spread(1)
     assert normal >= 0.16
+    twice = spread(2)
+    for _ in range(2):
+        if twice < normal * 0.75:
+            break
+        twice = min(twice, spread(2))
     assert 0.06 <= twice < normal * 0.75
     assert spread(0) < normal
 
@@ -1184,7 +1193,7 @@ MEDIA_RECORDS = 120
 
 def _delivery_capture(path: Path) -> tuple[bytes, bytes]:
     """Writes the capture; returns the signalling and media bytes the operator sent."""
-    from scapy.all import IP, TCP, Ether, Raw, wrpcap  # noqa: PLC0415
+    from scapy.all import IP, TCP, Raw, wrpcap  # noqa: PLC0415
 
     packets: list[Any] = []
     t = 1_700_000_000.0
@@ -1193,7 +1202,7 @@ def _delivery_capture(path: Path) -> tuple[bytes, bytes]:
             data: bytes = b"") -> None:  # fmt: skip
         nonlocal t
         p = (
-            Ether()
+            generate.ether()
             / IP(src=src[0], dst=dst[0])
             / TCP(sport=src[1], dport=dst[1], flags=flags, seq=seq, ack=ack)
         )
