@@ -21,7 +21,13 @@ from pcap_backend.protocol import InvalidParamsError, RequestContext, param, str
 from pcap_backend.tshark import ToolError, ToolNotFoundError, find_tool, run
 
 from .base import ServiceBase
-from .helpers import _readable_capture, ber_records, ber_records_message, sniff_format
+from .helpers import (
+    _readable_capture,
+    ber_records,
+    ber_records_message,
+    records_read_as_one,
+    sniff_format,
+)
 from .state import _UNSUPPORTED_RE, _Open, _unsupported_data
 
 # What a dissector may be called (`tshark -G dissectors`: "ber", "gsm_map", "x2ap"…).
@@ -131,9 +137,9 @@ class ToolsMixin(ServiceBase):
         path = _readable_capture(param(params, "path", str))
         if path.stat().st_size == 0:
             return {"readable": False, "message": f"{path.name} is empty"}
-        if records := ber_records(path, first_as_tshark=True):
-            return _records_answer(path, records)
         tshark = self._require_tshark()
+        if records := records_read_as_one(tshark, path, ctx.token):
+            return _records_answer(path, records)
         argv = tshark.argv(
             "-c", "1", "-T", "fields", "-e", "frame.number", capture=str(path), dissect=False
         )  # fmt: skip

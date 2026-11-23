@@ -14,7 +14,8 @@ commit) that made it. The format follows
 - A file of several BER records (call records, say) opened as one packet
   with a tshark that reads it as a single BER value (a Mac's Homebrew tshark
   4.6.9), instead of offering _Open Records as Packets…_. The viewer now
-  recognises such files before asking tshark. [927ebf2]
+  asks tshark how it reads such a file and offers the records when it reads
+  them as one. [927ebf2]
 - The backend tests took minutes longer on a Mac where Wireshark's ChmodBPF
   lets the user send raw packets: scapy looked up an Ethernet address for
   every test packet. The test packets now have fixed addresses. [927ebf2]

@@ -1237,12 +1237,17 @@ WARNING]` before 4.6) and their indented continuation are logged once
   several BER values back to back (definite lengths, high tag numbers,
   trailing 0x00/0xFF block padding; up to MAX_RECORDS) so the message says
   so (`berRecords`) and offers _Open Records as Packets…_ (below).
-  `probe_file` and `open` ask first, before tshark (`ber_records(…,
-first_as_tshark=True)`: not pcap/pcapng by magic, a first value
-  `ber.tshark_takes_first`, wiretap's ber_open rule, and more than one
-  value): a Mac's Homebrew tshark 4.6.9 read such a file as one BER value
-  and showed only the first record, where every other tshark refused it. The
-  rule keeps a PacketLogger log (zero bytes read as empty BER values) out.
+  `probe_file` and `open` also catch a tshark that reads such a file as
+  one BER value and shows only the first record (a Mac's Homebrew tshark
+  4.6.9; every other tshark refused it): `records_read_as_one` asks tshark
+  for the first packet's `frame.encap_type` (90, WTAP_ENCAP_BER) when the
+  file passes `ber_records(…, first_as_tshark=True)` (not pcap/pcapng by
+  magic, a first value `ber.tshark_takes_first`, wiretap's ber_open rule,
+  and more than one value). tshark decides, since other formats can parse
+  as BER values too: an ERF capture has no magic, and two records whose
+  timestamps start 30 46 read as two SEQUENCEs (Codex review of the 0.36.2
+  PR); the rule keeps a PacketLogger log (zero bytes read as empty BER
+  values) from costing a tshark run.
 - **BER records as packets** (`split_ber {path, dest, dissector}`,
   `dissector_names`, `ber.write_pcapng`, `commands/openBerRecords.ts`,
   `pcapViewer.openBerRecords`): there is no pcap link type for BER (tshark's
