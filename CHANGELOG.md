@@ -7,6 +7,16 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- A file of several BER records (call records, say) opened as one packet
+  with a tshark that reads it as a single BER value (a Mac's Homebrew tshark
+  4.6.9), instead of offering _Open Records as Packets…_. The viewer now
+  recognises such files before asking tshark.
+- The backend tests took minutes longer on a Mac where Wireshark's ChmodBPF
+  lets the user send raw packets: scapy looked up an Ethernet address for
+  every test packet. The test packets now have fixed addresses.
+
 ## 0.36.1 — 2026-11-16
 
 ### Fixed

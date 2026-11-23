@@ -21,11 +21,19 @@ from pcap_backend.protocol import InvalidParamsError, RequestContext, param, str
 from pcap_backend.tshark import ToolError, ToolNotFoundError, find_tool, run
 
 from .base import ServiceBase
-from .helpers import _readable_capture, sniff_format
+from .helpers import _readable_capture, ber_records, ber_records_message, sniff_format
 from .state import _UNSUPPORTED_RE, _Open, _unsupported_data
 
 # What a dissector may be called (`tshark -G dissectors`: "ber", "gsm_map", "x2ap"…).
 _DISSECTOR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$")
+
+
+def _records_answer(path: Path, records: int) -> dict[str, Any]:
+    return {
+        "readable": False,
+        "berRecords": records,
+        "message": ber_records_message(path.name, records),
+    }
 
 
 class ToolsMixin(ServiceBase):
@@ -123,6 +131,8 @@ class ToolsMixin(ServiceBase):
         path = _readable_capture(param(params, "path", str))
         if path.stat().st_size == 0:
             return {"readable": False, "message": f"{path.name} is empty"}
+        if records := ber_records(path, first_as_tshark=True):
+            return _records_answer(path, records)
         tshark = self._require_tshark()
         argv = tshark.argv(
             "-c", "1", "-T", "fields", "-e", "frame.number", capture=str(path), dissect=False
@@ -134,16 +144,8 @@ class ToolsMixin(ServiceBase):
             return {"readable": False, "message": why}
         if not _UNSUPPORTED_RE.search(res.stderr):
             raise tshark.error(res.stderr, res.returncode, f"tshark could not read {path.name}")
-        records = ber.count_records(path)
-        if records and records > 1:
-            return {
-                "readable": False,
-                "berRecords": records,
-                "message": (
-                    f"{path.name} holds {records:,}{'+' if records >= ber.MAX_RECORDS else ''} "
-                    "BER records one after another; tshark reads a file of one BER value only"
-                ),
-            }
+        if records := ber_records(path):
+            return _records_answer(path, records)
         return {
             "readable": False,
             "message": f"{path.name} isn't a capture file in a format tshark can read",

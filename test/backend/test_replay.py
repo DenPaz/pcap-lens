@@ -1184,7 +1184,7 @@ MEDIA_RECORDS = 120
 
 def _delivery_capture(path: Path) -> tuple[bytes, bytes]:
     """Writes the capture; returns the signalling and media bytes the operator sent."""
-    from scapy.all import IP, TCP, Ether, Raw, wrpcap  # noqa: PLC0415
+    from scapy.all import IP, TCP, Raw, wrpcap  # noqa: PLC0415
 
     packets: list[Any] = []
     t = 1_700_000_000.0
@@ -1193,7 +1193,7 @@ def _delivery_capture(path: Path) -> tuple[bytes, bytes]:
             data: bytes = b"") -> None:  # fmt: skip
         nonlocal t
         p = (
-            Ether()
+            generate.ether()
             / IP(src=src[0], dst=dst[0])
             / TCP(sport=src[1], dport=dst[1], flags=flags, seq=seq, ack=ack)
         )

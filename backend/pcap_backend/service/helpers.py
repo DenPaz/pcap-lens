@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from pcap_backend import coloring
+from pcap_backend import ber, coloring
 from pcap_backend.protocol import InvalidParamsError
 
 from .state import MAX_SELECTION
@@ -34,6 +34,33 @@ def sniff_format(path: Path) -> str | None:
     if head in _PCAP_MAGICS:
         return "pcap"
     return "pcapng" if head == _PCAPNG_MAGIC else None
+
+
+def ber_records(path: Path, *, first_as_tshark: bool = False) -> int | None:
+    """How many BER values ``path`` holds back to back, when it holds more than
+    one and nothing else (``ber.count_records``), else None. With
+    ``first_as_tshark`` only when tshark's BER reader would take the first value
+    (``ber.tshark_takes_first``): asked before tshark, since a tshark that reads
+    such a file as one BER value shows only the first record (a Mac's Homebrew
+    tshark 4.6.9 did) where others refuse it."""
+    try:
+        if first_as_tshark:
+            with path.open("rb") as fh:
+                head = fh.read(2)
+            if sniff_format(path) is not None or not ber.tshark_takes_first(head):
+                return None
+        records = ber.count_records(path)
+    except OSError:
+        return None
+    return records if records and records > 1 else None
+
+
+def ber_records_message(name: str, records: int) -> str:
+    more = "+" if records >= ber.MAX_RECORDS else ""
+    return (
+        f"{name} holds {records:,}{more} BER records one after another; "
+        "tshark reads a file of one BER value only"
+    )
 
 
 def _fields_args(fields: Sequence[str]) -> list[str]:

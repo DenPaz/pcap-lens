@@ -7,7 +7,9 @@ from __future__ import annotations
 import io
 import shutil
 import struct
+from collections.abc import Callable
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 
@@ -15,6 +17,7 @@ from pcap_backend import ber
 from pcap_backend.cancellation import CancelledError
 from pcap_backend.pcap_service import PcapService
 from pcap_backend.protocol import InvalidParamsError, RequestContext, UnsupportedFormatError
+from pcap_backend.service.helpers import ber_records
 
 # SEQUENCE { INTEGER 5, OCTET STRING "hello" }, as test/fixtures/formats/capture.ber.
 RECORD = bytes.fromhex("300a020105040568656c6c6f")
@@ -85,6 +88,48 @@ def test_probe_file(service: PcapService, fixtures: Path, tmp_path: Path) -> Non
     }
     with pytest.raises(InvalidParamsError, match="not found"):
         probe(tmp_path / "missing")
+
+
+def test_tshark_takes_first() -> None:
+    """wiretap's ber_open: a constructed SEQUENCE or SET, or a constructed
+    application or context value; a PacketLogger log's zero bytes are not one."""
+    takes = ber.tshark_takes_first
+    assert takes(b"\x30\x0a") and takes(b"\x31\x03")  # SEQUENCE, SET
+    assert takes(b"\x61\x05") and takes(b"\xa1\x05")  # [APPLICATION 1], [1]
+    assert takes(b"\x7f\x81")  # [APPLICATION 129]: high tag number
+    assert not takes(b"\x00\x00") and not takes(b"\x04\x05")  # primitive
+    assert not takes(b"\xe1\x05") and not takes(b"\x22\x01")  # private; a universal BIT STRING
+    assert not takes(b"") and not takes(b"\x7f")
+
+
+def test_no_format_fixture_is_taken_for_records(fixtures: Path) -> None:
+    for path in sorted((fixtures / "formats").iterdir()):
+        assert ber_records(path, first_as_tshark=True) is None, path.name
+
+
+def test_records_are_recognised_before_tshark_reads_them(
+    service: PcapService, patch_service: Callable[[str, object], None], tmp_path: Path
+) -> None:
+    """A tshark that reads a file of BER records as one BER value shows only the
+    first record (a Mac's Homebrew tshark 4.6.9 did; others refuse the file), so
+    probe_file and open look at the file first and never ask tshark."""
+
+    def no_tshark(*_args: object, **_kwargs: object) -> NoReturn:
+        raise AssertionError("tshark was asked")
+
+    patch_service("run", no_tshark)
+    patch_service("stream_lines", no_tshark)
+    ctx = RequestContext()
+    cdrs = _write(tmp_path, "cdrs", RECORD * 3 + b"\x00" * 4)
+    assert service.probe_file({"path": str(cdrs)}, ctx) == {
+        "readable": False,
+        "berRecords": 3,
+        "message": "cdrs holds 3 BER records one after another; "
+        "tshark reads a file of one BER value only",
+    }
+    with pytest.raises(UnsupportedFormatError, match="cdrs holds 3 BER records") as info:
+        service.open({"path": str(cdrs)}, ctx)
+    assert info.value.data == {"path": str(cdrs), "berRecords": 3}
 
 
 def _blocks(data: bytes) -> list[tuple[int, bytes]]:

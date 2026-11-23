@@ -343,7 +343,10 @@ plugins` and the plugin folders), `decryption.py` (decryption keys and
   steps in its `conftest.py`, feature tag `@tshark` → skip without tshark,
   `@lua` → skip as root), `test/extension/unit` mocha (Node), `test/extension/suite`
   VS Code smoke test, `test/webview` mocha (lib + Chromium e2e), `test/fixtures`
-  scapy-generated captures, `mmdb.py` (writes the GeoIP test databases in
+  scapy-generated captures (`generate.ether()`, never `Ether()`: scapy
+  would look the address up, an ARP request per packet that waits out its
+  timeout where the user may send raw packets; minutes on a Mac with
+  Wireshark's ChmodBPF), `mmdb.py` (writes the GeoIP test databases in
   `geoip/`), `h323.py` (H.225.0/H.245 messages in aligned PER, by hand) and
   `fake_dumpcap.py` (a stand-in dumpcap for
   capture tests: `PCAP_VIEWER_DUMPCAP` = JSON argv), `test/perf/bench.py`,
@@ -1234,6 +1237,12 @@ WARNING]` before 4.6) and their indented continuation are logged once
   several BER values back to back (definite lengths, high tag numbers,
   trailing 0x00/0xFF block padding; up to MAX_RECORDS) so the message says
   so (`berRecords`) and offers _Open Records as Packets…_ (below).
+  `probe_file` and `open` ask first, before tshark (`ber_records(…,
+first_as_tshark=True)`: not pcap/pcapng by magic, a first value
+  `ber.tshark_takes_first`, wiretap's ber_open rule, and more than one
+  value): a Mac's Homebrew tshark 4.6.9 read such a file as one BER value
+  and showed only the first record, where every other tshark refused it. The
+  rule keeps a PacketLogger log (zero bytes read as empty BER values) out.
 - **BER records as packets** (`split_ber {path, dest, dissector}`,
   `dissector_names`, `ber.write_pcapng`, `commands/openBerRecords.ts`,
   `pcapViewer.openBerRecords`): there is no pcap link type for BER (tshark's

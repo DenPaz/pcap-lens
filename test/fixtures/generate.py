@@ -62,6 +62,17 @@ BASE_TS = 1_700_000_000.0  # 2023-11-14T22:13:20Z
 
 CLIENT_MAC = "02:00:00:00:00:01"
 SERVER_MAC = "02:00:00:00:00:02"
+# The addresses of the VoIP fixtures' frames. Scapy fills in an Ether() without
+# them by looking the destination up (an ARP request for the gateway, waiting
+# for each packet where the user may send raw packets: minutes on a Mac with
+# Wireshark's ChmodBPF); these are what it found the first time.
+HOST_MAC = "02:fc:00:00:00:01"
+GATEWAY_MAC = "02:fc:00:00:00:05"
+
+
+def ether() -> Packet:
+    """An Ethernet header with fixed addresses (never ``Ether()``: see HOST_MAC)."""
+    return Ether(src=HOST_MAC, dst=GATEWAY_MAC)
 
 
 def _stamp(packets: list[Packet], start: float = BASE_TS, step: float = 0.001) -> list[Packet]:
@@ -377,7 +388,7 @@ def _tone(freq: float, start: int, count: int, rate: int = 8000) -> bytes:
 
 def _sip(src: str, dst: str, text: str) -> Packet:
     body = text.replace("\n", "\r\n").encode()
-    return Ether() / IP(src=src, dst=dst) / UDP(sport=5060, dport=5060) / Raw(body)
+    return ether() / IP(src=src, dst=dst) / UDP(sport=5060, dport=5060) / Raw(body)
 
 
 def _sdp(addr: str, port: int, formats: str, maps: str = "0 PCMU/8000") -> str:
@@ -447,7 +458,7 @@ def voip_packets() -> list[Packet]:
             jitter = rng.uniform(0, 0.004) if direction == 0 else 0.0
             payload = _tone(RTP_TONES[direction], i * 160, 160)
             pkt = (
-                Ether() / IP(src=src, dst=dst) / UDP(sport=sport, dport=dport)
+                ether() / IP(src=src, dst=dst) / UDP(sport=sport, dport=dport)
                 / RTP(version=2, payload_type=0, sequence=1000 * (direction + 1) + i,
                       timestamp=160 * i, sourcesync=ssrc, marker=int(i == 0))
                 / Raw(payload)
@@ -487,7 +498,7 @@ SILENCE_AFTER, SILENCE_S = 10, 1.5  # frank sends nothing for 1.5 s after packet
 def _rtp(src: str, dst: str, sport: int, dport: int, pt: int, seq: int, ts: int, ssrc: int,
          payload: bytes, marker: int = 0) -> Packet:  # fmt: skip
     return (
-        Ether() / IP(src=src, dst=dst) / UDP(sport=sport, dport=dport)
+        ether() / IP(src=src, dst=dst) / UDP(sport=sport, dport=dport)
         / RTP(version=2, payload_type=pt, sequence=seq, timestamp=ts, sourcesync=ssrc,
               marker=marker)
         / Raw(payload)
@@ -687,7 +698,7 @@ def _rtcp_sr(src: str, dst: str, sport: int, dport: int, ssrc: int, ntp: int, rt
     """An RTCP sender report with one report block (RFC 3550 6.4.1)."""
     body = struct.pack(">IQIII", ssrc, ntp, rtp_ts, packets, octets) + block
     header = struct.pack(">BBH", 0x81, 200, (4 + len(body)) // 4 - 1)
-    return Ether() / IP(src=src, dst=dst) / UDP(sport=sport, dport=dport) / Raw(header + body)
+    return ether() / IP(src=src, dst=dst) / UDP(sport=sport, dport=dport) / Raw(header + body)
 
 
 def _media_stream(c: _CallScript, src: str, dst: str, sport: int, dport: int, pt: int,
@@ -783,7 +794,7 @@ class _Tcp:
     def send(self, time: float, src: tuple[str, int], data: bytes) -> None:
         dst = self.ends[1] if src == self.ends[0] else self.ends[0]
         pkt = (
-            Ether() / IP(src=src[0], dst=dst[0])
+            ether() / IP(src=src[0], dst=dst[0])
             / TCP(sport=src[1], dport=dst[1], flags="PA", seq=self.seq[src], ack=self.seq[dst])
             / Raw(data)
         )  # fmt: skip
@@ -890,7 +901,7 @@ class _Iax2:
 
     def _send(self, time: float, src: str, data: bytes) -> None:
         dst = PBX if src == self.client else self.client
-        self.c.at(time, Ether() / IP(src=src, dst=dst) / UDP(sport=4569, dport=4569) / Raw(data))
+        self.c.at(time, ether() / IP(src=src, dst=dst) / UDP(sport=4569, dport=4569) / Raw(data))
 
     def ts(self, time: float) -> int:
         return round((time - self.start) * 1000) + 3
@@ -950,7 +961,7 @@ def _iax2_calls(c: _CallScript) -> None:
 def _mgcp(c: _CallScript, time: float, src: str, dst: str, text: str) -> None:
     sport, dport = (2727, 2427) if src == AGENT else (2427, 2727)
     data = text.replace("\n", "\r\n").encode()
-    c.at(time, Ether() / IP(src=src, dst=dst) / UDP(sport=sport, dport=dport) / Raw(data))
+    c.at(time, ether() / IP(src=src, dst=dst) / UDP(sport=sport, dport=dport) / Raw(data))
 
 
 def _mgcp_sdp(addr: str, port: int) -> str:
@@ -1711,14 +1722,14 @@ def large_capture(count: int, dest: Path) -> None:
         src = f"10.{rng.randrange(256)}.{rng.randrange(256)}.{rng.randrange(1, 255)}"
         if i % 3 == 0:
             pkt = (
-                Ether()
+                ether()
                 / IP(src=src, dst="10.0.0.1")
                 / UDP(sport=rng.randrange(1024, 65535), dport=53)
                 / DNS(id=i, qd=DNSQR(qname=f"host{i}.example.com"))
             )
         else:
             pkt = (
-                Ether()
+                ether()
                 / IP(src=src, dst="10.0.0.1")
                 / TCP(sport=rng.randrange(1024, 65535), dport=80, flags="PA", seq=i)
                 / Raw(b"x" * rng.randrange(0, 200))
@@ -2250,7 +2261,7 @@ def radius_eap_packets() -> list[Packet]:
     attrs += bytes([80, 18]) + bytes(16)  # Message-Authenticator
     radius = struct.pack("!BBH", 1, 42, 20 + len(attrs)) + bytes(range(16)) + attrs
     udp = UDP(sport=40001, dport=1812) / Raw(radius)
-    return _stamp([Ether() / IP(src="10.0.0.5", dst="10.0.0.1") / udp])
+    return _stamp([ether() / IP(src="10.0.0.5", dst="10.0.0.1") / udp])
 
 
 def main() -> None:
