@@ -1,6 +1,6 @@
 /**
- * What the viewer's AI buttons ask the PCAP Lens agent when
- * `pcapViewer.ai.askIn` is "agent": a plain chat request that names the
+ * What the viewer's AI buttons ask the PCAP Lens agent (`pcapViewer.ai.askIn`
+ * "agent", the default): a plain chat request that names the
  * capture and the `#pcap…` tools to use, instead of an `@pcap` command (VS
  * Code's Copilot harness runs no chat participants; the Local harness that
  * runs `@pcap` goes in 2027-02). The tools compute everything and enforce
@@ -11,12 +11,16 @@
 import type { ExpertRow } from "./aiAnomaly";
 import { explainArgs } from "./aiExplain";
 
-/** Where the viewer's AI buttons ask: `@pcap` (as before) or the PCAP Lens agent. */
+/** Where the viewer's AI buttons ask: the PCAP Lens agent (the default) or `@pcap`. */
 export type AskIn = "pcap" | "agent";
 
-/** The setting's value, anything unknown being "pcap". */
+/**
+ * The setting's value: "pcap" only when chosen, else the agent (the default
+ * since 0.37.0: VS Code's Copilot harness runs no chat participants, and the
+ * Local harness that runs `@pcap` goes in 2027-02).
+ */
 export function askInSetting(value: unknown): AskIn {
-  return value === "agent" ? "agent" : "pcap";
+  return value === "pcap" ? "pcap" : "agent";
 }
 
 /** The agent's name (agents/pcap-lens.agent.md), which `workbench.action.chat.open`'s `mode` takes. */

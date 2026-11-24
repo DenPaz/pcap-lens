@@ -53,11 +53,15 @@ the file in words doesn't.
 - **Ask Copilot About Selected Packets…** (row menu) and **Ask Copilot** in
   the Expert Information, TCP Stream Graph and VoIP panels.
 
-These open Copilot Chat with the `@pcap` participant (`/summary`, `/triage`,
-`/compare`, `/explain`, `/anomaly`), or write the answer to a Markdown editor
-when chat isn't available. Set `pcapViewer.ai.askIn` to `agent` to have them
-ask the PCAP Lens agent instead; VS Code's newer chat engine runs agents but
-no chat participants.
+These open Copilot Chat in the PCAP Lens agent with a request that names the
+capture and the tools to use (`#pcapTriage`, `#pcapCompare`…), since VS Code's
+newer chat engine runs agents but no chat participants. Set
+`pcapViewer.ai.askIn` to `pcap` to have them open it with the `@pcap`
+participant instead (`/summary`, `/triage`, `/compare`, `/explain`,
+`/anomaly`), which Copilot's Local harness runs until VS Code removes it in
+2027-02. A VS Code without language model tools asks `@pcap`, and so does a
+comparison with a capture the tools may not read; when chat isn't available,
+the answer goes to a Markdown editor.
 
 ## What is sent, and the settings
 

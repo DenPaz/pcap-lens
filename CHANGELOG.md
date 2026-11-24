@@ -7,6 +7,13 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Changed
+
+- The viewer's AI commands (summary, triage, compare, explain packets and
+  _Ask Copilot_ in the expert, TCP stream and VoIP panels) now ask the PCAP
+  Lens agent by default, since VS Code's newer Copilot chat runs no `@pcap`.
+  Set `pcapViewer.ai.askIn` to `pcap` to keep asking `@pcap`.
+
 ## 0.36.2 — 2026-11-23
 
 ### Fixed

@@ -941,6 +941,96 @@ suite("PCAP Lens smoke test", () => {
     await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
   });
 
+  test("AI buttons: by default they ask the PCAP Lens agent, naming the capture and its tools", async function () {
+    const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
+    const api = (await ext!.activate()) as PcapViewerApi;
+    if (typeof (vscode.lm as unknown as { registerTool?: unknown }).registerTool !== "function") {
+      this.skip(); // (VS Code before the tools API: the buttons ask @pcap)
+    }
+    assert.equal(vscode.workspace.getConfiguration("pcapViewer.ai").get("askIn"), "agent");
+    const uri = vscode.Uri.file(path.join(FIXTURES, "office-after.pcap"));
+    await vscode.commands.executeCommand("vscode.openWith", uri, "pcapViewer.editor");
+    const session = await waitFor(() =>
+      api.provider.allSessions.find((s) => s.uri.fsPath === uri.fsPath && indexed(s)),
+    );
+    const ai = vscode.workspace.getConfiguration("pcapViewer.ai");
+    // (consent from the settings: the buttons ask it first, and a modal would wait)
+    await ai.update("allowCaptureStatistics", true, vscode.ConfigurationTarget.Global);
+    await ai.update("allowPacketData", true, vscode.ConfigurationTarget.Global);
+    const asked = async (command: string, ...args: unknown[]) => {
+      const before = api.chatRequests.length;
+      await vscode.commands.executeCommand(command, ...args);
+      const request = api.chatRequests[before];
+      assert.ok(request, `${command} opened the chat`);
+      assert.equal(request.mode, "PCAP Lens", `${command} asked the agent`);
+      assert.match(request.query, /office-after\.pcap/, `${command} named the capture`);
+      assert.doesNotMatch(request.query, /@pcap/);
+      return request.query;
+    };
+    try {
+      assert.match(await asked("pcapViewer.summarizeCapture"), /#pcapOverview.*#pcapTriage/);
+      assert.match(await asked("pcapViewer.triageCapture"), /#pcapTriage/);
+      assert.match(
+        await asked("pcapViewer.compareCaptures", {
+          other: path.join(FIXTURES, "office-before.pcap"),
+          baseline: "other",
+        }),
+        /`office-before\.pcap` is the baseline.*#pcapCompare/,
+      );
+      assert.match(
+        await asked("pcapViewer.askAboutPackets", [3, 5]),
+        /Packets 3 5 .*#pcapPacketDetails/,
+      );
+      assert.match(
+        await asked("pcapViewer.askAboutAnomaly", {
+          kind: "stream",
+          stream: 1,
+          sessionId: session.id,
+        }),
+        /TCP stream 1 .*#pcapTcpStream/,
+      );
+      const message = "Connection reset (RST) by a made-up host";
+      const expert = await asked("pcapViewer.askAboutAnomaly", {
+        kind: "expert",
+        rows: [
+          {
+            severity: "Warning",
+            group: "Sequence",
+            protocol: "TCP",
+            summary: message,
+            count: 2,
+            frames: [7, 9],
+          },
+        ],
+        sessionId: session.id,
+      });
+      assert.match(expert, /Warning \(Sequence, TCP\), 2 packets: 7, 9/);
+      assert.ok(!expert.includes(message), "an expert row's message (packet text) isn't sent");
+      const call = {
+        protocol: "SIP",
+        from: "alice",
+        to: "bob",
+        caller: "a",
+        callee: "b",
+        state: "Completed",
+      };
+      assert.match(
+        await asked("pcapViewer.askAboutAnomaly", {
+          kind: "call",
+          call,
+          callId: 2,
+          sessionId: session.id,
+        }),
+        /Call 2 of the capture .*#pcapVoipCalls with call 2/,
+      );
+    } finally {
+      await ai.update("allowCaptureStatistics", undefined, vscode.ConfigurationTarget.Global);
+      await ai.update("allowPacketData", undefined, vscode.ConfigurationTarget.Global);
+      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+      await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
+    }
+  });
+
   test("setup: the environment check finds Python and tshark, and the sample opens", async () => {
     const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
     const api = (await ext!.activate()) as PcapViewerApi;

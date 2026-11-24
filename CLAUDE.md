@@ -2446,10 +2446,11 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   the overview with statistics allowed, a named fixture read with no
   editor and a copy outside the workspace refused. `@pcap` stays for the Local
   harness; the viewer's AI commands open it by default (else the editor
-  fallback). **`pcapViewer.ai.askIn`** (`pcap` default, `agent`;
-  `src/aiAgentQuery.ts` pure) prepares the move: with `agent` and the tools
-  API, summary, triage, compare, explain packets and the expert and TCP
-  stream panels' _Ask Copilot_ ask the consent first, then open
+  fallback). **`pcapViewer.ai.askIn`** (`agent`, the default since 0.37.0
+  (`askInSetting`: only an explicit `pcap` keeps `@pcap`), or `pcap`;
+  `src/aiAgentQuery.ts` pure): with `agent` and the tools API, summary,
+  triage, compare, explain packets and the expert, TCP stream and VoIP
+  panels' _Ask Copilot_ ask the consent first, then open
   `workbench.action.chat.open {query, mode: AGENT_MODE}` (VS Code looks
   `mode` up by name and ignores an unknown one) with a plain request
   (`agentQuery`) naming the capture (`captureLabel`: workspace path, else
@@ -2459,7 +2460,12 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   review: `defaultExpertQuestion` quotes the message); a VoIP call goes by
   its number (`#pcapVoipCalls with call N`). A comparison whose other
   capture the tools may not read (`toolsCanRead`) stays with `@pcap`; a
-  failed open falls back to `@pcap`, then the editor.
+  failed open falls back to `@pcap`, then the editor. Every chat request a
+  button makes is kept in `chatRequests` (the last 20, `{query, mode}`,
+  on the extension's API), and the smoke test presses all seven buttons
+  under the default and checks each request (the agent's mode, the capture,
+  the tools, no expert message); Compare takes `{other, baseline}` to skip
+  its questions.
 - **Language model choice** (`src/aiModel.ts` pure, `pcapViewer.ai.model`,
   application scope; _PCAP: Choose Language Model…_): `modelSelector("")` =
   `{vendor: "copilot"}` (as before), an id = `{id}` only. No fallback to
