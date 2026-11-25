@@ -74,7 +74,10 @@ export interface PcapViewerApi {
    * would be other instances.
    */
   readonly panels: typeof PANELS;
-  /** The chat requests the AI buttons made (commands/ai.ts), newest last. */
+  /**
+   * The chat requests the AI buttons made (commands/ai.ts), newest last:
+   * recorded only under tests (`ExtensionMode.Test`), empty otherwise.
+   */
   readonly chatRequests: readonly ChatRequest[];
 }
 

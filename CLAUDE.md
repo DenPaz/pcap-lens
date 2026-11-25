@@ -2460,9 +2460,11 @@ stream, sessionId}`. The query stays short: expert rows (sanitized by
   review: `defaultExpertQuestion` quotes the message); a VoIP call goes by
   its number (`#pcapVoipCalls with call N`). A comparison whose other
   capture the tools may not read (`toolsCanRead`) stays with `@pcap`; a
-  failed open falls back to `@pcap`, then the editor. Every chat request a
-  button makes is kept in `chatRequests` (the last 20, `{query, mode}`,
-  on the extension's API), and the smoke test presses all seven buttons
+  failed open falls back to `@pcap`, then the editor. Under tests
+  (`ExtensionMode.Test` only: a query can hold the user's question, and the
+  extension's API is open to every extension; Codex review of the 0.37.0
+  PR) every chat request a button makes is kept in `chatRequests` (the last
+  20, `{query, mode}`, on the extension's API), and the smoke test presses all seven buttons
   under the default and checks each request (the agent's mode, the capture,
   the tools, no expert message); Compare takes `{other, baseline}` to skip
   its questions.

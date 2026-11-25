@@ -650,11 +650,20 @@ export interface ChatRequest {
   readonly mode?: string;
 }
 
-/** The last chat requests the buttons made, newest last (the smoke test reads them). */
+/**
+ * The last chat requests the buttons made, newest last, for the smoke test
+ * only: kept while the extension runs under tests (`ExtensionMode.Test`),
+ * since a query can hold the user's question and the extension's API is
+ * open to every other extension (Codex review of the 0.37.0 PR).
+ */
 export const chatRequests: ChatRequest[] = [];
 const CHAT_REQUESTS_KEPT = 20;
+let recordingRequests = false;
 
 function recordChatRequest(request: ChatRequest): void {
+  if (!recordingRequests) {
+    return;
+  }
   chatRequests.push(request);
   chatRequests.splice(0, Math.max(0, chatRequests.length - CHAT_REQUESTS_KEPT));
 }
@@ -1152,6 +1161,7 @@ export function registerAiCommands(
   provider: PcapEditorProvider,
   log: vscode.LogOutputChannel,
 ): void {
+  recordingRequests = context.extensionMode === vscode.ExtensionMode.Test;
   context.subscriptions.push(
     vscode.commands.registerCommand("pcapViewer.suggestFilter", () =>
       suggestDisplayFilter(provider),
