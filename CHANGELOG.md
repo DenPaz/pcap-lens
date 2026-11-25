@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.37.0 — 2026-11-25
+
 ### Changed
 
 - The viewer's AI commands (summary, triage, compare, explain packets and
