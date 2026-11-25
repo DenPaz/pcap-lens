@@ -7,7 +7,7 @@
     "color": "#0b3a73",
     "theme": "dark"
   },
-  "version": "0.36.2",
+  "version": "0.37.0",
   "publisher": "denpaz",
   "license": "MIT",
   "repository": {
@@ -2167,11 +2167,11 @@
             "agent"
           ],
           "enumDescriptions": [
-            "Ask `@pcap` in the chat view (its Local harness, until VS Code removes it in 2027-02)",
-            "Ask the PCAP Lens agent, which answers with PCAP Lens's tools (needs VS Code with language model tools)"
+            "Ask `@pcap` in the chat view (Copilot's Local harness, which VS Code removes in 2027-02)",
+            "Ask the PCAP Lens agent, which answers with PCAP Lens's tools (VS Code with language model tools; else `@pcap`)"
           ],
-          "default": "pcap",
-          "markdownDescription": "Where the viewer's AI commands ask: *Summarize Capture*, *Triage Capture*, *Compare Captures*, *Ask Copilot About This Packet…* and the Expert Information and TCP Stream Graph panels' *Ask Copilot…*. `pcap` opens the chat with an `@pcap` command; `agent` opens it in the PCAP Lens agent with a request naming the capture and the tools to use (VoIP calls stay with `@pcap`). Either way the consent settings decide what is sent."
+          "default": "agent",
+          "markdownDescription": "Where the viewer's AI commands ask: *Summarize Capture*, *Triage Capture*, *Compare Captures*, *Ask Copilot About This Packet…* and the Expert Information, TCP Stream Graph and VoIP Calls panels' *Ask Copilot…*. `agent` opens the chat in the PCAP Lens agent with a request naming the capture and the tools to use; `pcap` opens it with an `@pcap` command, which VS Code's newer Copilot chat doesn't run. A VS Code without language model tools, and a comparison with a capture the tools may not read (outside the workspace, not open, not in Recent Captures), ask `@pcap`. Either way the consent settings decide what is sent."
         },
         "pcapViewer.ai.pseudonymizeAddresses": {
           "type": "boolean",

@@ -211,8 +211,9 @@ capture data needs your consent first, and addresses become stand-ins such as
   an attached file's own contents to the model as well, whatever PCAP Lens's
   settings say; naming the file in words doesn't. The viewer's AI commands
   (summary, triage, compare, explain packets, _Ask Copilot_ in the panels)
-  ask `@pcap` for now; set `pcapViewer.ai.askIn` to `agent` to have them ask
-  the PCAP Lens agent instead.
+  ask the PCAP Lens agent, naming the capture and the tools to use; set
+  `pcapViewer.ai.askIn` to `pcap` to have them ask `@pcap` instead (VS Code
+  without the tools API always does).
 - **Filter suggestions** (✨ or `@pcap`), **capture filters** and **Lua
   dissectors** from a description, all checked by tshark before use.
 - **Triage** (`@pcap /triage`): ranked findings from 33 checks tshark counts

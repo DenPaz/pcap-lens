@@ -33,7 +33,7 @@ import {
   readSettings,
 } from "./config";
 import { FilterAssistant } from "./ai";
-import { registerAiCommands } from "./commands/ai";
+import { ChatRequest, chatRequests, registerAiCommands } from "./commands/ai";
 import { registerIndexCacheCommands } from "./commands/indexCache";
 import { registerTlsCommands } from "./commands/tls";
 import { registerMergeCommands } from "./commands/merge";
@@ -74,6 +74,11 @@ export interface PcapViewerApi {
    * would be other instances.
    */
   readonly panels: typeof PANELS;
+  /**
+   * The chat requests the AI buttons made (commands/ai.ts), newest last:
+   * recorded only under tests (`ExtensionMode.Test`), empty otherwise.
+   */
+  readonly chatRequests: readonly ChatRequest[];
 }
 
 const PANELS = {
@@ -287,7 +292,7 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
       }
     }),
   );
-  return { provider: p, recent, panels: PANELS };
+  return { provider: p, recent, panels: PANELS, chatRequests };
 }
 
 export async function deactivate(): Promise<void> {

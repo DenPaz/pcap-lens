@@ -41,13 +41,13 @@ const ASKS: AgentAsk[] = [
 ];
 
 suite("aiAgentQuery", () => {
-  test("the setting: agent, else @pcap", () => {
-    assert.equal(askInSetting("agent"), "agent");
-    for (const v of ["pcap", undefined, "", "Agent", 3]) {
-      assert.equal(askInSetting(v), "pcap");
+  test("the setting: @pcap only when chosen, else the agent", () => {
+    assert.equal(askInSetting("pcap"), "pcap");
+    for (const v of ["agent", undefined, "", "Pcap", 3]) {
+      assert.equal(askInSetting(v), "agent");
     }
     const setting = pkg.contributes.configuration.properties["pcapViewer.ai.askIn"];
-    assert.equal(setting.default, "pcap");
+    assert.equal(setting.default, "agent");
     assert.deepEqual(setting.enum, ["pcap", "agent"]);
   });
 

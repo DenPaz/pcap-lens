@@ -644,6 +644,30 @@ async function anomalyInChat(
   );
 }
 
+/** A chat request a button made: its query, and the agent (`mode`) it asked. */
+export interface ChatRequest {
+  readonly query: string;
+  readonly mode?: string;
+}
+
+/**
+ * The last chat requests the buttons made, newest last, for the smoke test
+ * only: kept while the extension runs under tests (`ExtensionMode.Test`),
+ * since a query can hold the user's question and the extension's API is
+ * open to every other extension (Codex review of the 0.37.0 PR).
+ */
+export const chatRequests: ChatRequest[] = [];
+const CHAT_REQUESTS_KEPT = 20;
+let recordingRequests = false;
+
+function recordChatRequest(request: ChatRequest): void {
+  if (!recordingRequests) {
+    return;
+  }
+  chatRequests.push(request);
+  chatRequests.splice(0, Math.max(0, chatRequests.length - CHAT_REQUESTS_KEPT));
+}
+
 /** Open the chat view with `query` sent. False when VS Code can't (no chat, or the command refuses). */
 async function openChatWith(query: string, log: vscode.LogOutputChannel): Promise<boolean> {
   if (typeof vscode.chat?.createChatParticipant !== "function") {
@@ -652,6 +676,7 @@ async function openChatWith(query: string, log: vscode.LogOutputChannel): Promis
   if (!(await vscode.commands.getCommands(true)).includes("workbench.action.chat.open")) {
     return false;
   }
+  recordChatRequest({ query });
   try {
     await vscode.commands.executeCommand("workbench.action.chat.open", { query });
     return true;
@@ -680,11 +705,10 @@ async function openAgentWith(ask: AgentAsk, log: vscode.LogOutputChannel): Promi
   if (!(await vscode.commands.getCommands(true)).includes("workbench.action.chat.open")) {
     return false;
   }
+  const query = agentQuery(ask);
+  recordChatRequest({ query, mode: AGENT_MODE });
   try {
-    await vscode.commands.executeCommand("workbench.action.chat.open", {
-      query: agentQuery(ask),
-      mode: AGENT_MODE,
-    });
+    await vscode.commands.executeCommand("workbench.action.chat.open", { query, mode: AGENT_MODE });
     return true;
   } catch (err) {
     log.info(
@@ -807,11 +831,16 @@ export async function summarizeCapture(
   }
 }
 
-/** "PCAP: Compare Captures with AI…": pick the other capture and the baseline, then @pcap /compare #N (else an editor). */
+/**
+ * "PCAP: Compare Captures with AI…": pick the other capture and the baseline,
+ * then ask the agent, else @pcap /compare #N, else an editor. `{other, baseline}`
+ * (a path, and "other" or "open" as in the tool) skip the questions.
+ */
 export async function compareCaptures(
   context: vscode.ExtensionContext,
   provider: PcapEditorProvider,
   log: vscode.LogOutputChannel,
+  args?: unknown,
 ): Promise<void> {
   const session = requireSession(provider);
   if (!session) {
@@ -821,8 +850,17 @@ export async function compareCaptures(
     void vscode.window.showInformationMessage("AI help is turned off (pcapViewer.ai.enabled).");
     return;
   }
-  const other = await pickOtherCapture(session);
+  const given = args as { other?: unknown; baseline?: unknown } | undefined;
+  const other: OtherCapture | undefined =
+    typeof given?.other === "string" && given.other
+      ? { uri: vscode.Uri.file(given.other), is: given.baseline === "open" ? "after" : "before" }
+      : await pickOtherCapture(session);
   if (!other) {
+    return;
+  }
+  if (other.uri.fsPath === session.uri.fsPath) {
+    // (pickOtherCapture says so itself; arguments skip it)
+    void vscode.window.showInformationMessage("Pick another capture to compare with.");
     return;
   }
   // (the agent's tools read the other capture only where they may: else @pcap, which reads any)
@@ -1123,6 +1161,7 @@ export function registerAiCommands(
   provider: PcapEditorProvider,
   log: vscode.LogOutputChannel,
 ): void {
+  recordingRequests = context.extensionMode === vscode.ExtensionMode.Test;
   context.subscriptions.push(
     vscode.commands.registerCommand("pcapViewer.suggestFilter", () =>
       suggestDisplayFilter(provider),
@@ -1136,8 +1175,8 @@ export function registerAiCommands(
   );
   context.subscriptions.push(
     vscode.commands.registerCommand("pcapViewer.triageCapture", () => triageCapture(provider, log)),
-    vscode.commands.registerCommand("pcapViewer.compareCaptures", () =>
-      compareCaptures(context, provider, log),
+    vscode.commands.registerCommand("pcapViewer.compareCaptures", (args?: unknown) =>
+      compareCaptures(context, provider, log, args),
     ),
     vscode.commands.registerCommand("pcapViewer.summarizeCapture", () =>
       summarizeCapture(provider, log),
