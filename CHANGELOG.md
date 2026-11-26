@@ -15,6 +15,10 @@ commit) that made it. The format follows
 - Statistics asked for at the same time share one TShark pass when TShark
   dissects them alike: a comparison's capture profile takes about 30% less
   time and a third less CPU. [39f5016]
+- Statistics panels keep their title and buttons in view while a long or
+  wide table scrolls, show a progress bar while TShark runs, and work from
+  the keyboard: the arrow keys select rows, Enter goes to the packet (or
+  applies the filter), and column headers sort with Enter. [676779b]
 
 ### Fixed
 
@@ -26,6 +30,7 @@ commit) that made it. The format follows
 [f614507]: https://github.com/DenPaz/pcap-lens/commit/f614507
 [38f2631]: https://github.com/DenPaz/pcap-lens/commit/38f2631
 [39f5016]: https://github.com/DenPaz/pcap-lens/commit/39f5016
+[676779b]: https://github.com/DenPaz/pcap-lens/commit/676779b
 
 ## 0.37.0 — 2026-11-25
 
