@@ -932,7 +932,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
   const waitSelected = (n) =>
     page.waitForFunction(
       (f) =>
-        new RegExp(`Selected: ${f}(\\D|$)`).test(
+        new RegExp(`(Selected packet: ${f}(\\D|$)|showing ${f}\\))`).test(
           document.querySelector("#status-left").textContent,
         ),
       n,
@@ -1941,7 +1941,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await waitSelected(2);
     await rowEl(5).click({ modifiers: ["Shift"] });
     await waitSelection([2, 3, 4, 5]);
-    assert.match(await status(), /Selected: 5 \(4 packets\)/);
+    assert.match(await status(), /Selected: 4 packets \(showing 5\)/);
     await waitForHost((m) => m.type === "selection" && m.frames?.length === 4);
     assert.deepEqual(
       [...lastSelection().frames].sort((a, b) => a - b),
@@ -2024,7 +2024,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.waitForFunction(
       () => document.querySelectorAll("#list-rows .list-row.selected").length === 11,
     );
-    assert.match(await status(), /\(11 packets\)/);
+    assert.match(await status(), /Selected: 11 packets \(showing/);
     assert.equal(await page.evaluate(() => String(window.getSelection())), "", "no text selected");
     await page.keyboard.press("Escape");
     await page.waitForFunction(
@@ -2044,7 +2044,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.waitForFunction(
       () => document.querySelectorAll("#list-rows .list-row.selected").length <= 1,
     );
-    assert.doesNotMatch(await status(), /packets\)/);
+    assert.doesNotMatch(await status(), /packets \(showing/);
     // Ctrl+A in the filter bar selects its text, not packets (also via the palette command).
     await page.focus("#filter-input");
     await page.keyboard.press("ControlOrMeta+a");

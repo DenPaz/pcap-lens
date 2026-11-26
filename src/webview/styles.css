@@ -727,6 +727,17 @@ body {
   background: var(--vscode-list-activeSelectionBackground);
 }
 
+/*
+ * Without focus (after a click in the detail pane, its usual state), the
+ * selection's gray is no darker than a colored row's tint: a thin border of
+ * the focus color keeps the selected packet and tree node easy to find.
+ * High contrast themes outline them already (see the end of this file).
+ */
+body:not(.vscode-high-contrast):not(.vscode-high-contrast-light)
+  :is(#list-viewport:not(:focus) .list-row.selected, #detail-tree:not(:focus) .node-row.selected) {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vscode-focusBorder) 75%, transparent);
+}
+
 /* The focused row of a multi-selection (it's the one the detail pane shows). */
 #list-rows .list-row.focused {
   outline: 1px solid var(--vscode-list-focusOutline, var(--vscode-focusBorder));

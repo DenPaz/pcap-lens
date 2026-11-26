@@ -92,6 +92,13 @@ button:disabled {
   cursor: default;
 }
 
+/* A disabled primary button takes the secondary colors: dimmed, its blue
+   still read as an action to take. */
+button:not(.secondary, .icon, .link):disabled {
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
 /*
  * Icon buttons look like VS Code's toolbar actions: no fill or border until
  * hovered (toolbar-hoverBackground), pressed (toolbar-activeBackground) or

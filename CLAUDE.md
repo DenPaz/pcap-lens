@@ -3417,6 +3417,11 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
     path as marked packets; CSV/JSON can export the selected rows). Ctrl+C
     arrives as a `copy` event (VS Code runs `execCommand("copy")` in the
     webview). The host learns the selection from `selection {frame, frames}`.
+    The status bar says "Selected packet: 16", or "Selected: 4 packets
+    (showing 5)" ("Selected: 16" read as a count). Without focus (after a
+    click in the detail pane) the selected row and tree node get a 1 px
+    inset border of `focusBorder` in dark and light themes: the inactive
+    selection's gray was no darker than a colored row's tint.
   - _Frame links_: after a detail loads, the webview asks `field_types` (exact
     catalogue lookups) for the tree's field names once, and `FT_FRAMENUM`
     fields become links. The back/forward history covers jumps (links, go to,
@@ -3635,7 +3640,8 @@ scripts/screenshots.js --theme light|hc --out <dir>` renders Light Modern
   `--border`, `--shadow`) and the controls both use: buttons (primary,
   `.secondary`, `.icon`, `.link`, disabled), text/search/number inputs,
   selects and textareas, focus outlines, `.hidden`, `.visually-hidden`, and
-  the high-contrast tokens. Paddings, margins, gaps, radii and font sizes in
+  the high-contrast tokens. A disabled primary button takes the secondary
+  colors (dimmed, its blue still read as an action). Paddings, margins, gaps, radii and font sizes in
   styles.css and panel.css use the tokens; add a token rather than a new
   literal. **Icon buttons** look like VS Code's toolbar actions: no border or
   fill, `toolbar-hoverBackground` on hover, `toolbar-activeBackground` while

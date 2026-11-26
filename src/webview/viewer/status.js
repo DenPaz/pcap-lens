@@ -198,8 +198,12 @@ export function updateStatus() {
     parts.push(`Displayed: ${state.matchCount.toLocaleString()} (${pct}%${stopped})`);
   }
   if (state.selectedFrame !== null) {
-    const multi = state.selection.size ? ` (${state.selection.size.toLocaleString()} packets)` : "";
-    parts.push(`Selected: ${state.selectedFrame}${multi}`);
+    // ("Selected: 16" read as a count; the detail pane shows the focused one.)
+    parts.push(
+      state.selection.size
+        ? `Selected: ${state.selection.size.toLocaleString()} packets (showing ${state.selectedFrame})`
+        : `Selected packet: ${state.selectedFrame}`,
+    );
   }
   if (state.markCount) {
     parts.push(`Marked: ${state.markCount.toLocaleString()}`);
