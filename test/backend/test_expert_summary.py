@@ -66,13 +66,14 @@ def test_every_expert_item_the_packets_show_is_listed_and_linked(
         capture=str(f.path),
     )
     shown = set()
-    for line in run(argv).stdout.decode().split("\n"):
+    for line in stats._lines(run(argv).stdout.decode()):
         for item in filter(None, line.split("\x1e")):
             m = stats._EXPERT_FIELD.match(item)
             assert m, item
             shown.add((stats._EXPERT_SEVERITY_ALIAS.get(m["sev"], m["sev"]), m["msg"]))
     table = service.stats({"kind": "expert"}, ctx)
-    assert {(r["cells"][0], r["cells"][1]) for r in table["rows"]} == shown
+    # (tshark 4.6's fields output doubles backslashes: stats.expert_key.)
+    assert {(r["cells"][0], stats.expert_key(r["cells"][1])) for r in table["rows"]} == shown
     assert all(r.get("frames") for r in table["rows"])
     counts = service.expert_summary({}, ctx)["counts"]
     expected: Counter[str] = Counter()

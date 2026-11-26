@@ -221,6 +221,10 @@ def test_parse_expert_keeps_a_multi_line_comment_whole() -> None:
     )
     rows = [(r["cells"][1], r.get("frames")) for r in stats.parse_expert(summary, fields).rows]
     assert rows == [("The request\\nsecond line\\twith a tab", [4]), ("first of two", [5])]
+    # tshark 4.6's fields output doubles the backslashes.
+    doubled = fields.replace("\\", "\\\\")
+    rows = [(r["cells"][1], r.get("frames")) for r in stats.parse_expert(summary, doubled).rows]
+    assert rows == [("The request\\nsecond line\\twith a tab", [4]), ("first of two", [5])]
 
 
 CAPINFOS = """\

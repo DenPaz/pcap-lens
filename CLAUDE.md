@@ -936,7 +936,9 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   left out errors the fields pass and Wireshark show. A multi-line message (a
   packet comment) continues on raw lines of its own in the report and is
   escaped (`\n`, `\t`) in the fields pass; the row joins and escapes it the
-  same way to find its frames. Rows are matched by regex because multi-word groups
+  same way to find its frames (tshark 4.6's fields output doubles the
+  backslashes, so both sides go through `stats.expert_key`; found when CI's
+  Linux runners moved to 4.6.4). Rows are matched by regex because multi-word groups
   ("Response code") overflow tshark's fixed-width column. The display-filter
   limit uses each tap's own filter argument (`conv,tcp,<filter>` etc.).
 - **Shared tap passes** (`taps.py`, `TapBatcher` on the `_Open`, used by

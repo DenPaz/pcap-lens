@@ -411,6 +411,14 @@ _EXPERT_FIELD = re.compile(r"Expert Info \((?P<sev>[^/]+)/(?P<group>[^)]+)\): (?
 _EXPERT_SEVERITY_ALIAS = {"Warn": "Warning"}
 
 
+def expert_key(message: str) -> str:
+    """``message`` as the expert report and the fields pass both give it:
+    tshark 4.6's fields output doubles backslashes (a comment's line break,
+    which the report and 4.2 write ``\\n``, comes as ``\\\\n``), so rows are
+    matched to their frames with backslashes undoubled on both sides."""
+    return message.replace("\\\\", "\\")
+
+
 def parse_expert(summary_text: str, fields_text: str, max_frames: int = 1000) -> Table:
     """Combine ``-z expert`` (severity/group/protocol/summary/count) with a
     ``-Y _ws.expert -T fields -e frame.number -e _ws.expert`` pass that maps each
@@ -427,7 +435,7 @@ def parse_expert(summary_text: str, fields_text: str, max_frames: int = 1000) ->
             m = _EXPERT_FIELD.match(item)
             if m:
                 sev = _EXPERT_SEVERITY_ALIAS.get(m["sev"], m["sev"])
-                lst = frames.setdefault((sev, m["msg"]), [])
+                lst = frames.setdefault((sev, expert_key(m["msg"])), [])
                 if len(lst) < max_frames and (not lst or lst[-1] != int(number)):
                     lst.append(int(number))
 
@@ -468,7 +476,7 @@ def parse_expert(summary_text: str, fields_text: str, max_frames: int = 1000) ->
         }
         table.rows.append(row)
     for row in table.rows:
-        hits = frames.get((row["cells"][0], row["cells"][1]))
+        hits = frames.get((row["cells"][0], expert_key(row["cells"][1])))
         if hits:
             row["frame"] = hits[0]
             row["frames"] = hits
