@@ -330,7 +330,7 @@ plugins` and the plugin folders), `decryption.py` (decryption keys and
   `mixed.pcapng` fixture that `generate.py` writes), `walkthrough/*.md` (the
   walkthrough's pages) and `screenshots/` (README only, not packaged).
 - `docs/` (not packaged): `replay-to-service.md` (the feature's tracking
-  notes) and `wiki/`, the pages of the GitHub Wiki (`Home.md`, `_Sidebar.md`,
+  notes), `sharkd.md` (a design note: sharkd as an accelerator) and `wiki/`, the pages of the GitHub Wiki (`Home.md`, `_Sidebar.md`,
   one guide per area; links are Wiki page names like `MCP-Server`). Sessions
   can't push the Wiki (`pcap-lens.wiki.git` isn't a session repository), so
   the maintainer copies `docs/wiki/*.md` into a clone of it and pushes. Keep
