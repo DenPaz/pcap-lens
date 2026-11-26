@@ -738,11 +738,15 @@
       return searchable() ? lib.searchRows(rows, state.search) : rows;
     }
     if (groupedCache.table !== state.table || groupedCache.type !== state.type) {
-      groupedCache = {
-        table: state.table,
-        type: state.type,
-        rows: lib.groupConversations(state.table, state.type),
-      };
+      const rows = lib.groupConversations(state.table, state.type);
+      // The activity charts arriving rebuild the groups of the same rows, in
+      // the same order: the selected row is the one in its place (else the
+      // selection lost its mark, and the arrows started from the top).
+      const at = groupedCache.rows.indexOf(state.selected);
+      if (at >= 0 && groupedCache.rows.length === rows.length) {
+        state.selected = rows[at];
+      }
+      groupedCache = { table: state.table, type: state.type, rows };
     }
     const rows = state.sort
       ? lib.sortGrouped(groupedCache.rows, state.sort.col, state.sort.desc)

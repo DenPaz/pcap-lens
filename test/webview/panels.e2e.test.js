@@ -105,6 +105,8 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
   ) {
     const { page, problems, post } = await newPage(browser);
     const log = [];
+    /** @type {any} */
+    let lastActivity = null;
     await page.exposeFunction("__toHost", async (raw) => {
       const msg = JSON.parse(raw);
       log.push(msg);
@@ -129,7 +131,8 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
                 { kind, type, filter },
                 { timeoutMs: 0 },
               );
-              await post({ type: "activity", id: msg.id, ...charts });
+              lastActivity = { type: "activity", id: msg.id, ...charts };
+              await post(lastActivity);
             }
           },
           (err) =>
@@ -145,7 +148,9 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     });
     await page.setContent(renderPanelHtml(origin, "stats.js", { scripts }), { waitUntil: "load" });
     pages.push(problems);
-    return { page, log };
+    /** Posts the last activity charts again, as if they arrived only now. */
+    const chartsAgain = () => post(lastActivity);
+    return { page, log, chartsAgain };
   }
 
   const rows = (page) =>
@@ -342,10 +347,11 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         { path: path.join(FIXTURES, "sessions.pcap") },
         { timeoutMs: 0 },
       );
-      const { page, log } = await openStats("conversations", "", false, undefined, {
+      const { page, log, chartsAgain } = await openStats("conversations", "", false, undefined, {
         backend: sessions,
       });
       await waitRows(page, 6); // (TCP: six connections)
+      await page.waitForSelector("table.stats tbody td.spark svg");
       assert.ok(await page.isVisible("#stats-group"), "offered for TCP");
       await page.check("#stats-group");
       await waitRows(page, 5); // (five pairs of hosts, closed)
@@ -383,6 +389,14 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       // From the keyboard: ← and → close and open the selected pair, ↓ goes
       // to its first connection and ← from there back to the pair.
       await row.click();
+      // The activity charts arriving after the selection (a slow runner)
+      // rebuild the groups: the selection stays on its row.
+      await chartsAgain();
+      await page.waitForFunction(() =>
+        document
+          .querySelector("table.stats tbody tr.selected")
+          ?.textContent?.includes("198.51.100.20"),
+      );
       const activeCells = () =>
         page.$eval("table.stats", (t) =>
           [
