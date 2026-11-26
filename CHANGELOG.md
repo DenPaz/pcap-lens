@@ -11,7 +11,7 @@ commit) that made it. The format follows
 
 - The selected packet and detail field keep a visible border when you work
   in another pane, the status bar says "Selected packet: 16" (or "Selected: 4
-  packets (showing 5)"), and disabled buttons in the panels look disabled.
+  packets (showing 5)"), and disabled buttons in the panels look disabled. [38f2631]
 - Statistics asked for at the same time share one TShark pass when TShark
   dissects them alike: a comparison's capture profile takes about 30% less
   time and a third less CPU. [39f5016]
@@ -24,6 +24,7 @@ commit) that made it. The format follows
   to its packet. [f614507]
 
 [f614507]: https://github.com/DenPaz/pcap-lens/commit/f614507
+[38f2631]: https://github.com/DenPaz/pcap-lens/commit/38f2631
 [39f5016]: https://github.com/DenPaz/pcap-lens/commit/39f5016
 
 ## 0.37.0 — 2026-11-25
