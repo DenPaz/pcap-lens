@@ -285,7 +285,8 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   values), `comparing` (capture profiles and their diff), `replaying` (Replay to
   Service); plus `state.py` (constants and the per-capture
   dataclasses `_Open`, `_View`…), `indexing.py` (the index pass's
-  module-level helpers) and `helpers.py`), `tshark.py` (discovery/argv/process helpers), `cache.py`
+  module-level helpers) and `helpers.py`), `tshark.py` (discovery/argv/process helpers), `taps.py` (several `-z`
+  reports in one pass), `cache.py`
   (row store, frame index, LRU), `pdml.py` (PDML + hexdump parsing),
   `stats.py` (`-z` report and follow parsers), `fields.py` (field catalogue),
   `coloring.py` (coloring rules → `colorfilters`), `navigation.py` (find
@@ -931,6 +932,29 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   to get frame numbers. Rows are matched by regex because multi-word groups
   ("Response code") overflow tshark's fixed-width column. The display-filter
   limit uses each tap's own filter argument (`conv,tcp,<filter>` etc.).
+- **Shared tap passes** (`taps.py`, `TapBatcher` on the `_Open`, used by
+  `StatisticsMixin._tap`, which `_io`, triage and VoIP's `rtp,streams` go
+  through too): reports asked for within `WINDOW_S` (50 ms) of each other
+  with the same `batch_key` run in one tshark pass (at most `MAX_BATCH` 8).
+  Each report sits between sentinels, conversation taps of link types next
+  to no capture has (`conv,fddi` first, `conv,tr` between, `conv,ipx`
+  last; tshark 4.2 prints taps last first), and a pass whose output doesn't
+  hold them all in order isn't split (`split_reports` None): each caller
+  then runs its own, so a failing report gets its own error. A report alone
+  gets its pass's `RunResult`, checked as before. The key keeps reports
+  dissected alike together, since a report's result must not depend on
+  which others were asked for at the same time: same tshark options, both
+  building the protocol tree or neither (`builds_tree`: phs, io,stat and
+  any filtered tap do; network.pcap's SCTP is "Malformed" only with a tree,
+  which changed `sctp,stat` and the expert report beside phs), and both
+  naming `frame` or neither (a filter naming it gives phs a "frame" row).
+  Sentinels with a filter did the same, hence conversation taps. Each
+  report of a shared pass equals its solo output byte for byte
+  (`test_taps.py`, five fixtures; a tshark check of `builds_tree` per tap).
+  200k packets, TCP analysis on, 4 CPUs: capture profile 19.1 → 13.5 s
+  (tshark CPU 68 → 43 s), the summary's six statistics 14.6 → 15.2 s (CPU
+  34 → 27 s: the server's 4 request threads start the last two too late to
+  join). capture_profile's pool now runs all its parts at once.
 - **Group by hosts** (TCP/UDP conversations, `#stats-group`;
   `lib.groupConversations`, `sortGrouped`, `endAddress`): the webview
   groups the rows it has by their two addresses (no query): a parent row per

@@ -7,9 +7,18 @@ from collections.abc import Sequence
 from typing import Any
 
 from pcap_backend import activity, overview, sequence, sessions, stats, triage
+from pcap_backend.cancellation import CancelToken
 from pcap_backend.protocol import FilterError, InvalidParamsError, RequestContext, param
 from pcap_backend.stats import IoSeries, Table
-from pcap_backend.tshark import StreamResult, ToolError, broke, failed, run, stream_lines
+from pcap_backend.tshark import (
+    RunResult,
+    StreamResult,
+    ToolError,
+    broke,
+    failed,
+    run,
+    stream_lines,
+)
 
 from .detail import _bounded_pdml
 from .dissection import DissectionMixin
@@ -218,12 +227,8 @@ class StatisticsMixin(DissectionMixin):
         # (A comma locale's tshark reads "0,5": the comma is then part of the number.)
         step = f.tshark.decimal(interval, ctx.token)
         spec = ",".join([f"io,stat,{step}", *scope, *(s.tap_arg(counted) for s in series)])
-        argv = f.tshark.argv("-q", "-n", "-z", spec, capture=str(f.path))
-        res = run(argv, ctx.token)
-        text = res.stdout.decode("utf-8", "replace")
-        if "Interval" not in text:
-            # (A field without numbers for SUM etc.: tshark says so and exits 0.)
-            raise f.tshark.error(res.stderr, res.returncode, "tshark -z io,stat failed")
+        # (A field without numbers for SUM etc.: tshark says so and exits 0.)
+        text = self._tap(f, spec, ctx, required="Interval")
         return stats.parse_io_stat(text, interval, series)
 
     def triage(self, params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
@@ -269,11 +274,7 @@ class StatisticsMixin(DissectionMixin):
             )
             # (-2: requests are linked to their responses only on a second pass.)
             passes = ["-2"] if two_pass else []
-            argv = f.tshark.argv(*passes, "-q", "-n", "-z", spec, capture=str(f.path))
-            res = run(argv, ctx.token)
-            text = res.stdout.decode("utf-8", "replace")
-            if "Interval" not in text:
-                raise f.tshark.error(res.stderr, res.returncode, "tshark -z io,stat failed")
+            text = self._tap(f, spec, ctx, passes, required="Interval")
             table = stats.parse_io_stat(text, 0.0, series)
             found = {str(r["id"]): r for r in triage.results(usable, table)}
 
@@ -638,11 +639,31 @@ class StatisticsMixin(DissectionMixin):
             "response": pick(response, params.get("responseIndex"), "response"),
         }
 
-    def _tap(self, f: _Open, spec: str, ctx: RequestContext, extra: Sequence[str] = ()) -> str:
-        # -n (after the name resolution options): report rows become address filters.
-        argv = f.tshark.argv(*extra, "-q", "-n", "-z", spec, capture=str(f.path))
-        res = run(argv, ctx.token)
+    def _tap(
+        self,
+        f: _Open,
+        spec: str,
+        ctx: RequestContext,
+        extra: Sequence[str] = (),
+        required: str | None = None,
+    ) -> str:
+        """The report of tap ``spec``, from a pass shared with the reports
+        other requests ask for at the same time (taps.py), else from its own;
+        ``required``: text the report must hold (io,stat prints an error and
+        exits 0 for a field without numbers)."""
+
+        def runner(z_args: Sequence[str], token: CancelToken) -> RunResult:
+            # -n (after the name resolution options): report rows become address filters.
+            return run(f.tshark.argv(*extra, "-q", "-n", *z_args, capture=str(f.path)), token)
+
+        shared = f.taps.report(extra, spec, ctx.token, runner)
+        if isinstance(shared, str) and (required is None or required in shared):
+            return shared
+        # (Its own pass: no other report joined, or the shared one failed.)
+        res = shared if isinstance(shared, RunResult) else runner(["-z", spec], ctx.token)
         text = res.stdout.decode("utf-8", "replace")
-        if broke(res.returncode, res.stderr, bool(text.strip())):
+        if broke(res.returncode, res.stderr, bool(text.strip())) or (
+            required is not None and required not in text
+        ):
             raise f.tshark.error(res.stderr, res.returncode, f"tshark -z {spec} failed")
         return text

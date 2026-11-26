@@ -20,6 +20,7 @@ from pcap_backend.capture import LiveSource
 from pcap_backend.index_cache import IndexCache
 from pcap_backend.protocol import RequestContext
 from pcap_backend.stats import Table
+from pcap_backend.taps import TapBatcher
 from pcap_backend.tshark import Tshark
 
 MAX_PAGE = 5000
@@ -176,6 +177,8 @@ class _Open:
     # stats_activity charts the rows the panel shows; their rows get their
     # ``activity`` once charted.
     reports: LruCache[tuple[str, str, str], Table] = field(default_factory=lambda: LruCache(4))
+    # The -z reports asked for at the same time share one tshark pass (taps.py).
+    taps: TapBatcher = field(default_factory=TapBatcher)
 
     def frame_count(self) -> int:
         """Frames known so far: during a streaming open, the rows published
