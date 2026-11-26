@@ -50,6 +50,17 @@ def _split(cell: str) -> list[str]:
     return cell.split(sessions.AGGREGATOR) if cell else []
 
 
+def _expert_spec(counted: str) -> str:
+    """The expert report of the packets ``counted`` matches ("comment", the
+    lowest severity, is everything). Always with a display filter (``frame``
+    when there is none): a filter makes tshark build the protocol tree, which
+    some dissectors need to find a problem (network.pcap's SCTP is "Malformed"
+    only then), as Wireshark, any filtered report and the ``_ws.expert``
+    fields pass that links the rows to packets do; unfiltered, the report
+    left out errors the packets showed."""
+    return f"expert,comment,{counted or 'frame'}"
+
+
 class StatisticsMixin(DissectionMixin):
     """Statistics from tshark's -z reports."""
 
@@ -358,9 +369,7 @@ class StatisticsMixin(DissectionMixin):
         fields_future = self._pool.submit(
             run, f.tshark.argv(*fields_args, capture=str(f.path)), ctx.token
         )
-        # "comment" is the lowest severity, i.e. everything.
-        suffix = f",{counted}" if counted else ""
-        summary = self._tap(f, f"expert,comment{suffix}", ctx)
+        summary = self._tap(f, _expert_spec(counted), ctx)
         fields_text = fields_future.result().stdout.decode("utf-8", "replace")
         return stats.parse_expert(summary, fields_text)
 
@@ -375,8 +384,7 @@ class StatisticsMixin(DissectionMixin):
         ignore = self._ignore_filter()
         if f.expert is None or f.expert[0] != ignore:
             # (No progress: it runs quietly in the background, not behind the busy bar.)
-            spec = f"expert,comment,{ignore}" if ignore else "expert,comment"
-            f.expert = (ignore, stats.parse_expert_counts(self._tap(f, spec, ctx)))
+            f.expert = (ignore, stats.parse_expert_counts(self._tap(f, _expert_spec(ignore), ctx)))
         return {"counts": f.expert[1]}
 
     def _tree_stats(self, f: _Open, kind: str, typ: str, suffix: str, ctx: RequestContext) -> Table:

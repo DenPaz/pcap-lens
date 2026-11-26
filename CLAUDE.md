@@ -929,7 +929,14 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   parent rows ("dns one level below udp") and totals, never absolute depths.
   Percentages divide by the depth-0 rows, which cover every packet either way. Expert info joins `-z expert` (severity/group/
   protocol/count) with a `-T fields -e _ws.expert` pass (aggregator `\x1e`)
-  to get frame numbers. Rows are matched by regex because multi-word groups
+  to get frame numbers. The report always has a display filter (`frame` when
+  there is none, `_expert_spec`): only a filter makes tshark build the
+  protocol tree, which some dissectors need to raise a problem
+  (network.pcap's SCTP is "Malformed" only then), so the unfiltered report
+  left out errors the fields pass and Wireshark show. A multi-line message (a
+  packet comment) continues on raw lines of its own in the report and is
+  escaped (`\n`, `\t`) in the fields pass; the row joins and escapes it the
+  same way to find its frames. Rows are matched by regex because multi-word groups
   ("Response code") overflow tshark's fixed-width column. The display-filter
   limit uses each tap's own filter argument (`conv,tcp,<filter>` etc.).
 - **Shared tap passes** (`taps.py`, `TapBatcher` on the `_Open`, used by
@@ -992,7 +999,8 @@ activity, rows}`, which the webview merges row for row into the table of
   ICMP error quoting a header counts in the pass, not in tshark's report).
   A failed pass only leaves the charts out.
 - **Expert indicator** (`expert_summary`, `lib.expertStatus`,
-  `status.js` `loadExpertSummary`): one `-q -z expert,comment` pass
+  `status.js` `loadExpertSummary`): one `-q -z expert,comment,<filter>` pass
+  (`_expert_spec`, as the table)
   (`stats.parse_expert_counts`: the section headers' totals per severity),
   cached on the `_Open` (`f.expert`); IndexingError while indexing, so the
   webview asks on init when not indexing and in `onIndexDone`. It reports

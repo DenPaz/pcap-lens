@@ -443,23 +443,35 @@ def parse_expert(summary_text: str, fields_text: str, max_frames: int = 1000) ->
         ],
     )
     severity = None
+    row: dict[str, Any] | None = None
     for line in _lines(summary_text):
         sec = _EXPERT_SECTION.match(line.strip())
         if sec:
-            severity = _SEVERITY_NAME[sec["name"]]
+            severity, row = _SEVERITY_NAME[sec["name"]], None
             continue
         m = _EXPERT_ROW.match(line) if severity else None
         if not m or severity is None:
+            # A multi-line message (a packet comment) goes on in lines of
+            # its own; the fields pass writes its line breaks and tabs as
+            # \n and \t, so the row says it the same way and finds its frames.
+            if row is not None and line.strip() and not line.lstrip().startswith("="):
+                row["cells"][1] += "\\n" + line.replace("\t", "\\t")
             continue
-        summary = m["summary"]
-        row: dict[str, Any] = {
-            "cells": [severity, summary, m["group"], m["proto"], int(m["count"])]
+        row = {
+            "cells": [
+                severity,
+                m["summary"].replace("\t", "\\t"),
+                m["group"],
+                m["proto"],
+                int(m["count"]),
+            ]
         }
-        hits = frames.get((severity, summary))
+        table.rows.append(row)
+    for row in table.rows:
+        hits = frames.get((row["cells"][0], row["cells"][1]))
         if hits:
             row["frame"] = hits[0]
             row["frames"] = hits
-        table.rows.append(row)
     table.rows.sort(key=lambda r: _SEVERITY_ORDER.get(r["cells"][0], 3))
     return table
 

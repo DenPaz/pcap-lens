@@ -7,6 +7,13 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- Expert Information and the status bar's expert count could miss errors the
+  packets show, such as malformed SCTP chunks found only when TShark builds
+  the full protocol tree, and a multi-line packet comment's row couldn't go
+  to its packet.
+
 ### Changed
 
 - Statistics asked for at the same time share one TShark pass when TShark

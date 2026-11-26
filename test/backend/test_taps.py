@@ -259,5 +259,7 @@ def test_statistics_asked_for_together_are_the_ones_asked_for_alone(
     alone = tables(together=False)
     count = len(passes)
     assert tables(together=True) == alone
-    # Two passes: the hierarchy and the I/O graph build the tree, the rest don't.
-    assert len(passes) - count == 2
+    # Three passes: the hierarchy and the I/O graph build the tree; the expert
+    # report too, filtered on "frame" (statistics._expert_spec), so apart from
+    # the hierarchy; the conversations and endpoints share the third.
+    assert len(passes) - count == 3
