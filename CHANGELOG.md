@@ -12,7 +12,7 @@ commit) that made it. The format follows
 - Expert Information and the status bar's expert count could miss errors the
   packets show, such as malformed SCTP chunks found only when TShark builds
   the full protocol tree, and a multi-line packet comment's row couldn't go
-  to its packet.
+  to its packet. [f614507]
 
 ### Changed
 
@@ -20,6 +20,7 @@ commit) that made it. The format follows
   dissects them alike: a comparison's capture profile takes about 30% less
   time and a third less CPU. [39f5016]
 
+[f614507]: https://github.com/DenPaz/pcap-lens/commit/f614507
 [39f5016]: https://github.com/DenPaz/pcap-lens/commit/39f5016
 
 ## 0.37.0 — 2026-11-25
