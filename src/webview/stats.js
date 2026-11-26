@@ -142,6 +142,23 @@
   const legend = h("ul", { class: "io-legend hidden", "aria-label": "Legend" });
   const mapBox = h("div", { class: "geo-map hidden" });
   const tableBox = h("div");
+  // The results (chart, map, table) scroll on their own, so the title,
+  // toolbars and status stay in view: a wide table (TLS Servers) scrolled
+  // the buttons off the page with it.
+  const results = h("div", { class: "results" });
+  // tshark is running: a thin bar along the panel's top, as VS Code's editors show.
+  const busyFill = h("div", { class: "progress-fill" });
+  const busy = h(
+    "div",
+    {
+      class: "progress-bar panel-busy indeterminate hidden",
+      role: "progressbar",
+      "aria-label": "Running tshark",
+      "aria-valuemin": "0",
+      "aria-valuemax": "100",
+    },
+    [busyFill],
+  );
   const searchInput = /** @type {HTMLInputElement} */ (
     h("input", {
       id: "stats-search",
@@ -197,18 +214,9 @@
     }
     render();
   }
-  app.append(
-    title,
-    toolbar,
-    seriesBox,
-    actions,
-    notice,
-    status,
-    chartBox,
-    legend,
-    mapBox,
-    tableBox,
-  );
+  results.append(chartBox, legend, mapBox, tableBox);
+  app.classList.add("fixed-head");
+  app.append(busy, title, toolbar, seriesBox, actions, notice, status, results);
 
   const applyBtn = iconButton("filter", "Apply as Filter", {
     title: "Apply this row as the display filter",
@@ -455,7 +463,7 @@
     toolbar.append(h("span", { class: "spacer" }), refresh);
     actions.replaceChildren(
       ...(state.kind === "expert"
-        ? [gotoBtn, applyBtn, prepareBtn, ...(state.ai ? [askBtn] : [])]
+        ? [applyBtn, prepareBtn, gotoBtn, ...(state.ai ? [askBtn] : [])]
         : state.kind === "http_requests"
           ? [applyBtn, prepareBtn, gotoBtn, exchangeBtn, bodyBtn]
           : state.kind === "srt" ||
@@ -580,6 +588,25 @@
 
   // ------------------------------------------------------------------ data
 
+  /**
+   * The busy bar: hidden (false), sliding (null: no estimate) or filled to
+   * a fraction, with the status line saying how far tshark got.
+   * @param {number | null | false} fraction
+   */
+  function setBusy(fraction) {
+    busy.classList.toggle("hidden", fraction === false);
+    busy.classList.toggle("indeterminate", fraction === null);
+    if (typeof fraction === "number") {
+      const percent = Math.round(Math.min(1, Math.max(0, fraction)) * 100);
+      busyFill.style.width = `${percent}%`;
+      busy.setAttribute("aria-valuenow", String(percent));
+      status.textContent = `Running tshark… ${percent}%`;
+    } else {
+      busyFill.style.width = "";
+      busy.removeAttribute("aria-valuenow");
+    }
+  }
+
   function query() {
     if (state.pending !== null) {
       vscode.postMessage({ type: "cancel", id: state.pending });
@@ -587,6 +614,7 @@
     const id = ++state.queryId;
     state.pending = id;
     status.textContent = "Running tshark…";
+    setBusy(null);
     notice.classList.add("hidden");
     vscode.postMessage({
       type: "query",
@@ -639,8 +667,11 @@
       state.badField = null;
       buildToolbar();
       query();
+    } else if (msg.type === "progress" && msg.id === state.pending) {
+      setBusy(typeof msg.fraction === "number" ? msg.fraction : null);
     } else if (msg.type === "result" && msg.id === state.pending) {
       state.pending = null;
+      setBusy(false);
       state.table = msg.table;
       markBadSeries(null);
       if (state.badField) {
@@ -672,6 +703,7 @@
       }
     } else if (msg.type === "error" && msg.id === state.pending) {
       state.pending = null;
+      setBusy(false);
       status.textContent = "";
       if (!msg.cancelled) {
         notice.textContent =
@@ -845,9 +877,13 @@
   function renderTable() {
     // A group's button keeps the focus when the table is drawn again (opening
     // it, the activity charts arriving).
-    const focusedGroup = document.activeElement
-      ? toggleGroup.get(document.activeElement)
-      : undefined;
+    const focused = document.activeElement;
+    const focusedGroup = focused ? toggleGroup.get(focused) : undefined;
+    // So do the table itself and a column's header (sorting from the keyboard).
+    const focusedTable = !!focused && focused.matches("table.stats");
+    const focusedColumn = focused?.matches("table.stats th")
+      ? focused.getAttribute("data-col")
+      : null;
     try {
       drawTable();
     } finally {
@@ -857,8 +893,133 @@
             /** @type {HTMLElement} */ (b).focus();
           }
         }
+      } else if (focusedColumn !== null) {
+        /** @type {HTMLElement | null} */ (
+          tableBox.querySelector(`th[data-col="${focusedColumn}"]`)
+        )?.focus();
+      } else if (focusedTable) {
+        /** @type {HTMLElement | null} */ (tableBox.querySelector("table.stats"))?.focus();
       }
     }
+  }
+
+  /**
+   * The table drawn: its rows (sorted, grouped, searched) and elements, so
+   * the keys can move the selection through rows not drawn yet.
+   * @type {{rows: any[], body: HTMLElement, table: HTMLElement} | null}
+   */
+  let drawn = null;
+
+  /**
+   * Selects `row` (one of the rows drawn): the drawn rows' marks, the map's
+   * point and the buttons follow.
+   * @param {any} row
+   */
+  function selectRow(row) {
+    state.selected = row;
+    if (drawn) {
+      for (const tr of drawn.body.children) {
+        const on = rowOf.get(tr) === row;
+        tr.classList.toggle("selected", on);
+        if (tr.id) {
+          tr.setAttribute("aria-selected", String(on));
+          if (on) {
+            drawn.table.setAttribute("aria-activedescendant", tr.id);
+          }
+        }
+      }
+    }
+    if (row && row.geo) {
+      renderMap();
+    }
+    updateActions();
+  }
+
+  /** Rows a page key moves by: as many as the results show. */
+  function pageRows() {
+    const tr = drawn?.body.querySelector("tr:not(.spacer)");
+    const height = tr ? tr.getBoundingClientRect().height : 20;
+    return Math.max(1, Math.floor(results.clientHeight / (height || 20)) - 2);
+  }
+
+  /**
+   * The table's keys (it is a grid whose selection is its active row):
+   * arrows, Home/End and the page keys move the selection, Enter does what a
+   * double-click does, → and ← open and close a pair of hosts.
+   * @param {KeyboardEvent} e
+   */
+  function tableKey(e) {
+    if (!drawn || e.target !== drawn.table || e.altKey || e.ctrlKey || e.metaKey) {
+      return;
+    }
+    const rows = drawn.rows;
+    const at = rows.indexOf(state.selected);
+    const row = at >= 0 ? rows[at] : null;
+    /** @type {number | null} */
+    let next = null;
+    switch (e.key) {
+      case "ArrowDown":
+        next = at < 0 ? 0 : at + 1;
+        break;
+      case "ArrowUp":
+        next = at < 0 ? 0 : at - 1;
+        break;
+      case "PageDown":
+        next = Math.max(at, 0) + pageRows();
+        break;
+      case "PageUp":
+        next = Math.max(at, 0) - pageRows();
+        break;
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = rows.length - 1;
+        break;
+      case "Enter":
+        if (row) {
+          e.preventDefault();
+          if (row.frame) {
+            rowGoto();
+          } else if (row.filter) {
+            rowFilter(true);
+          }
+        }
+        return;
+      case "ArrowRight":
+      case "ArrowLeft": {
+        const open = e.key === "ArrowRight";
+        if (row && row.group !== undefined && !searchable()) {
+          e.preventDefault();
+          if (state.expanded.has(row.group) !== open) {
+            if (open) {
+              state.expanded.add(row.group);
+            } else {
+              state.expanded.delete(row.group);
+            }
+            renderTable();
+          }
+        } else if (row && !open && row.parent !== undefined) {
+          // A connection: ← goes to its pair of hosts (`parent` is the pair's key).
+          e.preventDefault();
+          next = rows.findIndex((r) => r.group === row.parent);
+        }
+        if (next === null || next < 0) {
+          return;
+        }
+        break;
+      }
+      default:
+        return;
+    }
+    e.preventDefault();
+    if (!rows.length) {
+      return;
+    }
+    const index = Math.min(rows.length - 1, Math.max(0, next));
+    selectRow(rows[index]);
+    revealSelected(false);
+    selectRow(rows[index]); // (a long table drew the row just now)
   }
 
   function drawTable() {
@@ -881,12 +1042,21 @@
               : "ascending"
             : "none",
         );
+        th.setAttribute("data-col", String(i));
+        th.tabIndex = 0;
+        th.title = `Sort by ${col.label}`;
         th.addEventListener("click", () => {
           state.sort =
             !state.sort || state.sort.col !== i
               ? { col: i, desc: col.numeric }
               : { col: i, desc: !state.sort.desc };
           renderTable();
+        });
+        th.addEventListener("keydown", (/** @type {KeyboardEvent} */ e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            th.click();
+          }
         });
       }
       headRow.append(th);
@@ -903,7 +1073,7 @@
     const virtual = rows.length > lib.VIRTUAL_TABLE_ROWS;
     /** One <tr> for row `index` of `rows`. @param {any} row @param {number} index */
     const rowElement = (row, index) => {
-      const tr = h("tr");
+      const tr = h("tr", { id: `stats-row-${index}`, "aria-selected": "false" });
       if (virtual) {
         tr.setAttribute("aria-rowindex", String(index + 2)); // (the header is row 1)
       }
@@ -933,19 +1103,20 @@
       rowOf.set(tr, row);
       if (row === state.selected) {
         tr.classList.add("selected");
+        tr.setAttribute("aria-selected", "true");
       }
-      tr.addEventListener("click", () => {
-        state.selected = row;
-        [...body.children].forEach((r) => r.classList.toggle("selected", r === tr));
-        if (row.geo) {
-          renderMap();
-        }
-        updateActions();
-      });
+      tr.addEventListener("click", () => selectRow(row));
       tr.addEventListener("dblclick", () => (row.frame ? rowGoto() : rowFilter(true)));
       return tr;
     };
-    const table = h("table", { class: virtual ? "stats virtual" : "stats" });
+    // A grid: Tab reaches it, the arrows move its selected row.
+    const table = h("table", {
+      class: virtual ? "stats virtual" : "stats",
+      role: "grid",
+      tabindex: "0",
+      "aria-label": title.textContent || "Statistics",
+    });
+    table.addEventListener("keydown", tableKey);
     if (virtual) {
       // Fixed column widths (the cells are monospaced), so the columns don't
       // move as other rows are drawn; the screen reader hears every row.
@@ -990,6 +1161,7 @@
     }
     table.append(h("thead", {}, [headRow]), body);
     tableBox.replaceChildren(table);
+    drawn = { rows, body, table };
     if (!virtual) {
       virtualTable = null;
       rows.forEach((row, index) => body.append(rowElement(row, index)));
@@ -999,6 +1171,7 @@
         ]);
         body.append(h("tr", { class: "no-match" }, [td]));
       }
+      markActive();
       return;
     }
     virtualTable = {
@@ -1124,8 +1297,12 @@
       v.body.replaceChildren(probe);
       v.rowHeight = probe.getBoundingClientRect().height || 20;
     }
-    const offset = -v.body.getBoundingClientRect().top;
-    const { start, end } = lib.tableWindow(offset, window.innerHeight, v.rowHeight, v.rows.length);
+    // (The results scroll on their own; the page too when the panel is
+    // shorter than its toolbars and the results' least height.)
+    const top = Math.max(results.getBoundingClientRect().top, 0);
+    const offset = top - v.body.getBoundingClientRect().top;
+    const height = Math.min(results.clientHeight, window.innerHeight);
+    const { start, end } = lib.tableWindow(offset, height, v.rowHeight, v.rows.length);
     if (start === v.start && end === v.end) {
       return;
     }
@@ -1142,21 +1319,48 @@
       parts.push(spacer(v.rows.length - end));
     }
     v.body.replaceChildren(...parts);
+    markActive();
   }
 
-  /** Scrolls a long table's selected row into view (it may not be drawn). */
-  function revealSelected() {
-    const v = virtualTable;
-    const index = v ? v.rows.indexOf(state.selected) : -1;
-    if (index < 0) {
-      tableBox.querySelector("tr.selected")?.scrollIntoView({ block: "nearest" });
+  /** The grid's active row: the selected one while it is drawn. */
+  function markActive() {
+    if (!drawn) {
       return;
     }
-    const top = v.body.getBoundingClientRect().top + window.scrollY + index * v.rowHeight;
-    window.scrollTo({ top: Math.max(0, top - window.innerHeight / 2) });
-    drawWindow();
+    const tr = drawn.body.querySelector("tr.selected");
+    if (tr && tr.id) {
+      drawn.table.setAttribute("aria-activedescendant", tr.id);
+    } else {
+      drawn.table.removeAttribute("aria-activedescendant");
+    }
   }
 
+  /**
+   * Scrolls the selected row into view (a long table's may not be drawn:
+   * `center` puts it mid-panel, else it moves as little as it can).
+   */
+  function revealSelected(center = true) {
+    const v = virtualTable;
+    const index = v ? v.rows.indexOf(state.selected) : -1;
+    if (index >= 0) {
+      const box = results.getBoundingClientRect();
+      const rowTop = v.body.getBoundingClientRect().top + index * v.rowHeight;
+      const head = tableBox.querySelector("thead")?.getBoundingClientRect().height ?? 0;
+      if (center) {
+        results.scrollTop += rowTop - box.top - results.clientHeight / 2;
+      } else if (rowTop < box.top + head) {
+        results.scrollTop -= box.top + head - rowTop;
+      } else if (rowTop + v.rowHeight > box.top + results.clientHeight) {
+        results.scrollTop += rowTop + v.rowHeight - box.top - results.clientHeight;
+      }
+      drawWindow();
+    }
+    tableBox
+      .querySelector("tr.selected")
+      ?.scrollIntoView({ block: center ? "center" : "nearest", inline: "nearest" });
+  }
+
+  results.addEventListener("scroll", () => requestAnimationFrame(drawWindow), { passive: true });
   for (const event of ["scroll", "resize"]) {
     window.addEventListener(event, () => requestAnimationFrame(drawWindow), { passive: true });
   }

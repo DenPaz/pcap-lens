@@ -68,6 +68,32 @@ body.panel #app {
   color: var(--vscode-descriptionForeground);
 }
 
+/* Statistics: the title, toolbars and status stay in view and the results
+   (chart, map, table) scroll on their own, sideways too; a panel shorter
+   than that scrolls as a whole. */
+body.panel #app.fixed-head {
+  height: 100vh;
+  min-height: 0;
+}
+
+.results {
+  flex: 1 1 auto;
+  min-height: 8em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  overflow: auto;
+}
+
+/* tshark is running: a bar along the panel's top edge (base.css .progress-bar). */
+.panel-busy {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+}
+
 /* ------------------------------------------------------------------ tables */
 
 table.stats {
@@ -119,6 +145,39 @@ table.stats tbody tr:hover {
 table.stats tbody tr.selected {
   color: var(--vscode-list-activeSelectionForeground);
   background: var(--vscode-list-activeSelectionBackground);
+}
+
+/* The statistics tables take the focus (their arrows move the selection):
+   without it the selection is VS Code's inactive one, still edged so it is
+   found on a colored row, and a row brought into view clears the sticky
+   header. */
+table.stats[tabindex] {
+  outline-offset: -1px;
+}
+
+table.stats[tabindex]:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+}
+
+table.stats[tabindex]:not(:focus) tbody tr.selected {
+  color: var(--vscode-list-inactiveSelectionForeground, inherit);
+  background: var(--vscode-list-inactiveSelectionBackground);
+}
+
+body:not(.vscode-high-contrast):not(.vscode-high-contrast-light)
+  table.stats[tabindex]:not(:focus)
+  tbody
+  tr.selected {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vscode-focusBorder) 75%, transparent);
+}
+
+table.stats tbody tr {
+  scroll-margin-top: calc(var(--row-height) + var(--space-2));
+}
+
+table.stats th[tabindex]:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
 }
 
 table.stats td.wrap {

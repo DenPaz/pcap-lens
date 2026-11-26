@@ -913,9 +913,24 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   only `!(…)` when there is no filter or it is that stream's.
 - **Statistics** parse tshark's human-readable `-z` reports into one generic
   table model (`stats.py`: columns, rows with optional `filter`/`frame`/`depth`),
-  rendered by one panel (`src/webview/stats.js`); a table of more than
+  rendered by one panel (`src/webview/stats.js`). The title, toolbars and
+  status stay in view (`#app.fixed-head`) and the chart, map and table
+  scroll in `.results`, sideways too (a wide table such as TLS Servers
+  scrolled the buttons away with the page); `.panel-busy` (base.css's
+  `.progress-bar`, fixed along the top) slides while a query runs and fills
+  when the pass reports progress (StatsPanel forwards `onProgress` as
+  `progress {id, fraction}`; "Running tshark… 42%"). The table is a `grid`
+  (`tabindex` 0, `aria-activedescendant` = the selected row's
+  `stats-row-<index>` while it is drawn, rows `aria-selected`): ↑/↓,
+  Home/End and the page keys move the selection (`tableKey`, through rows
+  not drawn yet), Enter does a double-click's work (go to the packet, else
+  apply the filter), → / ← open and close a pair of hosts and ← goes from a
+  connection to its pair; sortable headers take Tab and Enter/Space and
+  keep the focus. Unfocused, the selection is VS Code's inactive one with a
+  `focusBorder` edge, as in the viewer. Action buttons keep one order, the
+  primary one first (Expert put Go to Packet first). A table of more than
   `lib.VIRTUAL_TABLE_ROWS` (2,000) rows draws only the rows on screen
-  (`drawWindow` on the page's scroll, `lib.tableWindow`; spacer rows stand
+  (`drawWindow` on `.results`' scroll, `lib.tableWindow`; spacer rows stand
   for the rest; `aria-rowcount`/`aria-rowindex`; fixed column widths from
   `lib.columnChars`, the cells being monospaced, the widest text column
   taking what is left). _Filter rows_ (`#stats-search`, Ctrl/Cmd+F, Esc

@@ -380,8 +380,27 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         children.reduce((n, r) => n + Number(r[2]), 0),
         "the pair's packets are its connections'",
       );
-      // The pair's filter: both hosts, that transport.
+      // From the keyboard: ← and → close and open the selected pair, ↓ goes
+      // to its first connection and ← from there back to the pair.
       await row.click();
+      const activeCells = () =>
+        page.$eval("table.stats", (t) =>
+          [
+            ...(document.getElementById(t.getAttribute("aria-activedescendant") || "")?.children ??
+              []),
+          ].map((td) => td.textContent),
+        );
+      assert.deepEqual((await activeCells()).slice(0, 2), ["2192.168.1.10", "198.51.100.20"]);
+      await page.keyboard.press("ArrowLeft");
+      await waitRows(page, 5);
+      assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+      await page.keyboard.press("ArrowRight");
+      await waitRows(page, 7);
+      await page.keyboard.press("ArrowDown");
+      assert.equal((await activeCells())[1], "198.51.100.20:443");
+      await page.keyboard.press("ArrowLeft");
+      assert.deepEqual((await activeCells()).slice(0, 2), ["2192.168.1.10", "198.51.100.20"]);
+      // The pair's filter: both hosts, that transport.
       await page.click("button:has-text('Apply as Filter')");
       assert.equal(
         log.findLast((m) => m.type === "filter").expr,
@@ -2065,6 +2084,47 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     }
   });
 
+  test("statistics busy bar: shown while tshark runs, filled as it reports, gone with the result", async () => {
+    /** @type {(msg: any) => Promise<void>} */
+    let answer = async () => undefined;
+    const { page } = await openGraphPanel("stats.js", async (msg, reply) => {
+      if (msg.type === "ready") {
+        await reply({ type: "init", kind: "expert", title: "Expert Information", filter: "" });
+      } else if (msg.type === "query") {
+        answer = async (m) => reply({ id: msg.id, ...m });
+      }
+    });
+    await page.waitForSelector(".panel-busy.indeterminate:not(.hidden)");
+    assert.equal(await page.textContent(".status"), "Running tshark…");
+    assert.equal(await page.getAttribute(".panel-busy", "aria-valuenow"), null);
+    await answer({ type: "progress", fraction: 0.42 });
+    await page.waitForSelector(".panel-busy:not(.indeterminate)[aria-valuenow='42']");
+    assert.equal(await page.textContent(".status"), "Running tshark… 42%");
+    await answer({
+      type: "result",
+      table: {
+        kind: "expert",
+        title: "Expert Information",
+        columns: [
+          { id: "severity", label: "Severity", numeric: false },
+          { id: "summary", label: "Summary", numeric: false },
+          { id: "group", label: "Group", numeric: false },
+          { id: "protocol", label: "Protocol", numeric: false },
+          { id: "count", label: "Count", numeric: true },
+        ],
+        rows: [{ cells: ["Warning", "Duplicate ACK", "Sequence", "TCP", 1], frame: 4 }],
+      },
+    });
+    await page.waitForSelector(".panel-busy.hidden", { state: "attached" });
+    // The leftmost button is the primary one, as in every other table.
+    assert.deepEqual(
+      (
+        await page.$$eval(".toolbar:not([role]) button", (bs) => bs.map((b) => b.textContent))
+      ).slice(0, 3),
+      ["Apply as Filter", "Prepare as Filter", "Go to Packet"],
+    );
+  });
+
   test("a long table draws only the rows on screen: scrolling, selecting, sorting, copying", async () => {
     // 50,000 DNS queries (a capture can hold 300k): drawing every row never
     // finished. A stand-in for StatsPanel with a made-up table.
@@ -2122,8 +2182,11 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       await page.textContent(".status"),
       /^60,000 queries · the first 50,000 listed \(10,000 more: limit to a display filter/,
     );
-    // Halfway down: those rows are drawn, spacers stand for the rest.
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight / 2));
+    // Halfway down: those rows are drawn, spacers stand for the rest. The
+    // results scroll on their own: the title and the buttons stay in view.
+    const toolbarTop = () => page.$eval(".toolbar", (t) => t.getBoundingClientRect().top);
+    const before = await toolbarTop();
+    await page.$eval(".results", (r) => (r.scrollTop = r.scrollHeight / 2));
     await page.waitForFunction(() => {
       const tr = document.querySelector("table.stats tbody tr:not(.spacer)");
       return tr && Number(tr.getAttribute("aria-rowindex")) > 20000;
@@ -2132,13 +2195,40 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     const [index, frame] = rowsNow[Math.floor(rowsNow.length / 2)];
     assert.equal(Number(frame.replace(/,/g, "")), index - 1, "row N is the query of frame N");
     const box = await page.locator(`tr[aria-rowindex="${index}"]`).boundingBox();
-    assert.ok(box && box.y > 0 && box.y < 800, "drawn where the page is scrolled to");
+    assert.ok(box && box.y > 0 && box.y < 800, "drawn where the results are scrolled to");
+    assert.equal(await toolbarTop(), before, "the toolbar stayed where it was");
     await page.dblclick(`tr[aria-rowindex="${index}"]`);
     assert.deepEqual(log.at(-1), { type: "goto", frame: index - 1 });
     assert.equal(await page.getAttribute(`tr[aria-rowindex="${index}"]`, "class"), "selected");
-    // Sorting sorts every row; the top shows the new first.
-    await page.click("th:has-text('Response Time')");
-    await page.evaluate(() => window.scrollTo(0, 0));
+    // The keys move the selection (the grid's active row), drawing rows not
+    // drawn yet; Enter does what a double-click does.
+    assert.equal(await page.evaluate(() => document.activeElement?.matches("table.stats")), true);
+    const active = () =>
+      page.$eval("table.stats", (t) => {
+        const tr = document.getElementById(t.getAttribute("aria-activedescendant") || "");
+        return tr && [Number(tr.getAttribute("aria-rowindex")), tr.getAttribute("aria-selected")];
+      });
+    await page.keyboard.press("ArrowDown");
+    assert.deepEqual(await active(), [index + 1, "true"]);
+    await page.keyboard.press("End");
+    assert.deepEqual(await active(), [n + 1, "true"]);
+    await page.keyboard.press("Enter");
+    assert.deepEqual(log.at(-1), { type: "goto", frame: n });
+    await page.keyboard.press("PageUp");
+    const [afterPage] = /** @type {[number, string]} */ (await active());
+    assert.ok(afterPage < n + 1 && afterPage > n - 100, `PageUp went to row ${afterPage}`);
+    await page.keyboard.press("Home");
+    assert.deepEqual(await active(), [2, "true"]);
+    assert.equal(await page.$eval(".results", (r) => r.scrollTop), 0);
+    // Sorting sorts every row; the top shows the new first. A header sorts
+    // from the keyboard too, and keeps the focus.
+    await page.focus("th:has-text('Response Time')");
+    await page.keyboard.press("Enter");
+    assert.equal(
+      await page.evaluate(() => document.activeElement?.textContent),
+      "Response Time (ms)",
+    );
+    await page.$eval(".results", (r) => (r.scrollTop = 0));
     await page.waitForFunction(
       () =>
         document.querySelector("table.stats tbody tr:not(.spacer)")?.children[2].textContent ===
