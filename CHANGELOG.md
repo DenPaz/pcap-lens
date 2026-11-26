@@ -11,7 +11,9 @@ commit) that made it. The format follows
 
 - Statistics asked for at the same time share one TShark pass when TShark
   dissects them alike: a comparison's capture profile takes about 30% less
-  time and a third less CPU.
+  time and a third less CPU. [39f5016]
+
+[39f5016]: https://github.com/DenPaz/pcap-lens/commit/39f5016
 
 ## 0.37.0 — 2026-11-25
 
