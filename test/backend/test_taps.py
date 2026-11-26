@@ -250,6 +250,9 @@ def test_statistics_asked_for_together_are_the_ones_asked_for_alone(
             svc.open({"path": str(FIXTURES / "network.pcap")}, RequestContext())
             if not together:
                 return [svc.stats(a, RequestContext()) for a in asks]
+            # A window long enough for a slow runner to ask for all six (Windows
+            # CI's threads started more than WINDOW_S apart).
+            svc._require_file().taps = taps.TapBatcher(window=1.0)
             with ThreadPoolExecutor(len(asks)) as pool:
                 futures = [pool.submit(svc.stats, a, RequestContext()) for a in asks]
                 return [f.result() for f in futures]

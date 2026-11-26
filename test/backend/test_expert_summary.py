@@ -70,7 +70,8 @@ def test_every_expert_item_the_packets_show_is_listed_and_linked(
         for item in filter(None, line.split("\x1e")):
             m = stats._EXPERT_FIELD.match(item)
             assert m, item
-            shown.add((stats._EXPERT_SEVERITY_ALIAS.get(m["sev"], m["sev"]), m["msg"]))
+            sev = stats._EXPERT_SEVERITY_ALIAS.get(m["sev"], m["sev"])
+            shown.add((sev, stats.expert_key(m["msg"])))
     table = service.stats({"kind": "expert"}, ctx)
     # (tshark 4.6's fields output doubles backslashes: stats.expert_key.)
     assert {(r["cells"][0], stats.expert_key(r["cells"][1])) for r in table["rows"]} == shown
