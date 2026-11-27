@@ -27,6 +27,27 @@ export function showFilterError(message, info = false) {
   el.filterError.dataset.info = info ? "1" : "";
 }
 
+/**
+ * A validation error found while the suggestions are open: the expression is
+ * usually half-typed ("ip.s"), so its line waits for the list to close
+ * (`releaseHeldError`) and shows only if the text is the same and still
+ * wrong. The box's own red tint and underline show at once.
+ */
+let held = { expr: "", error: "" };
+
+export function releaseHeldError() {
+  const { expr, error } = held;
+  held = { expr: "", error: "" };
+  if (
+    error &&
+    el.filterInput.value.trim() === expr &&
+    el.filterInput.classList.contains("invalid") &&
+    el.filterError.dataset.info !== "1"
+  ) {
+    showFilterError(error);
+  }
+}
+
 export let validateTimer = 0;
 export function validateSoon() {
   window.clearTimeout(validateTimer);
@@ -59,7 +80,13 @@ async function validateNow() {
     const error = res.valid ? "" : lib.filterErrorText(res.error, expr);
     el.filterInput.title = error;
     setFilterSpan(res.valid ? null : res.span, expr);
-    if (!res.valid) {
+    held = { expr: "", error: "" };
+    if (!res.valid && !el.suggest.classList.contains("hidden")) {
+      held = { expr, error };
+      if (el.filterError.dataset.info !== "1") {
+        showFilterError(""); // (an older error of the text being typed)
+      }
+    } else if (!res.valid) {
       showFilterError(error);
     } else if (el.filterError.dataset.info !== "1") {
       showFilterError(""); // a valid filter clears a validation error, not a notice

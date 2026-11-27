@@ -130,11 +130,25 @@
         <label id="find-case-label" class="hidden"
           ><input id="find-case" type="checkbox" /> Match case</label
         >
-        <button id="find-prev" type="button" title="Find previous (Shift+F3, Shift+Enter)">
-          Previous
-        </button>
-        <button id="find-next" type="button" title="Find next (F3, Enter)">Next</button>
         <span id="find-status" role="status" aria-live="polite"></span>
+        <button
+          id="find-prev"
+          type="button"
+          class="icon"
+          title="Previous match (Shift+F3, Shift+Enter)"
+          aria-label="Previous match"
+        >
+          <span class="codicon codicon-arrow-up" aria-hidden="true"></span>
+        </button>
+        <button
+          id="find-next"
+          type="button"
+          class="icon"
+          title="Next match (F3, Enter)"
+          aria-label="Next match"
+        >
+          <span class="codicon codicon-arrow-down" aria-hidden="true"></span>
+        </button>
         <button id="find-close" type="button" class="icon" title="Close (Esc)" aria-label="Close">
           <span class="codicon codicon-close" aria-hidden="true"></span>
         </button>

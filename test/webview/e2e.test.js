@@ -512,6 +512,15 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     assert.match(src.desc, /Source Address/);
     assert.ok(items.every((i) => i.label.startsWith("ip.sr")));
     assert.equal(await page.getAttribute("#filter-input", "aria-expanded"), "true");
+    // "ip.sr" is half-typed: the box turns red, but its error line waits
+    // while the suggestions are open (it shows if the list closes on it).
+    await page.waitForSelector("#filter-input.invalid");
+    assert.ok(await page.$eval("#filter-error", (e) => e.classList.contains("hidden")));
+    await page.keyboard.press("Escape");
+    await page.waitForSelector("#suggest.hidden", { state: "attached" });
+    assert.match(await page.textContent("#filter-error"), /ip\.sr/);
+    await page.keyboard.press("Control+Space");
+    await page.waitForSelector("#suggest:not(.hidden) .suggest-item");
     // Tab accepts the first (exact-prefix) suggestion.
     await page.keyboard.press("Tab");
     assert.equal(await page.inputValue("#filter-input"), "ip.src");
@@ -1065,6 +1074,17 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.keyboard.press("Control+f");
     await page.waitForSelector("#find-bar:not(.hidden)");
     assert.equal(await page.evaluate(() => document.activeElement.id), "find-input");
+    // VS Code's find widget: ↑/↓ and × are icon buttons, none of them primary.
+    assert.deepEqual(
+      await page.$$eval("#find-bar button", (b) =>
+        b.map((x) => [x.getAttribute("aria-label"), x.classList.contains("icon")]),
+      ),
+      [
+        ["Previous match", true],
+        ["Next match", true],
+        ["Close", true],
+      ],
+    );
 
     await page.selectOption("#find-mode", "string");
     assert.ok(await page.isVisible("#find-case-label"));

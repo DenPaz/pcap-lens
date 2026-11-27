@@ -1577,11 +1577,19 @@ button.pd-cell:hover {
 
 /* ------------------------------------------------------------------ find bar */
 
+/* Like VS Code's find widget: the box takes the room, ↑/↓ and × are icons;
+   on a narrow editor the box wraps under the menus instead of shrinking away. */
 #find-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   padding: 0 var(--space-2) var(--space-2);
+}
+
+#find-bar select {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 #find-bar input[type="text"] {
@@ -1590,8 +1598,8 @@ button.pd-cell:hover {
 }
 
 #find-input {
-  flex: 1;
-  min-width: 80px;
+  flex: 1 1 14em;
+  min-width: 10em;
 }
 
 #find-input.invalid {

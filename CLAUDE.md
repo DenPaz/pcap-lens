@@ -736,7 +736,14 @@ function/value/string` (the debugger's and outline's theme colours) and
   an echo of a macro's expansion stays); notices (`showNotice`,
   `data-info`) get an info icon and the input's info colours instead of the
   error's. Find's status shows the first line, the whole message as its
-  tooltip. The loading/error overlay is opaque (the empty panes behind it
+  tooltip. While the suggestions are open, a validation error's line waits
+  (`held`, `releaseHeldError` from `hideSuggest`): the text is usually
+  half-typed ("ip.sr"); the box's tint and underline show at once, and the
+  line appears when the list closes on the same, still wrong text. The find
+  bar is VS Code's find widget's shape: ↑/↓ (`#find-prev`/`#find-next`) and
+  × are icon buttons after the status, the box takes the room and wraps
+  under the menus on a narrow editor. The comment box's placeholder and
+  label name the packet. The loading/error overlay is opaque (the empty panes behind it
   read as part of it), an error has an icon beside the message in the usual
   font, and Names/Time stay hidden in the status bar until a capture loads.
 - **Sorting** is backend-side over the current filter's frames: one column is
