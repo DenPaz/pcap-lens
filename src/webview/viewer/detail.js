@@ -38,6 +38,7 @@ export async function loadDetail(frame) {
   let exactShown = false;
   el.treePlaceholder.textContent = `Loading packet ${frame}…`;
   el.treePlaceholder.classList.remove("hidden");
+  delete el.bytesView.dataset.empty; // (a packet is coming: no "select one" hint)
   if (q.after > 0 && frame > q.after && frame > q.window) {
     const quick = rpc("packet_detail", { number: frame, mode: "quick", window: q.window });
     state.quickRequest = quick.id;
@@ -137,6 +138,8 @@ export function clearDetail() {
   el.treePlaceholder.textContent = "Select a packet to see its details.";
   el.treePlaceholder.classList.remove("hidden");
   el.bytesView.replaceChildren();
+  // (Drawn by CSS while the pane is empty: a blank pane read as broken.)
+  el.bytesView.dataset.empty = "Select a packet to see its bytes.";
   el.bytesTabs.replaceChildren();
   el.bytesTabs.classList.add("hidden");
   hex = null;

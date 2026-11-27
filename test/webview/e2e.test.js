@@ -272,6 +272,11 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       () => document.querySelectorAll("#list-rows .list-row:not(.loading)").length === 11,
     );
     assert.deepEqual(await rowNumbers(), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    // Nothing selected yet: the bytes pane says so too, as the details pane does.
+    assert.equal(
+      await page.$eval("#bytes-view", (v) => getComputedStyle(v, "::before").content),
+      '"Select a packet to see its bytes."',
+    );
     const headers = await page.$$eval("#list-header > div", (cells) =>
       cells.map((c) => c.firstChild.textContent),
     );
@@ -2424,6 +2429,20 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
         });
         assert.ok(box >= Math.min(180, width - 80), `field ${box}px wide at ${width}px`);
         assert.ok(menu.visible && menu.right <= width, `☰ inside the window at ${width}px`);
+        // The status bar keeps the packet counts (the right side gave way: at
+        // 480 px its items show their icons, their text in the tooltip).
+        const bar = await page.evaluate(() => {
+          const left = document.getElementById("status-left");
+          const time = document.getElementById("status-time");
+          return {
+            left: left?.getBoundingClientRect().width ?? 0,
+            text: getComputedStyle(time?.querySelector(".status-text") ?? time).display,
+            title: time?.title ?? "",
+          };
+        });
+        assert.ok(bar.left >= Math.min(140, width * 0.4), `counts ${bar.left}px at ${width}px`);
+        assert.equal(bar.text === "none", width < 640, `time text at ${width}px`);
+        assert.match(bar.title, /^Time: .+\nClick to change the time format$/);
         if (process.env.PCAP_SCREENSHOTS) {
           await page.screenshot({
             path: `${process.env.PCAP_SCREENSHOTS}/filter-bar-${width}.png`,

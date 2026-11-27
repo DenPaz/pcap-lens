@@ -130,9 +130,15 @@ for (const [item, glyph] of /** @type {[HTMLElement, string][]} */ ([
   item.replaceChildren(icon(glyph), text);
 }
 
-/** The text of a status bar item (after its icon). @param {HTMLElement} item @param {string} text */
+/**
+ * The text of a status bar item (after its icon). Its tooltip says it too,
+ * before what a click does: a narrow editor shows the icon alone.
+ * @param {HTMLElement} item @param {string} text
+ */
 export function setStatusText(item, text) {
   /** @type {HTMLElement} */ (item.querySelector(".status-text")).textContent = text;
+  item.dataset.hint ??= item.title;
+  item.title = [text, item.dataset.hint].filter(Boolean).join("\n");
 }
 
 el.replayShow.addEventListener("click", () => vscode.postMessage({ type: "showReplay" }));
@@ -177,6 +183,7 @@ export function updateStatus() {
   if (!info) {
     el.statusLeft.textContent = "";
     el.statusInfo.textContent = "";
+    el.statusLeft.title = el.statusInfo.title = "";
     return;
   }
   const parts = [`Packets: ${info.frames.toLocaleString()}`];
@@ -224,11 +231,13 @@ export function updateStatus() {
     parts.push(`Time reference: ${state.timeRef}`);
   }
   el.statusLeft.textContent = parts.join(" · ");
+  el.statusLeft.title = el.statusLeft.textContent; // (cut short on a narrow editor)
   const right = [info.fileType, info.linkType, lib.formatBytes(info.size)].filter(Boolean);
   if (typeof state.elapsedMs === "number") {
     right.push(`loaded in ${(state.elapsedMs / 1000).toFixed(1)} s`);
   }
   el.statusInfo.textContent = right.join(" · ");
+  el.statusInfo.title = el.statusInfo.textContent;
 }
 
 export function persist() {

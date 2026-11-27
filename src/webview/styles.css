@@ -1100,6 +1100,18 @@ button.pd-cell:hover {
   white-space: pre;
 }
 
+/* No packet selected: say so, like the details pane (detail.js clearDetail). */
+#bytes-view[data-empty]:empty::before {
+  content: attr(data-empty);
+  display: block;
+  padding-top: calc(40px - var(--space-1)); /* (level with the details' hint) */
+  text-align: center;
+  white-space: normal;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-descriptionForeground);
+}
+
 .hex-row {
   height: var(--row-height);
   line-height: var(--row-height);
@@ -1318,10 +1330,15 @@ button.pd-cell:hover {
   color: var(--vscode-descriptionForeground);
   white-space: nowrap;
   overflow: hidden;
+  container-type: inline-size;
 }
 
+/* The packet counts keep their room: the right side gives way first (its
+   file information is cut, then on a narrow editor its items keep only
+   their icons, their text in the tooltip). */
 #status-bar #status-left {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: min(16em, 45%);
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1642,12 +1659,29 @@ button.pd-cell:hover {
 
 #status-right {
   display: inline-flex;
+  flex: 0 1 auto;
   align-items: center;
   gap: var(--space-1);
+  min-width: 0;
+  overflow: hidden;
+}
+
+#status-right > * {
+  flex: none;
 }
 
 #status-info {
+  flex: 0 1 auto;
+  min-width: 0;
   padding-left: var(--space-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@container (max-width: 640px) {
+  #status-right .status-link .status-text {
+    display: none;
+  }
 }
 
 #status-expert {

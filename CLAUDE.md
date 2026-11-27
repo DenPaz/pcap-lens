@@ -3633,7 +3633,15 @@ action (null = disabled), checked, children, title}` and `"-"`
   the top row in place. Status bar items (`#status-lua`, `-names`, `-time`)
   get a Codicon and a `.status-text` span from `status.js` (`setStatusText`);
   the HTML buttons stay empty, since Prettier would put whitespace into
-  them and make `textContent` non-empty.
+  them and make `textContent` non-empty. Their tooltip is their text, then
+  what a click does ("Click to change the time format"). The packet counts
+  (`#status-left`, at least `min(16em, 45%)`) keep their room on a narrow
+  editor: `#status-right` shrinks, `#status-info` (format, size) is cut
+  with an ellipsis, and below 640 px (`@container` on `#status-bar`) the
+  items keep only their icons; at 520 px the right side used to push the
+  counts out entirely. Both cut parts carry their text as a tooltip. With
+  no packet selected the bytes pane says so too (`data-empty`, drawn by
+  `#bytes-view[data-empty]:empty::before`; not while a packet loads).
 - **Icons** are Codicons, VS Code's icon font (`@vscode/codicons`, pinned dev
   dependency). vsce packages with `--no-dependencies`, so
   `scripts/sync-codicons.mjs` (`pnpm run codicons`, run by `make update`)
