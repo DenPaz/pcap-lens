@@ -41,6 +41,9 @@ commit) that made it. The format follows
   for the search box), the filter's error line waits while suggestions are
   open, the comment box names its packet, and the Replay panel keeps Start
   and Stop together. [40a6a8a] [838d688]
+- Panels hold up when they are narrow: buttons that belong together wrap
+  together, hex dumps and C arrays keep their columns and scroll sideways
+  instead of wrapping, and the Replay table's notes stay readable. [6fce867]
 
 ### Fixed
 
@@ -59,6 +62,7 @@ commit) that made it. The format follows
 [fc62376]: https://github.com/DenPaz/pcap-lens/commit/fc62376
 [40a6a8a]: https://github.com/DenPaz/pcap-lens/commit/40a6a8a
 [838d688]: https://github.com/DenPaz/pcap-lens/commit/838d688
+[6fce867]: https://github.com/DenPaz/pcap-lens/commit/6fce867
 
 ## 0.37.0 — 2026-11-25
 
