@@ -348,5 +348,19 @@ export function cancelRpc(id) {
   }
 }
 
+/**
+ * Say something to screen readers through `#announce` (a polite live
+ * region): what an action did when nothing else on screen speaks for it.
+ * @param {string} text
+ */
+export function announce(text) {
+  const live = document.getElementById("announce");
+  if (live) {
+    live.textContent = "";
+    // (Cleared first, so the same words twice are read twice.)
+    setTimeout(() => (live.textContent = text), 50);
+  }
+}
+
 export const CANCELLED = -32800;
 export const INVALID_FILTER = -32010;

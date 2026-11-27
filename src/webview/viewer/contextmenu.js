@@ -1,7 +1,7 @@
 // @ts-check
 /** Context menus (packet list, detail tree) and their actions. */
 
-import { el, lib, rpc, state, vscode } from "./core.js";
+import { announce, el, lib, rpc, state, vscode } from "./core.js";
 import { commandKeys, showMenu, viewerKeys } from "./menu.js";
 import { visibleColumns } from "./columns.js";
 import { rowAt } from "./list.js";
@@ -522,10 +522,5 @@ function applyFromTree(expr, apply) {
  */
 export function copy(text) {
   vscode.postMessage({ type: "copy", text });
-  const live = document.getElementById("announce");
-  if (live) {
-    live.textContent = "";
-    // (Cleared first, so a second copy is read too.)
-    setTimeout(() => (live.textContent = "Copied"), 50);
-  }
+  announce("Copied");
 }

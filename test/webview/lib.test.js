@@ -1408,6 +1408,17 @@ suite("webview lib: coloring", () => {
     assert.equal(lib.rowColors(undefined, coloring), null);
   });
 
+  test("filterAnnouncement: the matches out of every packet, or a cleared filter", () => {
+    assert.equal(lib.filterAnnouncement("dns", 6, 26), "6 of 26 packets match the filter.");
+    assert.equal(lib.filterAnnouncement("dns", 1, 26), "1 of 26 packets matches the filter.");
+    assert.equal(
+      lib.filterAnnouncement("tcp", 1200, 1500000),
+      "1,200 of 1,500,000 packets match the filter.",
+    );
+    assert.equal(lib.filterAnnouncement("", 26, 26), "Filter cleared: all 26 packets shown.");
+    assert.equal(lib.filterAnnouncement("sip", 0, 26), null, "the empty list speaks for it");
+  });
+
   test("filterErrorText: tshark's error without the echo the box already underlines", () => {
     const expr = "ip.addr == 1.2.3";
     assert.equal(

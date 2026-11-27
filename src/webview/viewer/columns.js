@@ -17,7 +17,7 @@ import {
 import { FILTER_BUSY, setBusy } from "./host.js";
 import { refreshRows, resetView, scheduleRender, updateSpacer } from "./list.js";
 import { relocateSelection } from "./comments.js";
-import { applyFilter, showFilterError, showNotice } from "./filterbar.js";
+import { announceFilter, applyFilter, showFilterError, showNotice } from "./filterbar.js";
 import { loadExpertSummary, persist, updateStatus } from "./status.js";
 
 /** @returns {Column[]} */
@@ -321,7 +321,9 @@ export function onFilterEvent(ev) {
   }
   updateStatus();
   const found = `${ev.matchCount.toLocaleString()} match${ev.matchCount === 1 ? "" : "es"}`;
-  if (ev.event === "stopped") {
+  if (ev.event === "done") {
+    announceFilter();
+  } else if (ev.event === "stopped") {
     showNotice(`Filter stopped: showing the ${found} found so far.`);
   } else if (ev.event === "failed") {
     showNotice(

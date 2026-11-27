@@ -20,6 +20,21 @@ const hintCache = new Map();
 let hintRequest = null;
 
 export function renderEmpty() {
+  // A button here that had the focus (Clear Filter, Previous Filter, Apply)
+  // goes away when the panel is hidden or redrawn, which left the focus on
+  // the page, so Tab started again at the top: it goes to the packet list.
+  // A redraw (the hints arriving) keeps it on the button of the same name.
+  const hadFocus = el.empty.contains(document.activeElement);
+  const focusedLabel = hadFocus ? (document.activeElement?.textContent ?? "") : "";
+  const keepFocus = () => {
+    if (!hadFocus || el.empty.contains(document.activeElement)) {
+      return;
+    }
+    const same = [...el.empty.querySelectorAll("button")].find(
+      (b) => b.textContent === focusedLabel,
+    );
+    (same ?? el.viewport).focus();
+  };
   const view = lib.emptyState({
     ready: state.ready,
     total: state.total,
@@ -33,6 +48,9 @@ export function renderEmpty() {
   el.empty.classList.toggle("hidden", !view);
   if (!view) {
     drawnKey = "";
+    if (hadFocus) {
+      el.viewport.focus();
+    }
     return;
   }
   const hints = hintCache.get(state.appliedFilter);
@@ -42,6 +60,7 @@ export function renderEmpty() {
   }
   drawnKey = key;
   draw(view, hints);
+  keepFocus();
   if (view.kind === "no-match" && !hints && !state.indexing) {
     loadHints(state.appliedFilter);
   }
@@ -91,10 +110,15 @@ function button(label, run, glyph, title) {
   return b;
 }
 
+/** Apply a filter from a button of this panel, showing it in the box. @param {string} expr */
+function applyHere(expr) {
+  el.filterInput.value = expr;
+  return applyFilter(expr);
+}
+
 function clearFilter() {
-  el.filterInput.value = "";
   el.filterInput.classList.remove("valid", "invalid");
-  void applyFilter("");
+  void applyHere("");
 }
 
 function actions() {
@@ -106,10 +130,7 @@ function actions() {
     row.append(
       button(
         "Previous Filter",
-        () => {
-          el.filterInput.value = prev;
-          void applyFilter(prev);
-        },
+        () => void applyHere(prev),
         "arrow-left",
         `Apply the filter used before: ${prev}`,
       ),
@@ -174,10 +195,7 @@ function hintList(hints) {
         " is case-sensitive. Try ",
         code,
         " ",
-        button("Apply", () => {
-          el.filterInput.value = hint.filter;
-          void applyFilter(hint.filter);
-        }),
+        button("Apply", () => void applyHere(hint.filter)),
       );
     } else {
       item.append("Every field occurs in the capture, but no packet has the values asked for. ");

@@ -1,7 +1,17 @@
 // @ts-check
 /** The display filter bar: validation, history, saved filters, notices. */
 
-import { CANCELLED, INVALID_FILTER, cancelRpc, el, lib, rpc, state, vscode } from "./core.js";
+import {
+  CANCELLED,
+  INVALID_FILTER,
+  announce,
+  cancelRpc,
+  el,
+  lib,
+  rpc,
+  state,
+  vscode,
+} from "./core.js";
 import { FILTER_BUSY, setBusy } from "./host.js";
 import { onFilterEvent } from "./columns.js";
 import { resetView } from "./list.js";
@@ -97,6 +107,15 @@ async function validateNow() {
 }
 
 /** @param {string} raw */
+/** Tell screen readers how many packets the applied filter shows. */
+export function announceFilter() {
+  const frames = state.info?.frames ?? 0;
+  const text = lib.filterAnnouncement(state.appliedFilter, state.matchCount, frames);
+  if (text) {
+    announce(text);
+  }
+}
+
 export async function applyFilter(raw) {
   const expr = raw.trim();
   if (!state.ready) {
@@ -136,6 +155,9 @@ export async function applyFilter(raw) {
     vscode.postMessage({ type: "filterApplied", expr });
     resetView({ keepSelection: true });
     updateStatus();
+    if (!state.filtering) {
+      announceFilter(); // (a streaming filter says so when it is done)
+    }
     const early = state.earlyFilterEvents.get(res.filterId);
     state.earlyFilterEvents.clear();
     if (early) {

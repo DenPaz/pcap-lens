@@ -15,6 +15,10 @@ commit) that made it. The format follows
   Open File lists capture files first; and messages that send you elsewhere
   have a button for it (Open File…, Open HTTP Requests, Stop Capture).
   [831c9a3]
+- Screen readers hear how many packets a filter shows ("6 of 26 packets
+  match the filter."), the empty list's Clear Filter and Previous Filter
+  leave the focus on the packet list instead of the top of the page, and
+  the details tree has a name.
 
 [831c9a3]: https://github.com/DenPaz/pcap-lens/commit/831c9a3
 

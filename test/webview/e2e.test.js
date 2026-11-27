@@ -404,6 +404,14 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     );
     assert.deepEqual(await rowNumbers(), [4, 7]);
     assert.match(await page.textContent("#status-left"), /Displayed: 2/);
+    // The status bar isn't a live region: screen readers hear the count.
+    await page.waitForFunction(() =>
+      /^2 of \d+ packets match the filter\.$/.test(document.getElementById("announce").textContent),
+    );
+    assert.equal(
+      await page.getAttribute("#detail-tree", "aria-label"),
+      "Fields of the selected packet",
+    );
   });
 
   test("selecting a packet shows the tree and bytes, with two-way highlighting", async () => {
@@ -1214,10 +1222,14 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.waitForSelector("#builder-values [role=option]");
     await page.keyboard.press("Escape");
     await page.waitForSelector("#builder.hidden", { state: "attached" });
-    await prev.click();
+    // From the keyboard: the button goes away with the empty list, and the
+    // focus goes to the packet list (it fell to the page, Tab began again).
+    await prev.focus();
+    await page.keyboard.press("Enter");
     await page.waitForFunction(
       () => document.querySelectorAll("#list-rows .list-row:not(.loading)").length === 1,
     );
+    await page.waitForFunction(() => document.activeElement?.id === "list-viewport");
 
     // Edit Filter focuses the box; Clear Filter shows every packet again.
     await applyTyped("frame.len > 99999");

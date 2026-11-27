@@ -1109,6 +1109,15 @@ activity, rows}`, which the webview merges row for row into the table of
   `\.` escapes, which tshark refuses in strings). The webview shows missing
   fields (with Protocol Hierarchy), case hints with Apply, else "Every field
   occurs…" with _Values of <field>…_ buttons that open the builder.
+  A button there that had the focus goes away when the panel hides or is
+  redrawn, which left the focus on the page (Tab began at the top):
+  `renderEmpty` puts it on the packet list, or on the button of the same
+  name after a redraw (the hints arriving). **Announcements**: the status
+  bar's counts aren't a live region, so `core.announce` says what an action
+  did through `#announce` (polite): a filter's matches when it is done
+  (`lib.filterAnnouncement`: "6 of 26 packets match the filter.", "Filter
+  cleared…"; none for no match, which the empty list's own region says)
+  and copies ("Copied").
 - **Filter builder** (`viewer/builder.js`, `lib.builderOperators`,
   `filterLiteral`, `builderTerm`, backend `field_values {field, limit}` and
   `field_index {words}`; the `#filter-build` button, viewer command

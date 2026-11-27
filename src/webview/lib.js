@@ -1017,6 +1017,29 @@
     /\s+|r?"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|===|!==|==|!=|>=|<=|~=|&&|\|\||\^\^|[<>!~&|^+\-*/%]|[@$]?[A-Za-z0-9_][A-Za-z0-9_.:-]*|\$\{[^}]*\}?|[\s\S]/gy;
 
   /**
+   * What a screen reader hears when a filter has been applied (the status
+   * bar's counts aren't a live region): the matches out of every packet,
+   * or that the filter was cleared. Null for no match: the empty list says
+   * why in its own live region.
+   *
+   * @param {string} expr the filter applied ("" = cleared)
+   * @param {number} matches
+   * @param {number} frames the capture's packets
+   * @returns {string | null}
+   */
+  function filterAnnouncement(expr, matches, frames) {
+    if (!expr) {
+      return `Filter cleared: all ${frames.toLocaleString()} packets shown.`;
+    }
+    if (!matches) {
+      return null; // (the empty list says why, in its own live region)
+    }
+    return `${matches.toLocaleString()} of ${frames.toLocaleString()} packets ${
+      matches === 1 ? "matches" : "match"
+    } the filter.`;
+  }
+
+  /**
    * tshark's filter error as the viewer shows it: without its echo of the
    * filter and the `^~~~` line marking the refused part under it, which the
    * filter box already underlines (`filterSegments`). An echo of anything
@@ -4327,6 +4350,7 @@
     sequenceSummary,
     filterSegments,
     filterErrorText,
+    filterAnnouncement,
     PANE_LAYOUTS,
     paneLayout,
     splitterOrientations,
