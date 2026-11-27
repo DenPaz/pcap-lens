@@ -7,6 +7,8 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.38.0 — 2026-11-27
+
 ### Added
 
 - When TShark isn't found, _PCAP: Locate TShark…_ (offered in the
