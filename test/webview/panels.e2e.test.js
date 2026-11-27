@@ -2251,7 +2251,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     assert.ok(box && box.y > 0 && box.y < 800, "drawn where the results are scrolled to");
     assert.equal(await toolbarTop(), before, "the toolbar stayed where it was");
     await page.dblclick(`tr[aria-rowindex="${index}"]`);
-    assert.deepEqual(log.at(-1), { type: "goto", frame: index - 1 });
+    await expectLast(log, { type: "goto", frame: index - 1 });
     assert.equal(await page.getAttribute(`tr[aria-rowindex="${index}"]`, "class"), "selected");
     // The keys move the selection (the grid's active row), drawing rows not
     // drawn yet; Enter does what a double-click does.
@@ -2266,7 +2266,7 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     await page.keyboard.press("End");
     assert.deepEqual(await active(), [n + 1, "true"]);
     await page.keyboard.press("Enter");
-    assert.deepEqual(log.at(-1), { type: "goto", frame: n });
+    await expectLast(log, { type: "goto", frame: n });
     await page.keyboard.press("PageUp");
     const [afterPage] = /** @type {[number, string]} */ (await active());
     assert.ok(afterPage < n + 1 && afterPage > n - 100, `PageUp went to row ${afterPage}`);
