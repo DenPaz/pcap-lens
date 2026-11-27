@@ -47,7 +47,7 @@ commit) that made it. The format follows
 - Copy buttons in the panels say "Copied" for a moment (and screen readers
   hear it, from menus and the packet list too), Protocol Hierarchy draws a bar
   for each share, the sequence check writes "3 duplicates", and Follow Stream
-  hides its search box when a stream has no payload.
+  hides its search box when a stream has no payload. [61ea6cd]
 
 ### Fixed
 
@@ -67,6 +67,7 @@ commit) that made it. The format follows
 [40a6a8a]: https://github.com/DenPaz/pcap-lens/commit/40a6a8a
 [838d688]: https://github.com/DenPaz/pcap-lens/commit/838d688
 [6fce867]: https://github.com/DenPaz/pcap-lens/commit/6fce867
+[61ea6cd]: https://github.com/DenPaz/pcap-lens/commit/61ea6cd
 
 ## 0.37.0 — 2026-11-25
 
