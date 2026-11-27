@@ -34,6 +34,9 @@ commit) that made it. The format follows
   repeated filter and `^~~~` marks (the filter box underlines the part
   TShark refused), notices look like notices, and the loading and error
   screen is cleaner. [15981c1]
+- On a narrow editor the status bar keeps the packet counts (its other items
+  shrink to their icons, with their text in the tooltip), and the bytes pane
+  says to select a packet instead of staying blank. [fc62376]
 
 ### Fixed
 
@@ -49,6 +52,7 @@ commit) that made it. The format follows
 [2b44b53]: https://github.com/DenPaz/pcap-lens/commit/2b44b53
 [15981c1]: https://github.com/DenPaz/pcap-lens/commit/15981c1
 [14a9f08]: https://github.com/DenPaz/pcap-lens/commit/14a9f08
+[fc62376]: https://github.com/DenPaz/pcap-lens/commit/fc62376
 
 ## 0.37.0 — 2026-11-25
 
