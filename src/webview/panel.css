@@ -45,6 +45,12 @@ body.panel #app {
   flex: 1;
 }
 
+/* Buttons that belong together (Start and Stop) wrap as one. */
+.toolbar .toolbar-group {
+  display: inline-flex;
+  gap: var(--space-3);
+}
+
 .toolbar code {
   font-family: var(--mono);
   font-size: var(--mono-size);

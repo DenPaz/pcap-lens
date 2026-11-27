@@ -3708,7 +3708,9 @@ scripts/screenshots.js --theme light|hc --out <dir>` renders Light Modern
   colors (dimmed, its blue still read as an action). A panel's `.toolbar`
   holds at most one primary button, and every labelled button there starts
   with a Codicon (`withIcon`; a label set later keeps it with
-  `replaceChildren(icon, text)`): the panels e2e test checks every panel as
+  `replaceChildren(icon, text)`); buttons that belong together sit in a
+  `.toolbar-group`, so a wrapping toolbar keeps them side by side (Replay's
+  Stop wrapped alone under Start at 1300 px): the panels e2e test checks every panel as
   its test left it (Coloring Rules had two primaries; Copy, Go to Packet N,
   Switch Direction… had no icon). A line under a panel's title saying what
   it does is `p.panel-intro`. Empty states say so instead of drawing

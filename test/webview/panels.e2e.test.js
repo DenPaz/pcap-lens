@@ -2844,6 +2844,18 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       assert.match(await page.getAttribute("#replay-start", "title"), /port between 1 and 65535/);
       await page.fill(port3, String(hi3.port));
       assert.ok(!(await page.isDisabled("#replay-start")));
+      // Start and Stop stay side by side when the toolbar wraps.
+      const size = page.viewportSize();
+      for (let width = 1400; width >= 700; width -= 20) {
+        await page.setViewportSize({ width, height: 800 });
+        const tops = await page.$$eval("#replay-start, #replay-stop", (b) =>
+          b.map((x) => Math.round(x.getBoundingClientRect().top)),
+        );
+        assert.equal(tops[0], tops[1], `at ${width}px`);
+      }
+      if (size) {
+        await page.setViewportSize(size);
+      }
       assert.ok(await page.isDisabled("#replay-save-results"), "nothing to save yet");
 
       await page.click("#replay-start");

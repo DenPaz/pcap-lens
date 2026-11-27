@@ -240,8 +240,9 @@
     h("label", {}, ["Jitter (ms) ", jitterInput]),
     h("label", {}, ["UDP loss (%) ", lossInput]),
     h("span", { class: "spacer" }),
-    startBtn,
-    stopBtn,
+    // (Start and Stop wrap together: Stop alone on the next line read as
+    // something else.)
+    h("span", { class: "toolbar-group" }, [startBtn, stopBtn]),
   ]);
   const notice = h("div", { class: "notice error hidden", role: "alert" });
   const noticeText = h("span");
