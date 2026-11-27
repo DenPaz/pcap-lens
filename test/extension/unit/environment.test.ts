@@ -5,7 +5,9 @@ import {
   EnvironmentDeps,
   checkEnvironment,
   environmentSummary,
+  notTsharkReason,
   settingToFix,
+  tsharkFileFor,
   tsharkVersion,
 } from "../../../src/environment";
 
@@ -97,6 +99,48 @@ suite("environment check", () => {
       "4.2.2",
     );
     assert.equal(tsharkVersion("  something else "), "something else");
+  });
+
+  test("Locate TShark: a path, its folder or Wireshark.app names tshark", () => {
+    const folders = new Set(["C:\\Program Files\\Wireshark", "/opt/wireshark/bin", "/home/ana/ws"]);
+    const on = (platform: string) => ({
+      platform,
+      home: platform === "win32" ? "C:\\Users\\ana" : "/home/ana",
+      isDirectory: (p: string) => folders.has(p),
+    });
+    // Windows' Copy as Path quotes it.
+    assert.equal(
+      tsharkFileFor('"C:\\Program Files\\Wireshark\\tshark.exe"', on("win32")),
+      "C:\\Program Files\\Wireshark\\tshark.exe",
+    );
+    assert.equal(
+      tsharkFileFor("  C:\\Program Files\\Wireshark ", on("win32")),
+      "C:\\Program Files\\Wireshark\\tshark.exe",
+    );
+    assert.equal(tsharkFileFor("/opt/wireshark/bin", on("linux")), "/opt/wireshark/bin/tshark");
+    assert.equal(tsharkFileFor("'/usr/bin/tshark'", on("linux")), "/usr/bin/tshark");
+    assert.equal(tsharkFileFor("~/ws", on("linux")), "/home/ana/ws/tshark");
+    assert.equal(tsharkFileFor("~/bin/tshark", on("darwin")), "/home/ana/bin/tshark");
+    assert.equal(
+      tsharkFileFor("/Applications/Wireshark.app/", on("darwin")),
+      "/Applications/Wireshark.app/Contents/MacOS/tshark",
+    );
+    assert.equal(tsharkFileFor("", on("linux")), "");
+  });
+
+  test("Locate TShark: Wireshark itself or dumpcap isn't tshark", () => {
+    assert.equal(
+      notTsharkReason("/usr/bin/tshark", "TShark (Wireshark) 4.2.2 (Git v4.2.2)"),
+      undefined,
+    );
+    assert.match(
+      notTsharkReason("C:\\Program Files\\Wireshark\\Wireshark.exe", "Wireshark 4.6.1.") ?? "",
+      /isn't TShark \(it says "Wireshark 4\.6\.1\."\): pick tshark\.exe/,
+    );
+    assert.match(
+      notTsharkReason("/usr/bin/dumpcap", "Dumpcap (Wireshark) 4.2.2") ?? "",
+      /pick tshark,/,
+    );
   });
 });
 

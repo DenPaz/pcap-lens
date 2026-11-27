@@ -40,5 +40,9 @@ system), not on your own computer. Set the path in **Remote** settings
 
 ## Installed somewhere else?
 
-Set **PCAP Lens › Tshark Path** (`pcapViewer.tsharkPath`) to the `tshark`
-executable. Then click **Check Again**.
+Run **PCAP: Locate TShark…** (the link on the left, or the button the viewer
+shows when it can't find TShark): browse to `tshark` (on macOS,
+`Wireshark.app` will do), or paste its path or Wireshark's folder. It checks
+that the program is TShark, saves it as **PCAP Lens › Tshark Path**
+(`pcapViewer.tsharkPath`) and reloads your open captures. _Search
+Automatically_ there goes back to looking on `PATH`.

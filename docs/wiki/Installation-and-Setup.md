@@ -21,7 +21,11 @@ tshark comes with Wireshark. PCAP Lens supports tshark 4.x.
 | Windows        | The installer from [wireshark.org](https://www.wireshark.org/download.html), or `choco install wireshark` |
 
 PCAP Lens finds tshark on your `PATH` and in Wireshark's usual install
-folders. If it doesn't, set **`pcapViewer.tsharkPath`** to the program.
+folders. If it doesn't, run **PCAP: Locate TShark…** (the notification and the
+basic view offer it too): browse to `tshark` (on macOS, `Wireshark.app` will
+do), or paste its path or Wireshark's folder. It checks that the program is
+TShark, saves it as **`pcapViewer.tsharkPath`** and reloads the open
+captures.
 
 ## 3. Install Python 3.12 or newer
 

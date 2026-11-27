@@ -1017,6 +1017,9 @@ export class PcapEditorSession {
       case "setUp":
         await vscode.commands.executeCommand("pcapViewer.openWalkthrough");
         return;
+      case "locateTshark":
+        await vscode.commands.executeCommand("pcapViewer.locateTshark");
+        return;
       case "setPaneLayout":
         // (Every viewer gets the new layout from the configuration change.)
         if (msg.layout !== undefined) {

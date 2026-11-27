@@ -123,6 +123,17 @@ maybe("webview basic view (Chromium, no tshark)", function () {
     }));
     assert.equal(banner.hidden, false);
     assert.match(banner.text, /Basic view: Wireshark's tshark wasn't found/);
+    // Missing tshark: Locate TShark… comes first, the one highlighted button.
+    assert.deepEqual(
+      await page.$$eval("#basic-banner button:not(.hidden)", (b) =>
+        b.map((x) => [x.textContent, x.classList.contains("secondary")]),
+      ),
+      [
+        ["Locate TShark…", false],
+        ["Set Up…", true],
+        ["Reload", true],
+      ],
+    );
     assert.equal(banner.title, "tshark was not found (searched: PATH)");
     assert.match(banner.text, /Filters work on the common fields/);
     assert.equal(await page.isDisabled("#filter-input"), false);
@@ -240,12 +251,14 @@ maybe("webview basic view (Chromium, no tshark)", function () {
     await page.waitForFunction(() =>
       /Sorting needs tshark/.test(document.getElementById("filter-error").textContent),
     );
+    await page.click("#basic-locate");
     await page.click("#basic-setup");
     await page.click("#basic-reload");
     const start = Date.now();
     while (!hostLog.some((m) => m.type === "reload") && Date.now() - start < 5000) {
       await new Promise((r) => setTimeout(r, 20));
     }
+    assert.ok(hostLog.some((m) => m.type === "locateTshark"));
     assert.ok(hostLog.some((m) => m.type === "setUp"));
     assert.ok(hostLog.some((m) => m.type === "reload"));
     // (Without a theme, the bytes' highlight falls back to colors axe flags, as in e2e.test.js.)

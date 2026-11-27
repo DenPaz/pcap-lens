@@ -3290,7 +3290,26 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   failure clears them). `pcapViewer.captureOpened` and
   `pcapViewer.filterApplied` complete the next two. A load that fails for a
   missing tool calls `offerSetupHelp` (_Setup Guide_ opens the walkthrough by
-  `<publisher>.<name>#gettingStarted`, download page, settings). _PCAP: Open
+  `<publisher>.<name>#gettingStarted`, download page, settings; for tshark
+  _Locate TShark…_ first instead of settings). **Locate TShark**
+  (`pcapViewer.locateTshark`, `commands/setup.ts`; also the basic view's
+  banner's first button, `#basic-locate`, and the walkthrough's link): the
+  search already covers PATH and the usual install folders, so a missing
+  tshark is somewhere else or a wrong `tsharkPath`. A QuickPick: Browse…
+  (files only: Windows and Linux can't pick files and folders in one dialog,
+  and macOS opens Wireshark.app as a file), Enter or Paste a Path… (checked
+  for existence as typed), Search Automatically (only when a path is set:
+  clears it), Download Wireshark. `tsharkFileFor` (environment.ts, pure)
+  drops quotes (Windows' Copy as Path), expands `~` and takes a folder or
+  Wireshark.app to the tshark inside. The choice runs the backend's
+  `initialize` like a load, and `notTsharkReason` refuses a program whose
+  `--version` isn't TShark's (Wireshark itself, dumpcap). Saved in the
+  user's settings (a trusted workspace's if it sets the key: Restricted Mode
+  ignores a workspace value) with `consumeTsharkChange` set, so extension.ts
+  skips its "settings changed, reload?" question; the command reloads every
+  capture when the path changed, else the basic-view ones. `{path |
+automatic, quiet}` skip the questions and return `{ok, path, version,
+error}` (smoke test: refused, then the folder, then automatic). _PCAP: Open
   Sample Capture_ copies `media/sample.pcapng` to
   `globalStorageUri/samples/` first, so a comment saved in place never writes
   into the installed extension. A unit test checks that every step's command

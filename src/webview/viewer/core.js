@@ -81,6 +81,7 @@ export const el = {
   filterError: $("filter-error"),
   basicBanner: $("basic-banner"),
   basicText: $("basic-text"),
+  basicLocate: $("basic-locate"),
   basicSetup: $("basic-setup"),
   basicReload: $("basic-reload"),
   filterSaved: $("filter-saved"),

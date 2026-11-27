@@ -814,6 +814,11 @@
         "category": "PCAP"
       },
       {
+        "command": "pcapViewer.locateTshark",
+        "title": "Locate TShark…",
+        "category": "PCAP"
+      },
+      {
         "command": "pcapViewer.openSample",
         "title": "Open Sample Capture",
         "category": "PCAP"
@@ -2905,7 +2910,7 @@
           {
             "id": "tshark",
             "title": "Install TShark",
-            "description": "TShark, Wireshark's command-line dissector, reads the captures. It comes with Wireshark.\n[Check Again](command:pcapViewer.checkEnvironment)\nInstalled somewhere else? [Set the TShark path](command:workbench.action.openSettings?%5B%22pcapViewer.tsharkPath%22%5D).",
+            "description": "TShark, Wireshark's command-line dissector, reads the captures. It comes with Wireshark.\n[Check Again](command:pcapViewer.checkEnvironment)\nInstalled somewhere else? [Locate TShark…](command:pcapViewer.locateTshark)",
             "media": {
               "markdown": "media/walkthrough/tshark.md"
             },
