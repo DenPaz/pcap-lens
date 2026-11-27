@@ -14,6 +14,9 @@ commit) that made it. The format follows
   Capture takes the highlighted interface on Enter instead of doing nothing;
   Open File lists capture files first; and messages that send you elsewhere
   have a button for it (Open File…, Open HTTP Requests, Stop Capture).
+  [831c9a3]
+
+[831c9a3]: https://github.com/DenPaz/pcap-lens/commit/831c9a3
 
 ## 0.38.0 — 2026-11-27
 
