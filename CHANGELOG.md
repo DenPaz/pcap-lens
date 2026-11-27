@@ -18,9 +18,10 @@ commit) that made it. The format follows
 - Screen readers hear how many packets a filter shows ("6 of 26 packets
   match the filter."), the empty list's Clear Filter and Previous Filter
   leave the focus on the packet list instead of the top of the page, and
-  the details tree has a name.
+  the details tree has a name. [8e4f62a]
 
 [831c9a3]: https://github.com/DenPaz/pcap-lens/commit/831c9a3
+[8e4f62a]: https://github.com/DenPaz/pcap-lens/commit/8e4f62a
 
 ## 0.38.0 — 2026-11-27
 
