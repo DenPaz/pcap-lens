@@ -37,6 +37,10 @@ commit) that made it. The format follows
 - On a narrow editor the status bar keeps the packet counts (its other items
   shrink to their icons, with their text in the tooltip), and the bytes pane
   says to select a packet instead of staying blank. [fc62376]
+- Find Packet looks like VS Code's find widget (↑/↓ icon buttons, more room
+  for the search box), the filter's error line waits while suggestions are
+  open, the comment box names its packet, and the Replay panel keeps Start
+  and Stop together. [40a6a8a] [838d688]
 
 ### Fixed
 
@@ -53,6 +57,8 @@ commit) that made it. The format follows
 [15981c1]: https://github.com/DenPaz/pcap-lens/commit/15981c1
 [14a9f08]: https://github.com/DenPaz/pcap-lens/commit/14a9f08
 [fc62376]: https://github.com/DenPaz/pcap-lens/commit/fc62376
+[40a6a8a]: https://github.com/DenPaz/pcap-lens/commit/40a6a8a
+[838d688]: https://github.com/DenPaz/pcap-lens/commit/838d688
 
 ## 0.37.0 — 2026-11-25
 
