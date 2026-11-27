@@ -122,9 +122,7 @@
     next,
     substreamLabel,
     h("span", { class: "spacer" }),
-    filterBtn,
-    filterOutBtn,
-    saveBtn,
+    h("span", { class: "toolbar-group" }, [filterBtn, filterOutBtn, saveBtn]),
   );
 
   // Search: Enter / Shift+Enter (or the arrows) step through the matches.
@@ -405,7 +403,11 @@
     /** @type {HTMLElement[]} */
     const matches = [];
     for (const p of parts) {
-      const pre = h("pre", { class: p.dir === null ? "segment" : `segment dir${p.dir}` });
+      // (A hex dump's or C array's lines keep their columns: no wrapping.)
+      const dump = state.format === "hex" || state.format === "carray" ? " dump" : "";
+      const pre = h("pre", {
+        class: p.dir === null ? `segment${dump}` : `segment dir${p.dir}${dump}`,
+      });
       const ranges = lib.findRanges(p.text, state.query, MAX_MATCHES - matches.length);
       let at = 0;
       for (const [start, end] of ranges) {

@@ -208,9 +208,7 @@
         h("label", {}, ["Show as ", select]),
         h("span", { class: "facts" }, [facts.join(" · ")]),
         h("span", { class: "spacer" }),
-        copyBtn,
-        saveBtn,
-        bytesBtn,
+        h("span", { class: "toolbar-group" }, [copyBtn, saveBtn, bytesBtn]),
       ]),
     );
     if (view === "image") {

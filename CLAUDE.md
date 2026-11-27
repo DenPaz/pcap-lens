@@ -3710,7 +3710,14 @@ scripts/screenshots.js --theme light|hc --out <dir>` renders Light Modern
   with a Codicon (`withIcon`; a label set later keeps it with
   `replaceChildren(icon, text)`); buttons that belong together sit in a
   `.toolbar-group`, so a wrapping toolbar keeps them side by side (Replay's
-  Stop wrapped alone under Start at 1300 px): the panels e2e test checks every panel as
+  Stop wrapped alone under Start at 1300 px, Packet Bytes' Save Raw… under
+  Copy and Save as… at 1320 px; the right-hand runs of Follow, Compare,
+  Coloring Rules, HTTP Exchange and the packet window are groups too). Hex
+  dumps and C/Rust arrays (Packet Bytes, Follow) never wrap (`.dump`:
+  `white-space: pre`, the view scrolls sideways; a wrapped dump put an
+  offset's last bytes on a line of their own at 640 px), and Replay's notes
+  cell keeps 24ch, not a word per line. `PCAP_SCREENSHOTS_WIDTH` renders
+  the panels as narrow as a panel beside the capture: the panels e2e test checks every panel as
   its test left it (Coloring Rules had two primaries; Copy, Go to Packet N,
   Switch Direction… had no icon). A line under a panel's title saying what
   it does is `p.panel-intro`. Empty states say so instead of drawing

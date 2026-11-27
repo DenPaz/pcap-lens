@@ -359,8 +359,7 @@
       saveButton,
       revertButton,
       h("span", { class: "spacer" }),
-      defaultsButton,
-      settingsButton,
+      h("span", { class: "toolbar-group" }, [defaultsButton, settingsButton]),
     ]),
     statusLine,
     h("table", { class: "stats rules" }, [

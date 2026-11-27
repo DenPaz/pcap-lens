@@ -607,6 +607,25 @@ table.stats tr.spacer td {
   border-left: 3px solid;
 }
 
+/* Hex dumps and arrays: columns stay put, the view scrolls sideways (a
+   wrapped dump put an offset's last bytes on a line of their own). */
+.segment.dump,
+.bytes-text.dump {
+  white-space: pre;
+  word-break: normal;
+}
+
+.segment.dump {
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
+}
+
+.follow-body:has(.segment.dump),
+.bytes-text.dump {
+  overflow-x: auto;
+}
+
 .segment.dir0 {
   background: color-mix(in srgb, var(--vscode-charts-red, #f14c4c) 8%, transparent);
 }
@@ -1116,6 +1135,11 @@ table.replay th {
 
 table.replay td {
   vertical-align: middle;
+}
+
+/* The notes wrap, but not to a word per line when the table is narrow. */
+table.replay td.wrap {
+  min-width: 24ch;
 }
 
 table.replay .replay-ip {

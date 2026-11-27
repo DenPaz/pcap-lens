@@ -878,6 +878,19 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     assert.ok(
       (await page.textContent("pre.segment")).startsWith("00000000  48 54 54 50 2f 31 2e 31"),
     );
+    // A dump's lines don't wrap on a narrow panel: the view scrolls sideways.
+    const before = page.viewportSize();
+    await page.setViewportSize({ width: 420, height: 800 });
+    assert.deepEqual(
+      await page.$eval("pre.segment", (p) => {
+        const body = /** @type {HTMLElement} */ (p.parentElement);
+        return [getComputedStyle(p).whiteSpace, body.scrollWidth > body.clientWidth];
+      }),
+      ["pre", true],
+    );
+    if (before) {
+      await page.setViewportSize(before);
+    }
 
     await page.click("button:has-text('Save as…')");
     const saveText = log.find((m) => m.type === "save");
@@ -2549,6 +2562,21 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     await page.waitForSelector(".bytes-text");
     assert.equal(await page.textContent(".panel-title"), "Packet Bytes · packet 7");
     assert.equal(await text(), "SGVsbG8sIFdvcmxkIQ==");
+    // Copy, Save as… and Save Raw… stay on one line when the toolbar wraps.
+    const size = page.viewportSize();
+    for (let width = 1400; width >= 700; width -= 20) {
+      await page.setViewportSize({ width, height: 800 });
+      const tops = await page.$$eval(".toolbar button", (b) =>
+        b
+          .filter((x) => /^(Copy|Save as…|Save Raw…)$/.test(x.textContent.trim()))
+          .map((x) => Math.round(x.getBoundingClientRect().top)),
+      );
+      assert.equal(tops.length, 3);
+      assert.equal(new Set(tops).size, 1, `at ${width}px`);
+    }
+    if (size) {
+      await page.setViewportSize(size);
+    }
     await page.selectOption("select[aria-label='Decode as']", "base64");
     await page.waitForFunction(
       () => document.querySelector(".bytes-text")?.textContent === "Hello, World!",
@@ -2627,6 +2655,20 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     }
     assert.ok(log.some((m) => m.type === "goto"));
     await page.selectOption("select[aria-label='Show as']", "hexdump");
+    // A dump's lines don't wrap on a narrow panel ("…IHD" / "R" before): it
+    // scrolls sideways.
+    const before = page.viewportSize();
+    await page.setViewportSize({ width: 420, height: 800 });
+    assert.deepEqual(
+      await page.$eval("pre.bytes-text", (p) => [
+        getComputedStyle(p).whiteSpace,
+        p.scrollWidth > p.clientWidth,
+      ]),
+      ["pre", true],
+    );
+    if (before) {
+      await page.setViewportSize(before);
+    }
   });
 
   test("packet window: tree over bytes, field highlight, keyboard, filters", async () => {
@@ -3139,13 +3181,19 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
   });
 
   // PCAP_SCREENSHOTS=<folder>: every panel as its test left it, in a VS Code theme
-  // (PCAP_SCREENSHOTS_THEME: dark, light or hc), for checking the styling.
+  // (PCAP_SCREENSHOTS_THEME: dark, light or hc), for checking the styling;
+  // PCAP_SCREENSHOTS_WIDTH=<px> as wide as that (a panel beside the capture
+  // is often half the window).
   test("screenshots of every panel (only with PCAP_SCREENSHOTS)", async function () {
     if (!process.env.PCAP_SCREENSHOTS) {
       this.skip();
     }
     const { applyTheme } = require("../../scripts/themes");
+    const width = Number(process.env.PCAP_SCREENSHOTS_WIDTH) || 0;
     for (const [i, { page }] of pages.entries()) {
+      if (width) {
+        await page.setViewportSize({ width, height: 800 });
+      }
       await applyTheme(page, process.env.PCAP_SCREENSHOTS_THEME || "dark");
       const title = await page.evaluate(() => document.querySelector("h1, h2")?.textContent ?? "");
       const name = `${String(i).padStart(2, "0")}-${title.replace(/[^A-Za-z0-9]+/g, "-")}.png`;

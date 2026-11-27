@@ -44,8 +44,7 @@
     h("label", {}, [only, "Only differences"]),
     swap,
     h("span", { class: "spacer" }),
-    gotoA,
-    gotoB,
+    h("span", { class: "toolbar-group" }, [gotoA, gotoB]),
   ]);
   const status = h("div", { class: "status", role: "status" });
   const notice = h("div", { class: "notice error hidden", role: "alert" });

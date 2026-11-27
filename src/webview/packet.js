@@ -65,8 +65,7 @@
     copyBtn,
     gotoBtn,
     h("span", { class: "spacer" }),
-    expandBtn,
-    collapseBtn,
+    h("span", { class: "toolbar-group" }, [expandBtn, collapseBtn]),
   ]);
   const treeBox = h("div", {
     class: "packet-tree",
