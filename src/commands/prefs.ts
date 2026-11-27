@@ -13,6 +13,7 @@ import {
   validatePrefValue,
   withPref,
 } from "../prefsModel";
+import { pickKeepingCurrent } from "./pickers";
 import { withBackend } from "./withBackend";
 
 /** Set while this command writes pcapViewer.prefs: it reloads the captures itself. */
@@ -192,7 +193,7 @@ async function askValue(pref: ProtocolPref, current: string): Promise<string | u
   const title = `${prefLabel(pref.name)} (${pref.name})`;
   if (pref.type === "bool" || pref.type === "enum") {
     const options = pref.type === "bool" ? ["TRUE", "FALSE"] : (pref.choices ?? []);
-    const pick = await vscode.window.showQuickPick(
+    const pick = await pickKeepingCurrent(
       options.map((label) => ({
         label,
         description: [
@@ -202,6 +203,7 @@ async function askValue(pref: ProtocolPref, current: string): Promise<string | u
           .filter(Boolean)
           .join(", "),
       })),
+      (o) => sameValue(pref, o.label, current),
       { title, placeHolder: pref.description },
     );
     return pick?.label;

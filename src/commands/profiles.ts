@@ -10,6 +10,7 @@ import {
   profileItems,
 } from "../wiresharkProfile";
 import { withBackend } from "./withBackend";
+import { pickKeepingCurrent } from "./pickers";
 
 type Ctx = {
   provider: PcapEditorProvider;
@@ -30,12 +31,11 @@ async function pickProfile(
   title: string,
   placeHolder: string,
 ): Promise<string | undefined> {
-  const chosen = await vscode.window.showQuickPick(profileItems(profiles, current), {
-    title,
-    placeHolder,
-    matchOnDescription: true,
-    matchOnDetail: true,
-  });
+  const chosen = await pickKeepingCurrent(
+    profileItems(profiles, current),
+    (p) => p.name === current,
+    { title, placeHolder, matchOnDescription: true, matchOnDetail: true },
+  );
   return chosen?.name;
 }
 

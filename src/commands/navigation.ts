@@ -4,6 +4,7 @@ import { VIEWER_COMMANDS, ViewerCommand } from "../messages";
 import type { PcapEditorProvider } from "../pcapEditor";
 import { NAME_RESOLUTION_OPTIONS, TIME_FORMATS } from "../settingsModel";
 import { requireSession } from "./filter";
+import { pickKeepingCurrent } from "./pickers";
 
 /** Command id for each viewer action, e.g. "pcapViewer.toggleMark". */
 export function viewerCommandId(command: ViewerCommand): string {
@@ -14,12 +15,13 @@ export function viewerCommandId(command: ViewerCommand): string {
 export async function pickTimeFormat(provider: PcapEditorProvider): Promise<void> {
   const scope = provider.activeSession?.uri;
   const current = getSetting<string>("timeFormat", "relative", scope);
-  const pick = await vscode.window.showQuickPick(
+  const pick = await pickKeepingCurrent(
     TIME_FORMATS.map((f) => ({
       label: f.label,
       description: f.id === current ? "current" : undefined,
       id: f.id,
     })),
+    (f) => f.id === current,
     { title: "Time Display Format", placeHolder: "How the packet list shows the Time column" },
   );
   if (pick) {

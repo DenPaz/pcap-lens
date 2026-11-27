@@ -4,7 +4,18 @@ import type { PcapEditorProvider, PcapEditorSession } from "../pcapEditor";
 export function requireSession(provider: PcapEditorProvider): PcapEditorSession | undefined {
   const session = provider.activeSession;
   if (!session) {
-    void vscode.window.showInformationMessage("Open a .pcap or .pcapng file in PCAP Lens first.");
+    // (From the Command Palette or a key with no capture open: offer one.)
+    const open = "Open File…";
+    const sample = "Open Sample Capture";
+    void vscode.window
+      .showInformationMessage("Open a .pcap or .pcapng file in PCAP Lens first.", open, sample)
+      .then((choice) =>
+        choice
+          ? vscode.commands.executeCommand(
+              choice === open ? "pcapViewer.openFile" : "pcapViewer.openSample",
+            )
+          : undefined,
+      );
   }
   return session;
 }

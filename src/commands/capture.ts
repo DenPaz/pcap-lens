@@ -2,7 +2,14 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import type { FilterAssistant } from "../ai";
 import type { BackendClient } from "../backendClient";
-import { FILE_ARGS, captureFileName, captureLimits, fileCheck, fileParams } from "../captureModel";
+import {
+  FILE_ARGS,
+  captureFileName,
+  captureLimits,
+  checkedOrActive,
+  fileCheck,
+  fileParams,
+} from "../captureModel";
 import { getSetting, readSettings, updateSetting } from "../config";
 import {
   ExtcapArg,
@@ -23,6 +30,7 @@ import { PcapEditorProvider, describeError } from "../pcapEditor";
 import type { SavedFilter } from "../settingsModel";
 import { newTemporaryCapture } from "../tempCaptures";
 import { requireSession } from "./filter";
+import { pickKeepingCurrent } from "./pickers";
 import { revealFile } from "./reveal";
 import { withBackend } from "./withBackend";
 
@@ -84,13 +92,30 @@ async function pickInterfaces(
         ]
       : []),
   ];
-  const picked = await vscode.window.showQuickPick(items, {
-    title: `${title}: choose the interfaces`,
-    placeHolder: "Interfaces to capture on (several can be checked)",
-    canPickMany: true,
-    matchOnDescription: true,
-    matchOnDetail: true,
+  type Item = (typeof items)[number];
+  const quick = vscode.window.createQuickPick<Item>();
+  quick.title = `${title}: choose the interfaces`;
+  quick.placeholder =
+    "Interfaces to capture on: Enter takes the highlighted one, Space checks several";
+  quick.canSelectMany = true;
+  quick.matchOnDescription = true;
+  quick.matchOnDetail = true;
+  quick.items = items;
+  quick.selectedItems = items.filter((i) => i.picked);
+  const picked = await new Promise<Item[] | undefined>((resolve) => {
+    // (Enter on an interface that isn't checked takes that one.)
+    quick.onDidAccept(() =>
+      resolve(
+        checkedOrActive(
+          quick.selectedItems,
+          quick.activeItems.find((i) => i.iface),
+        ),
+      ),
+    );
+    quick.onDidHide(() => resolve(undefined));
+    quick.show();
   });
+  quick.dispose();
   const ifaces = (picked ?? []).flatMap((p) => (p.iface ? [p.iface] : []));
   return ifaces.length ? ifaces : undefined;
 }
@@ -101,11 +126,12 @@ async function pickInterfaces(
 async function editValue(arg: ExtcapArg, current: string): Promise<string | undefined> {
   const title = argName(arg);
   if (isBoolean(arg)) {
-    const pick = await vscode.window.showQuickPick(
+    const pick = await pickKeepingCurrent(
       [
-        { label: "On", value: "true", picked: current === "true" },
-        { label: "Off", value: "false", picked: current !== "true" },
+        { label: "On", value: "true", description: current === "true" ? "current" : undefined },
+        { label: "Off", value: "false", description: current !== "true" ? "current" : undefined },
       ],
+      (o) => o.value === (current === "true" ? "true" : "false"),
       { title, placeHolder: arg.tooltip },
     );
     return pick?.value;
@@ -120,7 +146,7 @@ async function editValue(arg: ExtcapArg, current: string): Promise<string | unde
   }
   if (isChoice(arg)) {
     const other = arg.type === "editselector" ? [{ label: "Other…", value: undefined }] : [];
-    const pick = await vscode.window.showQuickPick(
+    const pick = await pickKeepingCurrent(
       [
         ...arg.values.map((v) => ({
           label: v.display,
@@ -129,6 +155,7 @@ async function editValue(arg: ExtcapArg, current: string): Promise<string | unde
         })),
         ...other,
       ],
+      (o) => o.value === current,
       { title, placeHolder: arg.tooltip },
     );
     if (!pick || pick.value !== undefined) {

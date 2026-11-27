@@ -4,7 +4,9 @@ import {
   fileCheck,
   fileParams,
   captureFileName,
+  captureFilesFirst,
   captureLimits,
+  checkedOrActive,
   epochNs,
   formatDateTime,
   isFrameRanges,
@@ -38,6 +40,23 @@ suite("live capture and editing helpers", () => {
       bytes: 1_500_000,
     });
     assert.deepEqual(captureLimits(-5, "10", null), {}, "nonsense is no limit");
+  });
+
+  test("a multi-select picker's Enter: the checked items, else the highlighted one", () => {
+    assert.deepEqual(checkedOrActive(["eth0", "lo"], "wlan0"), ["eth0", "lo"]);
+    assert.deepEqual(checkedOrActive([], "wlan0"), ["wlan0"]);
+    assert.deepEqual(checkedOrActive([], undefined), []);
+  });
+
+  test("the file picker lists capture files first", () => {
+    const files = ["README.md", "a/trace.pcapng", "b/old.pcap.gz", "notes.txt", "x/ring.pcap1"];
+    assert.deepEqual(
+      captureFilesFirst(files, (f) => f.split("/").pop() ?? f),
+      {
+        captures: ["a/trace.pcapng", "b/old.pcap.gz", "x/ring.pcap1"],
+        others: ["README.md", "notes.txt"],
+      },
+    );
   });
 
   test("capture file names", () => {

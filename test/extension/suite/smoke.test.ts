@@ -1803,4 +1803,30 @@ suite("PCAP Lens smoke test", () => {
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
     await waitFor(() => (api.provider.allSessions.length ? undefined : true), 10_000);
   });
+
+  test("a picker opens on the current choice: Enter keeps it, ↓ takes the next one", async () => {
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    const config = () => vscode.workspace.getConfiguration("pcapViewer");
+    await config().update("timeFormat", "absolute", vscode.ConfigurationTarget.Global);
+    // Run the picker, wait for it to show, press keys in it.
+    const answer = async (...keys: string[]) => {
+      const done = vscode.commands.executeCommand("pcapViewer.timeFormat");
+      await new Promise((r) => setTimeout(r, 1000));
+      for (const key of keys) {
+        await vscode.commands.executeCommand(key);
+      }
+      await done;
+    };
+    try {
+      await answer("workbench.action.acceptSelectedQuickOpenItem");
+      assert.equal(config().get("timeFormat"), "absolute", "Enter kept the current format");
+      await answer(
+        "workbench.action.quickOpenSelectNext",
+        "workbench.action.acceptSelectedQuickOpenItem",
+      );
+      assert.equal(config().get("timeFormat"), "utc", "↓ went on from the current one");
+    } finally {
+      await config().update("timeFormat", undefined, vscode.ConfigurationTarget.Global);
+    }
+  });
 });

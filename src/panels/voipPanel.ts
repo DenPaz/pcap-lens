@@ -311,7 +311,8 @@ export class VoipPanel {
           ),
       );
       const reveal = revealLabel();
-      if ((await vscode.window.showInformationMessage(`Saved ${dest.fsPath}`, reveal)) === reveal) {
+      const saved = `Saved the call's audio to ${path.basename(dest.fsPath)}`;
+      if ((await vscode.window.showInformationMessage(saved, reveal)) === reveal) {
         await revealFile(dest.fsPath);
       }
     } catch (err) {
@@ -354,7 +355,9 @@ export class VoipPanel {
           ),
       );
       const reveal = revealLabel();
-      if ((await vscode.window.showInformationMessage(`Saved ${dest.fsPath}`, reveal)) === reveal) {
+      const what = format === "wav" ? "audio" : "RTP payload";
+      const saved = `Saved the stream's ${what} to ${path.basename(dest.fsPath)}`;
+      if ((await vscode.window.showInformationMessage(saved, reveal)) === reveal) {
         await revealFile(dest.fsPath);
       }
     } catch (err) {

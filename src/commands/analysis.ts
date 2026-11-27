@@ -117,9 +117,16 @@ export function registerAnalysisCommands(
         return undefined;
       }
       if (!ask) {
-        void vscode.window.showInformationMessage(
-          "Pick a request in HTTP Requests (PCAP Statistics) to show it with its response.",
-        );
+        void vscode.window
+          .showInformationMessage(
+            "Pick a request in HTTP Requests (PCAP Statistics) to show it with its response.",
+            "Open HTTP Requests",
+          )
+          .then((choice) =>
+            choice
+              ? vscode.commands.executeCommand("pcapViewer.statistics.httpRequests")
+              : undefined,
+          );
         return undefined;
       }
       return HttpPanel.show(context, session, ask);

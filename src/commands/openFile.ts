@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { captureFilesFirst } from "../captureModel";
 import { OPEN_AS_PACKETS, PcapEditorProvider, describeError } from "../pcapEditor";
 import { withBackend } from "./withBackend";
 
@@ -16,8 +17,15 @@ const MAX_FILES = 20_000;
 
 type FileItem = vscode.QuickPickItem & { uri?: vscode.Uri };
 
-/** A file from the workspace folders (files.exclude applies), or any file via Browse…. */
-export async function pickFile(title = "Open File in PCAP Lens"): Promise<vscode.Uri | undefined> {
+/**
+ * A file from the workspace folders (files.exclude applies), or any file via
+ * Browse…. Capture files come first unless `capturesFirst` is false (BER
+ * records are in files of any name).
+ */
+export async function pickFile(
+  title = "Open File in PCAP Lens",
+  capturesFirst = true,
+): Promise<vscode.Uri | undefined> {
   const browse = async () =>
     (
       await vscode.window.showOpenDialog({
@@ -43,7 +51,7 @@ export async function pickFile(title = "Open File in PCAP Lens"): Promise<vscode
   pick.items = [browseItem];
   pick.show();
   void vscode.workspace.findFiles("**/*", undefined, MAX_FILES).then((uris) => {
-    const files = uris
+    const files: FileItem[] = uris
       .map((uri) => ({ uri, rel: vscode.workspace.asRelativePath(uri) }))
       .sort((a, b) => a.rel.localeCompare(b.rel))
       .map(({ uri, rel }) => ({
@@ -51,7 +59,17 @@ export async function pickFile(title = "Open File in PCAP Lens"): Promise<vscode
         description: path.dirname(rel) === "." ? "" : path.dirname(rel),
         uri,
       }));
-    pick.items = [browseItem, ...files];
+    const { captures, others } = capturesFirst
+      ? captureFilesFirst(files, (f) => f.label)
+      : { captures: [], others: files };
+    const separator = (label: string): FileItem => ({
+      label,
+      kind: vscode.QuickPickItemKind.Separator,
+    });
+    pick.items =
+      captures.length && others.length
+        ? [browseItem, separator("Capture files"), ...captures, separator("Other files"), ...others]
+        : [browseItem, ...captures, ...others];
     pick.busy = false;
   });
   const chosen = await new Promise<FileItem | undefined>((resolve) => {

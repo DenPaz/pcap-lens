@@ -5,6 +5,7 @@
  * exactly, however large.
  */
 import type { ExtcapArg, ExtcapValues } from "./extcapModel";
+import { isCaptureFileName } from "./replayModel";
 import { safeFileName } from "./settingsModel";
 
 /** Stop conditions of a live capture (0 or absent: none). */
@@ -44,6 +45,32 @@ const pad = (n: number, width = 2) => String(n).padStart(width, "0");
  * The file name of a new capture: "capture_eth0_2026-09-27_13-14-05.pcapng"
  * (interface labels made safe for any file system, at most three of them).
  */
+/**
+ * What a multi-select picker's Enter chose: the checked items, else the one
+ * highlighted. Enter on an unchecked interface returned nothing, so Start
+ * Capture ended without a word.
+ */
+export function checkedOrActive<T>(checked: readonly T[], active: T | undefined): T[] {
+  return checked.length ? [...checked] : active === undefined ? [] : [active];
+}
+
+/**
+ * The files of a workspace picker, capture files first (by name, as the
+ * viewer's own file patterns), then the rest: the list is every file in the
+ * workspace, alphabetical, so captures sat among the source files.
+ */
+export function captureFilesFirst<T>(
+  files: readonly T[],
+  name: (file: T) => string,
+): { captures: T[]; others: T[] } {
+  const captures: T[] = [];
+  const others: T[] = [];
+  for (const f of files) {
+    (isCaptureFileName(name(f)) ? captures : others).push(f);
+  }
+  return { captures, others };
+}
+
 export function captureFileName(labels: string[], date: Date): string {
   const names = labels
     .slice(0, 3)

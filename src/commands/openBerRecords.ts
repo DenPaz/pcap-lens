@@ -94,7 +94,7 @@ export async function openBerRecords(
   log: vscode.LogOutputChannel,
   args?: OpenBerRecordsArgs,
 ): Promise<string | undefined> {
-  const uri = args?.uri instanceof vscode.Uri ? args.uri : await pickFile(TITLE);
+  const uri = args?.uri instanceof vscode.Uri ? args.uri : await pickFile(TITLE, false);
   if (!uri) {
     return undefined;
   }

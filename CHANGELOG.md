@@ -7,6 +7,14 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Changed
+
+- Pickers open on the current choice, so Enter keeps it (time format,
+  Wireshark profile, protocol preferences, capture helper options); Start
+  Capture takes the highlighted interface on Enter instead of doing nothing;
+  Open File lists capture files first; and messages that send you elsewhere
+  have a button for it (Open File…, Open HTTP Requests, Stop Capture).
+
 ## 0.38.0 — 2026-11-27
 
 ### Added

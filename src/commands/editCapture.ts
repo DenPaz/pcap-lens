@@ -351,11 +351,17 @@ export async function editCapture(
     return undefined;
   }
   if (session.capturing || session.openInfo.indexing) {
-    void vscode.window.showInformationMessage(
-      session.capturing
-        ? "Stop the capture before editing it."
-        : "Wait until the capture is loaded before editing it.",
-    );
+    if (session.capturing) {
+      void vscode.window
+        .showInformationMessage("Stop the capture before editing it.", "Stop Capture")
+        .then((choice) =>
+          choice ? vscode.commands.executeCommand("pcapViewer.stopCapture") : undefined,
+        );
+    } else {
+      void vscode.window.showInformationMessage(
+        "Wait until the capture is loaded before editing it.",
+      );
+    }
     return undefined;
   }
   const entry = op ? OPERATIONS.find((o) => o.op === op) : await choose(OPERATIONS, "Edit Capture");

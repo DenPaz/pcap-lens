@@ -222,7 +222,12 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   `src/captureModel.ts` pure capture/editing helpers (file names, durations,
   date-times as bigint ns); `src/tempCaptures.ts` unsaved captures;
   `src/commands/capture.ts` and `editCapture.ts` (start/stop, editing),
-  `src/commands/withBackend.ts` (active or short-lived backend).
+  `src/commands/withBackend.ts` (active or short-lived backend),
+  `src/commands/pickers.ts` (`pickKeepingCurrent`: a single-choice
+  QuickPick that opens on the current choice; `showQuickPick` highlights
+  the first item, so Enter changed the time format, profile, a
+  preference or an extcap option; a smoke test presses Enter and ↓ in the
+  time format picker).
   `src/environment.ts` the setup check (pure); `src/commands/setup.ts` the
   walkthrough's commands and context keys. `src/remote.ts` remote-window
   helpers (pure); `src/commands/reveal.ts` shows saved files.
@@ -1855,7 +1860,8 @@ filesize` needs a file) block by block: one chunk can hold many blocks, so
   view is `stale` (the same filter reruns) and never cached
   (`_Filtering.during_capture`); the webview reapplies the filter when a
   capture's index is done. Host: _PCAP: Start Capture…_ (`commands/capture.ts`:
-  interface QuickPick with the last choice checked, filter InputBox validated
+  interface QuickPick with the last choice checked (Enter on an unchecked
+  interface takes it: `checkedOrActive`; it used to end without a word), filter InputBox validated
   by the backend, debounced) creates an empty unsaved capture
   (`newTemporaryCapture`, named by `captureFileName`) and `queueCapture`s the
   request, so the document's first load sends `capture_start` (a failed start
