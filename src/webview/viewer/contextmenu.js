@@ -515,7 +515,17 @@ function applyFromTree(expr, apply) {
   }
 }
 
-/** @param {string} text */
+/**
+ * Copy (the host writes the clipboard and VS Code's status bar says so, far
+ * from here): screen readers hear "Copied".
+ * @param {string} text
+ */
 export function copy(text) {
   vscode.postMessage({ type: "copy", text });
+  const live = document.getElementById("announce");
+  if (live) {
+    live.textContent = "";
+    // (Cleared first, so a second copy is read too.)
+    setTimeout(() => (live.textContent = "Copied"), 50);
+  }
 }

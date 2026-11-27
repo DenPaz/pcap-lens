@@ -131,5 +131,88 @@
     });
   }
 
-  /** @type {any} */ (window).PcapPanel = { h, s, icon, withIcon, rowMenu };
+  /**
+   * The width of one character of a monospaced SVG text class, measured in
+   * `svg` (which must be on the page), else `fallback`: the sequence
+   * diagrams cut their labels by it, and a guess cut them too late.
+   * @param {SVGSVGElement} svg @param {string} className @param {number} fallback
+   */
+  function charWidth(svg, className, fallback) {
+    const probe = /** @type {SVGTextElement} */ (s("text", { class: className, x: 0, y: -100 }));
+    probe.textContent = "0".repeat(20);
+    svg.append(probe);
+    const width = probe.getComputedTextLength() / 20;
+    probe.remove();
+    return width > 0 ? width : fallback;
+  }
+
+  /** How long a copy button says "Copied". */
+  const COPIED_MS = 1500;
+  /** @type {WeakMap<HTMLElement, {children: Node[], timer: number}>} */
+  const copiedButtons = new WeakMap();
+  /** @type {HTMLElement | null} */
+  let live = null;
+
+  /**
+   * Say something short to screen readers (a polite live region of the panel's own).
+   * @param {string} text
+   */
+  function announce(text) {
+    if (!live) {
+      live = h("div", {
+        id: "panel-announce",
+        class: "visually-hidden",
+        role: "status",
+        "aria-live": "polite",
+      });
+      document.body.append(live);
+    }
+    const region = live;
+    region.textContent = "";
+    // (Cleared first, so the same words twice are read twice.)
+    setTimeout(() => (region.textContent = text), 50);
+  }
+
+  /**
+   * After a copy (the host writes the clipboard): the button, when there is
+   * one, shows a check and "Copied" for a moment, keeping its width so the
+   * toolbar doesn't move; screen readers hear "Copied" either way (a menu's
+   * Copy too). VS Code's status bar said so only at the window's bottom.
+   * @param {HTMLElement | null} [button]
+   */
+  function copied(button) {
+    announce("Copied");
+    if (!button) {
+      return;
+    }
+    const was = copiedButtons.get(button);
+    if (was) {
+      clearTimeout(was.timer);
+    } else {
+      button.style.minWidth = `${button.getBoundingClientRect().width}px`;
+    }
+    const children = was ? was.children : [...button.childNodes];
+    if (!was) {
+      button.replaceChildren(icon("check"), "Copied");
+      button.classList.add("copied");
+    }
+    const timer = window.setTimeout(() => {
+      copiedButtons.delete(button);
+      button.replaceChildren(...children);
+      button.classList.remove("copied");
+      button.style.minWidth = "";
+    }, COPIED_MS);
+    copiedButtons.set(button, { children, timer });
+  }
+
+  /** @type {any} */ (window).PcapPanel = {
+    h,
+    s,
+    icon,
+    withIcon,
+    rowMenu,
+    charWidth,
+    announce,
+    copied,
+  };
 })();

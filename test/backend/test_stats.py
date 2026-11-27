@@ -205,6 +205,28 @@ def test_parse_expert_splits_only_on_newlines() -> None:
     assert row["frames"] == [3]
 
 
+def test_parse_expert_keeps_a_multi_line_comment_whole() -> None:
+    # tshark's report prints a packet comment's further lines on lines of their
+    # own, raw; the fields pass writes them escaped. The row must say it the
+    # second way, whole, to find its packet.
+    summary = (
+        "Comments (2)\n=============\n   Frequency      Group           Protocol  Summary\n"
+        "           1    Comment              Frame  The request\n"
+        "second line\twith a tab\n"
+        "           1    Comment              Frame  first of two\n"
+    )
+    fields = (
+        "4\tExpert Info (Comment/Comment): The request\\nsecond line\\twith a tab\n"
+        "5\tExpert Info (Comment/Comment): first of two\n"
+    )
+    rows = [(r["cells"][1], r.get("frames")) for r in stats.parse_expert(summary, fields).rows]
+    assert rows == [("The request\\nsecond line\\twith a tab", [4]), ("first of two", [5])]
+    # tshark 4.6's fields output doubles the backslashes.
+    doubled = fields.replace("\\", "\\\\")
+    rows = [(r["cells"][1], r.get("frames")) for r in stats.parse_expert(summary, doubled).rows]
+    assert rows == [("The request\\nsecond line\\twith a tab", [4]), ("first of two", [5])]
+
+
 CAPINFOS = """\
 File name:           a.pcapng
 Number of packets:   26

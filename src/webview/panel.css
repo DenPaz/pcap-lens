@@ -22,10 +22,10 @@ body.panel #app {
   border-bottom: 1px solid var(--border);
 }
 
-.panel-subtitle {
+/* A line under the title saying what the panel does (Replay, Coloring Rules). */
+.panel-intro {
+  margin: 0;
   color: var(--vscode-descriptionForeground);
-  font-family: var(--mono);
-  font-size: var(--mono-size);
 }
 
 .toolbar {
@@ -43,6 +43,12 @@ body.panel #app {
 
 .toolbar .spacer {
   flex: 1;
+}
+
+/* Buttons that belong together (Start and Stop) wrap as one. */
+.toolbar .toolbar-group {
+  display: inline-flex;
+  gap: var(--space-3);
 }
 
 .toolbar code {
@@ -66,6 +72,32 @@ body.panel #app {
 
 .status {
   color: var(--vscode-descriptionForeground);
+}
+
+/* Statistics: the title, toolbars and status stay in view and the results
+   (chart, map, table) scroll on their own, sideways too; a panel shorter
+   than that scrolls as a whole. */
+body.panel #app.fixed-head {
+  height: 100vh;
+  min-height: 0;
+}
+
+.results {
+  flex: 1 1 auto;
+  min-height: 8em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  overflow: auto;
+}
+
+/* tshark is running: a bar along the panel's top edge (base.css .progress-bar). */
+.panel-busy {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
 }
 
 /* ------------------------------------------------------------------ tables */
@@ -121,8 +153,69 @@ table.stats tbody tr.selected {
   background: var(--vscode-list-activeSelectionBackground);
 }
 
+/* The statistics tables take the focus (their arrows move the selection):
+   without it the selection is VS Code's inactive one, still edged so it is
+   found on a colored row, and a row brought into view clears the sticky
+   header. */
+table.stats[tabindex] {
+  outline-offset: -1px;
+}
+
+table.stats[tabindex]:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+}
+
+table.stats[tabindex]:not(:focus) tbody tr.selected {
+  color: var(--vscode-list-inactiveSelectionForeground, inherit);
+  background: var(--vscode-list-inactiveSelectionBackground);
+}
+
+body:not(.vscode-high-contrast):not(.vscode-high-contrast-light)
+  table.stats[tabindex]:not(:focus)
+  tbody
+  tr.selected {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vscode-focusBorder) 75%, transparent);
+}
+
+table.stats tbody tr {
+  scroll-margin-top: calc(var(--row-height) + var(--space-2));
+}
+
+table.stats th[tabindex]:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
 table.stats td.wrap {
   white-space: normal;
+}
+
+/* Protocol Hierarchy's shares: a bar before the number. */
+table.stats td.pct .pct-meter {
+  display: inline-block;
+  width: 64px;
+  height: 6px;
+  margin-right: var(--space-4);
+  border-radius: 3px;
+  vertical-align: middle;
+  background: color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 15%, transparent);
+  overflow: hidden;
+}
+
+/* (As wide as "100.0": the bars line up whatever the number.) */
+table.stats td.pct .pct-value {
+  display: inline-block;
+  min-width: 5ch;
+}
+
+table.stats td.pct .pct-fill {
+  display: block;
+  height: 100%;
+  background: var(--vscode-charts-blue, #3794ff);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) table.stats td.pct .pct-meter {
+  border: 1px solid var(--hc-border);
 }
 
 table.stats td.spark {
@@ -540,6 +633,25 @@ table.stats tr.spacer td {
   white-space: pre-wrap;
   word-break: break-all;
   border-left: 3px solid;
+}
+
+/* Hex dumps and arrays: columns stay put, the view scrolls sideways (a
+   wrapped dump put an offset's last bytes on a line of their own). */
+.segment.dump,
+.bytes-text.dump {
+  white-space: pre;
+  word-break: normal;
+}
+
+.segment.dump {
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
+}
+
+.follow-body:has(.segment.dump),
+.bytes-text.dump {
+  overflow-x: auto;
 }
 
 .segment.dir0 {
@@ -1041,10 +1153,6 @@ th > .codicon {
 
 /* ------------------------------------------------------------------ replay to service */
 
-.replay-intro {
-  margin: 0;
-}
-
 .replay-targets {
   overflow-x: auto;
 }
@@ -1055,6 +1163,11 @@ table.replay th {
 
 table.replay td {
   vertical-align: middle;
+}
+
+/* The notes wrap, but not to a word per line when the table is narrow. */
+table.replay td.wrap {
+  min-width: 24ch;
 }
 
 table.replay .replay-ip {

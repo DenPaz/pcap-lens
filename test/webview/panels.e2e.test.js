@@ -105,6 +105,8 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
   ) {
     const { page, problems, post } = await newPage(browser);
     const log = [];
+    /** @type {any} */
+    let lastActivity = null;
     await page.exposeFunction("__toHost", async (raw) => {
       const msg = JSON.parse(raw);
       log.push(msg);
@@ -129,7 +131,8 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
                 { kind, type, filter },
                 { timeoutMs: 0 },
               );
-              await post({ type: "activity", id: msg.id, ...charts });
+              lastActivity = { type: "activity", id: msg.id, ...charts };
+              await post(lastActivity);
             }
           },
           (err) =>
@@ -145,7 +148,9 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     });
     await page.setContent(renderPanelHtml(origin, "stats.js", { scripts }), { waitUntil: "load" });
     pages.push(problems);
-    return { page, log };
+    /** Posts the last activity charts again, as if they arrived only now. */
+    const chartsAgain = () => post(lastActivity);
+    return { page, log, chartsAgain };
   }
 
   const rows = (page) =>
@@ -300,6 +305,16 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
 
     await page.click("button:has-text('Copy as CSV')");
     const csv = log.find((m) => m.type === "copy").text.split("\n");
+    // The button says so for a moment, at the same width, and screen readers hear it.
+    const copyBtn = page.locator("button.copied");
+    assert.equal(await copyBtn.textContent(), "Copied");
+    assert.equal(await copyBtn.locator(".codicon").getAttribute("class"), "codicon codicon-check");
+    assert.ok(parseFloat(await copyBtn.evaluate((b) => b.style.minWidth)) > 0);
+    await page.waitForFunction(
+      () => document.querySelector("#panel-announce")?.textContent === "Copied",
+    );
+    await page.waitForSelector("button.copied", { state: "detached" });
+    assert.equal(await page.isVisible("button:has-text('Copy as CSV') .codicon-copy"), true);
     assert.equal(
       csv[0],
       "Address A,Address B,Packets,Bytes,Packets A → B,Bytes A → B,Packets B → A,Bytes B → A,Rel Start,Duration",
@@ -342,10 +357,11 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         { path: path.join(FIXTURES, "sessions.pcap") },
         { timeoutMs: 0 },
       );
-      const { page, log } = await openStats("conversations", "", false, undefined, {
+      const { page, log, chartsAgain } = await openStats("conversations", "", false, undefined, {
         backend: sessions,
       });
       await waitRows(page, 6); // (TCP: six connections)
+      await page.waitForSelector("table.stats tbody td.spark svg");
       assert.ok(await page.isVisible("#stats-group"), "offered for TCP");
       await page.check("#stats-group");
       await waitRows(page, 5); // (five pairs of hosts, closed)
@@ -380,8 +396,35 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
         children.reduce((n, r) => n + Number(r[2]), 0),
         "the pair's packets are its connections'",
       );
-      // The pair's filter: both hosts, that transport.
+      // From the keyboard: ← and → close and open the selected pair, ↓ goes
+      // to its first connection and ← from there back to the pair.
       await row.click();
+      // The activity charts arriving after the selection (a slow runner)
+      // rebuild the groups: the selection stays on its row.
+      await chartsAgain();
+      await page.waitForFunction(() =>
+        document
+          .querySelector("table.stats tbody tr.selected")
+          ?.textContent?.includes("198.51.100.20"),
+      );
+      const activeCells = () =>
+        page.$eval("table.stats", (t) =>
+          [
+            ...(document.getElementById(t.getAttribute("aria-activedescendant") || "")?.children ??
+              []),
+          ].map((td) => td.textContent),
+        );
+      assert.deepEqual((await activeCells()).slice(0, 2), ["2192.168.1.10", "198.51.100.20"]);
+      await page.keyboard.press("ArrowLeft");
+      await waitRows(page, 5);
+      assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+      await page.keyboard.press("ArrowRight");
+      await waitRows(page, 7);
+      await page.keyboard.press("ArrowDown");
+      assert.equal((await activeCells())[1], "198.51.100.20:443");
+      await page.keyboard.press("ArrowLeft");
+      assert.deepEqual((await activeCells()).slice(0, 2), ["2192.168.1.10", "198.51.100.20"]);
+      // The pair's filter: both hosts, that transport.
       await page.click("button:has-text('Apply as Filter')");
       assert.equal(
         log.findLast((m) => m.type === "filter").expr,
@@ -452,8 +495,13 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     assert.ok(await page.isHidden("#context-menu"));
     // Copy › Value copies the clicked cell; Shift+F10 opens the selected row's menu.
     await page.click("table.stats tbody tr >> nth=0 >> td >> nth=0", { button: "right" });
+    await page.evaluate(() => document.querySelector("#panel-announce")?.replaceChildren());
     await pickMenu(page, "Copy", "Value");
     assert.equal(log.findLast((m) => m.type === "copy").text, "192.168.1.10:50000");
+    // A menu's copy is announced too.
+    await page.waitForFunction(
+      () => document.querySelector("#panel-announce")?.textContent === "Copied",
+    );
     await page.focus("button:has-text('Refresh')");
     await page.keyboard.press("Shift+F10");
     assert.ok(await page.isHidden("#context-menu"), "the focus isn't in the table");
@@ -515,6 +563,23 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       "dns under its parents",
     );
     assert.ok(!kept.includes("arp"));
+    // The shares have bars as wide as their percentage.
+    const bars = await page.$$eval("table.stats tbody tr", (trs) =>
+      trs.map((tr) => {
+        const td = tr.querySelectorAll("td")[1];
+        const fill = td.querySelector(".pct-fill");
+        const meter = td.querySelector(".pct-meter");
+        return [
+          Number(td.textContent),
+          fill.getBoundingClientRect().width / meter.clientWidth,
+          meter.getAttribute("aria-hidden"),
+        ];
+      }),
+    );
+    for (const [pct, ratio, hidden] of bars) {
+      assert.ok(Math.abs(ratio * 100 - pct) < 2, `${pct}% drawn as ${ratio}`);
+      assert.equal(hidden, "true");
+    }
   });
 
   test("IO graph: line chart with crosshair tooltip, keyboard and metric switch", async () => {
@@ -845,6 +910,19 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     assert.ok(
       (await page.textContent("pre.segment")).startsWith("00000000  48 54 54 50 2f 31 2e 31"),
     );
+    // A dump's lines don't wrap on a narrow panel: the view scrolls sideways.
+    const before = page.viewportSize();
+    await page.setViewportSize({ width: 420, height: 800 });
+    assert.deepEqual(
+      await page.$eval("pre.segment", (p) => {
+        const body = /** @type {HTMLElement} */ (p.parentElement);
+        return [getComputedStyle(p).whiteSpace, body.scrollWidth > body.clientWidth];
+      }),
+      ["pre", true],
+    );
+    if (before) {
+      await page.setViewportSize(before);
+    }
 
     await page.click("button:has-text('Save as…')");
     const saveText = log.find((m) => m.type === "save");
@@ -880,6 +958,16 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     );
     assert.equal(await page.textContent(".status"), "No payload in this stream.");
     assert.equal(await page.locator("pre.segment").count(), 0);
+    // Nothing to search: no search box.
+    assert.equal(await page.isVisible("#follow-find"), false);
+    // tshark names no ends for it (":0"): no legend, no directions.
+    assert.equal(await page.isVisible(".follow-legend"), false);
+    assert.deepEqual(
+      await page.$$eval("select[aria-label='Direction'] option", (os) =>
+        os.map((o) => o.textContent),
+      ),
+      ["Entire conversation (0 bytes)"],
+    );
   });
 
   test("follow HTTP/2 and QUIC: sub-streams, more views, filter and save", async () => {
@@ -1272,6 +1360,25 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     await page.waitForFunction(() => document.querySelectorAll(".flow-row").length === 6);
     assert.equal((await page.$$(".flow-node")).length, 2);
     assert.match(await page.textContent(".toolbar span"), /6 packets matching dns between 2/);
+    // Labels run on to the panel's edge: two endpoints leave room for the
+    // whole of each query (they were cut where the columns end), inside the
+    // drawing.
+    const labels = await page.$$eval(".flow-row .flow-label", (ts) =>
+      ts.map((t) => {
+        const svg = /** @type {SVGSVGElement} */ (t.ownerSVGElement);
+        const right = t.getBoundingClientRect().right - svg.getBoundingClientRect().left;
+        return [t.textContent, right <= svg.width.baseVal.value];
+      }),
+    );
+    assert.deepEqual(
+      labels.map(([text]) => text?.endsWith("…")),
+      labels.map(() => false),
+      JSON.stringify(labels),
+    );
+    assert.ok(
+      labels.every(([, inside]) => inside),
+      JSON.stringify(labels),
+    );
     await client.request("set_filter", { expr: "" });
   });
 
@@ -1340,6 +1447,10 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       /^TCP stream 1/.test(document.querySelector(".panel-title").textContent),
     );
     assert.match(await page.textContent(".status"), /No packets in this stream/);
+    // No ends to name, no empty axes, nothing to ask about.
+    assert.equal(await page.textContent(".panel-title"), "TCP stream 1");
+    assert.equal(await page.isVisible(".chart"), false);
+    assert.equal(await page.isDisabled("#tcp-ask"), true);
   });
 
   test("compare packets: fields side by side, differences marked, only differences, swap", async () => {
@@ -1543,6 +1654,14 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       assert.deepEqual(
         await page.$$eval("#voip-flow .voip-node", (n) => n.map((t) => t.textContent)),
         ["10.0.0.1", "10.0.0.2"],
+      );
+      // A stream's label runs on to the panel's edge, whole (it was cut at
+      // the second column: "1 lost (2.0").
+      assert.deepEqual(
+        await page.$$eval("#voip-flow .flow-row.voip-rtp text.flow-label", (t) =>
+          t.map((l) => l.textContent),
+        ),
+        ["RTP g711U · 50 packets", "RTP g711U · 49 packets · 1 lost (2.0%)"],
       );
       assert.equal((await page.$$("#voip-streams tbody tr.linked")).length, 2);
       await page.click("#voip-flow .flow-row >> nth=0");
@@ -2065,6 +2184,47 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     }
   });
 
+  test("statistics busy bar: shown while tshark runs, filled as it reports, gone with the result", async () => {
+    /** @type {(msg: any) => Promise<void>} */
+    let answer = async () => undefined;
+    const { page } = await openGraphPanel("stats.js", async (msg, reply) => {
+      if (msg.type === "ready") {
+        await reply({ type: "init", kind: "expert", title: "Expert Information", filter: "" });
+      } else if (msg.type === "query") {
+        answer = async (m) => reply({ id: msg.id, ...m });
+      }
+    });
+    await page.waitForSelector(".panel-busy.indeterminate:not(.hidden)");
+    assert.equal(await page.textContent(".status"), "Running tshark…");
+    assert.equal(await page.getAttribute(".panel-busy", "aria-valuenow"), null);
+    await answer({ type: "progress", fraction: 0.42 });
+    await page.waitForSelector(".panel-busy:not(.indeterminate)[aria-valuenow='42']");
+    assert.equal(await page.textContent(".status"), "Running tshark… 42%");
+    await answer({
+      type: "result",
+      table: {
+        kind: "expert",
+        title: "Expert Information",
+        columns: [
+          { id: "severity", label: "Severity", numeric: false },
+          { id: "summary", label: "Summary", numeric: false },
+          { id: "group", label: "Group", numeric: false },
+          { id: "protocol", label: "Protocol", numeric: false },
+          { id: "count", label: "Count", numeric: true },
+        ],
+        rows: [{ cells: ["Warning", "Duplicate ACK", "Sequence", "TCP", 1], frame: 4 }],
+      },
+    });
+    await page.waitForSelector(".panel-busy.hidden", { state: "attached" });
+    // The leftmost button is the primary one, as in every other table.
+    assert.deepEqual(
+      (
+        await page.$$eval(".toolbar:not([role]) button", (bs) => bs.map((b) => b.textContent))
+      ).slice(0, 3),
+      ["Apply as Filter", "Prepare as Filter", "Go to Packet"],
+    );
+  });
+
   test("a long table draws only the rows on screen: scrolling, selecting, sorting, copying", async () => {
     // 50,000 DNS queries (a capture can hold 300k): drawing every row never
     // finished. A stand-in for StatsPanel with a made-up table.
@@ -2122,8 +2282,11 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       await page.textContent(".status"),
       /^60,000 queries · the first 50,000 listed \(10,000 more: limit to a display filter/,
     );
-    // Halfway down: those rows are drawn, spacers stand for the rest.
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight / 2));
+    // Halfway down: those rows are drawn, spacers stand for the rest. The
+    // results scroll on their own: the title and the buttons stay in view.
+    const toolbarTop = () => page.$eval(".toolbar", (t) => t.getBoundingClientRect().top);
+    const before = await toolbarTop();
+    await page.$eval(".results", (r) => (r.scrollTop = r.scrollHeight / 2));
     await page.waitForFunction(() => {
       const tr = document.querySelector("table.stats tbody tr:not(.spacer)");
       return tr && Number(tr.getAttribute("aria-rowindex")) > 20000;
@@ -2132,13 +2295,40 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     const [index, frame] = rowsNow[Math.floor(rowsNow.length / 2)];
     assert.equal(Number(frame.replace(/,/g, "")), index - 1, "row N is the query of frame N");
     const box = await page.locator(`tr[aria-rowindex="${index}"]`).boundingBox();
-    assert.ok(box && box.y > 0 && box.y < 800, "drawn where the page is scrolled to");
+    assert.ok(box && box.y > 0 && box.y < 800, "drawn where the results are scrolled to");
+    assert.equal(await toolbarTop(), before, "the toolbar stayed where it was");
     await page.dblclick(`tr[aria-rowindex="${index}"]`);
-    assert.deepEqual(log.at(-1), { type: "goto", frame: index - 1 });
+    await expectLast(log, { type: "goto", frame: index - 1 });
     assert.equal(await page.getAttribute(`tr[aria-rowindex="${index}"]`, "class"), "selected");
-    // Sorting sorts every row; the top shows the new first.
-    await page.click("th:has-text('Response Time')");
-    await page.evaluate(() => window.scrollTo(0, 0));
+    // The keys move the selection (the grid's active row), drawing rows not
+    // drawn yet; Enter does what a double-click does.
+    assert.equal(await page.evaluate(() => document.activeElement?.matches("table.stats")), true);
+    const active = () =>
+      page.$eval("table.stats", (t) => {
+        const tr = document.getElementById(t.getAttribute("aria-activedescendant") || "");
+        return tr && [Number(tr.getAttribute("aria-rowindex")), tr.getAttribute("aria-selected")];
+      });
+    await page.keyboard.press("ArrowDown");
+    assert.deepEqual(await active(), [index + 1, "true"]);
+    await page.keyboard.press("End");
+    assert.deepEqual(await active(), [n + 1, "true"]);
+    await page.keyboard.press("Enter");
+    await expectLast(log, { type: "goto", frame: n });
+    await page.keyboard.press("PageUp");
+    const [afterPage] = /** @type {[number, string]} */ (await active());
+    assert.ok(afterPage < n + 1 && afterPage > n - 100, `PageUp went to row ${afterPage}`);
+    await page.keyboard.press("Home");
+    assert.deepEqual(await active(), [2, "true"]);
+    assert.equal(await page.$eval(".results", (r) => r.scrollTop), 0);
+    // Sorting sorts every row; the top shows the new first. A header sorts
+    // from the keyboard too, and keeps the focus.
+    await page.focus("th:has-text('Response Time')");
+    await page.keyboard.press("Enter");
+    assert.equal(
+      await page.evaluate(() => document.activeElement?.textContent),
+      "Response Time (ms)",
+    );
+    await page.$eval(".results", (r) => (r.scrollTop = 0));
     await page.waitForFunction(
       () =>
         document.querySelector("table.stats tbody tr:not(.spacer)")?.children[2].textContent ===
@@ -2406,6 +2596,21 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     await page.waitForSelector(".bytes-text");
     assert.equal(await page.textContent(".panel-title"), "Packet Bytes · packet 7");
     assert.equal(await text(), "SGVsbG8sIFdvcmxkIQ==");
+    // Copy, Save as… and Save Raw… stay on one line when the toolbar wraps.
+    const size = page.viewportSize();
+    for (let width = 1400; width >= 700; width -= 20) {
+      await page.setViewportSize({ width, height: 800 });
+      const tops = await page.$$eval(".toolbar button", (b) =>
+        b
+          .filter((x) => /^(Copy|Save as…|Save Raw…)$/.test(x.textContent.trim()))
+          .map((x) => Math.round(x.getBoundingClientRect().top)),
+      );
+      assert.equal(tops.length, 3);
+      assert.equal(new Set(tops).size, 1, `at ${width}px`);
+    }
+    if (size) {
+      await page.setViewportSize(size);
+    }
     await page.selectOption("select[aria-label='Decode as']", "base64");
     await page.waitForFunction(
       () => document.querySelector(".bytes-text")?.textContent === "Hello, World!",
@@ -2484,6 +2689,20 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     }
     assert.ok(log.some((m) => m.type === "goto"));
     await page.selectOption("select[aria-label='Show as']", "hexdump");
+    // A dump's lines don't wrap on a narrow panel ("…IHD" / "R" before): it
+    // scrolls sideways.
+    const before = page.viewportSize();
+    await page.setViewportSize({ width: 420, height: 800 });
+    assert.deepEqual(
+      await page.$eval("pre.bytes-text", (p) => [
+        getComputedStyle(p).whiteSpace,
+        p.scrollWidth > p.clientWidth,
+      ]),
+      ["pre", true],
+    );
+    if (before) {
+      await page.setViewportSize(before);
+    }
   });
 
   test("packet window: tree over bytes, field highlight, keyboard, filters", async () => {
@@ -2701,6 +2920,18 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       assert.match(await page.getAttribute("#replay-start", "title"), /port between 1 and 65535/);
       await page.fill(port3, String(hi3.port));
       assert.ok(!(await page.isDisabled("#replay-start")));
+      // Start and Stop stay side by side when the toolbar wraps.
+      const size = page.viewportSize();
+      for (let width = 1400; width >= 700; width -= 20) {
+        await page.setViewportSize({ width, height: 800 });
+        const tops = await page.$$eval("#replay-start, #replay-stop", (b) =>
+          b.map((x) => Math.round(x.getBoundingClientRect().top)),
+        );
+        assert.equal(tops[0], tops[1], `at ${width}px`);
+      }
+      if (size) {
+        await page.setViewportSize(size);
+      }
       assert.ok(await page.isDisabled("#replay-save-results"), "nothing to save yet");
 
       await page.click("#replay-start");
@@ -2984,18 +3215,55 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
   });
 
   // PCAP_SCREENSHOTS=<folder>: every panel as its test left it, in a VS Code theme
-  // (PCAP_SCREENSHOTS_THEME: dark, light or hc), for checking the styling.
+  // (PCAP_SCREENSHOTS_THEME: dark, light or hc), for checking the styling;
+  // PCAP_SCREENSHOTS_WIDTH=<px> as wide as that (a panel beside the capture
+  // is often half the window).
   test("screenshots of every panel (only with PCAP_SCREENSHOTS)", async function () {
     if (!process.env.PCAP_SCREENSHOTS) {
       this.skip();
     }
     const { applyTheme } = require("../../scripts/themes");
+    const width = Number(process.env.PCAP_SCREENSHOTS_WIDTH) || 0;
     for (const [i, { page }] of pages.entries()) {
+      if (width) {
+        await page.setViewportSize({ width, height: 800 });
+      }
       await applyTheme(page, process.env.PCAP_SCREENSHOTS_THEME || "dark");
       const title = await page.evaluate(() => document.querySelector("h1, h2")?.textContent ?? "");
       const name = `${String(i).padStart(2, "0")}-${title.replace(/[^A-Za-z0-9]+/g, "-")}.png`;
       await page.screenshot({ path: path.join(process.env.PCAP_SCREENSHOTS, name) });
     }
+  });
+
+  test("every panel's toolbars: one primary button at most, an icon before every label", async () => {
+    // Each panel as its test left it. A second blue button made two actions
+    // look like the one to press (Coloring Rules' Add Rule and Save), and a
+    // label without an icon stood out beside its neighbours.
+    const found = [];
+    for (const { page } of pages) {
+      found.push(
+        ...(await page.evaluate(() => {
+          const title = document.querySelector("h1, h2")?.textContent;
+          const out = [];
+          for (const bar of document.querySelectorAll(".toolbar")) {
+            const buttons = [...bar.querySelectorAll("button:not(.icon):not(.link)")].filter(
+              (b) => !b.closest(".context-menu") && (b.offsetWidth || b.offsetHeight),
+            );
+            const primary = buttons.filter((b) => !b.classList.contains("secondary"));
+            if (primary.length > 1) {
+              out.push(`${title}: ${primary.map((b) => b.textContent?.trim()).join(" and ")}`);
+            }
+            for (const b of buttons) {
+              if (b.textContent?.trim() && !b.querySelector(".codicon")) {
+                out.push(`${title}: no icon on ${b.textContent.trim()}`);
+              }
+            }
+          }
+          return out;
+        })),
+      );
+    }
+    assert.deepEqual(found, []);
   });
 
   test("accessibility: no WCAG A/AA violations in any panel (axe-core)", async () => {

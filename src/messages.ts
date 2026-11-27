@@ -143,6 +143,7 @@ export type WebviewToHost =
   | { type: "reload" }
   /** The basic view's Set Up… (opens the Get Started walkthrough). */
   | { type: "setUp" }
+  | { type: "locateTshark" }
   /** The layout menu: change pcapViewer.paneLayout and/or showBytesPane. */
   | { type: "setPaneLayout"; layout?: unknown; bytes?: unknown }
   | { type: "filterApplied"; expr: string }

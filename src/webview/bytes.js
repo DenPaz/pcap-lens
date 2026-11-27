@@ -109,9 +109,10 @@
     ),
     "go-to-file",
   );
-  const copyBtn = h("button", { type: "button", class: "secondary", title: "Copy what is shown" }, [
-    "Copy",
-  ]);
+  const copyBtn = kit.withIcon(
+    h("button", { type: "button", class: "secondary", title: "Copy what is shown" }, ["Copy"]),
+    "copy",
+  );
   const saveBtn = kit.withIcon(
     h("button", { type: "button", class: "secondary", title: "Save what is shown (text views) " }, [
       "Save as…",
@@ -133,9 +134,9 @@
     h("label", {}, ["End ", endInput]),
     h("span", { class: "spacer" }),
     gotoBtn,
-    copyBtn,
-    saveBtn,
-    saveRawBtn,
+    // (Copy and the two saves wrap together: Save Raw… alone on the next
+    // line read as something else.)
+    h("span", { class: "toolbar-group" }, [copyBtn, saveBtn, saveRawBtn]),
   );
 
   const findInput = /** @type {HTMLInputElement} */ (
@@ -185,7 +186,10 @@
     });
   }
   gotoBtn.addEventListener("click", () => vscode.postMessage({ type: "goto" }));
-  copyBtn.addEventListener("click", () => vscode.postMessage({ type: "copy", text: shownText() }));
+  copyBtn.addEventListener("click", () => {
+    vscode.postMessage({ type: "copy", text: shownText() });
+    kit.copied(copyBtn);
+  });
   saveBtn.addEventListener("click", () =>
     vscode.postMessage({
       type: "save",
@@ -372,7 +376,10 @@
       text = text.slice(0, RENDER_BUDGET);
       status.textContent += ` · showing the first ${RENDER_BUDGET.toLocaleString()} characters (save to get everything)`;
     }
-    const pre = h("pre", { class: "bytes-text" });
+    // (A dump's or an array's lines keep their columns: they scroll sideways
+    // rather than wrap. Text views wrap.)
+    const dump = ["hexdump", "c", "rust"].includes(state.view === "image" ? "hexdump" : state.view);
+    const pre = h("pre", { class: dump ? "bytes-text dump" : "bytes-text" });
     /** @type {HTMLElement[]} */
     const matches = [];
     let at = 0;

@@ -7,6 +7,70 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+## 0.38.0 — 2026-11-27
+
+### Added
+
+- When TShark isn't found, _PCAP: Locate TShark…_ (offered in the
+  notification, the basic view and Get Started) lets you browse to it or
+  paste its path or Wireshark's folder, checks it, and reloads the open
+  captures. [14a9f08]
+
+### Changed
+
+- The selected packet and detail field keep a visible border when you work
+  in another pane, the status bar says "Selected packet: 16" (or "Selected: 4
+  packets (showing 5)"), and disabled buttons in the panels look disabled. [38f2631]
+- Statistics asked for at the same time share one TShark pass when TShark
+  dissects them alike: a comparison's capture profile takes about 30% less
+  time and a third less CPU. [39f5016]
+- Statistics panels keep their title and buttons in view while a long or
+  wide table scrolls, show a progress bar while TShark runs, and work from
+  the keyboard: the arrow keys select rows, Enter goes to the packet (or
+  applies the filter), and column headers sort with Enter. [676779b]
+- The flow graph and the VoIP call flow show whole labels as far as the
+  panel reaches, empty TCP streams say so instead of drawing empty axes, and
+  the panels' buttons are consistent: one highlighted action per toolbar and
+  an icon on every labelled button. [2b44b53]
+- Filter errors show TShark's sentence with an error icon, without the
+  repeated filter and `^~~~` marks (the filter box underlines the part
+  TShark refused), notices look like notices, and the loading and error
+  screen is cleaner. [15981c1]
+- On a narrow editor the status bar keeps the packet counts (its other items
+  shrink to their icons, with their text in the tooltip), and the bytes pane
+  says to select a packet instead of staying blank. [fc62376]
+- Find Packet looks like VS Code's find widget (↑/↓ icon buttons, more room
+  for the search box), the filter's error line waits while suggestions are
+  open, the comment box names its packet, and the Replay panel keeps Start
+  and Stop together. [40a6a8a] [838d688]
+- Panels hold up when they are narrow: buttons that belong together wrap
+  together, hex dumps and C arrays keep their columns and scroll sideways
+  instead of wrapping, and the Replay table's notes stay readable. [6fce867]
+- Copy buttons in the panels say "Copied" for a moment (and screen readers
+  hear it, from menus and the packet list too), Protocol Hierarchy draws a bar
+  for each share, the sequence check writes "3 duplicates", and Follow Stream
+  hides its search box when a stream has no payload. [61ea6cd]
+
+### Fixed
+
+- Expert Information and the status bar's expert count could miss errors the
+  packets show, such as malformed SCTP chunks found only when TShark builds
+  the full protocol tree, and a multi-line packet comment's row couldn't go
+  to its packet. [f614507]
+
+[f614507]: https://github.com/DenPaz/pcap-lens/commit/f614507
+[38f2631]: https://github.com/DenPaz/pcap-lens/commit/38f2631
+[39f5016]: https://github.com/DenPaz/pcap-lens/commit/39f5016
+[676779b]: https://github.com/DenPaz/pcap-lens/commit/676779b
+[2b44b53]: https://github.com/DenPaz/pcap-lens/commit/2b44b53
+[15981c1]: https://github.com/DenPaz/pcap-lens/commit/15981c1
+[14a9f08]: https://github.com/DenPaz/pcap-lens/commit/14a9f08
+[fc62376]: https://github.com/DenPaz/pcap-lens/commit/fc62376
+[40a6a8a]: https://github.com/DenPaz/pcap-lens/commit/40a6a8a
+[838d688]: https://github.com/DenPaz/pcap-lens/commit/838d688
+[6fce867]: https://github.com/DenPaz/pcap-lens/commit/6fce867
+[61ea6cd]: https://github.com/DenPaz/pcap-lens/commit/61ea6cd
+
 ## 0.37.0 — 2026-11-25
 
 ### Changed

@@ -340,7 +340,11 @@ export class StatsPanel {
         series: this.kind === "io" && Array.isArray(params.series) ? params.series : undefined,
         ...sequence,
       },
-      { timeoutMs: 0 },
+      {
+        timeoutMs: 0,
+        // (The panel's busy bar: a fraction when the pass reports one.)
+        onProgress: (p) => this.post({ type: "progress", id, fraction: p.fraction ?? null }),
+      },
     );
     this.inflight.set(id, pending.id);
     try {

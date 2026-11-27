@@ -34,7 +34,8 @@
   const app = /** @type {HTMLElement} */ (document.getElementById("app"));
 
   /** @param {string} tag @param {Record<string, string>} [attrs] @param {(Node | string)[]} [children] */
-  const h = /** @type {any} */ (window).PcapPanel.h;
+  const kit = /** @type {any} */ (window).PcapPanel;
+  const h = kit.h;
 
   /** A Codicons glyph (codicons/codicon.css), hidden from screen readers. @param {string} name */
   const icon = (name) => h("span", { class: `codicon codicon-${name}`, "aria-hidden": "true" });
@@ -48,7 +49,7 @@
   }
   const dirButton = h("button", {
     type: "button",
-    class: "secondary",
+    class: "secondary with-icon",
     id: "tcp-direction",
     title: "Show the other direction",
   });
@@ -56,12 +57,12 @@
     "button",
     {
       type: "button",
-      class: "secondary hidden",
+      class: "secondary with-icon hidden",
       id: "tcp-ask",
       title:
         "Ask Copilot to explain this stream (sends its sequence numbers, windows, round-trip times and flags, never payloads)",
     },
-    ["Ask Copilot…"],
+    [kit.icon("sparkle"), "Ask Copilot…"],
   );
   const prev = h(
     "button",
@@ -156,12 +157,19 @@
     const [a, b] = data.endpoints;
     const from = state.dir === 0 ? a : b;
     const to = state.dir === 0 ? b : a;
-    title.textContent = `TCP stream ${data.stream}: ${from ?? "?"} → ${to ?? "?"}`;
-    dirButton.textContent = "Switch Direction";
+    const empty = !data.points.length;
+    // (A stream without packets has no ends: no "? → ?", no empty axes, and
+    // nothing to ask about.)
+    title.textContent = empty
+      ? `TCP stream ${data.stream}`
+      : `TCP stream ${data.stream}: ${from ?? "?"} → ${to ?? "?"}`;
+    dirButton.replaceChildren(kit.icon("arrow-swap"), "Switch Direction");
     dirButton.toggleAttribute("disabled", data.endpoints.length < 2);
+    askButton.toggleAttribute("disabled", empty);
+    chart.classList.toggle("hidden", empty);
     prev.toggleAttribute("disabled", data.stream <= 0);
     const series = lib.tcpGraphSeries(data.points, state.dir, state.kind);
-    state.series = series;
+    state.series = empty ? null : series;
     state.hover = -1;
     const segments = data.points.filter((p) => p[2] === state.dir && p[4] > 0);
     const bytes = segments.reduce((sum, p) => sum + p[4], 0);

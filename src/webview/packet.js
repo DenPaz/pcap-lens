@@ -45,9 +45,10 @@
     h("button", { type: "button", disabled: "" }, ["Apply as Filter"]),
     "filter",
   );
-  const prepareBtn = h("button", { type: "button", class: "secondary", disabled: "" }, [
-    "Prepare as Filter",
-  ]);
+  const prepareBtn = kit.withIcon(
+    h("button", { type: "button", class: "secondary", disabled: "" }, ["Prepare as Filter"]),
+    "edit",
+  );
   const copyBtn = kit.withIcon(
     h("button", { type: "button", class: "secondary", disabled: "" }, ["Copy Value"]),
     "copy",
@@ -64,8 +65,7 @@
     copyBtn,
     gotoBtn,
     h("span", { class: "spacer" }),
-    expandBtn,
-    collapseBtn,
+    h("span", { class: "toolbar-group" }, [expandBtn, collapseBtn]),
   ]);
   const treeBox = h("div", {
     class: "packet-tree",
@@ -316,6 +316,7 @@
   copyBtn.addEventListener("click", () => {
     if (state.selected?.show !== undefined) {
       vscode.postMessage({ type: "copy", text: state.selected.show });
+      kit.copied(copyBtn);
     }
   });
   gotoBtn.addEventListener("click", () => {

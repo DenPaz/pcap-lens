@@ -272,6 +272,11 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       () => document.querySelectorAll("#list-rows .list-row:not(.loading)").length === 11,
     );
     assert.deepEqual(await rowNumbers(), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    // Nothing selected yet: the bytes pane says so too, as the details pane does.
+    assert.equal(
+      await page.$eval("#bytes-view", (v) => getComputedStyle(v, "::before").content),
+      '"Select a packet to see its bytes."',
+    );
     const headers = await page.$$eval("#list-header > div", (cells) =>
       cells.map((c) => c.firstChild.textContent),
     );
@@ -324,6 +329,15 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.press("#filter-input", "Enter");
     await page.waitForSelector("#filter-error:not(.hidden)");
     assert.equal((await rowNumbers()).length, 11);
+    // tshark's sentence with an error icon, without its echo of the filter
+    // and the ^~~ line under it: the box underlines the refused part itself.
+    const shown = await page.$eval("#filter-error", (e) => ({
+      text: e.textContent,
+      icon: !!e.querySelector(".codicon-error"),
+      info: e.dataset.info,
+    }));
+    assert.ok(shown.icon && shown.info === "", JSON.stringify(shown));
+    assert.ok(shown.text.trim() && !/\^|tcp\.port ==/.test(shown.text), shown.text);
   });
 
   test("the filter is drawn in colours, and the part tshark refused is underlined", async () => {
@@ -498,6 +512,15 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     assert.match(src.desc, /Source Address/);
     assert.ok(items.every((i) => i.label.startsWith("ip.sr")));
     assert.equal(await page.getAttribute("#filter-input", "aria-expanded"), "true");
+    // "ip.sr" is half-typed: the box turns red, but its error line waits
+    // while the suggestions are open (it shows if the list closes on it).
+    await page.waitForSelector("#filter-input.invalid");
+    assert.ok(await page.$eval("#filter-error", (e) => e.classList.contains("hidden")));
+    await page.keyboard.press("Escape");
+    await page.waitForSelector("#suggest.hidden", { state: "attached" });
+    assert.match(await page.textContent("#filter-error"), /ip\.sr/);
+    await page.keyboard.press("Control+Space");
+    await page.waitForSelector("#suggest:not(.hidden) .suggest-item");
     // Tab accepts the first (exact-prefix) suggestion.
     await page.keyboard.press("Tab");
     assert.equal(await page.inputValue("#filter-input"), "ip.src");
@@ -932,7 +955,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
   const waitSelected = (n) =>
     page.waitForFunction(
       (f) =>
-        new RegExp(`Selected: ${f}(\\D|$)`).test(
+        new RegExp(`(Selected packet: ${f}(\\D|$)|showing ${f}\\))`).test(
           document.querySelector("#status-left").textContent,
         ),
       n,
@@ -1051,6 +1074,17 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.keyboard.press("Control+f");
     await page.waitForSelector("#find-bar:not(.hidden)");
     assert.equal(await page.evaluate(() => document.activeElement.id), "find-input");
+    // VS Code's find widget: ↑/↓ and × are icon buttons, none of them primary.
+    assert.deepEqual(
+      await page.$$eval("#find-bar button", (b) =>
+        b.map((x) => [x.getAttribute("aria-label"), x.classList.contains("icon")]),
+      ),
+      [
+        ["Previous match", true],
+        ["Next match", true],
+        ["Close", true],
+      ],
+    );
 
     await page.selectOption("#find-mode", "string");
     assert.ok(await page.isVisible("#find-case-label"));
@@ -1087,6 +1121,10 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.waitForFunction(() =>
       document.querySelector("#find-status").classList.contains("error"),
     );
+    // One line on the bar, the whole message in its tooltip.
+    const status = await page.$eval("#find-status", (e) => [e.textContent, e.title]);
+    assert.ok(status[0] && !/[\n^]/.test(status[0]), status[0]);
+    assert.ok(status[1].startsWith(status[0]), status[1]);
     await page.selectOption("#find-mode", "string");
     await page.fill("#find-input", "no such text anywhere");
     await page.press("#find-input", "Enter");
@@ -1941,7 +1979,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await waitSelected(2);
     await rowEl(5).click({ modifiers: ["Shift"] });
     await waitSelection([2, 3, 4, 5]);
-    assert.match(await status(), /Selected: 5 \(4 packets\)/);
+    assert.match(await status(), /Selected: 4 packets \(showing 5\)/);
     await waitForHost((m) => m.type === "selection" && m.frames?.length === 4);
     assert.deepEqual(
       [...lastSelection().frames].sort((a, b) => a - b),
@@ -1965,6 +2003,8 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       .at(-1)
       .text.split("\n");
     assert.equal(copied.length, 5, "a header line plus one line per row");
+    // VS Code's status bar says so; screen readers hear it from the viewer.
+    await page.waitForFunction(() => document.getElementById("announce").textContent === "Copied");
     assert.deepEqual(
       copied.slice(1).map((l) => l.split("\t")[0]),
       ["2", "4", "5", "8"],
@@ -2024,7 +2064,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.waitForFunction(
       () => document.querySelectorAll("#list-rows .list-row.selected").length === 11,
     );
-    assert.match(await status(), /\(11 packets\)/);
+    assert.match(await status(), /Selected: 11 packets \(showing/);
     assert.equal(await page.evaluate(() => String(window.getSelection())), "", "no text selected");
     await page.keyboard.press("Escape");
     await page.waitForFunction(
@@ -2044,7 +2084,7 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.waitForFunction(
       () => document.querySelectorAll("#list-rows .list-row.selected").length <= 1,
     );
-    assert.doesNotMatch(await status(), /packets\)/);
+    assert.doesNotMatch(await status(), /packets \(showing/);
     // Ctrl+A in the filter bar selects its text, not packets (also via the palette command).
     await page.focus("#filter-input");
     await page.keyboard.press("ControlOrMeta+a");
@@ -2118,6 +2158,15 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     );
     await page.waitForTimeout(700); // past the stale validation
     assert.match(await notice(), /No packets are marked/);
+    // A notice, not an error: its own icon and colours.
+    assert.deepEqual(
+      await page.$eval("#filter-error", (e) => [
+        e.dataset.info,
+        !!e.querySelector(".codicon-info"),
+        !!e.querySelector(".codicon-error"),
+      ]),
+      ["1", true, false],
+    );
   });
 
   test("☰ commands menu: button, groups, filter, keyboard, run, disabled entries", async () => {
@@ -2402,6 +2451,20 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
         });
         assert.ok(box >= Math.min(180, width - 80), `field ${box}px wide at ${width}px`);
         assert.ok(menu.visible && menu.right <= width, `☰ inside the window at ${width}px`);
+        // The status bar keeps the packet counts (the right side gave way: at
+        // 480 px its items show their icons, their text in the tooltip).
+        const bar = await page.evaluate(() => {
+          const left = document.getElementById("status-left");
+          const time = document.getElementById("status-time");
+          return {
+            left: left?.getBoundingClientRect().width ?? 0,
+            text: getComputedStyle(time?.querySelector(".status-text") ?? time).display,
+            title: time?.title ?? "",
+          };
+        });
+        assert.ok(bar.left >= Math.min(140, width * 0.4), `counts ${bar.left}px at ${width}px`);
+        assert.equal(bar.text === "none", width < 640, `time text at ${width}px`);
+        assert.match(bar.title, /^Time: .+\nClick to change the time format$/);
         if (process.env.PCAP_SCREENSHOTS) {
           await page.screenshot({
             path: `${process.env.PCAP_SCREENSHOTS}/filter-bar-${width}.png`,

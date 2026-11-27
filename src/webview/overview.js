@@ -404,6 +404,12 @@
       (absent.length ? ` · no ${absent.join(", ").replace(/, ([^,]*)$/, " or $1")}` : "");
   }
 
+  /** @param {string} text */
+  const copy = (text) => {
+    vscode.postMessage({ type: "copy", text });
+    kit.copied();
+  };
+
   kit.rowMenu(grid, {
     rows: ".overview-item",
     select: (/** @type {HTMLElement} */ row) => {
@@ -438,10 +444,8 @@
         label: "Copy",
         icon: "copy",
         children: [
-          { label: "Name", action: () => vscode.postMessage({ type: "copy", text: label }) },
-          ...(expr
-            ? [{ label: "Filter", action: () => vscode.postMessage({ type: "copy", text: expr }) }]
-            : []),
+          { label: "Name", action: () => copy(label) },
+          ...(expr ? [{ label: "Filter", action: () => copy(expr) }] : []),
         ],
       });
       return entries;

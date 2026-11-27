@@ -176,6 +176,10 @@ function showBasic(basic) {
   el.basicBanner.classList.toggle("hidden", !basic);
   el.basicText.textContent = basic ? lib.basicViewText(basic.missing) : "";
   el.basicBanner.title = basic ? basic.reason : "";
+  // (Missing tshark: point at it, the first thing to try; Set Up… explains more.)
+  const locate = basic?.missing === "tshark";
+  el.basicLocate.classList.toggle("hidden", !locate);
+  el.basicSetup.classList.toggle("secondary", locate);
   if (basic) {
     // (An earlier full load's filter may name fields the basic view doesn't
     // read: onInit loads every packet instead.)
@@ -186,6 +190,7 @@ function showBasic(basic) {
     : "Apply a display filter … (Enter to apply, Ctrl+Space for suggestions)";
 }
 
+el.basicLocate.addEventListener("click", () => vscode.postMessage({ type: "locateTshark" }));
 el.basicSetup.addEventListener("click", () => vscode.postMessage({ type: "setUp" }));
 el.basicReload.addEventListener("click", () => vscode.postMessage({ type: "reload" }));
 

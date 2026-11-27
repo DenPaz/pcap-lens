@@ -2,7 +2,7 @@
 /** Filter autocompletion (fields, operators, history, saved filters). */
 
 import { cancelRpc, el, lib, rpc, state, vscode } from "./core.js";
-import { applyFilter, showFilterError, validateSoon } from "./filterbar.js";
+import { applyFilter, releaseHeldError, showFilterError, validateSoon } from "./filterbar.js";
 import { askAi, leaveAskMode } from "./ai.js";
 
 /**
@@ -196,6 +196,7 @@ export function hideSuggest() {
   el.suggest.replaceChildren();
   el.filterInput.setAttribute("aria-expanded", "false");
   el.filterInput.removeAttribute("aria-activedescendant");
+  releaseHeldError();
 }
 
 function highlightSuggestion() {

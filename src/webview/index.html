@@ -130,11 +130,25 @@
         <label id="find-case-label" class="hidden"
           ><input id="find-case" type="checkbox" /> Match case</label
         >
-        <button id="find-prev" type="button" title="Find previous (Shift+F3, Shift+Enter)">
-          Previous
-        </button>
-        <button id="find-next" type="button" title="Find next (F3, Enter)">Next</button>
         <span id="find-status" role="status" aria-live="polite"></span>
+        <button
+          id="find-prev"
+          type="button"
+          class="icon"
+          title="Previous match (Shift+F3, Shift+Enter)"
+          aria-label="Previous match"
+        >
+          <span class="codicon codicon-arrow-up" aria-hidden="true"></span>
+        </button>
+        <button
+          id="find-next"
+          type="button"
+          class="icon"
+          title="Next match (F3, Enter)"
+          aria-label="Next match"
+        >
+          <span class="codicon codicon-arrow-down" aria-hidden="true"></span>
+        </button>
         <button id="find-close" type="button" class="icon" title="Close (Esc)" aria-label="Close">
           <span class="codicon codicon-close" aria-hidden="true"></span>
         </button>
@@ -143,6 +157,7 @@
       <div id="basic-banner" class="hidden" role="status">
         <span class="codicon codicon-info" aria-hidden="true"></span>
         <span id="basic-text"></span>
+        <button id="basic-locate" type="button" class="hidden">Locate TShark…</button>
         <button id="basic-setup" type="button">Set Up…</button>
         <button id="basic-reload" type="button" class="secondary">Reload</button>
       </div>
@@ -283,6 +298,8 @@
         </section>
       </div>
 
+      <!-- What screen readers hear after an action with no visible answer here (a copy). -->
+      <div id="announce" class="visually-hidden" role="status" aria-live="polite"></div>
       <footer id="status-bar">
         <span id="status-capture" class="hidden" role="status"
           ><span class="rec-dot" aria-hidden="true"></span><span id="capture-text"></span
@@ -309,19 +326,19 @@
             id="status-lua"
             type="button"
             class="status-link hidden"
-            title="Lua dissectors for this capture (click to change)"
+            title="Click to choose this capture's Lua dissectors"
           ></button
           ><button
             id="status-names"
             type="button"
-            class="status-link"
-            title="Name resolution (click to change)"
+            class="status-link hidden"
+            title="Click to change name resolution"
           ></button
           ><button
             id="status-time"
             type="button"
-            class="status-link"
-            title="Time display format (click to change)"
+            class="status-link hidden"
+            title="Click to change the time format"
           ></button
           ><span id="status-info"></span
         ></span>

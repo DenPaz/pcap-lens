@@ -1,12 +1,18 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as vscode from "vscode";
 import { BackendClient, MIN_PYTHON, findPython, findUv } from "../backendClient";
-import { readSettings } from "../config";
+import { SECTION, readSettings } from "../config";
 import {
   EnvironmentStatus,
   checkEnvironment,
   environmentSummary,
+  notTsharkReason,
   settingToFix,
+  tsharkFileFor,
+  tsharkVersion,
 } from "../environment";
+import type { PcapEditorProvider } from "../pcapEditor";
 import { copyName, whereLabel } from "../remote";
 import { newTemporaryCapture } from "../tempCaptures";
 
@@ -50,6 +56,8 @@ export async function offerSetupHelp(
   setting: "pythonPath" | "tsharkPath",
 ): Promise<void> {
   const download = setting === "pythonPath" ? "Install Python…" : "Download Wireshark";
+  // tshark installed somewhere the search doesn't look: point at it.
+  const fix = setting === "pythonPath" ? "Open Settings" : "Locate TShark…";
   // Remotely, the tools must be on the remote machine (the download page opens locally).
   const where = whereLabel(vscode.env.remoteName);
   const text =
@@ -58,11 +66,11 @@ export async function offerSetupHelp(
       : message;
   const choice = await vscode.window.showErrorMessage(
     `PCAP Lens: ${text}`,
-    "Setup Guide",
-    download,
-    "Open Settings",
+    ...(setting === "tsharkPath" ? [fix, download, "Setup Guide"] : ["Setup Guide", download, fix]),
   );
-  if (choice === "Setup Guide") {
+  if (choice === "Locate TShark…") {
+    await vscode.commands.executeCommand("pcapViewer.locateTshark");
+  } else if (choice === "Setup Guide") {
     await openWalkthrough(context);
   } else if (choice === download) {
     if (setting === "pythonPath") {
@@ -174,9 +182,158 @@ export async function openCopy(
   }
 }
 
+/** What _PCAP: Locate TShark…_ found (`{quiet: true}` returns it: the smoke test). */
+export interface LocateResult {
+  ok: boolean;
+  /** The tshark now used. */
+  path?: string;
+  version?: string;
+  error?: string;
+}
+
+/**
+ * Its arguments skip the questions: `path` (tshark, its folder or
+ * Wireshark.app) or `automatic` (clear the setting: PATH and the usual
+ * install folders).
+ */
+export interface LocateArgs {
+  path?: string;
+  automatic?: boolean;
+  quiet?: boolean;
+}
+
+/** Set while Locate TShark writes the setting: it reloads the captures itself. */
+let expectedTsharkChange = false;
+/** Whether this change of pcapViewer.tsharkPath came from Locate TShark (once). */
+export function consumeTsharkChange(): boolean {
+  const expected = expectedTsharkChange;
+  expectedTsharkChange = false;
+  return expected;
+}
+
+/** Ask where tshark is: browse, type or paste a path, or search again. */
+async function chooseTshark(current: string): Promise<LocateArgs | undefined> {
+  type Item = vscode.QuickPickItem & { id: "browse" | "type" | "automatic" | "download" };
+  const items: Item[] = [
+    {
+      id: "browse",
+      label: "$(folder-opened) Browse…",
+      detail:
+        process.platform === "darwin"
+          ? "Pick Wireshark.app, or tshark itself"
+          : `Pick ${process.platform === "win32" ? "tshark.exe" : "tshark"} in Wireshark's folder`,
+    },
+    {
+      id: "type",
+      label: "$(edit) Enter or Paste a Path…",
+      detail: "tshark's path, or the folder Wireshark is installed in",
+    },
+  ];
+  if (current) {
+    items.push({
+      id: "automatic",
+      label: "$(search) Search Automatically",
+      detail: "Look on PATH and in Wireshark's usual install folders again",
+    });
+  }
+  items.push({ id: "download", label: "$(link-external) Download Wireshark" });
+  const where = whereLabel(vscode.env.remoteName);
+  const pick = await vscode.window.showQuickPick(items, {
+    title: "Locate TShark",
+    placeHolder: current
+      ? `Now: ${current}`
+      : `Where is Wireshark's tshark${where ? ` in ${where}` : ""}?`,
+  });
+  switch (pick?.id) {
+    case "browse": {
+      // (Windows and Linux can't pick files and folders in one dialog; a
+      // file picker still opens Wireshark.app on macOS, a bundle.)
+      const picked = await vscode.window.showOpenDialog({
+        title: "Locate TShark",
+        openLabel: "Use This TShark",
+        canSelectFiles: true,
+        canSelectFolders: false,
+        canSelectMany: false,
+        defaultUri: where ? undefined : installFolder(),
+      });
+      return picked?.[0] && { path: picked[0].fsPath };
+    }
+    case "type": {
+      const value = await vscode.window.showInputBox({
+        title: "Locate TShark",
+        prompt: "tshark's path, or the folder Wireshark is installed in",
+        value: current,
+        ignoreFocusOut: true,
+        validateInput: (text) => {
+          if (!text.trim()) {
+            return "Enter a path";
+          }
+          return fs.existsSync(localTshark(text)) ? undefined : "No such file";
+        },
+      });
+      return value === undefined ? undefined : { path: value };
+    }
+    case "automatic":
+      return { automatic: true };
+    case "download":
+      await vscode.env.openExternal(vscode.Uri.parse(DOWNLOADS.tsharkPath));
+      return undefined;
+    default:
+      return undefined;
+  }
+}
+
+/** Where Wireshark usually is, so the file dialog starts there (if it exists). */
+function installFolder(): vscode.Uri | undefined {
+  const folder =
+    process.platform === "win32"
+      ? `${process.env.PROGRAMFILES ?? "C:\\Program Files"}\\Wireshark`
+      : process.platform === "darwin"
+        ? "/Applications"
+        : "/usr/bin";
+  return fs.existsSync(folder) ? vscode.Uri.file(folder) : undefined;
+}
+
+/** The tshark a path names on this machine (the extension host's, remote or not). */
+function localTshark(input: string): string {
+  return tsharkFileFor(input, {
+    platform: process.platform,
+    home: os.homedir(),
+    isDirectory: (p) => {
+      try {
+        return fs.statSync(p).isDirectory();
+      } catch {
+        return false;
+      }
+    },
+  });
+}
+
+/**
+ * Write pcapViewer.tsharkPath (undefined clears it). Restricted Mode ignores
+ * a workspace's value, so it goes in the user's settings unless a trusted
+ * workspace already sets it.
+ */
+async function writeTsharkPath(value: string | undefined): Promise<void> {
+  const cfg = vscode.workspace.getConfiguration(SECTION);
+  const inspected = cfg.inspect<string>("tsharkPath");
+  const target =
+    vscode.workspace.isTrusted && inspected?.workspaceValue !== undefined
+      ? vscode.ConfigurationTarget.Workspace
+      : vscode.ConfigurationTarget.Global;
+  expectedTsharkChange = true;
+  try {
+    await cfg.update("tsharkPath", value, target);
+  } catch (err) {
+    expectedTsharkChange = false;
+    throw err;
+  }
+}
+
 export function registerSetupCommands(
   context: vscode.ExtensionContext,
   log: vscode.LogOutputChannel,
+  provider: PcapEditorProvider,
 ): void {
   const backendDir = vscode.Uri.joinPath(context.extensionUri, "backend").fsPath;
 
@@ -222,6 +379,87 @@ export function registerSetupCommands(
       },
     ),
     vscode.commands.registerCommand("pcapViewer.installPython", installPython),
+    /**
+     * _PCAP: Locate TShark…_: point at a tshark the search doesn't find. The
+     * choice is checked with the backend's own `initialize` (as a capture's
+     * load would) before it is saved, and the open captures reload with it.
+     */
+    vscode.commands.registerCommand(
+      "pcapViewer.locateTshark",
+      async (args?: LocateArgs): Promise<LocateResult | undefined> => {
+        const quiet = !!args?.quiet;
+        const settings = readSettings();
+        const choice =
+          args?.path !== undefined || args?.automatic
+            ? args
+            : await chooseTshark(settings.tsharkPath);
+        if (!choice) {
+          return undefined;
+        }
+        const file = choice.automatic ? undefined : localTshark(choice.path ?? "");
+        const py = findPython(settings.pythonPath || undefined);
+        if ("error" in py) {
+          if (!quiet) {
+            void offerSetupHelp(context, py.error, "pythonPath");
+          }
+          return { ok: false, error: py.error };
+        }
+        let result: LocateResult;
+        try {
+          const init = await vscode.window.withProgress(
+            { location: vscode.ProgressLocation.Window, title: "PCAP: Checking TShark…" },
+            () => initialize(py.python, file),
+          );
+          const wrong = notTsharkReason(init.tsharkPath, init.version);
+          result = wrong
+            ? { ok: false, error: wrong }
+            : { ok: true, path: init.tsharkPath, version: tsharkVersion(init.version) };
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          result = {
+            ok: false,
+            error: choice.automatic
+              ? `TShark isn't on PATH or in Wireshark's usual install folders. ${message}`
+              : message,
+          };
+        }
+        if (!result.ok) {
+          log.warn(`Locate TShark: ${result.error}`);
+          if (!quiet) {
+            void vscode.window
+              .showErrorMessage(`PCAP Lens: ${result.error}`, "Try Again")
+              .then((again) => {
+                if (again) {
+                  void vscode.commands.executeCommand("pcapViewer.locateTshark");
+                }
+              });
+          }
+          return result;
+        }
+        const value = choice.automatic ? undefined : result.path;
+        const changed = (settings.tsharkPath || undefined) !== value;
+        if (changed) {
+          await writeTsharkPath(value);
+        }
+        setEnvironmentContext(true, true);
+        log.info(`Locate TShark: using TShark ${result.version} at ${result.path}`);
+        // A new tshark changes every capture's dissection; the same one only
+        // helps the captures that are missing it (the basic view).
+        const reload = provider.allSessions.filter((s) => changed || s.basicView);
+        for (const s of reload) {
+          void s.load("TShark located");
+        }
+        if (!quiet) {
+          const reloading = reload.length
+            ? ` Reloading ${reload.length === 1 ? "the open capture" : `${reload.length} open captures`}.`
+            : "";
+          void vscode.window.showInformationMessage(
+            `PCAP Lens: Using TShark ${result.version} (${result.path}).${reloading}`,
+          );
+        }
+        return result;
+      },
+    ),
     vscode.commands.registerCommand("pcapViewer.openSample", async () => {
       // A copy in the extension's storage: comments saved into it must not
       // touch the installed extension (which updates replace anyway).

@@ -42,7 +42,7 @@ import { registerCaptureCommands } from "./commands/capture";
 import { registerMcp } from "./commands/mcp";
 import { registerEditCaptureCommands } from "./commands/editCapture";
 import { registerImportHexDumpCommand } from "./commands/importHexDump";
-import { registerSetupCommands } from "./commands/setup";
+import { consumeTsharkChange, registerSetupCommands } from "./commands/setup";
 import { RecentCapturesProvider, registerRecentCaptures } from "./commands/recent";
 import { pruneTemporaryCaptures } from "./tempCaptures";
 import { PcapEditorProvider } from "./pcapEditor";
@@ -134,7 +134,7 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
   registerFirewallCommands(context, p);
   registerPrefsCommands(context, p, log);
   registerProtocolCommands(context, p, log);
-  registerSetupCommands(context, log);
+  registerSetupCommands(context, log, p);
   const recent = registerRecentCaptures(context);
   context.subscriptions.push(
     keyStore.onDidChange(() => {
@@ -280,6 +280,9 @@ export function activate(context: vscode.ExtensionContext): PcapViewerApi {
           }
         }, 300);
         return;
+      }
+      if (e.affectsConfiguration(`${SECTION}.tsharkPath`) && consumeTsharkChange()) {
+        return; // (PCAP: Locate TShark… reloads the captures itself)
       }
       if (RELOAD_KEYS.some((k) => e.affectsConfiguration(k)) && p.allSessions.length) {
         const choice = await vscode.window.showInformationMessage(

@@ -250,7 +250,10 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   `scripts/world-map.mjs` generates from world-atlas); `menus.js` (classic,
   `window.PcapMenus`: the context-menu engine, loaded by the editor and every
   panel) and `panelkit.js` (classic, `window.PcapPanel`, panels only: the
-  element builders `h` and `s` (SVG), icon buttons, row menus); `main.js` = the editor's entry, an ES module (`<script
+  element builders `h` and `s` (SVG), icon buttons, row menus, `copied`:
+  a copy button shows a check and "Copied" for 1.5 s at its old width, and
+  `#panel-announce`, a polite live region, says "Copied" for menu copies
+  too; the viewer's `copy()` announces through `#announce`); `main.js` = the editor's entry, an ES module (`<script
 type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   server allows the CORS fetch) that imports `viewer/*.js`, one module per
   part of the UI (`core` = shared state, constants, element lookups and
@@ -285,7 +288,8 @@ type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   values), `comparing` (capture profiles and their diff), `replaying` (Replay to
   Service); plus `state.py` (constants and the per-capture
   dataclasses `_Open`, `_View`…), `indexing.py` (the index pass's
-  module-level helpers) and `helpers.py`), `tshark.py` (discovery/argv/process helpers), `cache.py`
+  module-level helpers) and `helpers.py`), `tshark.py` (discovery/argv/process helpers), `taps.py` (several `-z`
+  reports in one pass), `cache.py`
   (row store, frame index, LRU), `pdml.py` (PDML + hexdump parsing),
   `stats.py` (`-z` report and follow parsers), `fields.py` (field catalogue),
   `coloring.py` (coloring rules → `colorfilters`), `navigation.py` (find
@@ -329,7 +333,7 @@ plugins` and the plugin folders), `decryption.py` (decryption keys and
   `mixed.pcapng` fixture that `generate.py` writes), `walkthrough/*.md` (the
   walkthrough's pages) and `screenshots/` (README only, not packaged).
 - `docs/` (not packaged): `replay-to-service.md` (the feature's tracking
-  notes) and `wiki/`, the pages of the GitHub Wiki (`Home.md`, `_Sidebar.md`,
+  notes), `sharkd.md` (a design note: sharkd as an accelerator) and `wiki/`, the pages of the GitHub Wiki (`Home.md`, `_Sidebar.md`,
   one guide per area; links are Wiki page names like `MCP-Server`). Sessions
   can't push the Wiki (`pcap-lens.wiki.git` isn't a session repository), so
   the maintainer copies `docs/wiki/*.md` into a clone of it and pushes. Keep
@@ -729,6 +733,22 @@ function/value/string` (the debugger's and outline's theme colours) and
   span when it stops being `invalid`. Ask-AI mode shows the input's own
   text. `lib.filterSegments` is a display tokenizer, not a parser: a word
   after a comparison or in a set is a value, one before `(` a function.
+  **Showing it** (`showFilterError`, `lib.filterErrorText`): the line under
+  the bar has an error icon and tshark's sentence in the UI font, without
+  its echo of the filter and the `^~~~` line (the box underlines that part;
+  an echo of a macro's expansion stays); notices (`showNotice`,
+  `data-info`) get an info icon and the input's info colours instead of the
+  error's. Find's status shows the first line, the whole message as its
+  tooltip. While the suggestions are open, a validation error's line waits
+  (`held`, `releaseHeldError` from `hideSuggest`): the text is usually
+  half-typed ("ip.sr"); the box's tint and underline show at once, and the
+  line appears when the list closes on the same, still wrong text. The find
+  bar is VS Code's find widget's shape: ↑/↓ (`#find-prev`/`#find-next`) and
+  × are icon buttons after the status, the box takes the room and wraps
+  under the menus on a narrow editor. The comment box's placeholder and
+  label name the packet. The loading/error overlay is opaque (the empty panes behind it
+  read as part of it), an error has an icon beside the message in the usual
+  font, and Names/Time stay hidden in the status bar until a capture loads.
 - **Sorting** is backend-side over the current filter's frames: one column is
   read from the row store (cached, 3 columns max), sorted in Python, and the
   resulting order is cached per (filter, column, direction). Source/Destination
@@ -912,9 +932,24 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   only `!(…)` when there is no filter or it is that stream's.
 - **Statistics** parse tshark's human-readable `-z` reports into one generic
   table model (`stats.py`: columns, rows with optional `filter`/`frame`/`depth`),
-  rendered by one panel (`src/webview/stats.js`); a table of more than
+  rendered by one panel (`src/webview/stats.js`). The title, toolbars and
+  status stay in view (`#app.fixed-head`) and the chart, map and table
+  scroll in `.results`, sideways too (a wide table such as TLS Servers
+  scrolled the buttons away with the page); `.panel-busy` (base.css's
+  `.progress-bar`, fixed along the top) slides while a query runs and fills
+  when the pass reports progress (StatsPanel forwards `onProgress` as
+  `progress {id, fraction}`; "Running tshark… 42%"). The table is a `grid`
+  (`tabindex` 0, `aria-activedescendant` = the selected row's
+  `stats-row-<index>` while it is drawn, rows `aria-selected`): ↑/↓,
+  Home/End and the page keys move the selection (`tableKey`, through rows
+  not drawn yet), Enter does a double-click's work (go to the packet, else
+  apply the filter), → / ← open and close a pair of hosts and ← goes from a
+  connection to its pair; sortable headers take Tab and Enter/Space and
+  keep the focus. Unfocused, the selection is VS Code's inactive one with a
+  `focusBorder` edge, as in the viewer. Action buttons keep one order, the
+  primary one first (Expert put Go to Packet first). A table of more than
   `lib.VIRTUAL_TABLE_ROWS` (2,000) rows draws only the rows on screen
-  (`drawWindow` on the page's scroll, `lib.tableWindow`; spacer rows stand
+  (`drawWindow` on `.results`' scroll, `lib.tableWindow`; spacer rows stand
   for the rest; `aria-rowcount`/`aria-rowindex`; fixed column widths from
   `lib.columnChars`, the cells being monospaced, the widest text column
   taking what is left). _Filter rows_ (`#stats-search`, Ctrl/Cmd+F, Esc
@@ -926,11 +961,44 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   converted with SI units. tshark 4.6 adds a top-level `frame` row to the
   protocol hierarchy (eth at depth 1, dns at 4; 4.2: 0 and 3), so tests check
   parent rows ("dns one level below udp") and totals, never absolute depths.
-  Percentages divide by the depth-0 rows, which cover every packet either way. Expert info joins `-z expert` (severity/group/
+  Percentages divide by the depth-0 rows, which cover every packet either way;
+  the table draws a bar before each (`td.pct`, as Wireshark does). Expert info joins `-z expert` (severity/group/
   protocol/count) with a `-T fields -e _ws.expert` pass (aggregator `\x1e`)
-  to get frame numbers. Rows are matched by regex because multi-word groups
+  to get frame numbers. The report always has a display filter (`frame` when
+  there is none, `_expert_spec`): only a filter makes tshark build the
+  protocol tree, which some dissectors need to raise a problem
+  (network.pcap's SCTP is "Malformed" only then), so the unfiltered report
+  left out errors the fields pass and Wireshark show. A multi-line message (a
+  packet comment) continues on raw lines of its own in the report and is
+  escaped (`\n`, `\t`) in the fields pass; the row joins and escapes it the
+  same way to find its frames (tshark 4.6's fields output doubles the
+  backslashes, so both sides go through `stats.expert_key`; found when CI's
+  Linux runners moved to 4.6.4). Rows are matched by regex because multi-word groups
   ("Response code") overflow tshark's fixed-width column. The display-filter
   limit uses each tap's own filter argument (`conv,tcp,<filter>` etc.).
+- **Shared tap passes** (`taps.py`, `TapBatcher` on the `_Open`, used by
+  `StatisticsMixin._tap`, which `_io`, triage and VoIP's `rtp,streams` go
+  through too): reports asked for within `WINDOW_S` (50 ms) of each other
+  with the same `batch_key` run in one tshark pass (at most `MAX_BATCH` 8).
+  Each report sits between sentinels, conversation taps of link types next
+  to no capture has (`conv,fddi` first, `conv,tr` between, `conv,ipx`
+  last; tshark 4.2 prints taps last first), and a pass whose output doesn't
+  hold them all in order isn't split (`split_reports` None): each caller
+  then runs its own, so a failing report gets its own error. A report alone
+  gets its pass's `RunResult`, checked as before. The key keeps reports
+  dissected alike together, since a report's result must not depend on
+  which others were asked for at the same time: same tshark options, both
+  building the protocol tree or neither (`builds_tree`: phs, io,stat and
+  any filtered tap do; network.pcap's SCTP is "Malformed" only with a tree,
+  which changed `sctp,stat` and the expert report beside phs), and both
+  naming `frame` or neither (a filter naming it gives phs a "frame" row).
+  Sentinels with a filter did the same, hence conversation taps. Each
+  report of a shared pass equals its solo output byte for byte
+  (`test_taps.py`, five fixtures; a tshark check of `builds_tree` per tap).
+  200k packets, TCP analysis on, 4 CPUs: capture profile 19.1 → 13.5 s
+  (tshark CPU 68 → 43 s), the summary's six statistics 14.6 → 15.2 s (CPU
+  34 → 27 s: the server's 4 request threads start the last two too late to
+  join). capture_profile's pool now runs all its parts at once.
 - **Group by hosts** (TCP/UDP conversations, `#stats-group`;
   `lib.groupConversations`, `sortGrouped`, `endAddress`): the webview
   groups the rows it has by their two addresses (no query): a parent row per
@@ -968,7 +1036,8 @@ activity, rows}`, which the webview merges row for row into the table of
   ICMP error quoting a header counts in the pass, not in tshark's report).
   A failed pass only leaves the charts out.
 - **Expert indicator** (`expert_summary`, `lib.expertStatus`,
-  `status.js` `loadExpertSummary`): one `-q -z expert,comment` pass
+  `status.js` `loadExpertSummary`): one `-q -z expert,comment,<filter>` pass
+  (`_expert_spec`, as the table)
   (`stats.parse_expert_counts`: the section headers' totals per severity),
   cached on the `_Open` (`f.expert`); IndexingError while indexing, so the
   webview asks on init when not indexing and in `onIndexDone`. It reports
@@ -1709,7 +1778,11 @@ transport,external}`, `open {names}`): `DissectionOptions.names` holds the
   complete view (IndexingError while indexing or filtering). The panel
   draws only the rows on screen (SVG, `lib.computeWindow`, pages of 200),
   `lib.flowArrow` positions arrows, labels are centred when they fit, else
-  run right from the arrow's start (`lib.truncate`). It follows the capture's
+  run right from the arrow's start (`lib.truncate`) to the panel's edge, not
+  the last column's (the drawing is as wide as the panel; the VoIP call flow
+  too, measured with its drawing in it, since `.voip-flow:empty` is hidden),
+  cut by the label font's measured character width (`panelkit.charWidth`;
+  the guessed 7 px cut them too late). It follows the capture's
   filter: `PcapEditorSession.onDidChangeFilter` → "reset".
 - **TCP stream graphs** (`tcp_graph {stream | frame}`, `TcpGraphPanel`,
   `tcpgraph.js`): one `-Y tcp.stream == N` pass (fields `_TCP_GRAPH_FIELDS`;
@@ -3228,7 +3301,26 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
   failure clears them). `pcapViewer.captureOpened` and
   `pcapViewer.filterApplied` complete the next two. A load that fails for a
   missing tool calls `offerSetupHelp` (_Setup Guide_ opens the walkthrough by
-  `<publisher>.<name>#gettingStarted`, download page, settings). _PCAP: Open
+  `<publisher>.<name>#gettingStarted`, download page, settings; for tshark
+  _Locate TShark…_ first instead of settings). **Locate TShark**
+  (`pcapViewer.locateTshark`, `commands/setup.ts`; also the basic view's
+  banner's first button, `#basic-locate`, and the walkthrough's link): the
+  search already covers PATH and the usual install folders, so a missing
+  tshark is somewhere else or a wrong `tsharkPath`. A QuickPick: Browse…
+  (files only: Windows and Linux can't pick files and folders in one dialog,
+  and macOS opens Wireshark.app as a file), Enter or Paste a Path… (checked
+  for existence as typed), Search Automatically (only when a path is set:
+  clears it), Download Wireshark. `tsharkFileFor` (environment.ts, pure)
+  drops quotes (Windows' Copy as Path), expands `~` and takes a folder or
+  Wireshark.app to the tshark inside. The choice runs the backend's
+  `initialize` like a load, and `notTsharkReason` refuses a program whose
+  `--version` isn't TShark's (Wireshark itself, dumpcap). Saved in the
+  user's settings (a trusted workspace's if it sets the key: Restricted Mode
+  ignores a workspace value) with `consumeTsharkChange` set, so extension.ts
+  skips its "settings changed, reload?" question; the command reloads every
+  capture when the path changed, else the basic-view ones. `{path |
+automatic, quiet}` skip the questions and return `{ok, path, version,
+error}` (smoke test: refused, then the folder, then automatic). _PCAP: Open
   Sample Capture_ copies `media/sample.pcapng` to
   `globalStorageUri/samples/` first, so a comment saved in place never writes
   into the installed extension. A unit test checks that every step's command
@@ -3385,6 +3477,11 @@ pcap_backend.mcp` speaks MCP over stdio (newline-delimited JSON-RPC:
     path as marked packets; CSV/JSON can export the selected rows). Ctrl+C
     arrives as a `copy` event (VS Code runs `execCommand("copy")` in the
     webview). The host learns the selection from `selection {frame, frames}`.
+    The status bar says "Selected packet: 16", or "Selected: 4 packets
+    (showing 5)" ("Selected: 16" read as a count). Without focus (after a
+    click in the detail pane) the selected row and tree node get a 1 px
+    inset border of `focusBorder` in dark and light themes: the inactive
+    selection's gray was no darker than a colored row's tint.
   - _Frame links_: after a detail loads, the webview asks `field_types` (exact
     catalogue lookups) for the tree's field names once, and `FT_FRAMENUM`
     fields become links. The back/forward history covers jumps (links, go to,
@@ -3547,7 +3644,15 @@ action (null = disabled), checked, children, title}` and `"-"`
   the top row in place. Status bar items (`#status-lua`, `-names`, `-time`)
   get a Codicon and a `.status-text` span from `status.js` (`setStatusText`);
   the HTML buttons stay empty, since Prettier would put whitespace into
-  them and make `textContent` non-empty.
+  them and make `textContent` non-empty. Their tooltip is their text, then
+  what a click does ("Click to change the time format"). The packet counts
+  (`#status-left`, at least `min(16em, 45%)`) keep their room on a narrow
+  editor: `#status-right` shrinks, `#status-info` (format, size) is cut
+  with an ellipsis, and below 640 px (`@container` on `#status-bar`) the
+  items keep only their icons; at 520 px the right side used to push the
+  counts out entirely. Both cut parts carry their text as a tooltip. With
+  no packet selected the bytes pane says so too (`data-empty`, drawn by
+  `#bytes-view[data-empty]:empty::before`; not while a packet loads).
 - **Icons** are Codicons, VS Code's icon font (`@vscode/codicons`, pinned dev
   dependency). vsce packages with `--no-dependencies`, so
   `scripts/sync-codicons.mjs` (`pnpm run codicons`, run by `make update`)
@@ -3603,7 +3708,26 @@ scripts/screenshots.js --theme light|hc --out <dir>` renders Light Modern
   `--border`, `--shadow`) and the controls both use: buttons (primary,
   `.secondary`, `.icon`, `.link`, disabled), text/search/number inputs,
   selects and textareas, focus outlines, `.hidden`, `.visually-hidden`, and
-  the high-contrast tokens. Paddings, margins, gaps, radii and font sizes in
+  the high-contrast tokens. A disabled primary button takes the secondary
+  colors (dimmed, its blue still read as an action). A panel's `.toolbar`
+  holds at most one primary button, and every labelled button there starts
+  with a Codicon (`withIcon`; a label set later keeps it with
+  `replaceChildren(icon, text)`); buttons that belong together sit in a
+  `.toolbar-group`, so a wrapping toolbar keeps them side by side (Replay's
+  Stop wrapped alone under Start at 1300 px, Packet Bytes' Save Raw… under
+  Copy and Save as… at 1320 px; the right-hand runs of Follow, Compare,
+  Coloring Rules, HTTP Exchange and the packet window are groups too). Hex
+  dumps and C/Rust arrays (Packet Bytes, Follow) never wrap (`.dump`:
+  `white-space: pre`, the view scrolls sideways; a wrapped dump put an
+  offset's last bytes on a line of their own at 640 px), and Replay's notes
+  cell keeps 24ch, not a word per line. `PCAP_SCREENSHOTS_WIDTH` renders
+  the panels as narrow as a panel beside the capture: the panels e2e test checks every panel as
+  its test left it (Coloring Rules had two primaries; Copy, Go to Packet N,
+  Switch Direction… had no icon). A line under a panel's title saying what
+  it does is `p.panel-intro`. Empty states say so instead of drawing
+  nothing: a TCP stream graph of no packets hides its chart and Ask
+  Copilot, a followed stream without payload (tshark names its ends ":0")
+  has no legend, directions or search box. Paddings, margins, gaps, radii and font sizes in
   styles.css and panel.css use the tokens; add a token rather than a new
   literal. **Icon buttons** look like VS Code's toolbar actions: no border or
   fill, `toolbar-hoverBackground` on hover, `toolbar-activeBackground` while

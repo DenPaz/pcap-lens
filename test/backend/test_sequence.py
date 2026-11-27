@@ -118,3 +118,14 @@ def test_limits(monkeypatch: pytest.MonkeyPatch) -> None:
     assert c.untracked == 1
     with pytest.raises(ValueError, match="wrap"):
         Checker(wrap=1000)
+
+
+def test_a_stream_result_counts_in_words() -> None:
+    def result(**counts: int) -> str:
+        zero = {"missing": 0, "duplicates": 0, "late": 0, "restarts": 0}
+        return sequence._result(zero | counts)
+
+    assert result() == "OK"
+    assert result(missing=2, duplicates=1, late=1) == "2 missing, 1 duplicate, 1 late"
+    assert result(duplicates=3, restarts=2) == "3 duplicates, 2 restarts"
+    assert result(restarts=1, late=1_200) == "1,200 late, 1 restart"

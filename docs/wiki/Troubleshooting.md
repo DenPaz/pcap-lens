@@ -7,7 +7,7 @@ which tools PCAP Lens found.
 | Symptom                                               | Fix                                                                                                                                                        |
 | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | "No Python 3.12+ interpreter found"                   | **PCAP: Install Python…**, or set `pcapViewer.pythonPath`.                                                                                                 |
-| "tshark was not found"                                | Install tshark (see [Installation and Setup](Installation-and-Setup)) or set `pcapViewer.tsharkPath`.                                                      |
+| "tshark was not found"                                | Install tshark (see [Installation and Setup](Installation-and-Setup)), or point at it with **PCAP: Locate TShark…** (`pcapViewer.tsharkPath`).             |
 | "You don't have permission to read the file"          | Ubuntu's AppArmor profile for tshark: add `owner @{HOME}/** rw,` to `/etc/apparmor.d/local/tshark`, then `sudo apparmor_parser -r /etc/apparmor.d/tshark`. |
 | Stopping a filter is slow ("could not stop")          | Same file: add `signal (receive) peer=unconfined,` and `signal (receive) peer=vscode,`.                                                                    |
 | `ip.geoip.*` filters match nothing on Ubuntu          | Same file: add `/usr/bin/mmdbresolve mrix,` (tshark's GeoIP lookup helper).                                                                                |

@@ -22,8 +22,9 @@ does all the dissection and filtering, so results match Wireshark exactly.
    `apt install tshark`, `brew install wireshark`, `choco install wireshark`)
    and **Python 3.12+** (_PCAP: Install Python…_ does it with
    [uv](https://docs.astral.sh/uv/)). The backend uses only Python's standard
-   library: nothing to `pip install`. Set `pcapViewer.tsharkPath` /
-   `pythonPath` if they aren't found.
+   library: nothing to `pip install`. If tshark isn't found, _PCAP: Locate
+   TShark…_ lets you browse to it or paste its path (`pcapViewer.tsharkPath`;
+   `pythonPath` for Python).
 3. Run **PCAP: Get Started**: it checks both tools and opens a sample capture.
 
 Until both are installed, a `.pcap` or `.pcapng` (also `.gz`) opens in a
@@ -340,7 +341,7 @@ and Lua dissectors come from user settings only.
 | Symptom                                      | Fix                                                                                                                                                          |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | "No Python 3.12+ interpreter found"          | _PCAP: Install Python…_, or set `pcapViewer.pythonPath`.                                                                                                     |
-| "tshark was not found"                       | Install tshark or set `pcapViewer.tsharkPath`.                                                                                                               |
+| "tshark was not found"                       | Install tshark, or point at it with _PCAP: Locate TShark…_ (`pcapViewer.tsharkPath`).                                                                        |
 | "You don't have permission to read the file" | Ubuntu's AppArmor profile for tshark: add `owner @{HOME}/** rw,` to `/etc/apparmor.d/local/tshark` and run `sudo apparmor_parser -r /etc/apparmor.d/tshark`. |
 | Stopping a filter is slow ("could not stop") | Same file: add `signal (receive) peer=unconfined,` and `signal (receive) peer=vscode,`.                                                                      |
 | `ip.geoip.*` filters match nothing on Ubuntu | Same file: add `/usr/bin/mmdbresolve mrix,` (tshark's GeoIP lookup helper).                                                                                  |

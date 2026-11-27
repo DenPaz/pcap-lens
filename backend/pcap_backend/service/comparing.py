@@ -43,7 +43,8 @@ class ComparingMixin(OpeningMixin, StatisticsMixin):
             "TCP resets": lambda: {"resets": self._reset_counts(quiet)},
         }
         results: dict[str, dict[str, Any] | None] = {}
-        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="profile") as pool:
+        # (All at once: their -z reports share one tshark pass, taps.py.)
+        with ThreadPoolExecutor(max_workers=len(parts), thread_name_prefix="profile") as pool:
             futures = {name: pool.submit(run_part) for name, run_part in parts.items()}
             for name, future in futures.items():
                 try:

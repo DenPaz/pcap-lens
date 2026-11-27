@@ -111,12 +111,13 @@
     }
     table.append(body);
     const copyHeaders = h("button", { type: "button", class: "secondary" }, ["Copy Headers"]);
-    copyHeaders.addEventListener("click", () =>
+    copyHeaders.addEventListener("click", () => {
       vscode.postMessage({
         type: "copy",
         text: [m.line, ...m.headers.map(([n, v]) => `${n}: ${v}`)].join("\n"),
-      }),
-    );
+      });
+      kit.copied(copyHeaders);
+    });
     section.append(table, h("div", { class: "toolbar" }, [kit.withIcon(copyHeaders, "copy")]));
     section.append(bodyView(which, m));
     return section;
@@ -196,9 +197,10 @@
           ? lib.bytesAs(bytes, "hexdump")
           : text;
     copyBtn.toggleAttribute("disabled", view === "image");
-    copyBtn.addEventListener("click", () =>
-      vscode.postMessage({ type: "copy", text: shownText() }),
-    );
+    copyBtn.addEventListener("click", () => {
+      vscode.postMessage({ type: "copy", text: shownText() });
+      kit.copied(copyBtn);
+    });
     saveBtn.addEventListener("click", () =>
       vscode.postMessage({ type: "save", which, base64: lib.bytesToBase64(bytes) }),
     );
@@ -208,9 +210,7 @@
         h("label", {}, ["Show as ", select]),
         h("span", { class: "facts" }, [facts.join(" · ")]),
         h("span", { class: "spacer" }),
-        copyBtn,
-        saveBtn,
-        bytesBtn,
+        h("span", { class: "toolbar-group" }, [copyBtn, saveBtn, bytesBtn]),
       ]),
     );
     if (view === "image") {

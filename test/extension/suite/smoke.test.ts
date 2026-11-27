@@ -1060,11 +1060,16 @@ suite("PCAP Lens smoke test", () => {
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
   });
 
-  test("without tshark a capture opens in the basic view; Reload opens the full one", async () => {
+  test("without tshark a capture opens in the basic view; Locate TShark and Reload open the full one", async () => {
     const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "pcap-viewer");
     const api = (await ext!.activate()) as PcapViewerApi;
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
     const config = vscode.workspace.getConfiguration("pcapViewer");
+    const status = await vscode.commands.executeCommand<{ tshark: { path?: string } }>(
+      "pcapViewer.checkEnvironment",
+      { quiet: true },
+    );
+    const realTshark = status.tshark.path!;
     const missing = path.join(FIXTURES, "no-such-tshark");
     await config.update("tsharkPath", missing, vscode.ConfigurationTarget.Global);
     const file = vscode.Uri.file(path.join(FIXTURES, "http.pcap"));
@@ -1076,6 +1081,35 @@ suite("PCAP Lens smoke test", () => {
       assert.equal(session.backend, undefined, "no backend: the host read the capture");
       assert.equal(session.openInfo?.frames, 11);
       assert.equal(session.openInfo?.fileType, "pcap");
+
+      // Locate TShark refuses what isn't tshark and keeps the setting.
+      type Located = { ok: boolean; path?: string; error?: string };
+      const locate = (args: object) =>
+        vscode.commands.executeCommand<Located>("pcapViewer.locateTshark", {
+          ...args,
+          quiet: true,
+        });
+      const wrong = await locate({ path: path.join(FIXTURES, "no-such-tshark") });
+      assert.equal(wrong.ok, false);
+      assert.equal(vscode.workspace.getConfiguration("pcapViewer").get("tsharkPath"), missing);
+      // The folder tshark is in is enough: saved as tshark's path, and the
+      // capture leaves the basic view by itself.
+      const found = await locate({ path: path.dirname(realTshark) });
+      assert.ok(found.ok, found.error);
+      // (Windows' PATH search may spell the extension .EXE.)
+      const same = (p?: unknown) =>
+        process.platform === "win32" ? String(p).toLowerCase() : String(p);
+      assert.equal(same(found.path), same(realTshark));
+      assert.equal(vscode.workspace.getConfiguration("pcapViewer").get("tsharkPath"), found.path);
+      await waitFor(() => (indexed(session) && !session.basicView ? true : undefined));
+      // (Read again: the assertion above narrowed `backend` to undefined.)
+      const reloaded = api.provider.allSessions.find((s) => s === session);
+      assert.ok(reloaded?.backend?.running, "tshark located: the full viewer");
+      // Search Automatically clears the setting again (tshark is on PATH here).
+      const automatic = await locate({ automatic: true });
+      assert.ok(automatic.ok, automatic.error);
+      assert.equal(vscode.workspace.getConfiguration("pcapViewer").get("tsharkPath"), "");
+      await waitFor(() => (indexed(session) ? true : undefined));
     } finally {
       await config.update("tsharkPath", undefined, vscode.ConfigurationTarget.Global);
     }

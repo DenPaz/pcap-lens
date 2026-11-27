@@ -411,6 +411,14 @@ _EXPERT_FIELD = re.compile(r"Expert Info \((?P<sev>[^/]+)/(?P<group>[^)]+)\): (?
 _EXPERT_SEVERITY_ALIAS = {"Warn": "Warning"}
 
 
+def expert_key(message: str) -> str:
+    """``message`` as the expert report and the fields pass both give it:
+    tshark 4.6's fields output doubles backslashes (a comment's line break,
+    which the report and 4.2 write ``\\n``, comes as ``\\\\n``), so rows are
+    matched to their frames with backslashes undoubled on both sides."""
+    return message.replace("\\\\", "\\")
+
+
 def parse_expert(summary_text: str, fields_text: str, max_frames: int = 1000) -> Table:
     """Combine ``-z expert`` (severity/group/protocol/summary/count) with a
     ``-Y _ws.expert -T fields -e frame.number -e _ws.expert`` pass that maps each
@@ -427,7 +435,7 @@ def parse_expert(summary_text: str, fields_text: str, max_frames: int = 1000) ->
             m = _EXPERT_FIELD.match(item)
             if m:
                 sev = _EXPERT_SEVERITY_ALIAS.get(m["sev"], m["sev"])
-                lst = frames.setdefault((sev, m["msg"]), [])
+                lst = frames.setdefault((sev, expert_key(m["msg"])), [])
                 if len(lst) < max_frames and (not lst or lst[-1] != int(number)):
                     lst.append(int(number))
 
@@ -443,23 +451,35 @@ def parse_expert(summary_text: str, fields_text: str, max_frames: int = 1000) ->
         ],
     )
     severity = None
+    row: dict[str, Any] | None = None
     for line in _lines(summary_text):
         sec = _EXPERT_SECTION.match(line.strip())
         if sec:
-            severity = _SEVERITY_NAME[sec["name"]]
+            severity, row = _SEVERITY_NAME[sec["name"]], None
             continue
         m = _EXPERT_ROW.match(line) if severity else None
         if not m or severity is None:
+            # A multi-line message (a packet comment) goes on in lines of
+            # its own; the fields pass writes its line breaks and tabs as
+            # \n and \t, so the row says it the same way and finds its frames.
+            if row is not None and line.strip() and not line.lstrip().startswith("="):
+                row["cells"][1] += "\\n" + line.replace("\t", "\\t")
             continue
-        summary = m["summary"]
-        row: dict[str, Any] = {
-            "cells": [severity, summary, m["group"], m["proto"], int(m["count"])]
+        row = {
+            "cells": [
+                severity,
+                m["summary"].replace("\t", "\\t"),
+                m["group"],
+                m["proto"],
+                int(m["count"]),
+            ]
         }
-        hits = frames.get((severity, summary))
+        table.rows.append(row)
+    for row in table.rows:
+        hits = frames.get((row["cells"][0], expert_key(row["cells"][1])))
         if hits:
             row["frame"] = hits[0]
             row["frames"] = hits
-        table.rows.append(row)
     table.rows.sort(key=lambda r: _SEVERITY_ORDER.get(r["cells"][0], 3))
     return table
 

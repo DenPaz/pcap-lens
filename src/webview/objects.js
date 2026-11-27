@@ -291,7 +291,10 @@
   }
 
   /** @param {string} text */
-  const copy = (text) => vscode.postMessage({ type: "copy", text });
+  const copy = (text) => {
+    vscode.postMessage({ type: "copy", text });
+    kit.copied();
+  };
 
   // A row's menu: right-click, or Shift+F10 / the menu key for the selected row.
   kit.rowMenu(tableBox, {

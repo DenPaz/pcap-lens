@@ -286,8 +286,10 @@ body {
   color: var(--vscode-input-foreground);
 }
 
+/* (The input's own text is transparent: without a fallback a theme lacking
+   the placeholder color left the hint invisible.) */
 #filter-text #filter-input::placeholder {
-  color: var(--vscode-input-placeholderForeground);
+  color: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground, GrayText));
 }
 
 #filter-field.ai-mode #filter-paint {
@@ -383,68 +385,39 @@ body {
   flex: 1 1 20em;
 }
 
+/* The line under the filter bar: an error, or a notice (data-info). */
 #filter-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
   margin: 0 var(--space-2) var(--space-2);
   padding: var(--space-2) var(--space-3);
-  white-space: pre-wrap;
-  font-family: var(--mono);
-  font-size: var(--mono-size);
   color: var(--vscode-inputValidation-errorForeground, var(--vscode-foreground));
   background: var(--vscode-inputValidation-errorBackground);
   border: 1px solid var(--vscode-inputValidation-errorBorder);
 }
 
-/* The progress bar between the filter bar and the packet list (main.js
-   createProgressBar), like VS Code's own editor progress; .progress is the
-   loading overlay's. */
-.progress-bar,
-.progress {
-  position: relative;
+#filter-error[data-info="1"] {
+  color: var(--vscode-inputValidation-infoForeground, var(--vscode-foreground));
+  background: var(--vscode-inputValidation-infoBackground);
+  border-color: var(--vscode-inputValidation-infoBorder, var(--border));
+}
+
+#filter-error > .codicon {
   flex: none;
-  height: 2px;
-  overflow: hidden;
-  background: transparent;
+  line-height: inherit;
+  color: var(--vscode-errorForeground);
 }
 
-.progress-fill,
-.progress > div {
-  height: 100%;
-  width: 0;
-  background: var(--vscode-progressBar-background);
-  transition: width 0.15s linear;
+#filter-error[data-info="1"] > .codicon {
+  color: var(--vscode-notificationsInfoIcon-foreground, var(--vscode-foreground));
 }
 
-/* A resumed open re-reading the rows it already shows: a quieter bar. */
-.progress-bar.secondary .progress-fill {
-  opacity: 0.45;
-}
-
-.indeterminate > div {
-  width: 30% !important;
-  animation: indeterminate 1.2s infinite ease-in-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  /* No sliding: a static striped bar says "working, amount unknown". */
-  .indeterminate > div {
-    width: 100% !important;
-    animation: none;
-    opacity: 0.6;
-    background: repeating-linear-gradient(
-      90deg,
-      var(--vscode-progressBar-background) 0 8px,
-      transparent 8px 16px
-    );
-  }
-}
-
-@keyframes indeterminate {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(350%);
-  }
+#filter-error .notice-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* ------------------------------------------------------------------ layout */
@@ -725,6 +698,17 @@ body {
 #list-viewport:focus .list-row.selected {
   color: var(--vscode-list-activeSelectionForeground);
   background: var(--vscode-list-activeSelectionBackground);
+}
+
+/*
+ * Without focus (after a click in the detail pane, its usual state), the
+ * selection's gray is no darker than a colored row's tint: a thin border of
+ * the focus color keeps the selected packet and tree node easy to find.
+ * High contrast themes outline them already (see the end of this file).
+ */
+body:not(.vscode-high-contrast):not(.vscode-high-contrast-light)
+  :is(#list-viewport:not(:focus) .list-row.selected, #detail-tree:not(:focus) .node-row.selected) {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vscode-focusBorder) 75%, transparent);
 }
 
 /* The focused row of a multi-selection (it's the one the detail pane shows). */
@@ -1116,6 +1100,18 @@ button.pd-cell:hover {
   white-space: pre;
 }
 
+/* No packet selected: say so, like the details pane (detail.js clearDetail). */
+#bytes-view[data-empty]:empty::before {
+  content: attr(data-empty);
+  display: block;
+  padding-top: calc(40px - var(--space-1)); /* (level with the details' hint) */
+  text-align: center;
+  white-space: normal;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-descriptionForeground);
+}
+
 .hex-row {
   height: var(--row-height);
   line-height: var(--row-height);
@@ -1334,10 +1330,15 @@ button.pd-cell:hover {
   color: var(--vscode-descriptionForeground);
   white-space: nowrap;
   overflow: hidden;
+  container-type: inline-size;
 }
 
+/* The packet counts keep their room: the right side gives way first (its
+   file information is cut, then on a narrow editor its items keep only
+   their icons, their text in the tooltip). */
 #status-bar #status-left {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: min(16em, 45%);
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1422,7 +1423,8 @@ button.pd-cell:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--vscode-editor-background) 80%, transparent);
+  /* Opaque: the empty panes behind it ("Select a packet…") read as part of it. */
+  background: var(--vscode-editor-background);
   z-index: 10;
 }
 
@@ -1446,10 +1448,19 @@ button.pd-cell:hover {
   font-variant-numeric: tabular-nums;
 }
 
+/* An error: the icon in the error colour beside the message in the usual text. */
 .overlay-box.error #overlay-message {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  max-width: 70ch;
+  overflow-wrap: anywhere;
+}
+
+.overlay-box.error #overlay-message > .codicon {
+  flex: none;
+  font-size: 20px;
   color: var(--vscode-errorForeground);
-  font-family: var(--mono);
-  font-size: var(--mono-size);
 }
 
 .overlay-actions {
@@ -1566,11 +1577,19 @@ button.pd-cell:hover {
 
 /* ------------------------------------------------------------------ find bar */
 
+/* Like VS Code's find widget: the box takes the room, ↑/↓ and × are icons;
+   on a narrow editor the box wraps under the menus instead of shrinking away. */
 #find-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   padding: 0 var(--space-2) var(--space-2);
+}
+
+#find-bar select {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 #find-bar input[type="text"] {
@@ -1579,8 +1598,8 @@ button.pd-cell:hover {
 }
 
 #find-input {
-  flex: 1;
-  min-width: 80px;
+  flex: 1 1 14em;
+  min-width: 10em;
 }
 
 #find-input.invalid {
@@ -1648,12 +1667,29 @@ button.pd-cell:hover {
 
 #status-right {
   display: inline-flex;
+  flex: 0 1 auto;
   align-items: center;
   gap: var(--space-1);
+  min-width: 0;
+  overflow: hidden;
+}
+
+#status-right > * {
+  flex: none;
 }
 
 #status-info {
+  flex: 0 1 auto;
+  min-width: 0;
   padding-left: var(--space-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@container (max-width: 640px) {
+  #status-right .status-link .status-text {
+    display: none;
+  }
 }
 
 #status-expert {

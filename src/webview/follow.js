@@ -122,9 +122,7 @@
     next,
     substreamLabel,
     h("span", { class: "spacer" }),
-    filterBtn,
-    filterOutBtn,
-    saveBtn,
+    h("span", { class: "toolbar-group" }, [filterBtn, filterOutBtn, saveBtn]),
   );
 
   // Search: Enter / Shift+Enter (or the arrows) step through the matches.
@@ -294,7 +292,11 @@
 
   function render() {
     const r = state.result;
-    const [a, b] = r.nodes;
+    // A stream without payload has no ends in tshark's output (it prints
+    // ":0"): no legend or directions then, rather than ":0 → :0".
+    const end = (/** @type {unknown} */ n) => (typeof n === "string" && n !== ":0" ? n : "");
+    const [a, b] = [end(r.nodes?.[0]), end(r.nodes?.[1])];
+    const ends = !!(a || b);
     const sub = typeof r.substream === "number" ? `, sub-stream ${r.substream}` : "";
     title.textContent = `${state.label} stream ${r.stream}${sub}`;
     streamInput.value = String(r.stream);
@@ -313,11 +315,20 @@
     const total = r.bytes[0] + r.bytes[1];
     dirSelect.replaceChildren(
       h("option", { value: "both" }, [`Entire conversation (${total.toLocaleString()} bytes)`]),
-      h("option", { value: "0" }, [`${a} → ${b} (${r.bytes[0].toLocaleString()} bytes)`]),
-      h("option", { value: "1" }, [`${b} → ${a} (${r.bytes[1].toLocaleString()} bytes)`]),
+      ...(ends
+        ? [
+            h("option", { value: "0" }, [
+              `${a || "?"} → ${b || "?"} (${r.bytes[0].toLocaleString()} bytes)`,
+            ]),
+            h("option", { value: "1" }, [
+              `${b || "?"} → ${a || "?"} (${r.bytes[1].toLocaleString()} bytes)`,
+            ]),
+          ]
+        : []),
     );
-    dirSelect.value = String(state.dir);
+    dirSelect.value = ends ? String(state.dir) : "both";
     // Identity is spelled out, not left to color alone.
+    legend.classList.toggle("hidden", !ends);
     legend.replaceChildren(
       h("span", { class: "dir0" }, [h("span", { class: "key" }), `${a || "?"} → ${b || "?"}`]),
       h("span", { class: "dir1" }, [h("span", { class: "key" }), `${b || "?"} → ${a || "?"}`]),
@@ -392,7 +403,11 @@
     /** @type {HTMLElement[]} */
     const matches = [];
     for (const p of parts) {
-      const pre = h("pre", { class: p.dir === null ? "segment" : `segment dir${p.dir}` });
+      // (A hex dump's or C array's lines keep their columns: no wrapping.)
+      const dump = state.format === "hex" || state.format === "carray" ? " dump" : "";
+      const pre = h("pre", {
+        class: p.dir === null ? `segment${dump}` : `segment dir${p.dir}${dump}`,
+      });
       const ranges = lib.findRanges(p.text, state.query, MAX_MATCHES - matches.length);
       let at = 0;
       for (const [start, end] of ranges) {
@@ -415,6 +430,11 @@
       ? `${segs} ${segs === 1 ? "segment" : "segments"}${clipped ? ` · showing the first ${RENDER_BUDGET.toLocaleString()} characters (save to get everything)` : ""}`
       : "No payload in this stream.";
     saveBtn.toggleAttribute("disabled", !segs);
+    // Nothing to search in a stream without payload: no search box either.
+    if (!segs && findBar.contains(document.activeElement)) {
+      streamInput.focus();
+    }
+    findBar.classList.toggle("hidden", !segs);
   }
 
   /**

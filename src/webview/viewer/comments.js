@@ -60,6 +60,8 @@ export function editComment() {
   }
   const open = () => {
     el.commentInput.value = comment.frame === frame ? comment.text : "";
+    el.commentInput.placeholder = `Comment on packet ${frame}`;
+    el.commentInput.setAttribute("aria-label", `Comment on packet ${frame}`);
     el.commentView.classList.add("hidden");
     el.commentEditor.classList.remove("hidden");
     el.commentBar.classList.remove("hidden");
