@@ -19,6 +19,10 @@ commit) that made it. The format follows
   wide table scrolls, show a progress bar while TShark runs, and work from
   the keyboard: the arrow keys select rows, Enter goes to the packet (or
   applies the filter), and column headers sort with Enter. [676779b]
+- The flow graph and the VoIP call flow show whole labels as far as the
+  panel reaches, empty TCP streams say so instead of drawing empty axes, and
+  the panels' buttons are consistent: one highlighted action per toolbar and
+  an icon on every labelled button. [2b44b53]
 
 ### Fixed
 
@@ -31,6 +35,7 @@ commit) that made it. The format follows
 [38f2631]: https://github.com/DenPaz/pcap-lens/commit/38f2631
 [39f5016]: https://github.com/DenPaz/pcap-lens/commit/39f5016
 [676779b]: https://github.com/DenPaz/pcap-lens/commit/676779b
+[2b44b53]: https://github.com/DenPaz/pcap-lens/commit/2b44b53
 
 ## 0.37.0 — 2026-11-25
 
