@@ -250,7 +250,10 @@ wireshark`, `C:\Program Files\Wireshark` added to PATH; tried three times,
   `scripts/world-map.mjs` generates from world-atlas); `menus.js` (classic,
   `window.PcapMenus`: the context-menu engine, loaded by the editor and every
   panel) and `panelkit.js` (classic, `window.PcapPanel`, panels only: the
-  element builders `h` and `s` (SVG), icon buttons, row menus); `main.js` = the editor's entry, an ES module (`<script
+  element builders `h` and `s` (SVG), icon buttons, row menus, `copied`:
+  a copy button shows a check and "Copied" for 1.5 s at its old width, and
+  `#panel-announce`, a polite live region, says "Copied" for menu copies
+  too; the viewer's `copy()` announces through `#announce`); `main.js` = the editor's entry, an ES module (`<script
 type="module" nonce>`: imports inherit the nonce, and VS Code's resource
   server allows the CORS fetch) that imports `viewer/*.js`, one module per
   part of the UI (`core` = shared state, constants, element lookups and
@@ -958,7 +961,8 @@ substream)` (`… and http2.streamid eq N`). Views: the text ones
   converted with SI units. tshark 4.6 adds a top-level `frame` row to the
   protocol hierarchy (eth at depth 1, dns at 4; 4.2: 0 and 3), so tests check
   parent rows ("dns one level below udp") and totals, never absolute depths.
-  Percentages divide by the depth-0 rows, which cover every packet either way. Expert info joins `-z expert` (severity/group/
+  Percentages divide by the depth-0 rows, which cover every packet either way;
+  the table draws a bar before each (`td.pct`, as Wireshark does). Expert info joins `-z expert` (severity/group/
   protocol/count) with a `-T fields -e _ws.expert` pass (aggregator `\x1e`)
   to get frame numbers. The report always has a display filter (`frame` when
   there is none, `_expert_spec`): only a filter makes tshark build the
@@ -3723,7 +3727,7 @@ scripts/screenshots.js --theme light|hc --out <dir>` renders Light Modern
   it does is `p.panel-intro`. Empty states say so instead of drawing
   nothing: a TCP stream graph of no packets hides its chart and Ask
   Copilot, a followed stream without payload (tshark names its ends ":0")
-  has no legend or directions. Paddings, margins, gaps, radii and font sizes in
+  has no legend, directions or search box. Paddings, margins, gaps, radii and font sizes in
   styles.css and panel.css use the tokens; add a token rather than a new
   literal. **Icon buttons** look like VS Code's toolbar actions: no border or
   fill, `toolbar-hoverBackground` on hover, `toolbar-activeBackground` while

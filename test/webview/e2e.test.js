@@ -2003,6 +2003,8 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
       .at(-1)
       .text.split("\n");
     assert.equal(copied.length, 5, "a header line plus one line per row");
+    // VS Code's status bar says so; screen readers hear it from the viewer.
+    await page.waitForFunction(() => document.getElementById("announce").textContent === "Copied");
     assert.deepEqual(
       copied.slice(1).map((l) => l.split("\t")[0]),
       ["2", "4", "5", "8"],

@@ -430,6 +430,11 @@
       ? `${segs} ${segs === 1 ? "segment" : "segments"}${clipped ? ` · showing the first ${RENDER_BUDGET.toLocaleString()} characters (save to get everything)` : ""}`
       : "No payload in this stream.";
     saveBtn.toggleAttribute("disabled", !segs);
+    // Nothing to search in a stream without payload: no search box either.
+    if (!segs && findBar.contains(document.activeElement)) {
+      streamInput.focus();
+    }
+    findBar.classList.toggle("hidden", !segs);
   }
 
   /**

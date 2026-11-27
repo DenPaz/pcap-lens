@@ -44,6 +44,10 @@ commit) that made it. The format follows
 - Panels hold up when they are narrow: buttons that belong together wrap
   together, hex dumps and C arrays keep their columns and scroll sideways
   instead of wrapping, and the Replay table's notes stay readable. [6fce867]
+- Copy buttons in the panels say "Copied" for a moment (and screen readers
+  hear it, from menus and the packet list too), Protocol Hierarchy draws a bar
+  for each share, the sequence check writes "3 duplicates", and Follow Stream
+  hides its search box when a stream has no payload.
 
 ### Fixed
 

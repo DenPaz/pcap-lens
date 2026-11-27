@@ -316,6 +316,7 @@
   copyBtn.addEventListener("click", () => {
     if (state.selected?.show !== undefined) {
       vscode.postMessage({ type: "copy", text: state.selected.show });
+      kit.copied(copyBtn);
     }
   });
   gotoBtn.addEventListener("click", () => {

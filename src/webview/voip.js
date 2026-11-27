@@ -252,7 +252,10 @@
   }
 
   /** @param {string} text */
-  const copy = (text) => vscode.postMessage({ type: "copy", text });
+  const copy = (text) => {
+    vscode.postMessage({ type: "copy", text });
+    kit.copied();
+  };
 
   tableMenu(callsTable, [filterCall, saveCall, playCall, saveCallAudio, askCall], (i) =>
     selectCall(i),

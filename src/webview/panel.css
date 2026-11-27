@@ -190,6 +190,34 @@ table.stats td.wrap {
   white-space: normal;
 }
 
+/* Protocol Hierarchy's shares: a bar before the number. */
+table.stats td.pct .pct-meter {
+  display: inline-block;
+  width: 64px;
+  height: 6px;
+  margin-right: var(--space-4);
+  border-radius: 3px;
+  vertical-align: middle;
+  background: color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 15%, transparent);
+  overflow: hidden;
+}
+
+/* (As wide as "100.0": the bars line up whatever the number.) */
+table.stats td.pct .pct-value {
+  display: inline-block;
+  min-width: 5ch;
+}
+
+table.stats td.pct .pct-fill {
+  display: block;
+  height: 100%;
+  background: var(--vscode-charts-blue, #3794ff);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) table.stats td.pct .pct-meter {
+  border: 1px solid var(--hc-border);
+}
+
 table.stats td.spark {
   padding-top: 0;
   padding-bottom: 0;

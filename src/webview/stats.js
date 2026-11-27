@@ -252,9 +252,10 @@
   applyBtn.addEventListener("click", () => rowFilter(true));
   prepareBtn.addEventListener("click", () => rowFilter(false));
   gotoBtn.addEventListener("click", () => rowGoto());
-  copyBtn.addEventListener("click", () => copyTable());
+  copyBtn.addEventListener("click", () => copyTable(copyBtn));
 
-  function copyTable() {
+  /** @param {HTMLElement} [button] the button that asked (it says "Copied") */
+  function copyTable(button) {
     if (state.table) {
       const shown = shownColumns();
       vscode.postMessage({
@@ -264,11 +265,15 @@
           shownRows().map((/** @type {any} */ r) => ({ cells: shown.map((i) => r.cells[i]) })),
         ),
       });
+      kit.copied(button);
     }
   }
 
   /** @param {string} text */
-  const copy = (text) => vscode.postMessage({ type: "copy", text });
+  const copy = (text) => {
+    vscode.postMessage({ type: "copy", text });
+    kit.copied();
+  };
 
   /** The table rows' objects, by their <tr> (the row menu's). @type {WeakMap<Element, any>} */
   const rowOf = new WeakMap();
@@ -1093,6 +1098,15 @@
         }
         if (t.kind === "expert" && col.id === "severity") {
           td.append(h("span", { class: `sev sev-${String(value)}` }, [String(value)]));
+        } else if (t.kind === "phs" && col.id.startsWith("percent_") && typeof value === "number") {
+          // A bar before the share, as in Wireshark: the big protocols stand out.
+          const fill = h("span", { class: "pct-fill" });
+          fill.style.width = `${Math.min(100, Math.max(0, value))}%`;
+          td.classList.add("pct");
+          td.append(
+            h("span", { class: "pct-meter", "aria-hidden": "true" }, [fill]),
+            h("span", { class: "pct-value" }, [lib.formatCell(value)]),
+          );
         } else {
           td.append(lib.formatCell(value));
         }

@@ -324,13 +324,14 @@ def _trouble(s: dict[str, Any]) -> int:
 
 
 def _result(s: dict[str, Any]) -> str:
+    """A stream's result, e.g. "2 missing, 3 duplicates, 1 late" (or "OK")."""
     parts = [
-        f"{s[k]:,} {label}"
-        for k, label in (
-            ("missing", "missing"),
-            ("duplicates", "duplicate"),
-            ("late", "late"),
-            ("restarts", "restart"),
+        f"{s[k]:,} {one if s[k] == 1 else many}"
+        for k, one, many in (
+            ("missing", "missing", "missing"),
+            ("duplicates", "duplicate", "duplicates"),
+            ("late", "late", "late"),
+            ("restarts", "restart", "restarts"),
         )
         if s[k]
     ]

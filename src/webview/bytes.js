@@ -186,7 +186,10 @@
     });
   }
   gotoBtn.addEventListener("click", () => vscode.postMessage({ type: "goto" }));
-  copyBtn.addEventListener("click", () => vscode.postMessage({ type: "copy", text: shownText() }));
+  copyBtn.addEventListener("click", () => {
+    vscode.postMessage({ type: "copy", text: shownText() });
+    kit.copied(copyBtn);
+  });
   saveBtn.addEventListener("click", () =>
     vscode.postMessage({
       type: "save",

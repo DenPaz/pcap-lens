@@ -1150,7 +1150,10 @@
   // ------------------------------------------------------------------ row menu
 
   /** @param {string} text */
-  const copy = (text) => vscode.postMessage({ type: "copy", text });
+  const copy = (text) => {
+    vscode.postMessage({ type: "copy", text });
+    kit.copied();
+  };
 
   kit.rowMenu(tableBox, {
     rows: "tbody tr",

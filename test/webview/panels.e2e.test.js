@@ -305,6 +305,16 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
 
     await page.click("button:has-text('Copy as CSV')");
     const csv = log.find((m) => m.type === "copy").text.split("\n");
+    // The button says so for a moment, at the same width, and screen readers hear it.
+    const copyBtn = page.locator("button.copied");
+    assert.equal(await copyBtn.textContent(), "Copied");
+    assert.equal(await copyBtn.locator(".codicon").getAttribute("class"), "codicon codicon-check");
+    assert.ok(parseFloat(await copyBtn.evaluate((b) => b.style.minWidth)) > 0);
+    await page.waitForFunction(
+      () => document.querySelector("#panel-announce")?.textContent === "Copied",
+    );
+    await page.waitForSelector("button.copied", { state: "detached" });
+    assert.equal(await page.isVisible("button:has-text('Copy as CSV') .codicon-copy"), true);
     assert.equal(
       csv[0],
       "Address A,Address B,Packets,Bytes,Packets A → B,Bytes A → B,Packets B → A,Bytes B → A,Rel Start,Duration",
@@ -485,8 +495,13 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     assert.ok(await page.isHidden("#context-menu"));
     // Copy › Value copies the clicked cell; Shift+F10 opens the selected row's menu.
     await page.click("table.stats tbody tr >> nth=0 >> td >> nth=0", { button: "right" });
+    await page.evaluate(() => document.querySelector("#panel-announce")?.replaceChildren());
     await pickMenu(page, "Copy", "Value");
     assert.equal(log.findLast((m) => m.type === "copy").text, "192.168.1.10:50000");
+    // A menu's copy is announced too.
+    await page.waitForFunction(
+      () => document.querySelector("#panel-announce")?.textContent === "Copied",
+    );
     await page.focus("button:has-text('Refresh')");
     await page.keyboard.press("Shift+F10");
     assert.ok(await page.isHidden("#context-menu"), "the focus isn't in the table");
@@ -548,6 +563,23 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       "dns under its parents",
     );
     assert.ok(!kept.includes("arp"));
+    // The shares have bars as wide as their percentage.
+    const bars = await page.$$eval("table.stats tbody tr", (trs) =>
+      trs.map((tr) => {
+        const td = tr.querySelectorAll("td")[1];
+        const fill = td.querySelector(".pct-fill");
+        const meter = td.querySelector(".pct-meter");
+        return [
+          Number(td.textContent),
+          fill.getBoundingClientRect().width / meter.clientWidth,
+          meter.getAttribute("aria-hidden"),
+        ];
+      }),
+    );
+    for (const [pct, ratio, hidden] of bars) {
+      assert.ok(Math.abs(ratio * 100 - pct) < 2, `${pct}% drawn as ${ratio}`);
+      assert.equal(hidden, "true");
+    }
   });
 
   test("IO graph: line chart with crosshair tooltip, keyboard and metric switch", async () => {
@@ -926,6 +958,8 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     );
     assert.equal(await page.textContent(".status"), "No payload in this stream.");
     assert.equal(await page.locator("pre.segment").count(), 0);
+    // Nothing to search: no search box.
+    assert.equal(await page.isVisible("#follow-find"), false);
     // tshark names no ends for it (":0"): no legend, no directions.
     assert.equal(await page.isVisible(".follow-legend"), false);
     assert.deepEqual(
