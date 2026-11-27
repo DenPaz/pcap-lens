@@ -7,6 +7,13 @@ commit) that made it. The format follows
 
 ## Unreleased
 
+### Added
+
+- When TShark isn't found, _PCAP: Locate TShark…_ (offered in the
+  notification, the basic view and Get Started) lets you browse to it or
+  paste its path or Wireshark's folder, checks it, and reloads the open
+  captures. [14a9f08]
+
 ### Changed
 
 - The selected packet and detail field keep a visible border when you work
@@ -23,6 +30,10 @@ commit) that made it. The format follows
   panel reaches, empty TCP streams say so instead of drawing empty axes, and
   the panels' buttons are consistent: one highlighted action per toolbar and
   an icon on every labelled button. [2b44b53]
+- Filter errors show TShark's sentence with an error icon, without the
+  repeated filter and `^~~~` marks (the filter box underlines the part
+  TShark refused), notices look like notices, and the loading and error
+  screen is cleaner. [15981c1]
 
 ### Fixed
 
@@ -36,6 +47,8 @@ commit) that made it. The format follows
 [39f5016]: https://github.com/DenPaz/pcap-lens/commit/39f5016
 [676779b]: https://github.com/DenPaz/pcap-lens/commit/676779b
 [2b44b53]: https://github.com/DenPaz/pcap-lens/commit/2b44b53
+[15981c1]: https://github.com/DenPaz/pcap-lens/commit/15981c1
+[14a9f08]: https://github.com/DenPaz/pcap-lens/commit/14a9f08
 
 ## 0.37.0 — 2026-11-25
 
