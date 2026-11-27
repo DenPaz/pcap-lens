@@ -1180,14 +1180,14 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     );
     await page.waitForFunction(() =>
       /No packet in this capture has dns\.qry\.name/.test(
-        document.querySelector("#list-empty .empty-hints").textContent,
+        document.querySelector("#list-empty .empty-hints")?.textContent ?? "",
       ),
     );
 
     // A case-sensitive comparison: the hint's filter applies with one click.
     await applyTyped('http.host == "Example.com"');
     await page.waitForFunction(() =>
-      /case-sensitive/.test(document.querySelector("#list-empty .empty-hints").textContent),
+      /case-sensitive/.test(document.querySelector("#list-empty .empty-hints")?.textContent ?? ""),
     );
     assert.match(await hints(), /lower\(http\.host\) == "example\.com"/);
     await page.click("#list-empty .empty-hints button:has-text('Apply')");
@@ -1201,7 +1201,9 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     // Every field occurs: the values are worth a look; Previous Filter goes back.
     await applyTyped("frame.len > 99999");
     await page.waitForFunction(() =>
-      /Every field occurs/.test(document.querySelector("#list-empty .empty-hints").textContent),
+      /Every field occurs/.test(
+        document.querySelector("#list-empty .empty-hints")?.textContent ?? "",
+      ),
     );
     assert.deepEqual(await axeViolations(page, { exclude: [["#bytes"]] }), []);
     const prev = page.locator("#list-empty button:has-text('Previous Filter')");
