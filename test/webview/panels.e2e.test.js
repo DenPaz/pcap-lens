@@ -913,6 +913,14 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     );
     assert.equal(await page.textContent(".status"), "No payload in this stream.");
     assert.equal(await page.locator("pre.segment").count(), 0);
+    // tshark names no ends for it (":0"): no legend, no directions.
+    assert.equal(await page.isVisible(".follow-legend"), false);
+    assert.deepEqual(
+      await page.$$eval("select[aria-label='Direction'] option", (os) =>
+        os.map((o) => o.textContent),
+      ),
+      ["Entire conversation (0 bytes)"],
+    );
   });
 
   test("follow HTTP/2 and QUIC: sub-streams, more views, filter and save", async () => {
@@ -1305,6 +1313,25 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
     await page.waitForFunction(() => document.querySelectorAll(".flow-row").length === 6);
     assert.equal((await page.$$(".flow-node")).length, 2);
     assert.match(await page.textContent(".toolbar span"), /6 packets matching dns between 2/);
+    // Labels run on to the panel's edge: two endpoints leave room for the
+    // whole of each query (they were cut where the columns end), inside the
+    // drawing.
+    const labels = await page.$$eval(".flow-row .flow-label", (ts) =>
+      ts.map((t) => {
+        const svg = /** @type {SVGSVGElement} */ (t.ownerSVGElement);
+        const right = t.getBoundingClientRect().right - svg.getBoundingClientRect().left;
+        return [t.textContent, right <= svg.width.baseVal.value];
+      }),
+    );
+    assert.deepEqual(
+      labels.map(([text]) => text?.endsWith("…")),
+      labels.map(() => false),
+      JSON.stringify(labels),
+    );
+    assert.ok(
+      labels.every(([, inside]) => inside),
+      JSON.stringify(labels),
+    );
     await client.request("set_filter", { expr: "" });
   });
 
@@ -1373,6 +1400,10 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       /^TCP stream 1/.test(document.querySelector(".panel-title").textContent),
     );
     assert.match(await page.textContent(".status"), /No packets in this stream/);
+    // No ends to name, no empty axes, nothing to ask about.
+    assert.equal(await page.textContent(".panel-title"), "TCP stream 1");
+    assert.equal(await page.isVisible(".chart"), false);
+    assert.equal(await page.isDisabled("#tcp-ask"), true);
   });
 
   test("compare packets: fields side by side, differences marked, only differences, swap", async () => {
@@ -1576,6 +1607,14 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       assert.deepEqual(
         await page.$$eval("#voip-flow .voip-node", (n) => n.map((t) => t.textContent)),
         ["10.0.0.1", "10.0.0.2"],
+      );
+      // A stream's label runs on to the panel's edge, whole (it was cut at
+      // the second column: "1 lost (2.0").
+      assert.deepEqual(
+        await page.$$eval("#voip-flow .flow-row.voip-rtp text.flow-label", (t) =>
+          t.map((l) => l.textContent),
+        ),
+        ["RTP g711U · 50 packets", "RTP g711U · 49 packets · 1 lost (2.0%)"],
       );
       assert.equal((await page.$$("#voip-streams tbody tr.linked")).length, 2);
       await page.click("#voip-flow .flow-row >> nth=0");
@@ -3100,6 +3139,37 @@ maybe("statistics and follow panels (Chromium + real backend)", function () {
       const name = `${String(i).padStart(2, "0")}-${title.replace(/[^A-Za-z0-9]+/g, "-")}.png`;
       await page.screenshot({ path: path.join(process.env.PCAP_SCREENSHOTS, name) });
     }
+  });
+
+  test("every panel's toolbars: one primary button at most, an icon before every label", async () => {
+    // Each panel as its test left it. A second blue button made two actions
+    // look like the one to press (Coloring Rules' Add Rule and Save), and a
+    // label without an icon stood out beside its neighbours.
+    const found = [];
+    for (const { page } of pages) {
+      found.push(
+        ...(await page.evaluate(() => {
+          const title = document.querySelector("h1, h2")?.textContent;
+          const out = [];
+          for (const bar of document.querySelectorAll(".toolbar")) {
+            const buttons = [...bar.querySelectorAll("button:not(.icon):not(.link)")].filter(
+              (b) => !b.closest(".context-menu") && (b.offsetWidth || b.offsetHeight),
+            );
+            const primary = buttons.filter((b) => !b.classList.contains("secondary"));
+            if (primary.length > 1) {
+              out.push(`${title}: ${primary.map((b) => b.textContent?.trim()).join(" and ")}`);
+            }
+            for (const b of buttons) {
+              if (b.textContent?.trim() && !b.querySelector(".codicon")) {
+                out.push(`${title}: no icon on ${b.textContent.trim()}`);
+              }
+            }
+          }
+          return out;
+        })),
+      );
+    }
+    assert.deepEqual(found, []);
   });
 
   test("accessibility: no WCAG A/AA violations in any panel (axe-core)", async () => {

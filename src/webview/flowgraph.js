@@ -18,7 +18,7 @@
   const GUTTER = 150;
   const COLUMN = 160;
   const PAGE = 200;
-  const CHAR = 7; // approximate width of a character of the label font
+  const CHAR = 7; // a character of the label font, until one is measured
 
   /**
    * @typedef {{number: number, time: string, from: number, to: number, protocol: string, info: string}} Arrow
@@ -200,6 +200,13 @@
     defs.append(marker);
     svg.append(defs);
     const columns = state.nodes.length + (state.more ? 1 : 0);
+    // Labels run on past the last column to the panel's edge (they were cut
+    // where the columns end, half the panel's width with two endpoints).
+    const right = Math.max(GUTTER + columns * COLUMN, scroller.clientWidth - 2);
+    svg.setAttribute("width", String(right));
+    body.style.width = `${right}px`;
+    header.style.width = `${right}px`;
+    const char = kit.charWidth(svg, "flow-label", CHAR);
     for (let c = 0; c < columns; c++) {
       const x = GUTTER + (c + 0.5) * COLUMN;
       svg.append(s("line", { x1: x, x2: x, y1: 0, y2: win.count * ROW, class: "flow-life" }));
@@ -223,9 +230,7 @@
         "aria-setsize": String(state.total),
       });
       g.dataset.frame = String(arrow.number);
-      g.append(
-        s("rect", { x: 0, y, width: GUTTER + columns * COLUMN, height: ROW, class: "flow-bg" }),
-      );
+      g.append(s("rect", { x: 0, y, width: right, height: ROW, class: "flow-bg" }));
       const when = s("text", { x: 6, y: y + 17, class: "flow-time" });
       when.textContent = `${lib.formatCell(Number(arrow.time))} · ${arrow.number}`;
       g.append(when);
@@ -255,7 +260,7 @@
         );
       }
       const text = `${arrow.protocol}: ${arrow.info}`;
-      const place = lib.flowLabel(text, x1, x2, GUTTER + columns * COLUMN, CHAR, self);
+      const place = lib.flowLabel(text, x1, x2, right, char, self);
       const label = s("text", {
         x: place.x,
         y: y + 13,

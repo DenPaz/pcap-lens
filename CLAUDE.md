@@ -1758,7 +1758,11 @@ transport,external}`, `open {names}`): `DissectionOptions.names` holds the
   complete view (IndexingError while indexing or filtering). The panel
   draws only the rows on screen (SVG, `lib.computeWindow`, pages of 200),
   `lib.flowArrow` positions arrows, labels are centred when they fit, else
-  run right from the arrow's start (`lib.truncate`). It follows the capture's
+  run right from the arrow's start (`lib.truncate`) to the panel's edge, not
+  the last column's (the drawing is as wide as the panel; the VoIP call flow
+  too, measured with its drawing in it, since `.voip-flow:empty` is hidden),
+  cut by the label font's measured character width (`panelkit.charWidth`;
+  the guessed 7 px cut them too late). It follows the capture's
   filter: `PcapEditorSession.onDidChangeFilter` → "reset".
 - **TCP stream graphs** (`tcp_graph {stream | frame}`, `TcpGraphPanel`,
   `tcpgraph.js`): one `-Y tcp.stream == N` pass (fields `_TCP_GRAPH_FIELDS`;
@@ -3658,7 +3662,16 @@ scripts/screenshots.js --theme light|hc --out <dir>` renders Light Modern
   `.secondary`, `.icon`, `.link`, disabled), text/search/number inputs,
   selects and textareas, focus outlines, `.hidden`, `.visually-hidden`, and
   the high-contrast tokens. A disabled primary button takes the secondary
-  colors (dimmed, its blue still read as an action). Paddings, margins, gaps, radii and font sizes in
+  colors (dimmed, its blue still read as an action). A panel's `.toolbar`
+  holds at most one primary button, and every labelled button there starts
+  with a Codicon (`withIcon`; a label set later keeps it with
+  `replaceChildren(icon, text)`): the panels e2e test checks every panel as
+  its test left it (Coloring Rules had two primaries; Copy, Go to Packet N,
+  Switch Direction… had no icon). A line under a panel's title saying what
+  it does is `p.panel-intro`. Empty states say so instead of drawing
+  nothing: a TCP stream graph of no packets hides its chart and Ask
+  Copilot, a followed stream without payload (tshark names its ends ":0")
+  has no legend or directions. Paddings, margins, gaps, radii and font sizes in
   styles.css and panel.css use the tokens; add a token rather than a new
   literal. **Icon buttons** look like VS Code's toolbar actions: no border or
   fill, `toolbar-hoverBackground` on hover, `toolbar-activeBackground` while

@@ -109,9 +109,10 @@
     ),
     "go-to-file",
   );
-  const copyBtn = h("button", { type: "button", class: "secondary", title: "Copy what is shown" }, [
-    "Copy",
-  ]);
+  const copyBtn = kit.withIcon(
+    h("button", { type: "button", class: "secondary", title: "Copy what is shown" }, ["Copy"]),
+    "copy",
+  );
   const saveBtn = kit.withIcon(
     h("button", { type: "button", class: "secondary", title: "Save what is shown (text views) " }, [
       "Save as…",

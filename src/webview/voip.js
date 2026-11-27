@@ -693,14 +693,17 @@
       return;
     }
     const { nodes, rows } = lib.callFlow(call, state.streams);
-    const width = FLOW.gutter + nodes.length * FLOW.column;
     const height = FLOW.top + rows.length * FLOW.row + 8;
     const svg = s("svg", {
-      width,
       height,
       role: "group",
       "aria-label": `Call flow of ${call.from} to ${call.to}`,
     });
+    // Labels run on to the panel's edge, not only to the last column's. The
+    // box is measured with the drawing in it: empty, it is hidden.
+    flow.append(svg);
+    const width = Math.max(FLOW.gutter + nodes.length * FLOW.column, flow.clientWidth - 2);
+    svg.setAttribute("width", String(width));
     nodes.forEach((/** @type {string} */ addr, /** @type {number} */ i) => {
       const x = FLOW.gutter + (i + 0.5) * FLOW.column;
       svg.append(
@@ -708,11 +711,12 @@
         s("line", { x1: x, x2: x, y1: FLOW.top - 6, y2: height, class: "flow-life" }),
       );
     });
+    const char = kit.charWidth(svg, "flow-label", FLOW.char);
     rows.forEach((/** @type {any} */ row, /** @type {number} */ i) => {
       const y = FLOW.top + i * FLOW.row;
       const { x1, x2 } = lib.flowArrow(row.from, row.to, nodes.length, FLOW);
       const rtp = row.stream !== undefined;
-      const place = lib.flowLabel(row.label, x1, x2, width, FLOW.char);
+      const place = lib.flowLabel(row.label, x1, x2, width, char);
       const g = s("g", {
         class: `flow-row${rtp ? " voip-rtp" : ""}`,
         tabindex: "0",
@@ -751,8 +755,16 @@
       });
       svg.append(g);
     });
-    flow.append(svg);
   }
+
+  // The labels' room follows the panel's width.
+  let flowWidth = 0;
+  new ResizeObserver(() => {
+    if (flow.clientWidth !== flowWidth) {
+      flowWidth = flow.clientWidth;
+      renderFlow();
+    }
+  }).observe(flow);
 
   // ------------------------------------------------------------------ analysis
 

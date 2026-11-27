@@ -323,7 +323,11 @@
 
   // ------------------------------------------------------------------ layout
 
-  const addButton = kit.withIcon(h("button", { type: "button" }, ["Add Rule"]), "add");
+  // (Save is the toolbar's one primary button.)
+  const addButton = kit.withIcon(
+    h("button", { type: "button", class: "secondary" }, ["Add Rule"]),
+    "add",
+  );
   addButton.addEventListener("click", add);
   saveButton.addEventListener("click", () =>
     vscode.postMessage({ type: "save", rules: currentRules() }),
@@ -339,14 +343,15 @@
     render();
     state.rows.forEach((row) => validate(row, 0));
   });
-  const settingsButton = h("button", { type: "button", class: "secondary" }, [
-    "Open settings.json",
-  ]);
+  const settingsButton = kit.withIcon(
+    h("button", { type: "button", class: "secondary" }, ["Open settings.json"]),
+    "json",
+  );
   settingsButton.addEventListener("click", () => vscode.postMessage({ type: "openSettings" }));
 
   app.append(
     h("h1", { class: "panel-title" }, ["Coloring Rules"]),
-    h("div", { class: "panel-subtitle" }, [
+    h("p", { class: "panel-intro" }, [
       "The first matching rule colors a packet. Alt+↑ / Alt+↓ reorder a rule.",
     ]),
     h("div", { class: "toolbar" }, [

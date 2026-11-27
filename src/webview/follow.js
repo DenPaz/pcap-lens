@@ -294,7 +294,11 @@
 
   function render() {
     const r = state.result;
-    const [a, b] = r.nodes;
+    // A stream without payload has no ends in tshark's output (it prints
+    // ":0"): no legend or directions then, rather than ":0 → :0".
+    const end = (/** @type {unknown} */ n) => (typeof n === "string" && n !== ":0" ? n : "");
+    const [a, b] = [end(r.nodes?.[0]), end(r.nodes?.[1])];
+    const ends = !!(a || b);
     const sub = typeof r.substream === "number" ? `, sub-stream ${r.substream}` : "";
     title.textContent = `${state.label} stream ${r.stream}${sub}`;
     streamInput.value = String(r.stream);
@@ -313,11 +317,20 @@
     const total = r.bytes[0] + r.bytes[1];
     dirSelect.replaceChildren(
       h("option", { value: "both" }, [`Entire conversation (${total.toLocaleString()} bytes)`]),
-      h("option", { value: "0" }, [`${a} → ${b} (${r.bytes[0].toLocaleString()} bytes)`]),
-      h("option", { value: "1" }, [`${b} → ${a} (${r.bytes[1].toLocaleString()} bytes)`]),
+      ...(ends
+        ? [
+            h("option", { value: "0" }, [
+              `${a || "?"} → ${b || "?"} (${r.bytes[0].toLocaleString()} bytes)`,
+            ]),
+            h("option", { value: "1" }, [
+              `${b || "?"} → ${a || "?"} (${r.bytes[1].toLocaleString()} bytes)`,
+            ]),
+          ]
+        : []),
     );
-    dirSelect.value = String(state.dir);
+    dirSelect.value = ends ? String(state.dir) : "both";
     // Identity is spelled out, not left to color alone.
+    legend.classList.toggle("hidden", !ends);
     legend.replaceChildren(
       h("span", { class: "dir0" }, [h("span", { class: "key" }), `${a || "?"} → ${b || "?"}`]),
       h("span", { class: "dir1" }, [h("span", { class: "key" }), `${b || "?"} → ${a || "?"}`]),

@@ -45,9 +45,10 @@
     h("button", { type: "button", disabled: "" }, ["Apply as Filter"]),
     "filter",
   );
-  const prepareBtn = h("button", { type: "button", class: "secondary", disabled: "" }, [
-    "Prepare as Filter",
-  ]);
+  const prepareBtn = kit.withIcon(
+    h("button", { type: "button", class: "secondary", disabled: "" }, ["Prepare as Filter"]),
+    "edit",
+  );
   const copyBtn = kit.withIcon(
     h("button", { type: "button", class: "secondary", disabled: "" }, ["Copy Value"]),
     "copy",

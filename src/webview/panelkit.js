@@ -131,5 +131,20 @@
     });
   }
 
-  /** @type {any} */ (window).PcapPanel = { h, s, icon, withIcon, rowMenu };
+  /**
+   * The width of one character of a monospaced SVG text class, measured in
+   * `svg` (which must be on the page), else `fallback`: the sequence
+   * diagrams cut their labels by it, and a guess cut them too late.
+   * @param {SVGSVGElement} svg @param {string} className @param {number} fallback
+   */
+  function charWidth(svg, className, fallback) {
+    const probe = /** @type {SVGTextElement} */ (s("text", { class: className, x: 0, y: -100 }));
+    probe.textContent = "0".repeat(20);
+    svg.append(probe);
+    const width = probe.getComputedTextLength() / 20;
+    probe.remove();
+    return width > 0 ? width : fallback;
+  }
+
+  /** @type {any} */ (window).PcapPanel = { h, s, icon, withIcon, rowMenu, charWidth };
 })();

@@ -74,7 +74,7 @@
   // ------------------------------------------------------------------ skeleton
 
   const title = h("h1", { class: "panel-title" }, ["Replay"]);
-  const intro = h("p", { class: "status replay-intro" }, [
+  const intro = h("p", { class: "panel-intro" }, [
     "Each recorded connection is opened again to its destination and carries what the client sent, with the recorded pauses; the service's answers are counted.",
   ]);
   const scopeSelect = /** @type {HTMLSelectElement} */ (
@@ -177,9 +177,12 @@
       "aria-label": "IP address for every target",
     })
   );
-  const allIpBtn = h("button", { type: "button", id: "replay-all-ip-apply", class: "secondary" }, [
-    "Same IP for All",
-  ]);
+  const allIpBtn = kit.withIcon(
+    h("button", { type: "button", id: "replay-all-ip-apply", class: "secondary" }, [
+      "Same IP for All",
+    ]),
+    "replace-all",
+  );
   const speedSelect = /** @type {HTMLSelectElement} */ (
     h("select", { id: "replay-speed", "aria-label": "Speed" })
   );

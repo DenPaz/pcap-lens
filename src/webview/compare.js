@@ -25,7 +25,8 @@
   const app = /** @type {HTMLElement} */ (document.getElementById("app"));
 
   /** @param {string} tag @param {Record<string, string>} [attrs] @param {(Node | string)[]} [children] */
-  const h = /** @type {any} */ (window).PcapPanel.h;
+  const kit = /** @type {any} */ (window).PcapPanel;
+  const h = kit.h;
 
   /** A Codicons glyph (codicons/codicon.css), hidden from screen readers. @param {string} name */
   const icon = (name) => h("span", { class: `codicon codicon-${name}`, "aria-hidden": "true" });
@@ -37,8 +38,8 @@
     icon("arrow-swap"),
     " Swap",
   ]);
-  const gotoA = h("button", { type: "button", class: "secondary", id: "cmp-goto-a" });
-  const gotoB = h("button", { type: "button", class: "secondary", id: "cmp-goto-b" });
+  const gotoA = h("button", { type: "button", class: "secondary with-icon", id: "cmp-goto-a" });
+  const gotoB = h("button", { type: "button", class: "secondary with-icon", id: "cmp-goto-b" });
   const toolbar = h("div", { class: "toolbar", role: "toolbar" }, [
     h("label", {}, [only, "Only differences"]),
     swap,
@@ -115,8 +116,9 @@
     title.textContent = `Compare Packets ${a.number} and ${b.number}`;
     headA.textContent = `Packet ${a.number}`;
     headB.textContent = `Packet ${b.number}`;
-    gotoA.textContent = `Go to Packet ${a.number}`;
-    gotoB.textContent = `Go to Packet ${b.number}`;
+    // (The label changes with the pair: the icon stays.)
+    gotoA.replaceChildren(kit.icon("go-to-file"), `Go to Packet ${a.number}`);
+    gotoB.replaceChildren(kit.icon("go-to-file"), `Go to Packet ${b.number}`);
     const counts = { changed: 0, a: 0, b: 0 };
     for (const r of state.rows) {
       if (r.status !== "same") {

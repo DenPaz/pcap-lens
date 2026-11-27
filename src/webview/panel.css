@@ -22,10 +22,10 @@ body.panel #app {
   border-bottom: 1px solid var(--border);
 }
 
-.panel-subtitle {
+/* A line under the title saying what the panel does (Replay, Coloring Rules). */
+.panel-intro {
+  margin: 0;
   color: var(--vscode-descriptionForeground);
-  font-family: var(--mono);
-  font-size: var(--mono-size);
 }
 
 .toolbar {
@@ -1099,10 +1099,6 @@ th > .codicon {
 }
 
 /* ------------------------------------------------------------------ replay to service */
-
-.replay-intro {
-  margin: 0;
-}
 
 .replay-targets {
   overflow-x: auto;
