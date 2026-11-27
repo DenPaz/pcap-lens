@@ -1017,6 +1017,30 @@
     /\s+|r?"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|===|!==|==|!=|>=|<=|~=|&&|\|\||\^\^|[<>!~&|^+\-*/%]|[@$]?[A-Za-z0-9_][A-Za-z0-9_.:-]*|\$\{[^}]*\}?|[\s\S]/gy;
 
   /**
+   * tshark's filter error as the viewer shows it: without its echo of the
+   * filter and the `^~~~` line marking the refused part under it, which the
+   * filter box already underlines (`filterSegments`). An echo of anything
+   * else (a macro tshark expanded) stays, since the box can't show it.
+   *
+   * @param {string} message
+   * @param {string} expr the filter in the box
+   */
+  function filterErrorText(message, expr) {
+    const lines = String(message).split("\n");
+    const out = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].replace(/\r$/, "");
+      const next = (lines[i + 1] ?? "").replace(/\r$/, "");
+      if (line === `    ${expr}` && /^ *\^~*\s*$/.test(next)) {
+        i++;
+        continue;
+      }
+      out.push(line);
+    }
+    return out.join("\n").trim();
+  }
+
+  /**
    * A display filter cut into pieces to draw (the filter bar paints them
    * behind its input): fields, operators, functions, values and strings get
    * a `kind`, the rest none, and `error` marks the part tshark refused,
@@ -4302,6 +4326,7 @@
     densityRowHeight,
     sequenceSummary,
     filterSegments,
+    filterErrorText,
     PANE_LAYOUTS,
     paneLayout,
     splitterOrientations,

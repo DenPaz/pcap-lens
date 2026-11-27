@@ -385,15 +385,39 @@ body {
   flex: 1 1 20em;
 }
 
+/* The line under the filter bar: an error, or a notice (data-info). */
 #filter-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
   margin: 0 var(--space-2) var(--space-2);
   padding: var(--space-2) var(--space-3);
-  white-space: pre-wrap;
-  font-family: var(--mono);
-  font-size: var(--mono-size);
   color: var(--vscode-inputValidation-errorForeground, var(--vscode-foreground));
   background: var(--vscode-inputValidation-errorBackground);
   border: 1px solid var(--vscode-inputValidation-errorBorder);
+}
+
+#filter-error[data-info="1"] {
+  color: var(--vscode-inputValidation-infoForeground, var(--vscode-foreground));
+  background: var(--vscode-inputValidation-infoBackground);
+  border-color: var(--vscode-inputValidation-infoBorder, var(--border));
+}
+
+#filter-error > .codicon {
+  flex: none;
+  line-height: inherit;
+  color: var(--vscode-errorForeground);
+}
+
+#filter-error[data-info="1"] > .codicon {
+  color: var(--vscode-notificationsInfoIcon-foreground, var(--vscode-foreground));
+}
+
+#filter-error .notice-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* ------------------------------------------------------------------ layout */
@@ -1382,7 +1406,8 @@ button.pd-cell:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--vscode-editor-background) 80%, transparent);
+  /* Opaque: the empty panes behind it ("Select a packet…") read as part of it. */
+  background: var(--vscode-editor-background);
   z-index: 10;
 }
 
@@ -1406,10 +1431,19 @@ button.pd-cell:hover {
   font-variant-numeric: tabular-nums;
 }
 
+/* An error: the icon in the error colour beside the message in the usual text. */
 .overlay-box.error #overlay-message {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  max-width: 70ch;
+  overflow-wrap: anywhere;
+}
+
+.overlay-box.error #overlay-message > .codicon {
+  flex: none;
+  font-size: 20px;
   color: var(--vscode-errorForeground);
-  font-family: var(--mono);
-  font-size: var(--mono-size);
 }
 
 .overlay-actions {

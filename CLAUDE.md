@@ -730,6 +730,15 @@ function/value/string` (the debugger's and outline's theme colours) and
   span when it stops being `invalid`. Ask-AI mode shows the input's own
   text. `lib.filterSegments` is a display tokenizer, not a parser: a word
   after a comparison or in a set is a value, one before `(` a function.
+  **Showing it** (`showFilterError`, `lib.filterErrorText`): the line under
+  the bar has an error icon and tshark's sentence in the UI font, without
+  its echo of the filter and the `^~~~` line (the box underlines that part;
+  an echo of a macro's expansion stays); notices (`showNotice`,
+  `data-info`) get an info icon and the input's info colours instead of the
+  error's. Find's status shows the first line, the whole message as its
+  tooltip. The loading/error overlay is opaque (the empty panes behind it
+  read as part of it), an error has an icon beside the message in the usual
+  font, and Names/Time stay hidden in the status bar until a capture loads.
 - **Sorting** is backend-side over the current filter's frames: one column is
   read from the row store (cached, 3 columns max), sorted in Python, and the
   resulting order is cached per (filter, column, direction). Source/Destination

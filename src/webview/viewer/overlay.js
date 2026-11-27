@@ -11,7 +11,16 @@ import { setProgress } from "./host.js";
 export function showOverlay(message, opts) {
   el.overlay.classList.remove("hidden");
   el.overlayBox.classList.toggle("error", !!opts.error);
-  el.overlayMessage.textContent = message;
+  if (opts.error) {
+    const mark = document.createElement("span");
+    mark.className = "codicon codicon-error";
+    mark.setAttribute("aria-hidden", "true");
+    const text = document.createElement("span");
+    text.textContent = message;
+    el.overlayMessage.replaceChildren(mark, text);
+  } else {
+    el.overlayMessage.textContent = message;
+  }
   el.overlayProgress.classList.toggle("hidden", !opts.progress);
   if (opts.progress) {
     setProgress(el.overlayProgress, el.overlayFill, null);

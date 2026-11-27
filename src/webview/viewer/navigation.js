@@ -251,7 +251,11 @@ async function find(direction) {
   } catch (err) {
     const e = /** @type {any} */ (err);
     if (e?.code !== CANCELLED) {
-      setFindStatus(String(e?.message ?? e), true);
+      // (tshark's echo and its ^~~ marks don't fit on the bar: the tooltip
+      // keeps the whole message.)
+      const message = String(e?.message ?? e);
+      setFindStatus(lib.filterErrorText(message, search.value).split("\n")[0], true);
+      el.findStatus.title = message;
     }
   } finally {
     if (findRequest === req.id) {

@@ -1,7 +1,7 @@
 // @ts-check
 /** The display filter bar: validation, history, saved filters, notices. */
 
-import { CANCELLED, INVALID_FILTER, cancelRpc, el, rpc, state, vscode } from "./core.js";
+import { CANCELLED, INVALID_FILTER, cancelRpc, el, lib, rpc, state, vscode } from "./core.js";
 import { FILTER_BUSY, setBusy } from "./host.js";
 import { onFilterEvent } from "./columns.js";
 import { resetView } from "./list.js";
@@ -10,9 +10,19 @@ import { askAi, leaveAskMode } from "./ai.js";
 import { updateStatus } from "./status.js";
 import { setFilterSpan } from "./filterpaint.js";
 
-/** @param {string} message @param {boolean} [info] */
+/**
+ * The line under the filter bar: an error (the filter's, a failed request)
+ * or, with `info`, a notice, each with its icon; "" hides it.
+ * @param {string} message @param {boolean} [info]
+ */
 export function showFilterError(message, info = false) {
-  el.filterError.textContent = message;
+  const mark = document.createElement("span");
+  mark.className = `codicon codicon-${info ? "info" : "error"}`;
+  mark.setAttribute("aria-hidden", "true");
+  const text = document.createElement("span");
+  text.className = "notice-text";
+  text.textContent = message;
+  el.filterError.replaceChildren(...(message ? [mark, text] : []));
   el.filterError.classList.toggle("hidden", !message);
   el.filterError.dataset.info = info ? "1" : "";
 }
@@ -46,10 +56,11 @@ async function validateNow() {
     }
     el.filterInput.classList.toggle("valid", res.valid);
     el.filterInput.classList.toggle("invalid", !res.valid);
-    el.filterInput.title = res.valid ? "" : res.error;
+    const error = res.valid ? "" : lib.filterErrorText(res.error, expr);
+    el.filterInput.title = error;
     setFilterSpan(res.valid ? null : res.span, expr);
     if (!res.valid) {
-      showFilterError(res.error);
+      showFilterError(error);
     } else if (el.filterError.dataset.info !== "1") {
       showFilterError(""); // a valid filter clears a validation error, not a notice
     }
@@ -110,7 +121,11 @@ export async function applyFilter(raw) {
     }
     el.filterInput.classList.remove("valid");
     el.filterInput.classList.add("invalid");
-    showFilterError(e?.code === INVALID_FILTER ? e.message : `Filter failed: ${e?.message ?? e}`);
+    showFilterError(
+      e?.code === INVALID_FILTER
+        ? lib.filterErrorText(e.message, expr)
+        : `Filter failed: ${e?.message ?? e}`,
+    );
     setFilterSpan(e?.code === INVALID_FILTER ? e.data?.span : null, expr);
   } finally {
     if (state.filterRequest === req.id) {

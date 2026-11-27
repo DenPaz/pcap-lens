@@ -324,6 +324,15 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.press("#filter-input", "Enter");
     await page.waitForSelector("#filter-error:not(.hidden)");
     assert.equal((await rowNumbers()).length, 11);
+    // tshark's sentence with an error icon, without its echo of the filter
+    // and the ^~~ line under it: the box underlines the refused part itself.
+    const shown = await page.$eval("#filter-error", (e) => ({
+      text: e.textContent,
+      icon: !!e.querySelector(".codicon-error"),
+      info: e.dataset.info,
+    }));
+    assert.ok(shown.icon && shown.info === "", JSON.stringify(shown));
+    assert.ok(shown.text.trim() && !/\^|tcp\.port ==/.test(shown.text), shown.text);
   });
 
   test("the filter is drawn in colours, and the part tshark refused is underlined", async () => {
@@ -1087,6 +1096,10 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     await page.waitForFunction(() =>
       document.querySelector("#find-status").classList.contains("error"),
     );
+    // One line on the bar, the whole message in its tooltip.
+    const status = await page.$eval("#find-status", (e) => [e.textContent, e.title]);
+    assert.ok(status[0] && !/[\n^]/.test(status[0]), status[0]);
+    assert.ok(status[1].startsWith(status[0]), status[1]);
     await page.selectOption("#find-mode", "string");
     await page.fill("#find-input", "no such text anywhere");
     await page.press("#find-input", "Enter");
@@ -2118,6 +2131,15 @@ maybe("webview end-to-end (Chromium + real backend)", function () {
     );
     await page.waitForTimeout(700); // past the stale validation
     assert.match(await notice(), /No packets are marked/);
+    // A notice, not an error: its own icon and colours.
+    assert.deepEqual(
+      await page.$eval("#filter-error", (e) => [
+        e.dataset.info,
+        !!e.querySelector(".codicon-info"),
+        !!e.querySelector(".codicon-error"),
+      ]),
+      ["1", true, false],
+    );
   });
 
   test("☰ commands menu: button, groups, filter, keyboard, run, disabled entries", async () => {

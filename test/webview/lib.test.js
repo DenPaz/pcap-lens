@@ -1408,6 +1408,24 @@ suite("webview lib: coloring", () => {
     assert.equal(lib.rowColors(undefined, coloring), null);
   });
 
+  test("filterErrorText: tshark's error without the echo the box already underlines", () => {
+    const expr = "ip.addr == 1.2.3";
+    assert.equal(
+      lib.filterErrorText(
+        `"1.2.3" is not a valid hostname or IPv4 address.\n    ${expr}\n               ^~~~~`,
+        expr,
+      ),
+      '"1.2.3" is not a valid hostname or IPv4 address.',
+    );
+    assert.equal(
+      lib.filterErrorText("Unexpected end of filter expression.", "tcp &&"),
+      "Unexpected end of filter expression.",
+    );
+    // An echo of something else (a macro tshark expanded) stays.
+    const macro = "Expected a value.\n    tcp.port == \n               ^";
+    assert.equal(lib.filterErrorText(macro, "${p}"), macro);
+  });
+
   test("filterSegments: a filter's pieces to draw, the refused part marked", () => {
     const shown = (text, span) =>
       lib
