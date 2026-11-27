@@ -706,17 +706,17 @@ def test_replay_keeps_the_recorded_timing(
     # 15.6 ms timer ticks) while the last is on time: 40 ms of slack (Windows
     # CI measured 0.0786 s for the 0.1 s at twice the speed). A delay only ever
     # lengthens the spread (the replay reads tshark's output as it plays, and
-    # the service's thread stamps what it reads), never shortens it below the
-    # pacing: a busy Windows runner once measured 0.169 s at twice the speed
-    # (0.36.2 PR), so that one is the best of up to three replays.
+    # the service's thread stamps what it reads): a busy Windows runner once
+    # measured 0.169 s at twice the speed (0.36.2 PR). A late first event
+    # shortens it (0.0587 s on Windows CI), and keeping the shortest of the
+    # retries kept exactly that one; so up to three replays, and one of them
+    # must fall in the range. Speed ignored or overdone still fails them all.
     normal = spread(1)
     assert normal >= 0.16
-    twice = spread(2)
-    for _ in range(2):
-        if twice < normal * 0.75:
-            break
-        twice = min(twice, spread(2))
-    assert 0.06 <= twice < normal * 0.75
+    twice = [spread(2)]
+    while len(twice) < 3 and not 0.06 <= twice[-1] < normal * 0.75:
+        twice.append(spread(2))
+    assert 0.06 <= twice[-1] < normal * 0.75, (normal, twice)
     assert spread(0) < normal
 
 
